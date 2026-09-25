@@ -163,30 +163,32 @@ factory.registerValueParser('upper', new UpperCaseParser());
 
 ## The Context Object
 
-Each parser receives a `context` as its second argument:
+Each parser receives a `context` as its second argument. It is a `Context` instance from `@nodable/base-output-builder`:
 
 ```javascript
 {
   elementName:  string,             // tag or attribute name
   matcher:      ReadOnlyMatcher,    // inspect path, position
-  isLeafNode:   boolean | null,
-  isAttribute:   boolean,
+  isLeafNode:   boolean | null,     // null when not yet determinable
+  isAttribute:  boolean | null,     // null when not yet determinable
 }
 ```
 
-Use `ElementType` from `@nodable/base-output-builder` for the constants:
+`isAttribute` is how you tell a tag's text apart from an attribute's value. There is no `ElementType` enum to compare against:
 
 ```javascript
-import { ElementType } from '@nodable/base-output-builder';
+import { BaseValueParser } from '@nodable/base-output-builder';
 
-class TagOnlyParser {
+class TagOnlyParser extends BaseValueParser {
   parse(val, context) {
-    if (context?.elementType === ElementType.ATTRIBUTE) return val;
+    if (context?.isAttribute) return val;
     // only process tag values
     return doSomething(val);
   }
 }
 ```
+
+`ReadOnlyMatcher` is a type from `path-expression-matcher`, not from `@nodable/base-output-builder`. See [09 — Path Expressions](./09-path-expressions.md).
 
 ---
 

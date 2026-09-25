@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-npm install @nodable/flexible-xml-parser @nodable/compact-builder
+npm install @endevops/flexible-xml-parser-effect @nodable/compact-builder
 ```
 
 Install additional output builders only as needed:
@@ -16,7 +16,7 @@ npm install @nodable/sequential-builder
 ## Your First Parser
 
 ```javascript
-import XMLParser from '@nodable/flexible-xml-parser';
+import XMLParser from '@endevops/flexible-xml-parser-effect';
 
 const parser = new XMLParser();
 const result = parser.parse(`

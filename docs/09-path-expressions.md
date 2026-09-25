@@ -1,6 +1,6 @@
 # 09 — Path Expressions
 
-`@nodable/flexible-xml-parser` uses [`path-expression-matcher`](https://github.com/NaturalIntelligence/path-expression-matcher) for all path-based features: `stopNodes`, `skip.tags`, `exitIf`, and value parser context.
+`@endevops/flexible-xml-parser-effect` uses [`path-expression-matcher`](https://github.com/NaturalIntelligence/path-expression-matcher) for all path-based features: `stopNodes`, `skip.tags`, `exitIf`, and value parser context.
 
 ---
 
@@ -43,22 +43,32 @@ You can mix strings and `Expression` objects in the same array.
 
 A `ReadOnlyMatcher` is passed to every user-facing callback (value parsers, `onStopNode`, `exitIf`, output builder methods). It reflects the current parser position and lets you inspect the path safely without risk of mutating parser state.
 
+It is the `MatcherView` class from `path-expression-matcher`, exported there under the alias `ReadOnlyMatcher` for compatibility. Import it from that package:
+
+```typescript
+import type { ReadOnlyMatcher } from 'path-expression-matcher';
+```
+
 ### Available methods
 
-| Method                  | Returns                                             |
-| ----------------------- | --------------------------------------------------- |
-| `matches(expression)`   | `boolean` — does current path match?                |
-| `getCurrentTag()`       | Current tag name                                    |
-| `getCurrentNamespace()` | Namespace prefix or `undefined`                     |
-| `getAttrValue(name)`    | Attribute value on current node                     |
-| `hasAttr(name)`         | `boolean`                                           |
-| `getPosition()`         | Child index of current node                         |
-| `getCounter()`          | Occurrence count of this tag name at this level     |
-| `getDepth()`            | Nesting depth                                       |
-| `toString()`            | Dot-separated path string, e.g. `"root.users.user"` |
-| `toArray()`             | Array of tag names                                  |
+| Method                   | Returns                                               |
+| ------------------------ | ----------------------------------------------------- |
+| `matches(expression)`    | `boolean` — does current path match?                  |
+| `matchesAny(exprSet)`    | `boolean` — does current path match any of a set?     |
+| `getCurrentTag()`        | Current tag name                                      |
+| `getCurrentNamespace()`  | Namespace prefix or `undefined`                       |
+| `getAttrValue(name)`     | Attribute value on current node                       |
+| `hasAttr(name)`          | `boolean`                                             |
+| `getAnyParentAttr(name)` | Attribute value from the nearest ancestor that has it |
+| `hasAnyParentAttr(name)` | `boolean`                                             |
+| `getPosition()`          | Child index of current node                           |
+| `getCounter()`           | Occurrence count of this tag name at this level       |
+| `getIndex()`             | Character offset of the current tag                   |
+| `getDepth()`             | Nesting depth                                         |
+| `toString()`             | Dot-separated path string, e.g. `"root.users.user"`   |
+| `toArray()`              | Array of tag names                                    |
 
-Mutating methods (`push`, `pop`, `reset`, etc.) throw `TypeError` if called on a `ReadOnlyMatcher`.
+Read-only by construction, not by guard. `MatcherView` is a facade holding a private reference to the parent `Matcher`, and the mutating methods are simply not on it: `push`, `pop`, `reset`, `updateCurrent` and `restore` do not exist there. Calling one throws an ordinary `TypeError` because the property is `undefined`, not because the view checks anything. Nothing stops a caller that kept its own reference to the `Matcher`, so treat the view as read-only by convention.
 
 ---
 

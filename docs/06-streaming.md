@@ -13,7 +13,7 @@ Three ways to provide XML input, all using the same parser internals and produci
 ## `parseStream` — Node.js streams
 
 ```javascript
-import XMLParser from '@nodable/flexible-xml-parser';
+import XMLParser from '@endevops/flexible-xml-parser-effect';
 import { createReadStream } from 'fs';
 
 const parser = new XMLParser(options);

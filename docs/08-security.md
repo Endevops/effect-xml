@@ -1,6 +1,6 @@
 # 08 — Security
 
-`@nodable/flexible-xml-parser` includes multiple layers of defence against malicious or pathological input.
+`@endevops/flexible-xml-parser-effect` includes multiple layers of defence against malicious or pathological input.
 
 ---
 
@@ -9,7 +9,7 @@
 Every error thrown by the parser is a `ParseError` (subclass of `Error`), so you can distinguish parser errors from unexpected runtime bugs with a single `instanceof` check:
 
 ```javascript
-import XMLParser, { ParseError, ErrorCode } from '@nodable/flexible-xml-parser';
+import XMLParser, { ParseError, ErrorCode } from '@endevops/flexible-xml-parser-effect';
 
 try {
   parser.parse(xmlInput);
@@ -99,7 +99,7 @@ When `strictReservedNames: true`, tag or attribute names that collide with any c
 ## Recommended Configuration for Untrusted Input
 
 ```javascript
-import XMLParser, { ParseError } from '@nodable/flexible-xml-parser';
+import XMLParser, { ParseError } from '@endevops/flexible-xml-parser-effect';
 import { EntitiesValueParser } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 

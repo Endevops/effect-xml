@@ -14,7 +14,7 @@ Builders live in separate packages so you only install what you need.
 | `@nodable/sequential-builder`        | `SequentialBuilderFactory`       | Ordered key-value array, preserves document order |
 | `@nodable/sequential-stream-builder` | `SequentialStreamBuilderFactory` | Same as sequential but streams output             |
 | `@nodable/node-tree-builder`         | `NodeTreeBuilderFactory`         | Uniform AST node tree                             |
-| `@nodable/base-output-builder`       | `BaseOutputBuilder`              | Base class for custom builders                    |
+| `@nodable/base-output-builder`       | `BaseValueParser`                | Base class for custom value parsers               |
 
 ---
 
@@ -99,47 +99,52 @@ Attributes are always grouped under `:@` (the `attributes.groupBy` option is ign
 
 ## Custom Output Builder
 
-Extend `BaseOutputBuilder` from `@nodable/base-output-builder` to build any custom output.
+The `OutputBuilder` option takes a **factory**, not a builder. The parser calls `getInstance()` on it before every parse, which is what gives each run a fresh builder. The factory's `parserOptions` and `readonlyMatcher` arguments are optional in your signature: a function that takes fewer parameters is assignable to one that takes more.
+
+Do not extend `BaseOutputBuilder` from `@nodable/base-output-builder` for this. Its shipped declarations and its shipped implementation both fall short: it declares `addElement` with one parameter where the parser passes two, and at runtime the class implements none of the four methods the parser calls (`addElement`, `closeElement`, `addValue`, `getOutput`). A subclass that defines only `addElement` and `getOutput` throws `TypeError: this.outputBuilder.closeElement is not a function` on the first closing tag.
+
+Implement the builder structurally instead. It needs no base class, no import and no cast:
 
 ```javascript
-import { BaseOutputBuilder, BaseOutputBuilderFactory } from '@nodable/base-output-builder';
-
-class TagListBuilder extends BaseOutputBuilder {
-  constructor(...args) {
-    super(...args);
+class TagListBuilder {
+  constructor() {
     this.tags = [];
   }
+
   addElement(tag) {
     this.tags.push(tag.name);
   }
+
+  // The parser calls all ten. This builder only wants names, so the rest are empty.
+  closeElement() {}
+  addValue() {}
+  addLiteral() {}
+  addComment() {}
+  addDeclaration() {}
+  addInstruction() {}
+  addInputEntities() {}
+  addAttribute() {}
+
   getOutput() {
     return this.tags;
   }
 }
 
-class TagListBuilderFactory extends BaseOutputBuilderFactory {
-  constructor(builderOptions) {
-    super();
-    this.builderOptions = builderOptions ?? {};
-  }
-
-  getInstance(parserOptions, readonlyMatcher) {
-    return new TagListBuilder(parserOptions, builderOptions, readonlyMatcher, this.registry);
+class TagListBuilderFactory {
+  getInstance() {
+    return new TagListBuilder();
   }
 }
+
+new XMLParser({ OutputBuilder: new TagListBuilderFactory() }).parse('<r><a><b/></a></r>');
+// ['r', 'a', 'b']
 ```
 
-BaseOutputBuilder's constructor arguments:
-
-```javascript
-constructor(parserOptions, builderOptions, readonlyMatcher, registry);
-```
-
-BaseOutputBuilder provides some fields and methods to be used directly. Check [docs](https://github.com/nodable/flexible-output-builders).
+A typed version of the same builder, and the full list of the ten methods, is in [10 — TypeScript](./10-typescript.md#custom-output-builder).
 
 ### Extending Existing Builders
 
-Subclass existing builders (e.g. `CompactBuilder`) to add behaviour while keeping normal object output:
+Subclass existing builders (e.g. `CompactBuilder`) to add behaviour while keeping normal object output. `CompactBuilder` does implement all four methods, so this path works where extending the base class does not:
 
 ```javascript
 import { CompactBuilder } from '@nodable/compact-builder';
@@ -244,7 +249,7 @@ closeElement(matcher) {
 **Write to database instead of returning an object:**
 
 ```javascript
-class DbWriter extends BaseOutputBuilder {
+class DbWriterBuilder {
   addElement(tag) {
     /* open record */
   }
@@ -254,11 +259,25 @@ class DbWriter extends BaseOutputBuilder {
   addValue(v) {
     /* accumulate field */
   }
+  addLiteral() {}
+  addComment() {}
+  addDeclaration() {}
+  addInstruction() {}
+  addInputEntities() {}
+  addAttribute() {}
+
   getOutput() {
     return null;
   } // nothing to return
 }
-const result = await new XMLParser({ OutputBuilder: new DbWriter() }).parseStream(createReadStream('huge.xml'));
+
+class DbWriterFactory {
+  getInstance() {
+    return new DbWriterBuilder();
+  }
+}
+
+const result = await new XMLParser({ OutputBuilder: new DbWriterFactory() }).parseStream(createReadStream('huge.xml'));
 // result === null; data is in the database
 ```
 

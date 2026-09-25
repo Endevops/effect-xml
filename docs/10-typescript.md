@@ -1,13 +1,13 @@
 # 10 — TypeScript
 
-`@nodable/flexible-xml-parser` ships complete TypeScript definitions for both ESM (`src/fxp.d.ts`) and CommonJS (`lib/fxp.d.cts`). No `@types` package is needed.
+`@endevops/flexible-xml-parser-effect` ships its own TypeScript definitions, emitted as `dist/index.d.mts` alongside the ESM build. No `@types` package is needed. The package is ESM only: there is no CommonJS build and no `.d.cts`.
 
 ---
 
 ## Basic Usage
 
 ```typescript
-import XMLParser, { X2jOptions } from '@nodable/flexible-xml-parser';
+import XMLParser, { X2jOptions } from '@endevops/flexible-xml-parser-effect';
 
 const options: X2jOptions = { skip: { attributes: false, nsPrefix: true }, nameFor: { cdata: '#cdata' }, limits: { maxNestedTags: 100 } };
 
@@ -51,7 +51,7 @@ const result = parser.parse('<root><tag>42</tag></root>');
 ## Error Handling
 
 ```typescript
-import XMLParser, { ParseError, ErrorCode } from '@nodable/flexible-xml-parser';
+import XMLParser, { ParseError, ErrorCode } from '@endevops/flexible-xml-parser-effect';
 
 const parser = new XMLParser({ limits: { maxNestedTags: 100 } });
 
@@ -63,7 +63,9 @@ try {
     if (e.code === ErrorCode.LIMIT_MAX_NESTED_TAGS) {
       console.error('Document too deeply nested');
     } else {
-      console.error(e.code, e.message, `line ${e.line} col ${e.col}`);
+      // e.index is a 0-based character offset, or undefined when the
+      // parser had no position to report for this error
+      console.error(e.code, e.message, `at index ${e.index ?? 'unknown'}`);
     }
   } else {
     throw e;
@@ -71,40 +73,65 @@ try {
 }
 ```
 
+`ParseError` reports positions as a single `index`, not `line` and `col`.
+
 ---
 
 ## Custom Output Builder
 
-`BaseOutputBuilder` and `ElementType` are imported from `@nodable/base-output-builder`:
+The `OutputBuilder` option is typed structurally, not as `BaseOutputBuilderFactory`. A builder is anything with a `getInstance()` returning an object carrying the ten methods below. Do not extend the published `BaseOutputBuilder`: it fails to compile with `TS2416` (its `addElement` is declared with one parameter while the parser calls it with two), and it fails at runtime too, because the shipped class implements none of `addElement`, `closeElement`, `addValue` or `getOutput`. Subclass `CompactBuilder` when you want the bundled object output, or implement the interface structurally when you do not.
 
 ```typescript
-import { BaseOutputBuilder, ElementType } from '@nodable/base-output-builder';
-import type { TagDetail, ReadOnlyMatcher } from '@nodable/base-output-builder';
+import XMLParser from '@endevops/flexible-xml-parser-effect';
 
-class TagListBuilder extends BaseOutputBuilder {
+class TagListBuilder {
   private tags: string[] = [];
 
-  addElement(tag: TagDetail, matcher: ReadOnlyMatcher): void {
+  addElement(tag: { name: string }): void {
     this.tags.push(tag.name);
   }
+
+  // The parser calls all ten. This builder only needs names, so the rest are empty.
+  closeElement(): void {}
+  addValue(): void {}
+  addLiteral(): void {}
+  addComment(): void {}
+  addDeclaration(): void {}
+  addInstruction(): void {}
+  addInputEntities(): void {}
+  addAttribute(): void {}
 
   getOutput(): string[] {
     return this.tags;
   }
 }
+
+class TagListFactory {
+  getInstance(): TagListBuilder {
+    return new TagListBuilder();
+  }
+}
+
+const result = new XMLParser({ OutputBuilder: new TagListFactory() }).parse('<r><a><b/></a></r>');
+// ['r', 'a', 'b']
 ```
+
+`getInstance()` is called once per parse run, so each run gets a fresh builder. Its `parserOptions` and `readonlyMatcher` arguments are optional in your signature: a function that takes fewer parameters is assignable to one that takes more.
+
+To reuse the bundled value-parser pipeline, extend `BaseValueParser` for your parsers and register them on the factory with `registerValueParser(name, parser)`. See [03 — Value Parsers](./03-value-parsers.md).
 
 ---
 
 ## Custom Value Parser
 
-```typescript
-import { ElementType } from '@nodable/base-output-builder';
-import type { ValueParserContext } from '@nodable/base-output-builder';
+`BaseValueParser` and the `Context` class come from `@nodable/base-output-builder`. There is no `ElementType` enum and no `ValueParserContext` type: whether a value came from an attribute is a boolean on the context.
 
-class UpperCaseParser {
-  parse(val: unknown, context?: ValueParserContext): unknown {
-    if (context?.elementType === ElementType.ATTRIBUTE) return val;
+```typescript
+import { BaseValueParser, type Context } from '@nodable/base-output-builder';
+
+class UpperCaseParser extends BaseValueParser {
+  override parse(val: unknown, context?: Context): unknown {
+    if (context?.isAttribute) return val;
     return typeof val === 'string' ? val.toUpperCase() : val;
   }
 }
@@ -112,12 +139,13 @@ class UpperCaseParser {
 
 ---
 
-## ESM vs CommonJS
+## Module Format
 
-The package uses `"type": "module"` with a bundled CJS output. TypeScript resolves the correct types automatically via the `exports` field in `package.json`:
+The package is ESM only. `"type": "module"`, one build output, no CJS bundle:
 
-- ESM (`import`): resolves to `src/fxp.d.ts`
-- CJS (`require`): resolves to `lib/fxp.d.cts`
+- ESM (`import`): `exports` resolves to `dist/index.mjs`, types to `dist/index.d.mts`
+
+There is no CommonJS entry point, so `require()` does not work. `main` and `types` are also declared, at the same paths, for resolvers that ignore `exports`.
 
 No extra `tsconfig` configuration is needed for standard setups.
 

@@ -20,7 +20,7 @@ const parser = new XMLParser({
 });
 ```
 
-The `onStopNode` callback receives the tag details, the captured raw string, and a `ReadOnlyMatcher` for path inspection. If you don't provide a callback the raw content is still available in the output through the output builder.
+The `onStopNode` callback receives the tag details, the captured raw string, and a `ReadOnlyMatcher` for path inspection. The matcher is a `MatcherView` from `path-expression-matcher`, exported there under the alias `ReadOnlyMatcher`. If you don't provide a callback the raw content is still available in the output through the output builder.
 
 ---
 
@@ -31,7 +31,7 @@ By default, stop-node collection ends at the **first matching close tag**, regar
 To control this, use the object form with `skipEnclosures`:
 
 ```javascript
-import { xmlEnclosures, quoteEnclosures } from '@nodable/flexible-xml-parser';
+import { xmlEnclosures, quoteEnclosures } from '@endevops/flexible-xml-parser-effect';
 
 const parser = new XMLParser({
   tags: {
@@ -104,7 +104,7 @@ const parser = new XMLParser({
 Like stop nodes, entries can be plain strings or objects with `skipEnclosures`:
 
 ```javascript
-import { xmlEnclosures } from '@nodable/flexible-xml-parser';
+import { xmlEnclosures } from '@endevops/flexible-xml-parser-effect';
 
 skip: {
   tags: [

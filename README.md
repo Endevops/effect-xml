@@ -125,7 +125,7 @@ const parser = new XMLParser({ OutputBuilder: builder });
 
 ## Documentation
 
-The docs are inherited from upstream and still name `@nodable/flexible-xml-parser` in their install snippets.
+The docs are inherited from upstream. Their install and import snippets name this package; the option reference and the internals notes still describe upstream behaviour in upstream's terms, so check a snippet against [10 — TypeScript](./docs/10-typescript.md) if it disagrees with your editor.
 
 | File                                                           | Topic                                            |
 | -------------------------------------------------------------- | ------------------------------------------------ |
