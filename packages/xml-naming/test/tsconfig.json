@@ -1,0 +1,14 @@
+// Test-suite type-check configuration.
+//
+// Extends the package tsconfig so the specs stay under the same `strict`
+// family as the library, with `noUncheckedIndexedAccess` relaxed. It is
+// load-bearing for src/ — `validate()` walks a string character by character
+// and would otherwise need a null-check on every read — and actively hostile
+// to tests, which assert on a result array by position (`results[0].valid`) and
+// on character-level input such as `results[0]` where the index being present
+// is exactly the thing under test.
+//
+// The library keeps the guard (see ../tsconfig.json, which covers src/ and
+// bench/). Only the test tree opts out, and only because its shape is
+// genuinely dynamic.
+{ "extends": "../tsconfig.json", "compilerOptions": { "noUncheckedIndexedAccess": false }, "include": ["./**/*.ts"] }

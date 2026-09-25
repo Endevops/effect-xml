@@ -1,0 +1,59 @@
+{
+  "name": "@endevops/xml-naming",
+  "version": "0.3.0",
+  "description": "Validates XML name productions — Name, NCName, QName, NMToken, NMTokens — for XML 1.0 and 1.1. Fork of xml-naming, with static types across the source tree and a typed test suite.",
+  "keywords": [
+    "fast",
+    "ncname",
+    "nmtoken",
+    "qname",
+    "xml",
+    "xml-1.0",
+    "xml-1.1",
+    "xml-name",
+    "xml-namespace",
+    "xml-naming",
+    "xml-validation"
+  ],
+  "homepage": "https://github.com/Endevops/effect-xml/tree/main/packages/xml-naming#readme",
+  "bugs": {
+    "url": "https://github.com/Endevops/effect-xml/issues"
+  },
+  "license": "MIT",
+  "author": "Endevops",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Endevops/effect-xml.git",
+    "directory": "packages/xml-naming"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.mts",
+  "imports": {
+    "#/*": "./src/*",
+    "#/test/*": "./test/*",
+    "#/bench/*": "./bench/*"
+  },
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "prepublishOnly": "vp pack"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

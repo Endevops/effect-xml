@@ -6,6 +6,7 @@ A pnpm workspace for the Endevops XML packages. One library today, built on
 | Package                                                     | Description                               |
 | ----------------------------------------------------------- | ----------------------------------------- |
 | [`@endevops/flexible-xml-parser-effect`](./packages/parser) | XML parser with pluggable output builders |
+| [`@endevops/xml-naming`](./packages/xml-naming)             | Validates XML name productions            |
 
 ## Layout
 
