@@ -19,25 +19,32 @@ const result = parser.parse('<root><tag>42</tag></root>');
 
 ## Key Exported Types
 
-| Export             | Description                                         |
-| ------------------ | --------------------------------------------------- |
-| `XMLParser`        | The parser class (also the default export)          |
-| `X2jOptions`       | Full options interface for `new XMLParser(options)` |
-| `ParseError`       | Error class thrown on parse failures                |
-| `ErrorCode`        | Const object with all error code strings            |
-| `ErrorCodeValue`   | Union type of all error code values                 |
-| `SkipOptions`      | Type for the `skip` option group                    |
-| `NameForOptions`   | Type for the `nameFor` option group                 |
-| `AttributeOptions` | Type for the `attributes` option group              |
-| `TagOptions`       | Type for the `tags` option group                    |
-| `DoctypeOptions`   | Type for the `doctypeOptions` option group          |
-| `LimitsOptions`    | Type for the `limits` option group                  |
-| `FeedableOptions`  | Type for the `feedable` option group                |
-| `SkipTagEntry`     | Object form of a `skip.tags` entry                  |
-| `StopNodeEntry`    | Object form of a `stopNodes` entry                  |
-| `Enclosure`        | `{ open: string; close: string }` pair              |
-| `xmlEnclosures`    | Built-in XML enclosure array (comments + CDATA)     |
-| `quoteEnclosures`  | Built-in quote enclosure array                      |
+| Export               | Description                                         |
+| -------------------- | --------------------------------------------------- |
+| `XMLParser`          | The parser class (also the default export)          |
+| `X2jOptions`         | Full options interface for `new XMLParser(options)` |
+| `ParseError`         | Error class thrown on parse failures                |
+| `ErrorCode`          | Const object with all error code strings            |
+| `ErrorCodeValue`     | Union type of all error code values                 |
+| `SkipOptions`        | Type for the `skip` option group                    |
+| `NameForOptions`     | Type for the `nameFor` option group                 |
+| `AttributeOptions`   | Type for the `attributes` option group              |
+| `TagOptions`         | Type for the `tags` option group                    |
+| `DoctypeOptions`     | Type for the `doctypeOptions` option group          |
+| `LimitsOptions`      | Type for the `limits` option group                  |
+| `FeedableOptions`    | Type for the `feedable` option group                |
+| `AutoCloseInput`     | What `autoClose` accepts (see 07-auto-close.md)     |
+| `AutoCloseOptions`   | Fully-resolved autoClose behaviour                  |
+| `DecodingOptions`    | Type for the `decoding` option group                |
+| `EncodingDecoder`    | Shape a custom decoder must satisfy                 |
+| `EncodingDescriptor` | Descriptor for a custom encoding                    |
+| `ExitIfPredicate`    | Type of the `exitIf` callback                       |
+| `SkipTagEntry`       | Object form of a `skip.tags` entry                  |
+| `StopNodeEntry`      | Object form of a `stopNodes` entry                  |
+| `ParseErrorEntry`    | One recovery from `getParseErrors()`                |
+| `Enclosure`          | `{ open: string; close: string }` pair              |
+| `xmlEnclosures`      | Built-in XML enclosure array (comments + CDATA)     |
+| `quoteEnclosures`    | Built-in quote enclosure array                      |
 
 ---
 
