@@ -1,7 +1,7 @@
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, xrunAcrossAllInputSources, frunAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,24 +169,24 @@ describe('Attributes — groupBy', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Attributes — booleanType (valueless attributes)', function () {
   runAcrossAllInputSources(
-    'should treat valueless attributes as true when booleanType: true',
+    'should treat valueless attributes as true when booleanType is allow',
     `<root><input disabled required type="text"/></root>`,
     result => {
       expect(result.root.input['@_disabled']).toBe(true);
       expect(result.root.input['@_required']).toBe(true);
       expect(result.root.input['@_type']).toBe('text');
     },
-    { skip: { attributes: false }, attributes: { booleanType: true, prefix: '@_' } }
+    { skip: { attributes: false }, attributes: { booleanType: 'allow', prefix: '@_' } }
   );
 
   runAcrossAllInputSources(
-    'should treat valueless attributes as true in PI tags when booleanType: true',
+    'should treat valueless attributes as true in PI tags when booleanType is allow',
     `<?textinfo whitespace standalone?><root/>`,
     result => {
       expect(result['?textinfo']['@_whitespace']).toBe(true);
       expect(result['?textinfo']['@_standalone']).toBe(true);
     },
-    { skip: { attributes: false }, attributes: { booleanType: true } }
+    { skip: { attributes: false }, attributes: { booleanType: 'allow' } }
   );
 });
 

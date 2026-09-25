@@ -1,7 +1,7 @@
 import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, frunAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,13 +175,13 @@ describe('Processing Instructions — skip.pi', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Processing Instructions — boolean attributes', function () {
   runAcrossAllInputSources(
-    'should treat valueless PI attributes as true when booleanType: true',
+    'should treat valueless PI attributes as true when booleanType is allow',
     `<?textinfo whitespace standalone?><root/>`,
     result => {
       expect(result['?textinfo']['@_whitespace']).toBe(true);
       expect(result['?textinfo']['@_standalone']).toBe(true);
     },
-    { skip: { attributes: false }, attributes: { booleanType: true } }
+    { skip: { attributes: false }, attributes: { booleanType: 'allow' } }
   );
 
   runAcrossAllInputSources(
@@ -192,7 +192,7 @@ describe('Processing Instructions — boolean attributes', function () {
       expect(result['?proc']['@_debug']).toBe(true);
       expect(result['?proc']['@_standalone']).toBe(true);
     },
-    { skip: { attributes: false }, attributes: { booleanType: true } }
+    { skip: { attributes: false }, attributes: { booleanType: 'allow' } }
   );
 });
 

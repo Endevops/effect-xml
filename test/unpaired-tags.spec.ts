@@ -79,7 +79,7 @@ describe('Unpaired Tags — with attributes', function () {
       expect(result.root.input['@_disabled']).toBe(true);
       expect(result.root.input['@_type']).toBe('checkbox');
     },
-    { skip: { attributes: false }, attributes: { booleanType: true }, tags: { unpaired: ['input'] } }
+    { skip: { attributes: false }, attributes: { booleanType: 'allow' }, tags: { unpaired: ['input'] } }
   );
 });
 

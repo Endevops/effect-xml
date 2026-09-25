@@ -32,7 +32,7 @@ describe('quote-pair reuse in attribute parsing', function () {
       expect(result.root['@_z']).toBe('val2');
       expect(result.root['@_readonly']).toBe(true);
     },
-    { skip: { attributes: false }, attributes: { booleanType: true } }
+    { skip: { attributes: false }, attributes: { booleanType: 'allow' } }
   );
 
   runAcrossAllInputSources(

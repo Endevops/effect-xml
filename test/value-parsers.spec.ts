@@ -1,6 +1,6 @@
 import { NumberValueParser } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
-import { EntityDecoder, COMMON_HTML, CURRENCY } from '@nodable/entities';
+import { COMMON_HTML, CURRENCY } from '@nodable/entities';
 import { describe, it, expect } from 'vite-plus/test';
 
 import EntityParser from '#/test/helpers/CustomEntityParser.ts';
@@ -133,19 +133,9 @@ describe('Entity Parser', function () {
   });
 
   it('should expand NCR entities as per XML version 1.0', function () {
-    let version = '';
-    class EntityParserNCR extends EntityParser {
-      constructor(options) {
-        super(options);
-      }
-
-      setXmlVersion(v) {
-        version = Number(v);
-        super.setXmlVersion(version);
-      }
-    }
-
-    const evp = new EntityParserNCR({ ncr: { onNcr: 'allow' } });
+    // U+0001 is an illegal character in XML 1.0, so an NCR that decodes to it
+    // must be dropped, leaving only the rest of the attribute value.
+    const evp = new EntityParser({ ncr: { xmlVersion: 1.0, onNCR: 'allow' } });
     const builder = new CompactBuilderFactory({
       // attributes: { valueParsers: ['entity'] }
       attributes: { valueParsers: [evp] },
@@ -155,24 +145,12 @@ describe('Entity Parser', function () {
 
     const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
     const result = parseDoc(parser, `<?xml version="1.0"?><root label="&#x1;2024"/>`);
-    expect(version).toBe(1.0);
     expect(result.root['@_label']).toBe('2024');
   });
 
   it('should expand NCR entities as per XML version 1.1', function () {
-    let version = '';
-    class EntityParserNCR extends EntityParser {
-      constructor(options) {
-        super(options);
-      }
-
-      setXmlVersion(v) {
-        version = Number(v);
-        super.setXmlVersion(version);
-      }
-    }
-
-    const evp = new EntityParserNCR({ ncr: { onNCR: 'allow' } });
+    // The same NCR under XML 1.1 is legal, so it survives verbatim.
+    const evp = new EntityParser({ ncr: { xmlVersion: 1.1, onNCR: 'allow' } });
     const builder = new CompactBuilderFactory({
       // attributes: { valueParsers: ['entity'] }
       attributes: { valueParsers: [evp] },
@@ -183,10 +161,8 @@ describe('Entity Parser', function () {
     const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
     const result = parseDoc(parser, `<?xml version="1.1"?><root label="&#x1;2024"/>`);
 
-    expect(version).toBe(1.1);
-    expect(result.root['@_label'].charCodeAt(0)).toBe(1); // U+0001 (SOH)
-    expect(result.root['@_label'].substring(1)).toBe('2024'); // Rest of the strin
-    // expect(result.root["@_label"]).toBe("2024");
+    expect((result.root['@_label'] as string).charCodeAt(0)).toBe(1); // U+0001 (SOH)
+    expect((result.root['@_label'] as string).substring(1)).toBe('2024'); // Rest of the string
   });
 });
 

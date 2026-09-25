@@ -1,5 +1,5 @@
 import { CompactBuilderFactory } from '@nodable/compact-builder';
-import { EntityDecoder, COMMON_HTML } from '@nodable/entities';
+import { COMMON_HTML } from '@nodable/entities';
 import { describe, it, expect } from 'vite-plus/test';
 
 import EntityParser from '#/test/helpers/CustomEntityParser.ts';
