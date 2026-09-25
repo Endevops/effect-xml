@@ -22,7 +22,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         skip: { attributes: false },
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: matcher => {
             return matcher.matches(rootItemExp);
           },
         }),
@@ -44,7 +44,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: matcher => {
             // Force all tags under 'items' to be arrays
             return matcher.matches(new Expression('root.items.*'));
           },
@@ -67,7 +67,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: (_matcher, isLeafNode) => {
             // Force only leaf nodes to be arrays
             return isLeafNode === true;
           },
@@ -92,7 +92,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: matcher => {
             return matcher.matches(rootItemExp);
           },
         }),
@@ -115,9 +115,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         skip: { attributes: false },
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: matcher => {
             // Force array only for items with type="special"
-            return matcher.matches(rootItemExp) && matcher.attributes?.type === 'special';
+            return matcher.matches(rootItemExp) && matcher.getAttrValue('type') === 'special';
           },
         }),
       }
@@ -139,7 +139,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: matcher => {
             return matcher.matches(new Expression('..target'));
           },
         }),
@@ -161,7 +161,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         skip: { attributes: false },
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: matcher => {
             return matcher.matches(rootItemExp);
           },
         }),
@@ -281,7 +281,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item.length).toBe(1);
         expect(result.root.item[0]['#text']).toBe('Single Value');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: (matcher, isLeafNode) => matcher.matches(rootItemExp), forceTextNode: true }) }
+      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp), forceTextNode: true }) }
     );
 
     runAcrossAllInputSources(
@@ -297,7 +297,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item[0]['#text']).toBe('First');
         expect(result.root.item[1]['#text']).toBe('Second');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: (matcher, isLeafNode) => matcher.matches(rootItemExp), forceTextNode: true }) }
+      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp), forceTextNode: true }) }
     );
   });
 
@@ -312,8 +312,11 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
-            return 'true'; // String instead of boolean
+          forceArray: () => {
+            // Deliberately a truthy non-boolean: the contract is
+            // boolean | undefined, so this is a type error by design and the
+            // builder must not be relied on to coerce it.
+            return 'true' as unknown as boolean;
           },
         }),
       }
@@ -325,7 +328,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       let capturedIsLeafNode;
       const parser = new XMLParser({
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: (_matcher, isLeafNode) => {
             capturedIsLeafNode = isLeafNode;
             return false;
           },
@@ -350,7 +353,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         OutputBuilder: new CompactBuilderFactory({
-          forceArray: (matcher, isLeafNode) => {
+          forceArray: matcher => {
             return matcher.matches(new Expression('root.a.b.c.d.e'));
           },
         }),
@@ -376,7 +379,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
           expect(result.root.item[i]).toBe(i + 1);
         }
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: (matcher, isLeafNode) => matcher.matches(rootItemExp) }) }
+      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp) }) }
     );
   });
 
@@ -453,7 +456,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: new CompactBuilderFactory({
           alwaysArray: ['..item'],
-          forceArray: (matcher, isLeafNode) => false, // explicit veto
+          forceArray: () => false, // explicit veto
         }),
       }
     );
@@ -469,7 +472,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.item)).toBe(true);
         expect(result.root.item[0]).toBe('Value');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: (matcher, isLeafNode) => matcher.matches(rootItemExp) }) }
+      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp) }) }
     );
 
     runAcrossAllInputSources(
@@ -485,7 +488,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: new CompactBuilderFactory({
           alwaysArray: ['..item'],
-          forceArray: (matcher, isLeafNode) => undefined, // abstain
+          forceArray: () => undefined, // abstain
         }),
       }
     );

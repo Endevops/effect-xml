@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
 
 import { xmlEnclosures, quoteEnclosures } from '#/StopNodeProcessor.ts';
-import {
-  runAcrossAllInputSources,
-  frunAcrossAllInputSources,
-  xrunAcrossAllInputSources,
-  runAcrossAllInputSourcesWithException,
-  parseDoc,
-  endDoc,
-} from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,8 +191,8 @@ describe('Stop Nodes — same name tags and special content', function () {
       </root>`,
     result => {
       expect(typeof result.root.item).toBe('string');
-      expect(result.root.item.split('<item>').length).toBe(3);
-      expect(result.root.item.split('</item>').length).toBe(3);
+      expect((result.root.item as unknown as string).split('<item>').length).toBe(3);
+      expect((result.root.item as unknown as string).split('</item>').length).toBe(3);
       expect(result.root.afterItem).toBe('parsed normally');
     },
     { tags: { stopNodes: [{ expression: 'root.item', nested: true }] } }
@@ -744,7 +737,7 @@ describe('Stop Nodes — skipEnclosures', function () {
   // ── 10g. onStopNode callback ───────────────────────────────────────────────
 
   it('onStopNode callback receives raw content, tagDetail and matcher', function () {
-    const collected = [];
+    const collected: { name: string; content: string }[] = [];
     const xml = `<root><script>alert(1)</script><style>body{}</style></root>`;
     const parser = new XMLParser({
       tags: {
@@ -753,7 +746,7 @@ describe('Stop Nodes — skipEnclosures', function () {
           { expression: 'root.style', skipEnclosures: [...xmlEnclosures] },
         ],
       },
-      onStopNode(tagDetail, rawContent, matcher) {
+      onStopNode(tagDetail, rawContent) {
         collected.push({ name: tagDetail.name, content: rawContent });
       },
     });
@@ -772,7 +765,7 @@ describe('Stop Nodes — skipEnclosures', function () {
     const xml = `<root><s>content</s></root>`;
     const parser = new XMLParser({
       tags: { stopNodes: [{ expression: 'root.s', skipEnclosures: [] }] },
-      onStopNode(tagDetail, rawContent) {
+      onStopNode() {
         order.push('callback');
       },
     });

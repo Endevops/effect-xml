@@ -31,8 +31,8 @@ export interface SkipTagEntry {
    */
   nested?: boolean;
   /**
-   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Defaults to `[]` (plain first-match,
-   * no enclosure awareness).
+   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure
+   * awareness; the parser normalizes a missing entry to `[]` (plain first-match).
    */
   skipEnclosures?: Enclosure[];
 }
@@ -155,10 +155,10 @@ export interface StopNodeEntry {
    */
   nested?: boolean;
   /**
-   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Defaults to `[]` (plain first-match,
-   * no depth tracking).
+   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure skipping;
+   * the parser normalizes a missing entry to `[]` (plain first-match, no depth tracking).
    */
-  skipEnclosures: Enclosure[];
+  skipEnclosures?: Enclosure[];
 }
 
 export interface TagOptions {
