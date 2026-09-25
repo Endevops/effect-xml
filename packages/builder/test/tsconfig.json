@@ -1,0 +1,18 @@
+// Test-suite type-check configuration.
+//
+// Extends the package tsconfig so the specs stay under the same `strict`
+// family as the library, with the two index-signature guards relaxed. Both are
+// load-bearing for src/ — the builder reads `obj[key]` on a dynamically-shaped
+// input on every key of every node — and hostile to tests, which feed
+// deliberately malformed documents (unpaired tags, raw entities, hostile
+// comments) through that same dynamic shape and then assert on the output
+// string.
+//
+// The library keeps both guards (see ../tsconfig.json, which covers src/).
+// Only the test tree opts out, and only because its input is arbitrary by
+// design.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
+  "include": ["./**/*.ts"]
+}

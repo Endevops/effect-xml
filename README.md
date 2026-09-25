@@ -3,13 +3,12 @@
 A pnpm workspace for the Endevops XML packages. One library today, built on
 [Vite+](https://viteplus.dev/guide/) for the toolchain.
 
-| Package                                                                         | Description                                             |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Package                                                                         | Description                                             |
-| ------------------------------------------------------------------------------- | --------------------------------------------------      |
-| [`@endevops/flexible-xml-parser-effect`](./packages/parser)                     | XML parser with pluggable output builders               |
-| [`@endevops/path-expression-matcher`](./packages/path-expression-matcher)       | Path tracking and pattern matching for XML/JSON parsers |
-| [`@endevops/xml-naming`](./packages/xml-naming)                                 | Validates XML name productions                          |
+| Package                                                                   | Description                                             |
+| ------------------------------------------------------------------------- | ------------------------------------------------------- |
+| [`@endevops/flexible-xml-parser-effect`](./packages/parser)               | XML parser with pluggable output builders               |
+| [`@endevops/path-expression-matcher`](./packages/path-expression-matcher) | Path tracking and pattern matching for XML/JSON parsers |
+| [`@endevops/xml-naming`](./packages/xml-naming)                           | Validates XML name productions                          |
+| [`@endevops/xml-builder`](./packages/builder)                             | Builds XML from a JavaScript object                     |
 
 ## Layout
 
