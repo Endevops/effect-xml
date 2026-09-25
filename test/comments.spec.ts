@@ -1,7 +1,6 @@
 import { describe, expect } from 'vite-plus/test';
 
 import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
 
 describe('Comments', function () {
   runAcrossAllInputSources(

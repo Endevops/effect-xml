@@ -70,7 +70,12 @@ export function createInputSource(xmlString: string, type: InputSourceType): Inp
       };
 
     default:
-      throw new Error(`Unknown input source type: ${type}`);
+      // Unreachable through the type — the union is exhausted by the three
+      // cases above. Kept because this helper is also called from plain-JS
+      // scratch files, and a bad value there should fail with a name rather
+      // than silently parse nothing. `String()` is what keeps the linter from
+      // reporting the (correct) `never` narrowing as a defect.
+      throw new Error(`Unknown input source type: ${String(type)}`);
   }
 }
 
@@ -92,9 +97,11 @@ export type ResultWithParserCallback<TParser extends XMLParser = XMLParser> = (r
 export type ResultWithTypeCallback = (result: ParsedNode, inputType: InputSourceType) => void;
 
 /**
- * @description Every mechanism a behavioural test is repeated across.
+ * @description Every mechanism a behavioural test is repeated across. Exported so a spec that has to drive the loop itself — a case needing both a custom parser
+ * and a throw expectation, which no single runner covers — uses the same list the runners do, instead of re-typing the literal and drifting when a
+ * mechanism is added.
  */
-const INPUT_TYPES: readonly InputSourceType[] = ['string', 'buffer', 'feedable'];
+export const INPUT_TYPES: readonly InputSourceType[] = ['string', 'buffer', 'feedable'];
 
 /**
  * @description Run a test across every input source, ensuring the parser behaves identically regardless of how the document is delivered.

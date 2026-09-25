@@ -1,4 +1,4 @@
-import { NumberValueParser } from '@nodable/base-output-builder';
+import { NumberValueParser, type Context, type ValueParser } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { COMMON_HTML, CURRENCY } from '@nodable/entities';
 import { describe, it, expect } from 'vite-plus/test';
@@ -84,7 +84,7 @@ describe('Entity Parser', function () {
     const builder = new CompactBuilderFactory();
     builder.registerValueParser('entity', evp);
 
-    const parser = new XMLParser({ doctypeOptions: { enabled: true }, outputBuilder: builder });
+    const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
     const result = parseDoc(
       parser,
       `<!DOCTYPE root [
@@ -161,8 +161,8 @@ describe('Entity Parser', function () {
     const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
     const result = parseDoc(parser, `<?xml version="1.1"?><root label="&#x1;2024"/>`);
 
-    expect((result.root['@_label'] as string).charCodeAt(0)).toBe(1); // U+0001 (SOH)
-    expect((result.root['@_label'] as string).substring(1)).toBe('2024'); // Rest of the string
+    expect((result.root['@_label'] as unknown as string).charCodeAt(0)).toBe(1); // U+0001 (SOH)
+    expect((result.root['@_label'] as unknown as string).substring(1)).toBe('2024'); // Rest of the string
   });
 });
 
@@ -234,13 +234,16 @@ describe('Custom chain', () => {
   // ── Context-aware custom parser ───────────────────────────────────────────
 
   it('should pass context object to custom value parsers', function () {
-    const seenContexts = [];
+    // The context minus its matcher (not plain-serialisable), plus a note of
+    // whether one was supplied at all.
+    const seenContexts: (Record<string, unknown> & { hasMatcher: boolean })[] = [];
 
-    class ContextCapture {
-      parse(val, context) {
-        // Spread everything except matcher (not plain-serialisable)
-        const { matcher, ...rest } = context;
-        seenContexts.push({ ...rest, hasMatcher: matcher != null });
+    class ContextCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context) {
+          const { matcher, ...rest } = context;
+          seenContexts.push({ ...rest, hasMatcher: matcher != null });
+        }
         return val;
       }
     }
@@ -258,11 +261,11 @@ describe('Custom chain', () => {
   // ── Registering a named custom parser ────────────────────────────────────
 
   it('should support registering and referencing a named custom parser', function () {
-    class UpperCaseParser {
-      parse(val) {
+    class UpperCaseParser implements ValueParser {
+      parse(val: unknown): unknown {
         return typeof val === 'string' ? val.toUpperCase() : val;
       }
-      reset() {}
+      reset(): void {}
     }
 
     const builder = new CompactBuilderFactory({ tags: { valueParsers: ['uppercase'] } });

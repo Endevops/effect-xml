@@ -1,7 +1,9 @@
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { ErrorCode } from '#/ParseError.ts';
+import type { ErrorCodeValue } from '#/options.ts';
+
+import { ErrorCode, ParseError } from '#/ParseError.ts';
 import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
 import { sanitizeContent } from '#/util.ts';
 import XMLParser from '#/XMLParser.ts';
@@ -10,15 +12,15 @@ import XMLParser from '#/XMLParser.ts';
 // what the parser core produced (no 'ws' collapsing, no entity decoding).
 const rawBuilder = () => new CompactBuilderFactory({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } });
 
-function expectCode(fn, code) {
-  let thrown = null;
+function expectCode(fn: () => unknown, code: ErrorCodeValue): void {
+  let thrown: ParseError | null = null;
   try {
     fn();
   } catch (err) {
-    thrown = err;
+    thrown = err as ParseError;
   }
   expect(thrown).not.toBeNull();
-  expect(thrown.code).toBe(code);
+  expect(thrown!.code).toBe(code);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,7 +192,7 @@ describe('Duplicate attributes — attributes.duplicate', function () {
   runAcrossAllInputSources(
     "'ignore': first occurrence wins, matcher and builder agree",
     `<e a="1" a="2"/>`,
-    (result, _type, parser) => {
+    result => {
       expect(result.e['@_a']).toBe(1);
     },
     { skip: { attributes: false }, attributes: { duplicate: 'ignore' } }

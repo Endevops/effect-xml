@@ -1,7 +1,6 @@
 import { describe, expect } from 'vite-plus/test';
 
 import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic unpaired tag behaviour

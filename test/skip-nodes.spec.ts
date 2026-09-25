@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
 
 import { xmlEnclosures, quoteEnclosures } from '#/StopNodeProcessor.ts';
-import {
-  runAcrossAllInputSources,
-  frunAcrossAllInputSources,
-  xrunAcrossAllInputSources,
-  runAcrossAllInputSourcesWithException,
-  parseDoc,
-  endDoc,
-} from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,7 +106,6 @@ describe('Skip Tags — self-closing tags', function () {
         <also>also visible</also>
       </root>`,
     result => {
-      const expected = { root: { keep: 'visible', also: { '@_attr': 'value', '#text': 'also visible' } } };
       // console.log(result)
       expect(result.root.keep).toBe('visible');
       expect(result.root.also).toBe('also visible');
@@ -460,7 +452,7 @@ describe('Skip Tags — error scenarios', function () {
   });
 
   it('should throw for an invalid skip.tags entry type', function () {
-    expect(() => new XMLParser({ skip: { tags: [42] } })).toThrowError(
+    expect(() => new XMLParser({ skip: { tags: [42 as unknown as string] } })).toThrowError(
       'Invalid skip.tags entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.'
     );
   });
@@ -485,20 +477,20 @@ describe('Skip Tags — OptionsBuilder entry normalization', function () {
   it('defaults nested to false when omitted', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.drop' }] } });
     const expr = parser.options.skip.tags[0];
-    expect(expr.data.nested).toBe(false);
+    expect(expr.data!.nested).toBe(false);
   });
 
   it('defaults skipEnclosures to [] when omitted', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.drop' }] } });
     const expr = parser.options.skip.tags[0];
-    expect(expr.data.skipEnclosures).toEqual([]);
+    expect(expr.data!.skipEnclosures).toEqual([]);
   });
 
   it('embeds config into Expression.data', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.drop', nested: true, skipEnclosures: [...xmlEnclosures] }] } });
     const expr = parser.options.skip.tags[0];
-    expect(expr.data.nested).toBe(true);
-    expect(expr.data.skipEnclosures).toEqual(xmlEnclosures);
+    expect(expr.data!.nested).toBe(true);
+    expect(expr.data!.skipEnclosures).toEqual(xmlEnclosures);
   });
 
   it('skip.tagsSet is a sealed ExpressionSet', function () {

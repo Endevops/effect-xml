@@ -1,4 +1,4 @@
-import type { Expression, ExpressionSet } from 'path-expression-matcher';
+import type { Expression, ExpressionSet, MatcherView } from 'path-expression-matcher';
 
 import type EncodingRegistry from './Encoding/EncodingRegistry.ts';
 import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
@@ -31,8 +31,8 @@ export interface SkipTagEntry {
    */
   nested?: boolean;
   /**
-   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure
-   * awareness; the parser normalizes a missing entry to `[]` (plain first-match).
+   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure awareness; the
+   * parser normalizes a missing entry to `[]` (plain first-match).
    */
   skipEnclosures?: Enclosure[];
 }
@@ -155,8 +155,8 @@ export interface StopNodeEntry {
    */
   nested?: boolean;
   /**
-   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure skipping;
-   * the parser normalizes a missing entry to `[]` (plain first-match, no depth tracking).
+   * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure skipping; the
+   * parser normalizes a missing entry to `[]` (plain first-match, no depth tracking).
    */
   skipEnclosures?: Enclosure[];
 }
@@ -308,20 +308,19 @@ export interface AutoCloseOptions {
 }
 
 /**
- * @description What a caller may pass as the `autoClose` option.
- *
- * A partial object is accepted because the parser fills the omitted fields:
- * `resolveAutoClose` in `OptionsBuilder` defaults each one to `'throw'` /
- * `false`, so `{ autoClose: { onEof: 'closeAll' } }` is a complete, valid
- * configuration — asking only for EOF recovery — and requiring the caller to
- * spell out `onMismatch` and `collectErrors` to say nothing about them would
- * be a false constraint.
- *
- * `null` (or omitted) disables the feature entirely and makes any malformed
- * input a hard error. `'html'` is a preset: `onEof: 'closeAll'`,
- * `onMismatch: 'discard'`, `collectErrors: true`, plus the standard HTML void
- * elements appended to `tags.unpaired`.
+ * @description What a caller may pass as the `autoClose` option. A partial object is accepted because the parser fills the omitted fields: `resolveAutoClose` in
+ * `OptionsBuilder` defaults each one to `'throw'` / `false`, so `{ autoClose: { onEof: 'closeAll' } }` is a complete, valid configuration — asking
+ * only for EOF recovery — and requiring the caller to spell out `onMismatch` and `collectErrors` to say nothing about them would be a false
+ * constraint. `null` (or omitted) disables the feature entirely and makes any malformed input a hard error. `'html'` is a preset: `onEof:
+ * 'closeAll'`, `onMismatch: 'discard'`, `collectErrors: true`, plus the standard HTML void elements appended to `tags.unpaired`.
  */
+/**
+ * @description The `exitIf` callback: given the read-only matcher positioned at a closing tag, return `true` to stop the parse immediately. On `true` the parser
+ * finalizes the output, unwinds every open ancestor with a synthetic close, and attaches a non-enumerable `__exitInfo` to the result. Any other value
+ * — including `undefined` — continues parsing. See {@link Xml2JsOptions.exitIf} for the option itself.
+ */
+export type ExitIfPredicate = (matcher: MatcherView) => boolean;
+
 export type AutoCloseInput = 'html' | 'closeAll' | Partial<AutoCloseOptions> | null;
 
 /**
@@ -448,13 +447,11 @@ export interface X2jOptions {
 
   // --- output builder ---
   /**
-   * @description Pluggable output builder factory. Default: `CompactBuilderFactory`.
-   *
-   * Typed structurally rather than as `BaseOutputBuilderFactory`, because the parser drives a builder through a fixed method set and nothing else. The
-   * published base factory is not usable as the nominal type here: it declares `addElement(tag)` with one parameter where every real implementation takes
-   * `(tag, matcher)`, and it declares `onStopNode` / `onExit` as requiring `line` / `col` on the tag detail, which this parser's index-only position model
-   * never produces. Depending on the structural contract lets the bundled builders, a hand-written minimal factory, and a subclass all be passed without
-   * a cast.
+   * @description Pluggable output builder factory. Default: `CompactBuilderFactory`. Typed structurally rather than as `BaseOutputBuilderFactory`, because the
+   * parser drives a builder through a fixed method set and nothing else. The published base factory is not usable as the nominal type here: it
+   * declares `addElement(tag)` with one parameter where every real implementation takes `(tag, matcher)`, and it declares `onStopNode` / `onExit` as
+   * requiring `line` / `col` on the tag detail, which this parser's index-only position model never produces. Depending on the structural contract
+   * lets the bundled builders, a hand-written minimal factory, and a subclass all be passed without a cast.
    */
   OutputBuilder?: OutputBuilderFactoryLike;
 
@@ -507,7 +504,7 @@ export interface X2jOptions {
    *
    * @returns `true` to stop parsing now; any other value to continue.
    */
-  exitIf?: ((matcher: any) => boolean) | null;
+  exitIf?: ExitIfPredicate | null | undefined;
 }
 
 // ─── Resolved options ───────────────────────────────────────────────────────────

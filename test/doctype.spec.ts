@@ -5,19 +5,18 @@ import { describe, it, expect } from 'vite-plus/test';
 import EntityParser from '#/test/helpers/CustomEntityParser.ts';
 import {
   runAcrossAllInputSources,
-  frunAcrossAllInputSources,
   runAcrossAllInputSourcesWithException,
-  frunAcrossAllInputSourcesWithFactory,
   runAcrossAllInputSourcesWithFactory,
   createInputSource,
   parseDoc,
+  INPUT_TYPES,
 } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: XML with a DOCTYPE internal subset
 // ─────────────────────────────────────────────────────────────────────────────
-const withDocType = (entities, body) => {
+const withDocType = (entities: Record<string, string>, body: string): string => {
   const decls = Object.entries(entities)
     .map(([k, v]) => `  <!ENTITY ${k} "${v}">`)
     .join('\n');
@@ -358,7 +357,7 @@ describe('Security — maxTotalExpansions', function () {
   // runAcrossAllInputSourcesWithFactory doesn't support throw expectations,
   // so we write the three input-type cases inline.
   const throwXml = `<!DOCTYPE root [<!ENTITY e "x">]><root>&e;&e;&e;&e;&e;&e;</root>`;
-  ['string', 'buffer', 'feedable'].forEach(inputType => {
+  INPUT_TYPES.forEach(inputType => {
     it(`should throw when total expansions exceeds limit [${inputType}]`, function () {
       const parser = makeParser({ enabled: true }, { limit: { maxTotalExpansions: 3 } });
       expect(() => createInputSource(throwXml, inputType).parse(parser)).toThrowError(
@@ -379,7 +378,7 @@ describe('Security — maxTotalExpansions', function () {
   );
 
   it('maxTotalExpansions counts external entity expansions too', function () {
-    const evp = new EntityParser({ default: true, external: true, limit: { maxTotalExpansions: 2 } });
+    const evp = new EntityParser({ limit: { maxTotalExpansions: 2 } });
     evp.addExternalEntity('e', 'x');
     const builder = new CompactBuilderFactory();
     builder.registerValueParser('entity', evp);

@@ -877,44 +877,52 @@ export default class Xml2JsParser implements TagExpressionParser {
    * handler can drive the parser through the same methods the parser itself uses.
    */
   _parserState(): ParserState {
-    // `self` is what the accessors below forward through. Object-literal
-    // getters cannot use arrow functions — their `this` is the returned
-    // object, not the parser — so a stable reference to the parser has to be
-    // captured here. (This is why the rule's `no-this-alias` warning on this
-    // line is unavoidable rather than accidental.)
-    const self: Xml2JsParser = this;
-    return {
-      get tagsStack() {
-        return self.tagsStack;
-      },
-      get currentTagDetail() {
-        return self.currentTagDetail;
-      },
-      set currentTagDetail(v: TagDetailLike | null) {
-        self.currentTagDetail = v;
-      },
-      get outputBuilder() {
-        return self.outputBuilder;
-      },
-      get readonlyMatcher() {
-        return self.readonlyMatcher;
-      },
-      get matcher() {
-        return self.matcher;
-      },
-      get source() {
-        return self.source;
-      },
-      get tagTextData() {
-        return self.tagTextData;
-      },
-      set tagTextData(v: string) {
-        self.tagTextData = v;
-      },
-      addTextNode: self.addTextNode.bind(self),
-      popTag: self.popTag.bind(self),
-    };
+    return parserStateView(this);
   }
+}
+
+/**
+ * @description Build the mutable-state view handed to an {@link AutoCloseHandler}. Every property is an accessor over the live parser, so a handler that reads
+ * `tagsStack` after driving the parser sees the result, not a snapshot. The accessors are declared in an object literal rather than with arrow
+ * functions because an arrow in a getter would bind `this` to the returned object instead of the parser; closing over the `parser` _parameter_ gives
+ * them the right receiver without aliasing `this` at the call site.
+ *
+ * @param parser - The parser the view forwards to.
+ *
+ * @returns A live view of the parser's mutable state.
+ */
+function parserStateView(parser: Xml2JsParser): ParserState {
+  return {
+    get tagsStack() {
+      return parser.tagsStack;
+    },
+    get currentTagDetail() {
+      return parser.currentTagDetail;
+    },
+    set currentTagDetail(v: TagDetailLike | null) {
+      parser.currentTagDetail = v;
+    },
+    get outputBuilder() {
+      return parser.outputBuilder;
+    },
+    get readonlyMatcher() {
+      return parser.readonlyMatcher;
+    },
+    get matcher() {
+      return parser.matcher;
+    },
+    get source() {
+      return parser.source;
+    },
+    get tagTextData() {
+      return parser.tagTextData;
+    },
+    set tagTextData(v: string) {
+      parser.tagTextData = v;
+    },
+    addTextNode: parser.addTextNode.bind(parser),
+    popTag: parser.popTag.bind(parser),
+  };
 }
 
 /**

@@ -1,26 +1,27 @@
 /**
- * @description Type augmentation for `@nodable/entities@2.x`.
+ * @description Type augmentation for `@nodable/entities@2.x`. Its `index.d.ts` declares `EntityDecoder` as the module's **default** export, but the runtime
+ * exports it as a **named** export and has no default at all:
  *
- * Its `index.d.ts` declares `EntityDecoder` as the module's **default**
- * export, but the runtime exports it as a **named** export and has no default
- * at all:
- *
- * ```
- * import * as m from '@nodable/entities'
- * typeof m.default        // undefined
- * typeof m.EntityDecoder  // function
+ * ```ts
+ * import * as m from '@nodable/entities';
+ * typeof m.default; // undefined
+ * typeof m.EntityDecoder; // function
  * ```
  *
- * So the declaration is the inverse of reality, and both import forms are
- * broken by it in opposite directions: the default import compiles but throws
- * `default is not a constructor` at runtime, while the named import — the one
- * that actually works — is a `TS2724`. Declaring the class as a named export
- * makes the import that runs also the one that type-checks.
+ * So the declaration is the inverse of reality, and both import forms break in opposite directions: the default import the types invite compiles but
+ * throws `default is not a constructor` at runtime, while the named import — the one that actually works — is a `TS2724`. Declaring the class as a
+ * named export makes the import that runs also the one that type-checks.
  *
- * Deliberately not removing the `default` declaration: doing so would be a
- * different kind of claim, and the augmentation here only has to make the real
- * export reachable by name.
+ * ## Why the top-level import matters
+ *
+ * `declare module '<specifier>'` is only an _augmentation_ — one that merges with the package's own declarations, leaving `COMMON_HTML`, `CURRENCY`,
+ * `EntityDecoderOptions` and the rest reachable — when the containing file is a module. A `.d.ts` with no top-level import or export is a global
+ * script, and there the same declaration is an _ambient module declaration_ that silently replaces the real module wholesale. The `import type` below
+ * is what makes this file a module, and dropping it would hide every other export of the package. The `default` declaration is deliberately left in
+ * place: removing it would be a different kind of claim, and the only thing this file has to do is make the real export reachable by name.
  */
+
+import type { EntityDecoderOptions } from '@nodable/entities';
 
 declare module '@nodable/entities' {
   /**
@@ -33,17 +34,5 @@ declare module '@nodable/entities' {
     addInputEntities(map: Record<string, string | { regx: RegExp; val: string } | { regex: RegExp; val: string }>): void;
     reset(): this;
     decode(str: string): string;
-  }
-
-  /**
-   * @description Options accepted by the `EntityDecoder` constructor.
-   */
-  export interface EntityDecoderOptions {
-    /** Named entity groups to seed the decoder with, e.g. `COMMON_HTML`. */
-    namedEntities?: Record<string, Record<string, string>> | Record<string, string>;
-    /** Caps on entity expansion, guarding against expansion bombs. */
-    limit?: import('@nodable/entities').EntityDecoderLimitOptions;
-    /** Non-character-reference handling — which codepoints become what. */
-    ncr?: import('@nodable/entities').EntityDecoderNCROptions;
   }
 }

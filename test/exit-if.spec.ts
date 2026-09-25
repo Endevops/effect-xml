@@ -1,14 +1,9 @@
 import { Expression } from 'path-expression-matcher';
 import { describe, it, expect } from 'vite-plus/test';
 
-import {
-  runAcrossAllInputSources,
-  frunAcrossAllInputSources,
-  xrunAcrossAllInputSources,
-  runAcrossAllInputSourcesWithException,
-  parseDoc,
-  endDoc,
-} from '#/test/helpers/testRunner.ts';
+import type { ExitIfPredicate } from '#/options.ts';
+
+import { runAcrossAllInputSources, parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +89,7 @@ describe('exitIf — wasExited reflection', function () {
 
   it('wasExited returns false when exitIf never fires', function () {
     const parser = new XMLParser({
-      exitIf(matcher) {
+      exitIf() {
         return false;
       },
     });
@@ -326,10 +321,10 @@ describe.skip('exitIf — onExit builder callback', function () {
     // __exitInfo is non-enumerable — invisible to JSON.stringify but accessible
     const info = Object.getOwnPropertyDescriptor(result, '__exitInfo');
     expect(info).toBeDefined();
-    expect(info.enumerable).toBe(false);
-    expect(info.value.tag).toBe('stop');
-    expect(typeof info.value.index).toBe('number');
-    expect(typeof info.value.depth).toBe('number');
+    expect(info!.enumerable).toBe(false);
+    expect(info!.value.tag).toBe('stop');
+    expect(typeof info!.value.index).toBe('number');
+    expect(typeof info!.value.depth).toBe('number');
   });
 
   it.skip('__exitInfo does not appear in JSON.stringify output', function () {
@@ -350,7 +345,7 @@ describe.skip('exitIf — onExit builder callback', function () {
       },
     });
     const result = parseDoc(parser, `<root><outer><inner>deep</inner></outer></root>`);
-    const { depth } = Object.getOwnPropertyDescriptor(result, '__exitInfo').value;
+    const { depth } = Object.getOwnPropertyDescriptor(result, '__exitInfo')!.value;
     // root → outer is depth 1, so tagsStack has [root-sentinel, outer] at exit of inner
     expect(depth).toBeGreaterThanOrEqual(1);
   });
@@ -374,15 +369,15 @@ describe('exitIf — OptionsBuilder validation', function () {
   });
 
   it('throws INVALID_INPUT when exitIf is a non-function truthy value', function () {
-    expect(() => new XMLParser({ exitIf: 'root.stop' })).toThrowError(/exitIf.*must be a function/i);
+    expect(() => new XMLParser({ exitIf: 'root.stop' as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
   });
 
   it('throws INVALID_INPUT when exitIf is a number', function () {
-    expect(() => new XMLParser({ exitIf: 1 })).toThrowError(/exitIf.*must be a function/i);
+    expect(() => new XMLParser({ exitIf: 1 as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
   });
 
   it('throws INVALID_INPUT when exitIf is a plain object', function () {
-    expect(() => new XMLParser({ exitIf: { expression: 'root.stop' } })).toThrowError(/exitIf.*must be a function/i);
+    expect(() => new XMLParser({ exitIf: { expression: 'root.stop' } as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
   });
 });
 

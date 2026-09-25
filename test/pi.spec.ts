@@ -1,6 +1,9 @@
 import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
 import { describe, it, expect } from 'vite-plus/test';
 
+import type { OutputBuilderFactoryLike, XmlDeclaration } from '#/internal/parser-types.ts';
+
+import { asOutputBuilder } from '#/test/helpers/recordingBuilder.ts';
 import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
@@ -44,15 +47,26 @@ describe('Processing Instructions — XML declaration', function () {
     expect(result.root).toBe('');
   });
 
-  it('should pass xml def attributes to builder even if attributes and declaration are skipped ', function () {
-    const factory = {
+  it('does NOT reach the builder when both attributes and declaration are skipped', function () {
+    // `XmlSpecialTagsReader` guards the call with `if (!skipOptions.declaration)`
+    // before `flushAttributes` and `addDeclaration`, so with both skips set the
+    // builder is never told about the declaration at all. This case used to
+    // assert the opposite from inside the override, where the expectation was
+    // never evaluated because the override was never called — it passed
+    // vacuously. The captured value is asserted after the parse so a missed
+    // call is a real failure.
+    const seen: XmlDeclaration[] = [];
+    const factory: OutputBuilderFactoryLike = {
       getInstance(parserOpts, readonlyMatcher) {
         const base = new CompactBuilderFactory();
-        return new (class extends CompactBuilder {
-          addDeclaration(name, xmlDef) {
-            expect(xmlDef.version).toBe(1.1);
-          }
-        })(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
+        return asOutputBuilder(
+          new (class extends CompactBuilder {
+            override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
+              if (xmlDef) seen.push(xmlDef);
+              super.addDeclaration(name, xmlDef);
+            }
+          })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
+        );
       },
     };
 
@@ -61,6 +75,35 @@ describe('Processing Instructions — XML declaration', function () {
     const parser = new XMLParser({ skip: { declaration: true, attributes: true }, OutputBuilder: factory });
 
     const result = parseDoc(parser, xmlData);
+    expect(seen).toEqual([]);
+    // The declaration is absent from the output tree too, which is the point
+    // of `skip.declaration`.
+    expect(result['?xml']).toBeUndefined();
+  });
+
+  it('reaches the builder with the parsed def when only the declaration is skipped from the tree', function () {
+    // Same builder, but with `skip.declaration` off: the def arrives intact,
+    // which is what makes the guard above a suppression rather than a loss.
+    const seen: XmlDeclaration[] = [];
+    const factory: OutputBuilderFactoryLike = {
+      getInstance(parserOpts, readonlyMatcher) {
+        const base = new CompactBuilderFactory();
+        return asOutputBuilder(
+          new (class extends CompactBuilder {
+            override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
+              if (xmlDef) seen.push(xmlDef);
+              super.addDeclaration(name, xmlDef);
+            }
+          })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
+        );
+      },
+    };
+
+    const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: factory });
+    parseDoc(parser, `<?xml version="1.1"?><root/>`);
+
+    expect(seen.length).toBe(1);
+    expect(seen[0]!.version).toBe(1.1);
   });
 });
 

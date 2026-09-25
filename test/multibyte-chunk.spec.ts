@@ -11,11 +11,11 @@ import XMLParser from '#/XMLParser.ts';
  * @description Split a Buffer into two Buffers at an exact BYTE offset (not a string/char index) so a multi-byte UTF-8 sequence can be deliberately cut
  * mid-character — this is the scenario Buffer#toString() gets wrong per chunk.
  */
-function splitBufferAtByte(buf, byteOffset) {
+function splitBufferAtByte(buf: Buffer, byteOffset: number): [Buffer, Buffer] {
   return [buf.subarray(0, byteOffset), buf.subarray(byteOffset)];
 }
 
-function makeBufferStream(chunks) {
+function makeBufferStream(chunks: Buffer[]): Readable {
   return new Readable({
     read() {
       const chunk = chunks.shift();

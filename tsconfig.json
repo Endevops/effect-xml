@@ -43,5 +43,9 @@
   // load-bearing. The test suite has its own project (test/tsconfig.json)
   // because a parsed XML tree's keys are only known at runtime, which
   // those two guards cannot accommodate.
-  "include": ["src/**/*.ts"]
+  //
+  // bench/ is included here rather than left out: it drives the public API
+  // with statically-typed options, so the same guards apply and there is no
+  // reason for a second untype-checked island in the repo.
+  "include": ["src/**/*.ts", "bench/**/*.ts"]
 }
