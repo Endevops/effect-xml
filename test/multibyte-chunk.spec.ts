@@ -1,7 +1,9 @@
 import { Readable } from 'stream';
+import { describe, it, expect } from 'vite-plus/test';
 
-import FeedableSource from '../src/InputSource/FeedableSource.js';
-import XMLParser from '../src/XMLParser.js';
+import FeedableSource from '#/InputSource/FeedableSource.ts';
+import { endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -112,7 +114,7 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
       for (let i = 0; i < buf.length; i++) {
         parser.feed(buf.subarray(i, i + 1));
       }
-      const result = parser.end();
+      const result = endDoc(parser);
       expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
     });
   });
@@ -130,7 +132,7 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
       }
 
       const parser = new XMLParser();
-      const result = await parser.parseStream(makeBufferStream(chunks));
+      const result = await streamDoc(parser, makeBufferStream(chunks));
       expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
     });
   });

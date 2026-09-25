@@ -1,7 +1,9 @@
-import { buildProfileForBuffer } from '../src/Encoding/EncodingProfile.js';
-import BufferSource from '../src/InputSource/BufferSource.js';
-import FeedableSource from '../src/InputSource/FeedableSource.js';
-import StringSource from '../src/InputSource/StringSource.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { buildProfileForBuffer } from '#/Encoding/EncodingProfile.ts';
+import BufferSource from '#/InputSource/BufferSource.ts';
+import FeedableSource from '#/InputSource/FeedableSource.ts';
+import StringSource from '#/InputSource/StringSource.ts';
 
 describe('BufferSource + EncodingProfile wiring', () => {
   it('readCh and readStr agree on multi-byte UTF-8 at character boundaries', () => {

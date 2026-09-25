@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { describe, it, expect } from 'vite-plus/test';
 
 import XMLParser from '#/XMLParser.ts';
 
 describe('XMLParser', () => {
-  it('should parse when Buffer is given as input', () => {
+  it('should parse when a readable stream is given as input', async () => {
     const fileNamePath = path.join(import.meta.dirname, 'assets/mini-sample.xml');
 
     const expected = {
@@ -17,7 +18,7 @@ describe('XMLParser', () => {
       },
     };
     const parser = new XMLParser();
-    const result = parser.parseStream(fs.createReadStream(fileNamePath));
+    const result = await parser.parseStream(fs.createReadStream(fileNamePath));
     expect(result).toEqual(expected);
   });
 });

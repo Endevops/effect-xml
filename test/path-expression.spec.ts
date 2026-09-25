@@ -9,8 +9,10 @@
 
 import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
 import { Expression } from 'path-expression-matcher';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
+import { parseDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 function makeFactory(BuilderSubclass) {
@@ -30,7 +32,7 @@ describe('PEM integration — stopNodes', function () {
   it('should accept plain strings as stopNodes (existing behaviour preserved)', function () {
     const xml = `<root><raw><b>bold</b></raw><parsed>text</parsed></root>`;
     const parser = new XMLParser({ tags: { stopNodes: ['root.raw'] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.raw).toBe('string');
     expect(result.root.raw).toContain('<b>bold</b>');
@@ -40,7 +42,7 @@ describe('PEM integration — stopNodes', function () {
   it('should accept pre-compiled Expression objects in stopNodes', function () {
     const xml = `<root><raw><b>bold</b></raw><parsed>text</parsed></root>`;
     const parser = new XMLParser({ tags: { stopNodes: [new Expression('root.raw')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.raw).toBe('string');
     expect(result.root.raw).toContain('<b>bold</b>');
@@ -49,7 +51,7 @@ describe('PEM integration — stopNodes', function () {
   it('should accept mixed strings and Expression objects in the same array', function () {
     const xml = `<root><a><x/></a><b><x/></b></root>`;
     const parser = new XMLParser({ tags: { stopNodes: ['root.a', new Expression('root.b')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.a).toBe('string');
     expect(typeof result.root.b).toBe('string');
@@ -67,7 +69,7 @@ describe('PEM integration — stopNodes', function () {
         </body>
       </html>`;
     const parser = new XMLParser({ tags: { stopNodes: [new Expression('..script')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.html.body.div.section.script).toBe('string');
     expect(result.html.body.div.section.script).toContain('nested()');
@@ -77,7 +79,7 @@ describe('PEM integration — stopNodes', function () {
     const xml = `<root><script>alert(1)</script></root>`;
     // *.script means exactly: [any single parent].script — matches root.script
     const parser = new XMLParser({ tags: { stopNodes: [new Expression('*.script')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.script).toBe('string');
     expect(result.root.script).toContain('alert(1)');
@@ -86,7 +88,7 @@ describe('PEM integration — stopNodes', function () {
   it('should stop at root-level tag when stopNode has no parent segment', function () {
     const xml = `<script>window.x = 1;</script>`;
     const parser = new XMLParser({ tags: { stopNodes: [new Expression('..script')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.script).toBe('string');
     expect(result.script).toContain('window.x');
@@ -99,7 +101,7 @@ describe('PEM integration — stopNodes', function () {
         <div class="normal"><inner>should be parsed</inner></div>
       </root>`;
     const parser = new XMLParser({ skip: { attributes: false }, tags: { stopNodes: [new Expression('..div[class=raw]')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     // First div: stop node — content is raw string
     expect(typeof result.root.div[0]).toBe('object');
@@ -119,7 +121,7 @@ describe('PEM integration — stopNodes', function () {
         <item>also parsed</item>
       </root>`;
     const parser = new XMLParser({ tags: { stopNodes: [new Expression('root.item:first')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.item[0]).toBe('string');
     expect(result.root.item[0]).toBe('raw content');
@@ -131,7 +133,7 @@ describe('PEM integration — stopNodes', function () {
   it('should capture content including nested tags of different names inside a stop node', function () {
     const xml = `<root><stop><a>one</a><b><c>two</c></b></stop><after>ok</after></root>`;
     const parser = new XMLParser({ tags: { stopNodes: [new Expression('root.stop')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.stop).toBe('string');
     expect(result.root.stop).toContain('<a>one</a>');
@@ -142,7 +144,7 @@ describe('PEM integration — stopNodes', function () {
   it('should produce empty string for an empty stop node', function () {
     const xml = `<root><stop></stop></root>`;
     const parser = new XMLParser({ tags: { stopNodes: ['root.stop'] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(result.root.stop).toBe('');
   });
@@ -150,7 +152,7 @@ describe('PEM integration — stopNodes', function () {
   it('should produce empty string for a self-closing stop node', function () {
     const xml = `<root><stop/></root>`;
     const parser = new XMLParser({ tags: { stopNodes: ['root.stop'] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(result.root.stop).toBe('');
   });
@@ -158,7 +160,7 @@ describe('PEM integration — stopNodes', function () {
   it('should preserve attributes on a stop node that has them', function () {
     const xml = `<root><stop lang="en"><b>raw</b></stop></root>`;
     const parser = new XMLParser({ skip: { attributes: false }, tags: { stopNodes: ['root.stop'] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.stop).toBe('object');
     expect(result.root.stop['@_lang']).toBe('en');
@@ -174,7 +176,7 @@ describe('PEM integration — stopNodes', function () {
         </section>
       </root>`;
     const parser = new XMLParser({ tags: { stopNodes: [new Expression('..pre')] } });
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     expect(typeof result.root.pre).toBe('string');
     expect(result.root.pre).toBe('first pre');
@@ -242,11 +244,14 @@ describe('PEM integration — matcher in value parser context', function () {
       skip: { attributes: false },
       OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new AdminUpperParser()] } }),
     });
-    const result = parser.parse(`
+    const result = parseDoc(
+      parser,
+      `
       <users>
         <user role="admin">alice</user>
         <user role="viewer">bob</user>
-      </users>`);
+      </users>`
+    );
 
     expect(result.users.user[0]['#text']).toBe('ALICE');
     expect(result.users.user[1]['#text']).toBe('bob');
@@ -392,13 +397,16 @@ describe('PEM integration — matcher in value parser context', function () {
       // Override default chain — no automatic number conversion
       OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new SelectiveNumber()] } }),
     });
-    const result = parser.parse(`
+    const result = parseDoc(
+      parser,
+      `
       <order>
         <ref>ORD-001</ref>
         <price>19.99</price>
         <qty>3</qty>
         <note>fragile</note>
-      </order>`);
+      </order>`
+    );
 
     expect(result.order.ref).toBe('ORD-001'); // string — not a price/qty
     expect(result.order.price).toBe(19.99); // number
@@ -423,11 +431,14 @@ describe('PEM integration — matcher in value parser context', function () {
       skip: { attributes: false },
       OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: [new PrefixIdParser()] } }),
     });
-    const result = parser.parse(`
+    const result = parseDoc(
+      parser,
+      `
       <catalog>
         <product id="101">Widget</product>
         <category id="5">Gadgets</category>
-      </catalog>`);
+      </catalog>`
+    );
 
     expect(result.catalog.product['@_id']).toBe('PROD-101');
     expect(result.catalog.category['@_id']).toBe('5'); // not transformed
@@ -486,7 +497,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     }
 
     const parser = new XMLParser({ OutputBuilder: makeFactory(RenameBuilder) });
-    const result = parser.parse(`<root><oldName>content</oldName></root>`);
+    const result = parseDoc(parser, `<root><oldName>content</oldName></root>`);
 
     expect(result.root.newName).toBe('content');
     expect(result.root.oldName).toBeUndefined();
@@ -524,7 +535,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     }
 
     const parser = new XMLParser({ OutputBuilder: makeFactory(SkipBuilder) });
-    const result = parser.parse(`<root><public>visible</public><internal>hidden</internal></root>`);
+    const result = parseDoc(parser, `<root><public>visible</public><internal>hidden</internal></root>`);
 
     expect(result.root.public).toBe('visible');
     expect(result.root.internal).toBeUndefined();

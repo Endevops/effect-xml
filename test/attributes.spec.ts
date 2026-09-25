@@ -1,7 +1,8 @@
 import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { describe, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources, xrunAcrossAllInputSources, frunAcrossAllInputSources } from './helpers/testRunner.js';
+import { runAcrossAllInputSources, xrunAcrossAllInputSources, frunAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Default behaviour — attributes skipped

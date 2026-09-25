@@ -37,5 +37,11 @@
 
     "paths": { "#/*": ["./src/*"], "#/test/*": ["./test/*"] }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  // The library is type-checked here, with every strictness guard on: the
+  // option and data layers here are statically shaped, so
+  // noPropertyAccessFromIndexSignature and noUncheckedIndexedAccess are
+  // load-bearing. The test suite has its own project (test/tsconfig.json)
+  // because a parsed XML tree's keys are only known at runtime, which
+  // those two guards cannot accommodate.
+  "include": ["src/**/*.ts"]
 }

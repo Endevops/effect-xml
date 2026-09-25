@@ -1,8 +1,10 @@
 import { StringDecoder } from 'node:string_decoder';
+import { describe, it, expect } from 'vite-plus/test';
 
-import { buildProfileForBuffer } from '../src/Encoding/EncodingProfile.js';
-import BufferSource from '../src/InputSource/BufferSource.js';
-import XMLParser from '../src/XMLParser.js';
+import { buildProfileForBuffer } from '#/Encoding/EncodingProfile.ts';
+import BufferSource from '#/InputSource/BufferSource.ts';
+import { parseDoc, endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('Encoding support', () => {
   it('parseBytesArr correctly decodes multi-byte UTF-8 content (prerequisite bug fix)', () => {
@@ -17,7 +19,7 @@ describe('Encoding support', () => {
   it('parse() with a Buffer also goes through the encoding-aware path', () => {
     const xml = `<root>café</root>`;
     const parser = new XMLParser();
-    const result = parser.parse(Buffer.from(xml, 'utf8'));
+    const result = parseDoc(parser, Buffer.from(xml, 'utf8'));
     expect(result.root).toBe('café');
   });
 
@@ -105,7 +107,7 @@ describe('Encoding support', () => {
       const xml = Buffer.from(`<root>café</root>`, 'utf8');
       const parser = new XMLParser();
       parser.feed(Buffer.concat([bom, xml]));
-      const result = parser.end();
+      const result = endDoc(parser);
       expect(result.root).toBe('café');
     });
 
@@ -115,7 +117,7 @@ describe('Encoding support', () => {
       const parser = new XMLParser();
       parser.feed(xml.subarray(0, splitPoint + 1));
       parser.feed(xml.subarray(splitPoint + 1));
-      const result = parser.end();
+      const result = endDoc(parser);
       expect(result.root).toBe('café');
     });
 
@@ -125,14 +127,14 @@ describe('Encoding support', () => {
       // Split mid-declaration to prove detection waits for enough bytes.
       const chunks = [full.subarray(0, 10), full.subarray(10)];
       const parser = new XMLParser();
-      const result = await parser.parseStream(Readable.from(chunks));
+      const result = await streamDoc(parser, Readable.from(chunks));
       expect(result.root).toBe('hello');
     });
 
     it('parseStream() handles a short document that never reaches the sniff cap or a declaration', async () => {
       const { Readable } = await import('node:stream');
       const parser = new XMLParser();
-      const result = await parser.parseStream(Readable.from([Buffer.from('<root/>')]));
+      const result = await streamDoc(parser, Readable.from([Buffer.from('<root/>')]));
       expect(result.root).toBe('');
     });
 
@@ -149,7 +151,7 @@ describe('Encoding support', () => {
       // Internal peek: once first (< SNIFF_CAP) is fed, detection shouldn't
       // have resolved yet on its own without more bytes or end().
       parser.feed(rest);
-      const result = parser.end();
+      const result = endDoc(parser);
       expect(result.root.length).toBe(5000);
     });
   });

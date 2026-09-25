@@ -1,11 +1,15 @@
-import { xmlEnclosures, quoteEnclosures } from '../src/StopNodeProcessor.js';
-import XMLParser from '../src/XMLParser.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { xmlEnclosures, quoteEnclosures } from '#/StopNodeProcessor.ts';
 import {
   runAcrossAllInputSources,
   frunAcrossAllInputSources,
   xrunAcrossAllInputSources,
   runAcrossAllInputSourcesWithException,
-} from './helpers/testRunner.js';
+  parseDoc,
+  endDoc,
+} from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic stop node functionality
@@ -547,7 +551,7 @@ describe('Stop Nodes — feedable input source', function () {
       const ch = xmlData[i];
       parser.feed(ch);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.section1.data).toBe('parse this');
     expect(typeof result.root.section2).toBe('string');
@@ -562,7 +566,7 @@ describe('Stop Nodes — feedable input source', function () {
     for (let i = 0; i < xmlData.length; i++) {
       parser.feed(xmlData[i]);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(typeof result.root.s).toBe('string');
     expect(result.root.s).toContain('<!-- </s> fake -->');
@@ -773,7 +777,7 @@ describe('Stop Nodes — skipEnclosures', function () {
       },
     });
 
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     order.push('parsed');
 
     expect(order[0]).toBe('callback');
@@ -787,7 +791,7 @@ describe('Stop Nodes — nested', function () {
     const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
 
     const expected = { root: { code: 'safe <code>nested</code> still raw' } };
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
@@ -799,7 +803,7 @@ describe('Stop Nodes — nested', function () {
 
     const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
 
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });
@@ -810,7 +814,7 @@ describe('Stop Nodes — nested', function () {
 
     const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
 
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });
@@ -819,7 +823,7 @@ describe('Stop Nodes — nested', function () {
     const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] }, skip: { nsPrefix: true } });
 
     const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });
@@ -828,7 +832,7 @@ describe('Stop Nodes — nested', function () {
     const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] }, skip: { nsPrefix: true } });
 
     const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });

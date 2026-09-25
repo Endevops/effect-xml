@@ -1,6 +1,8 @@
-import { ParseError, ErrorCode } from '../src/ParseError.js';
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from './helpers/testRunner.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { ParseError, ErrorCode } from '#/ParseError.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

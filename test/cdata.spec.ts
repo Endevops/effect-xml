@@ -1,4 +1,7 @@
-import XMLParser from '../src/XMLParser.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('CDATA', function () {
   it('should parse CDATA and store it separately when nameFor.cdata is set', function () {
@@ -14,7 +17,7 @@ describe('CDATA', function () {
       </root>`;
 
     const parser = new XMLParser({ nameFor: { cdata: '#cdata' } });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.script['#cdata']).toBeDefined();
     expect(result.root.script['#cdata']).toContain('function test()');
@@ -27,7 +30,7 @@ describe('CDATA', function () {
       </root>`;
 
     const parser = new XMLParser(); // nameFor.cdata defaults to ''
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.data).toBe('Some <raw> data & more');
   });
@@ -43,7 +46,7 @@ describe('CDATA', function () {
       </root>`;
 
     const parser = new XMLParser({ nameFor: { cdata: '#cdata' } });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.content['#cdata']).toBeDefined();
   });
@@ -55,7 +58,7 @@ describe('CDATA', function () {
       </root>`;
 
     const parser = new XMLParser({ nameFor: { cdata: '#cdata' } });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.xml['#cdata']).toContain('<tag attr="value">');
     expect(result.root.xml['#cdata']).toContain('&');
@@ -68,7 +71,7 @@ describe('CDATA', function () {
       </root>`;
 
     const parser = new XMLParser({ nameFor: { cdata: '#cdata' } });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.empty['#cdata']).toBeDefined();
   });
@@ -80,7 +83,7 @@ describe('CDATA', function () {
       </root>`;
 
     const parser = new XMLParser({ skip: { cdata: true } });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     // CDATA skipped — tag is empty
     expect(result.root.script).toBe('');
@@ -94,7 +97,7 @@ describe('CDATA', function () {
     parser.feed(`]]></b>`);
     parser.feed(`<c><![CDATA[hel]]>lo</c>`);
     parser.feed(`</root>`);
-    const result = parser.end();
+    const result = endDoc(parser);
     const expected = { root: { a: 'hello', b: 'hello', c: 'hello' } };
     expect(result).toEqual(expected);
   });

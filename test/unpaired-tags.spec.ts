@@ -1,5 +1,7 @@
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from './helpers/testRunner.js';
+import { describe, expect } from 'vite-plus/test';
+
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic unpaired tag behaviour

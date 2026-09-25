@@ -1,8 +1,9 @@
 import { CompactBuilder, CompactBuilderFactory } from '@nodable/compact-builder';
 import { Expression } from 'path-expression-matcher';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
-import { frunAcrossAllInputSources, runAcrossAllInputSources, runAcrossAllInputSourcesWithFactory } from './helpers/testRunner.js';
+import { frunAcrossAllInputSources, runAcrossAllInputSources, runAcrossAllInputSourcesWithFactory } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 const rootItemExp = new Expression('root.item');
 

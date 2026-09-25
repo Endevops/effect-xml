@@ -1,5 +1,7 @@
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources } from './helpers/testRunner.js';
+import { describe, expect } from 'vite-plus/test';
+
+import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('Comments', function () {
   runAcrossAllInputSources(

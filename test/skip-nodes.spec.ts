@@ -1,11 +1,15 @@
-import { xmlEnclosures, quoteEnclosures } from '../src/StopNodeProcessor.js';
-import XMLParser from '../src/XMLParser.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { xmlEnclosures, quoteEnclosures } from '#/StopNodeProcessor.ts';
 import {
   runAcrossAllInputSources,
   frunAcrossAllInputSources,
   xrunAcrossAllInputSources,
   runAcrossAllInputSourcesWithException,
-} from './helpers/testRunner.js';
+  parseDoc,
+  endDoc,
+} from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic skip tag functionality
@@ -386,7 +390,7 @@ describe('Skip Tags — feedable input source', function () {
     for (let i = 0; i < xmlData.length; i++) {
       parser.feed(xmlData[i]);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.keep).toBe('visible');
     expect(result.root.after).toBe('also visible');
@@ -401,7 +405,7 @@ describe('Skip Tags — feedable input source', function () {
     for (let i = 0; i < xmlData.length; i++) {
       parser.feed(xmlData[i]);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.keep).toBe('ok');
     expect(result.root.after).toBe('ok');
@@ -416,7 +420,7 @@ describe('Skip Tags — feedable input source', function () {
     for (let i = 0; i < xmlData.length; i++) {
       parser.feed(xmlData[i]);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.drop).toBeUndefined();
     expect(result.root.after).toBe('visible');
@@ -511,7 +515,7 @@ describe('Skip Tags — nested and namespace', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.code', nested: true }] } });
 
     const expected = { root: '' };
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
 
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
@@ -523,7 +527,7 @@ describe('Skip Tags — nested and namespace', function () {
 
     const expected = { root: '' };
 
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });
@@ -534,7 +538,7 @@ describe('Skip Tags — nested and namespace', function () {
 
     const expected = { root: '' };
 
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });
@@ -543,7 +547,7 @@ describe('Skip Tags — nested and namespace', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.ns::code', nested: true }], nsPrefix: true } });
 
     const expected = { root: '' };
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });
@@ -552,7 +556,7 @@ describe('Skip Tags — nested and namespace', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.code', nested: true }], nsPrefix: true } });
 
     const expected = { root: '' };
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     // console.log(JSON.stringify(result, null, 4));
     expect(result).toEqual(expected);
   });

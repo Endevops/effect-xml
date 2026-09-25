@@ -1,9 +1,10 @@
 import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { describe, it, expect } from 'vite-plus/test';
 
-import { ErrorCode } from '../src/ParseError.js';
-import { sanitizeContent } from '../src/util.js';
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources } from './helpers/testRunner.js';
+import { ErrorCode } from '#/ParseError.ts';
+import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
+import { sanitizeContent } from '#/util.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // Builder with no value-parser pipeline at all, so assertions see exactly
 // what the parser core produced (no 'ws' collapsing, no entity decoding).

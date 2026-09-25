@@ -1,4 +1,7 @@
-import XMLParser from '../src/XMLParser.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 /**
  * @description Regression coverage for the flush-architecture fix. Background: updateBufferBoundary() used to gate flush() behind an "anyMarkActive" check. Since
@@ -48,7 +51,7 @@ describe('FeedableSource flush architecture', () => {
     const parser = new XMLParser({ feedable: { flushThreshold: 50, bufferSize: 20 } });
     const xml = '<root><a>1</a><b>2</b><c>3</c></root>';
     for (let i = 0; i < xml.length; i += 7) parser.feed(xml.slice(i, i + 7));
-    const result = parser.end();
+    const result = endDoc(parser);
     expect(result.root.a).toBe(1);
     expect(result.root.b).toBe(2);
     expect(result.root.c).toBe(3);
@@ -65,7 +68,7 @@ describe('FeedableSource flush architecture', () => {
     const xml = `<root><data><![CDATA[${cdataContent}]]></data></root>`;
 
     for (let i = 0; i < xml.length; i += 5) parser.feed(xml.slice(i, i + 5));
-    const result = parser.end();
+    const result = endDoc(parser);
 
     const text = typeof result.root.data === 'string' ? result.root.data : JSON.stringify(result.root.data);
     expect(text).toContain('SPLIT_MARKER');
@@ -81,7 +84,7 @@ describe('FeedableSource flush architecture', () => {
     xml += '</root>';
 
     for (let i = 0; i < xml.length; i += 3) parser.feed(xml.slice(i, i + 3));
-    const result = parser.end();
+    const result = endDoc(parser);
 
     const items = result.root.item;
     expect(items.length).toBe(30);
@@ -99,7 +102,7 @@ describe('FeedableSource flush architecture', () => {
     <root><child>ok</child></root>`;
 
     for (let i = 0; i < xml.length; i += 4) parser.feed(xml.slice(i, i + 4));
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.child).toBe('ok');
   });
@@ -108,7 +111,7 @@ describe('FeedableSource flush architecture', () => {
     const parser = new XMLParser({ feedable: {} }); // n/a to parse(), StringSource has its own defaults
     const chunk = '<item>padding text here</item>';
     let xml = '<root>' + chunk.repeat(200) + '</root>';
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     expect(result.root.item.length).toBe(200);
   });
 });
@@ -170,7 +173,7 @@ describe('FeedableSource _batchThreshold reset', () => {
       parser.feed(xml.slice(i, i + 3));
       maxObservedThreshold = Math.max(maxObservedThreshold, parser._batchThreshold);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     // Under the old (buggy) code this climbs monotonically toward
     // maxBufferSize over repeated stalls and never comes back down.

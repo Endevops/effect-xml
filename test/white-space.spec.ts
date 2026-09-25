@@ -1,7 +1,9 @@
 import { WSNormalizer } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
+import { parseDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('White Space', function () {
   it("should preserve whitespace when xml:space='preserve' and strip it when xml:space='default' and skipping NS", function () {
@@ -35,7 +37,7 @@ describe('White Space', function () {
       tags: { stopNodes: ['root.stop'] },
     };
     const parser = new XMLParser(options);
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     const expected = {
       root: {
@@ -85,7 +87,7 @@ describe('White Space', function () {
       tags: { stopNodes: ['root.stop'] },
     };
     const parser = new XMLParser(options);
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     const expected = {
       root: {
@@ -131,7 +133,7 @@ describe('White Space', function () {
       tags: { stopNodes: ['root.stop'] },
     };
     const parser = new XMLParser(options);
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     const expected = {
       root: {
@@ -173,7 +175,7 @@ describe('White Space', function () {
       // tags: { stopNodes: ["root.stop"] }
     };
     const parser = new XMLParser(options);
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     const expected = {
       root: {

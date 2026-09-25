@@ -1,12 +1,15 @@
 import { Expression } from 'path-expression-matcher';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
 import {
   runAcrossAllInputSources,
   frunAcrossAllInputSources,
   xrunAcrossAllInputSources,
   runAcrossAllInputSourcesWithException,
-} from './helpers/testRunner.js';
+  parseDoc,
+  endDoc,
+} from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic exitIf — stop on tag name
@@ -279,7 +282,7 @@ describe('exitIf — feedable input source', function () {
     for (let i = 0; i < xml.length; i++) {
       parser.feed(xml[i]);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.before).toBe('ok');
     expect(result.root.after).toBeUndefined();
@@ -298,7 +301,7 @@ describe('exitIf — feedable input source', function () {
     for (let i = 0; i < xml.length; i += 7) {
       parser.feed(xml.slice(i, i + 7));
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.a).toBe('one');
     expect(result.root.b).toBe('two');
@@ -310,15 +313,15 @@ describe('exitIf — feedable input source', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 // 7. onExit callback on CompactBuilder
 // ─────────────────────────────────────────────────────────────────────────────
-xdescribe('exitIf — onExit builder callback', function () {
+describe.skip('exitIf — onExit builder callback', function () {
   //TODO: create a custom output builder inherit CompactBuilder and add onExit callback
-  xit('attaches non-enumerable __exitInfo to output root', function () {
+  it.skip('attaches non-enumerable __exitInfo to output root', function () {
     const parser = new XMLParser({
       exitIf(matcher) {
         return matcher.matches(new Expression('root.stop'));
       },
     });
-    const result = parser.parse(`<root><before>ok</before><stop>here</stop><after>never</after></root>`);
+    const result = parseDoc(parser, `<root><before>ok</before><stop>here</stop><after>never</after></root>`);
 
     // __exitInfo is non-enumerable — invisible to JSON.stringify but accessible
     const info = Object.getOwnPropertyDescriptor(result, '__exitInfo');
@@ -329,24 +332,24 @@ xdescribe('exitIf — onExit builder callback', function () {
     expect(typeof info.value.depth).toBe('number');
   });
 
-  xit('__exitInfo does not appear in JSON.stringify output', function () {
+  it.skip('__exitInfo does not appear in JSON.stringify output', function () {
     const parser = new XMLParser({
       exitIf(matcher) {
         return matcher.matches(new Expression('root.stop'));
       },
     });
-    const result = parser.parse(`<root><stop>x</stop></root>`);
+    const result = parseDoc(parser, `<root><stop>x</stop></root>`);
     const json = JSON.stringify(result);
     expect(json).not.toContain('__exitInfo');
   });
 
-  xit('depth in __exitInfo reflects nesting level at exit', function () {
+  it.skip('depth in __exitInfo reflects nesting level at exit', function () {
     const parser = new XMLParser({
       exitIf(matcher) {
         return matcher.matches(new Expression('..inner'));
       },
     });
-    const result = parser.parse(`<root><outer><inner>deep</inner></outer></root>`);
+    const result = parseDoc(parser, `<root><outer><inner>deep</inner></outer></root>`);
     const { depth } = Object.getOwnPropertyDescriptor(result, '__exitInfo').value;
     // root → outer is depth 1, so tagsStack has [root-sentinel, outer] at exit of inner
     expect(depth).toBeGreaterThanOrEqual(1);

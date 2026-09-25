@@ -1,12 +1,15 @@
-import BufferSource from '../src/InputSource/BufferSource.js';
-import FeedableSource from '../src/InputSource/FeedableSource.js';
-import XMLParser from '../src/XMLParser.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import BufferSource from '#/InputSource/BufferSource.ts';
+import FeedableSource from '#/InputSource/FeedableSource.ts';
+import { parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('Input Sources', function () {
   it('should parse from string', function () {
     const xmlString = '<root><tag>value</tag></root>';
     const parser = new XMLParser();
-    const result = parser.parse(xmlString);
+    const result = parseDoc(parser, xmlString);
 
     expect(result.root.tag).toBe('value');
   });
@@ -15,7 +18,7 @@ describe('Input Sources', function () {
     const xmlString = '<root><tag>123</tag></root>';
     const buffer = Buffer.from(xmlString);
     const parser = new XMLParser();
-    const result = parser.parse(buffer);
+    const result = parseDoc(parser, buffer);
 
     expect(result.root.tag).toBe(123);
   });
@@ -32,7 +35,7 @@ describe('Input Sources', function () {
   it('should handle UTF-8 encoded content', function () {
     const xmlString = '<root><tag>Hello 世界 🌍</tag></root>';
     const parser = new XMLParser();
-    const result = parser.parse(xmlString);
+    const result = parseDoc(parser, xmlString);
 
     expect(result.root.tag).toBe('Hello 世界 🌍');
   });
@@ -43,7 +46,7 @@ describe('Input Sources', function () {
     parser.feed('<root>');
     parser.feed('<tag>value</tag>');
     parser.feed('</root>');
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.tag).toBe('value');
   });
@@ -53,7 +56,7 @@ describe('Input Sources', function () {
     const chunks = ['<root>', '<items>', '<item>first</item>', '<item>second</item>', '</items>', '</root>'];
 
     chunks.forEach(chunk => parser.feed(chunk));
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(Array.isArray(result.root.items.item)).toBe(true);
     expect(result.root.items.item[0]).toBe('first');

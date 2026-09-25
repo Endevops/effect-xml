@@ -1,4 +1,7 @@
-import XMLParser from '../src/XMLParser.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { parseDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('name-validator xmlVersion cache (getNameValidator premature memoization bug)', function () {
   const oneDotOneOnlyChar = '\u0487'; // Combining Cyrillic Millions Sign: valid NameChar in XML 1.1 only
@@ -6,7 +9,7 @@ describe('name-validator xmlVersion cache (getNameValidator premature memoizatio
   it('accepts an XML-1.1-only tag name when the document declares version="1.1"', function () {
     const parser = new XMLParser();
     const xml = `<?xml version="1.1"?><a${oneDotOneOnlyChar}>text</a${oneDotOneOnlyChar}>`;
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     expect(result[`a${oneDotOneOnlyChar}`]).toBe('text');
   });
 
@@ -25,7 +28,7 @@ describe('name-validator xmlVersion cache (getNameValidator premature memoizatio
   it('accepts an XML-1.1-only attribute name when version="1.1" is declared', function () {
     const parser = new XMLParser({ skip: { attributes: false } });
     const xml = `<?xml version="1.1"?><root b${oneDotOneOnlyChar}="v">text</root>`;
-    const result = parser.parse(xml);
+    const result = parseDoc(parser, xml);
     expect(result.root[`@_b${oneDotOneOnlyChar}`]).toBe('v');
   });
 });

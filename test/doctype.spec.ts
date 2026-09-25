@@ -1,8 +1,8 @@
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { EntityDecoder, COMMON_HTML } from '@nodable/entities';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
-import EntityParser from './helpers/CustomEntityParser.js';
+import EntityParser from '#/test/helpers/CustomEntityParser.ts';
 import {
   runAcrossAllInputSources,
   frunAcrossAllInputSources,
@@ -10,7 +10,9 @@ import {
   frunAcrossAllInputSourcesWithFactory,
   runAcrossAllInputSourcesWithFactory,
   createInputSource,
-} from './helpers/testRunner.js';
+  parseDoc,
+} from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: XML with a DOCTYPE internal subset
@@ -254,7 +256,7 @@ describe('EntityDecoder.addExternalEntity() — external entities', function () 
     const builder = new CompactBuilderFactory();
     builder.registerValueParser('entity', evp);
     const parser = new XMLParser({ OutputBuilder: builder });
-    const result = parser.parse('<root>&copy2;</root>');
+    const result = parseDoc(parser, '<root>&copy2;</root>');
     expect(result.root).toBe('©©');
   });
 
@@ -269,7 +271,7 @@ describe('EntityDecoder.addExternalEntity() — external entities', function () 
     const builder = new CompactBuilderFactory();
     builder.registerValueParser('entity', evp);
     const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
-    const result = parser.parse(withDocType({ dt: 'doctype' }, '<root>&dt; &ext;</root>'));
+    const result = parseDoc(parser, withDocType({ dt: 'doctype' }, '<root>&dt; &ext;</root>'));
     expect(result.root).toBe('doctype external');
   });
 });
@@ -445,10 +447,13 @@ describe('Security — Billion Laughs mitigation', function () {
     const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
     // lol2 references lol1 — would be the start of a Billion Laughs chain.
     // DocTypeReader skips any entity value containing '&', so lol2 is never stored.
-    const result = parser.parse(`<!DOCTYPE root [
+    const result = parseDoc(
+      parser,
+      `<!DOCTYPE root [
       <!ENTITY lol1 "lol">
       <!ENTITY lol2 "&lol1;&lol1;&lol1;">
-    ]><root>&lol1;&lol2;</root>`);
+    ]><root>&lol1;&lol2;</root>`
+    );
     // lol1 is replaced; lol2 was not stored so it stays as-is
     expect(result.root).toBe('lol&lol2;');
   });
@@ -475,11 +480,11 @@ describe('Per-parse isolation', function () {
     builderFactory.registerValueParser('entity', evp);
     const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builderFactory });
     const xml = `<!DOCTYPE root [<!ENTITY e "x">]><root>&e;&e;&e;&e;&e;</root>`;
-    const r1 = parser.parse(xml);
+    const r1 = parseDoc(parser, xml);
     expect(r1.root).toBe('xxxxx');
 
     // Second parse — counters reset automatically in addInputEntities()
-    const r2 = parser.parse(xml);
+    const r2 = parseDoc(parser, xml);
     expect(r2.root).toBe('xxxxx');
   });
 });

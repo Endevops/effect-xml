@@ -1,5 +1,7 @@
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from './helpers/testRunner.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Default behaviour — still throws (no regression)
@@ -172,7 +174,7 @@ describe('autoClose — collectErrors / getParseErrors()', function () {
 
   it('should not pollute the result object', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
-    const result = parser.parse('<root><a>');
+    const result = parseDoc(parser, '<root><a>');
     expect(result.__parseErrors).toBeUndefined();
   });
 
@@ -189,26 +191,26 @@ describe('autoClose — collectErrors / getParseErrors()', function () {
 describe('autoClose — html preset', function () {
   it('should parse HTML fragment with unclosed tags without throwing', function () {
     const parser = new XMLParser({ autoClose: 'html' });
-    const result = parser.parse('<html><body><p>Hello<br>World</body></html>');
+    const result = parseDoc(parser, '<html><body><p>Hello<br>World</body></html>');
     expect(result.html.body.p).toBeDefined();
     expect(result.html.body.p.br).toBe('');
   });
 
   it('should handle text inside unclosed tags', function () {
     const parser = new XMLParser({ autoClose: 'html' });
-    const result = parser.parse('<div><p>text');
+    const result = parseDoc(parser, '<div><p>text');
     expect(result.div.p).toBe('text');
   });
 
   it('should handle truncated document with no content', function () {
     const parser = new XMLParser({ autoClose: 'html' });
-    const result = parser.parse('<div><p>partial');
+    const result = parseDoc(parser, '<div><p>partial');
     expect(result.div.p).toBe('partial');
   });
 
   it('should include HTML void elements in unpaired list', function () {
     const parser = new XMLParser({ autoClose: 'html', skip: { attributes: false } });
-    const result = parser.parse('<html><head><meta charset="UTF-8"><link rel="stylesheet" href="a.css"></head></html>');
+    const result = parseDoc(parser, '<html><head><meta charset="UTF-8"><link rel="stylesheet" href="a.css"></head></html>');
     expect(result.html.head.meta['@_charset']).toBe('UTF-8');
     expect(result.html.head.link['@_rel']).toBe('stylesheet');
   });
@@ -221,7 +223,7 @@ describe('autoClose — html preset', function () {
 
   it('should not put __parseErrors on the result', function () {
     const parser = new XMLParser({ autoClose: 'html' });
-    const result = parser.parse('<div><p>text');
+    const result = parseDoc(parser, '<div><p>text');
     expect(result.__parseErrors).toBeUndefined();
   });
 });
@@ -253,7 +255,7 @@ describe('autoClose — position tracking', function () {
 describe('autoClose — combined onEof + onMismatch', function () {
   it('should handle mismatched tag and unclosed EOF in same document', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', onMismatch: 'recover', collectErrors: true } });
-    const result = parser.parse('<root><a><b>x</a><c>y</c>');
+    const result = parseDoc(parser, '<root><a><b>x</a><c>y</c>');
     expect(result.root.a.b).toBe('x');
     expect(result.root.c).toBe('y');
     const errors = parser.getParseErrors();
@@ -281,7 +283,7 @@ describe('autoClose — partial tag (truncated mid-token)', function () {
 
   it('should recover from truncated opening tag, keeping prior content', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
-    const result = parser.parse('<div><p>text</p><span');
+    const result = parseDoc(parser, '<div><p>text</p><span');
     expect(result.div.p).toBe('text');
     expect(result.div.span).toBeUndefined();
     expect(parser.getParseErrors().some(e => e.type === 'partial-tag')).toBe(true);
@@ -290,14 +292,14 @@ describe('autoClose — partial tag (truncated mid-token)', function () {
 
   it('should recover from truncated closing tag </div', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
-    const result = parser.parse('<div><p>hello</p></div');
+    const result = parseDoc(parser, '<div><p>hello</p></div');
     expect(result.div.p).toBe('hello');
     expect(parser.getParseErrors().some(e => e.type === 'partial-tag')).toBe(true);
   });
 
   it('should recover from truncated mismatched closing tag </p', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', onMismatch: 'recover', collectErrors: true } });
-    const result = parser.parse('<div></p');
+    const result = parseDoc(parser, '<div></p');
     expect(result.div).toBeDefined();
     expect(parser.getParseErrors().some(e => e.type === 'partial-tag')).toBe(true);
   });
@@ -320,21 +322,21 @@ describe('autoClose — partial tag (truncated mid-token)', function () {
 
   it('html preset should recover from truncated opening tag', function () {
     const parser = new XMLParser({ autoClose: 'html' });
-    const result = parser.parse('<div><p>text</p><span');
+    const result = parseDoc(parser, '<div><p>text</p><span');
     expect(result.div.p).toBe('text');
     expect(parser.getParseErrors().some(e => e.type === 'partial-tag')).toBe(true);
   });
 
   it('html preset: <div><p>text — text inside unclosed tags', function () {
     const parser = new XMLParser({ autoClose: 'html' });
-    const result = parser.parse('<div><p>text');
+    const result = parseDoc(parser, '<div><p>text');
     expect(result.div.p).toBe('text');
     expect(Array.isArray(parser.getParseErrors())).toBe(true);
   });
 
   it('should not put __parseErrors on result even for partial-tag errors', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
-    const result = parser.parse('<div><p');
+    const result = parseDoc(parser, '<div><p');
     expect(result.__parseErrors).toBeUndefined();
   });
 });

@@ -1,4 +1,3 @@
-import type { BaseOutputBuilderFactory } from '@nodable/base-output-builder';
 import type { Expression, ExpressionSet } from 'path-expression-matcher';
 
 import type EncodingRegistry from './Encoding/EncodingRegistry.ts';
@@ -439,14 +438,15 @@ export interface X2jOptions {
 
   // --- output builder ---
   /**
-   * @description Pluggable output builder
-   * factoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactory. Default:
-   * `CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory`.
-   * Pluggable output builder
-   * factoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactory. Default:
-   * `CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory`.
+   * @description Pluggable output builder factory. Default: `CompactBuilderFactory`.
+   *
+   * Typed structurally rather than as `BaseOutputBuilderFactory`, because the parser drives a builder through a fixed method set and nothing else. The
+   * published base factory is not usable as the nominal type here: it declares `addElement(tag)` with one parameter where every real implementation takes
+   * `(tag, matcher)`, and it declares `onStopNode` / `onExit` as requiring `line` / `col` on the tag detail, which this parser's index-only position model
+   * never produces. Depending on the structural contract lets the bundled builders, a hand-written minimal factory, and a subclass all be passed without
+   * a cast.
    */
-  OutputBuilder?: BaseOutputBuilderFactory;
+  OutputBuilder?: OutputBuilderFactoryLike;
 
   // --- autoClose (malformed-input recovery) ---
   /**

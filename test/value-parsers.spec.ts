@@ -1,9 +1,11 @@
 import { NumberValueParser } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { EntityDecoder, COMMON_HTML, CURRENCY } from '@nodable/entities';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
-import EntityParser from './helpers/CustomEntityParser.js';
+import EntityParser from '#/test/helpers/CustomEntityParser.ts';
+import { parseDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('Value Parsers', function () {
   // ── Default chain behaviour ───────────────────────────────────────────────
@@ -18,7 +20,7 @@ describe('Value Parsers', function () {
       </root>`;
 
     const parser = new XMLParser();
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.integer).toBe(42);
     expect(result.root.float).toBe(3.14);
@@ -35,7 +37,7 @@ describe('Value Parsers', function () {
       </root>`;
 
     const parser = new XMLParser();
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.trueVal).toBe(true);
     expect(result.root.falseVal).toBe(false);
@@ -49,7 +51,7 @@ describe('Value Parsers', function () {
       </root>`;
 
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'number'] } }) });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     // No 'trim' in the default chain — whitespace is preserved
     expect(result.root.tag).toBe('  padded  ');
@@ -62,7 +64,7 @@ describe('Value Parsers', function () {
       </root>`;
 
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['trim', 'boolean', 'number'] } }) });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.tag).toBe('trimmed');
   });
@@ -73,7 +75,7 @@ describe('Value Parsers', function () {
 describe('Entity Parser', function () {
   it("should expand XML entities via the 'entity' ValueParser (default)", function () {
     const parser = new XMLParser();
-    const result = parser.parse(`<root><tag>&lt;hello&gt;</tag></root>`);
+    const result = parseDoc(parser, `<root><tag>&lt;hello&gt;</tag></root>`);
     expect(result.root.tag).toBe('<hello>');
   });
 
@@ -83,15 +85,18 @@ describe('Entity Parser', function () {
     builder.registerValueParser('entity', evp);
 
     const parser = new XMLParser({ doctypeOptions: { enabled: true }, outputBuilder: builder });
-    const result = parser.parse(`<!DOCTYPE root [
+    const result = parseDoc(
+      parser,
+      `<!DOCTYPE root [
       <!ENTITY brand "FlexParser">
-    ]><root><name>&brand;</name></root>`);
+    ]><root><name>&brand;</name></root>`
+    );
     expect(result.root.name).toBe('FlexParser');
   });
 
   it("should leave entities unexpanded when 'entity' is removed from valueParsers", function () {
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'number'] } }) });
-    const result = parser.parse(`<root><tag>&lt;raw&gt;</tag></root>`);
+    const result = parseDoc(parser, `<root><tag>&lt;raw&gt;</tag></root>`);
     expect(result.root.tag).toBe('&lt;raw&gt;');
   });
 
@@ -107,7 +112,7 @@ describe('Entity Parser', function () {
     builder.registerValueParser('entity', evp);
 
     const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
-    const result = parser.parse(`<root><c>&copy;</c><p>&pound;</p></root>`);
+    const result = parseDoc(parser, `<root><c>&copy;</c><p>&pound;</p></root>`);
     // console.log(result)
     expect(result.root.c).toBe('©');
     expect(result.root.p).toBe('£');
@@ -123,7 +128,7 @@ describe('Entity Parser', function () {
     // builder.registerValueParser("entity", evp);
 
     const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
-    const result = parser.parse(`<root label="&copy; 2024"/>`);
+    const result = parseDoc(parser, `<root label="&copy; 2024"/>`);
     expect(result.root['@_label']).toBe('© 2024');
   });
 
@@ -149,7 +154,7 @@ describe('Entity Parser', function () {
     builder.registerValueParser('entity', evp);
 
     const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
-    const result = parser.parse(`<?xml version="1.0"?><root label="&#x1;2024"/>`);
+    const result = parseDoc(parser, `<?xml version="1.0"?><root label="&#x1;2024"/>`);
     expect(version).toBe(1.0);
     expect(result.root['@_label']).toBe('2024');
   });
@@ -176,7 +181,7 @@ describe('Entity Parser', function () {
     builder.registerValueParser('entity', evp);
 
     const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
-    const result = parser.parse(`<?xml version="1.1"?><root label="&#x1;2024"/>`);
+    const result = parseDoc(parser, `<?xml version="1.1"?><root label="&#x1;2024"/>`);
 
     expect(version).toBe(1.1);
     expect(result.root['@_label'].charCodeAt(0)).toBe(1); // U+0001 (SOH)
@@ -195,7 +200,7 @@ describe('Custom chain', () => {
       </root>`;
 
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['entity', 'boolean', 'number'] } }) });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.val1).toBe(42);
     expect(result.root.val2).toBe(true);
@@ -215,7 +220,7 @@ describe('Custom chain', () => {
         tags: { valueParsers: [new NumberValueParser({ hex: true, leadingZeros: false, eNotation: true })] },
       }),
     });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.leadingZeros).toBe('007'); // preserved — leadingZeros: false
     expect(result.root.hex).toBe(255);
@@ -224,7 +229,7 @@ describe('Custom chain', () => {
 
   it('should disable all value parsing with an empty valueParsers array', function () {
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } }) });
-    const result = parser.parse(`<root><n>42</n></root>`);
+    const result = parseDoc(parser, `<root><n>42</n></root>`);
     expect(result.root.n).toBe('42');
     expect(typeof result.root.n).toBe('string');
   });
@@ -233,7 +238,7 @@ describe('Custom chain', () => {
     const xmlData = `<root><tag num="42" bool="true" text="hello">value</tag></root>`;
 
     const parser = new XMLParser({ skip: { attributes: false } });
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
 
     expect(result.root.tag['@_num']).toBe(42);
     expect(result.root.tag['@_bool']).toBe(true);
@@ -245,7 +250,7 @@ describe('Custom chain', () => {
       skip: { attributes: false },
       OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: ['number'] } }),
     });
-    const result = parser.parse(`<root><tag n="42" s="hello"/></root>`);
+    const result = parseDoc(parser, `<root><tag n="42" s="hello"/></root>`);
     expect(result.root.tag['@_n']).toBe(42);
     expect(result.root.tag['@_s']).toBe('hello');
   });
@@ -288,7 +293,7 @@ describe('Custom chain', () => {
     builder.registerValueParser('uppercase', new UpperCaseParser());
 
     const parser = new XMLParser({ OutputBuilder: builder });
-    const result = parser.parse(`<root><tag>hello world</tag></root>`);
+    const result = parseDoc(parser, `<root><tag>hello world</tag></root>`);
     expect(result.root.tag).toBe('HELLO WORLD');
   });
 });

@@ -1,7 +1,8 @@
 import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources, frunAcrossAllInputSources, runAcrossAllInputSourcesWithException } from './helpers/testRunner.js';
+import { runAcrossAllInputSources, frunAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. XML declaration (<?xml ... ?>)
@@ -38,7 +39,7 @@ describe('Processing Instructions — XML declaration', function () {
   // and skip.declaration: true has no effect. This test documents the BUG:
   it('BUG: skip.declaration: true should omit ?xml from output (currently broken)', function () {
     const parser = new XMLParser({ skip: { declaration: true } });
-    const result = parser.parse(`<?xml version="1.0"?><root/>`);
+    const result = parseDoc(parser, `<?xml version="1.0"?><root/>`);
     expect(result['?xml']).toBeUndefined();
     expect(result.root).toBe('');
   });
@@ -59,7 +60,7 @@ describe('Processing Instructions — XML declaration', function () {
 
     const parser = new XMLParser({ skip: { declaration: true, attributes: true }, OutputBuilder: factory });
 
-    const result = parser.parse(xmlData);
+    const result = parseDoc(parser, xmlData);
   });
 });
 

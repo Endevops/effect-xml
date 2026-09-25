@@ -1,6 +1,8 @@
-import { criticalProperties, DANGEROUS_PROPERTY_NAMES } from '../src/util.js';
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from './helpers/testRunner.js';
+import { describe, it, expect } from 'vite-plus/test';
+
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
+import { criticalProperties, DANGEROUS_PROPERTY_NAMES } from '#/util.ts';
+import XMLParser from '#/XMLParser.ts';
 
 describe('Security - Prototype Pollution Prevention', function () {
   // ─── CRITICAL PROPERTIES ────────────────────────────────────────────────────
@@ -144,14 +146,14 @@ describe('Security - Prototype Pollution Prevention', function () {
 
   it('should let a dangerous tag name through unprefixed when sanitizeNames is false', function () {
     const parser = new XMLParser({ sanitizeNames: false });
-    const result = parser.parse('<hasOwnProperty>value</hasOwnProperty>');
+    const result = parseDoc(parser, '<hasOwnProperty>value</hasOwnProperty>');
     expect(Object.prototype.hasOwnProperty.call(result, 'hasOwnProperty')).toBe(true);
     expect(result['hasOwnProperty']).toBe('value');
   });
 
   it('should let a dangerous attribute name through unprefixed when sanitizeNames is false', function () {
     const parser = new XMLParser({ sanitizeNames: false, attributes: { prefix: '' }, skip: { attributes: false } });
-    const result = parser.parse(`<root hasOwnProperty="value"></root>`);
+    const result = parseDoc(parser, `<root hasOwnProperty="value"></root>`);
     expect(result.root['hasOwnProperty']).toBe('value');
   });
 
@@ -171,7 +173,7 @@ describe('Security - Prototype Pollution Prevention', function () {
 
   it('should sanitize a dangerous tag name identically on every repeated occurrence', function () {
     const parser = new XMLParser();
-    const result = parser.parse('<root><toString>a</toString><toString>b</toString><toString>c</toString></root>');
+    const result = parseDoc(parser, '<root><toString>a</toString><toString>b</toString><toString>c</toString></root>');
     expect(result.root.__toString).toEqual(['a', 'b', 'c']);
   });
 

@@ -1,0 +1,32 @@
+// Test-suite type-check configuration.
+//
+// Extends the project root so the specs stay under the same `strict` family
+// as the library, with two of the index-signature guards relaxed. Both are
+// load-bearing for src/ (they catch dynamic option-object lookups) and
+// actively hostile to tests, which traverse a parsed XML tree whose keys are
+// only known at runtime:
+//
+//   noPropertyAccessFromIndexSignature — a parsed tree is accessed as
+//     `result.root.tag['@_id']`. Without this rule, the leading `result.root`
+//     dot access is allowed; with it, every traversal step would have to be
+//     rewritten to bracket form purely to satisfy the checker.
+//
+//   noUncheckedIndexedAccess — a test asserting `result.item[0]['@_id']` is
+//     checking that the parser produced the value. Making the type
+//     `T | undefined` forces a null-check on every assertion, which would
+//     obscure the thing under test behind type noise.
+//
+// The library keeps both rules (see the root tsconfig, which now covers
+// src/ only). Only the test tree opts out, and only because its shape is
+// genuinely dynamic.
+//
+// The two `src/*.d.ts` files are pulled in explicitly: they carry the module
+// augmentations that correct stale declarations in `path-expression-matcher`
+// and the `@nodable` builder packages. Without them the specs would see the
+// published — and wrong — types, and the real classes would look
+// unassignable to the parser's structural builder contract.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
+  "include": ["./**/*.ts", "../src/path-expression-matcher.d.ts", "../src/nodable-builders.d.ts"]
+}

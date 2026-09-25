@@ -1,40 +1,8 @@
-import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
+import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '../src/XMLParser.js';
-import { runAcrossAllInputSourcesWithFactory } from './helpers/testRunner.js';
-
-/**
- * @description Records every position-bearing callback into an `events` array attached to the returned parser.
- */
-function makeRecordingParser(parserOptions = {}) {
-  const events = { tags: [], closes: [], attrs: [] };
-
-  class RecordingBuilder extends CompactBuilder {
-    addElement(tagDetail, matcher) {
-      events.tags.push({ name: tagDetail.name, index: tagDetail.index, openEnd: tagDetail.openEnd });
-      return super.addElement(tagDetail, matcher);
-    }
-    closeElement(matcher, closeMeta) {
-      events.closes.push({ name: closeMeta?.name, index: closeMeta?.index, closeEnd: closeMeta?.closeEnd });
-      return super.closeElement(matcher, closeMeta);
-    }
-    addAttribute(name, value, matcher, attrMeta) {
-      events.attrs.push({ name, value, index: attrMeta?.index });
-      return super.addAttribute(name, value, matcher, attrMeta);
-    }
-  }
-
-  const factory = {
-    getInstance(parserOpts, readonlyMatcher) {
-      const base = new CompactBuilderFactory();
-      return new RecordingBuilder(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
-    },
-  };
-
-  const parser = new XMLParser({ ...parserOptions, skip: { attributes: false, ...parserOptions.skip }, OutputBuilder: factory });
-  parser._events = events;
-  return parser;
-}
+import { makeRecordingParser } from '#/test/helpers/recordingBuilder.ts';
+import { runAcrossAllInputSourcesWithFactory, endDoc } from '#/test/helpers/testRunner.ts';
+import XMLParser from '#/XMLParser.ts';
 
 /**
  * @description Builds a document long enough to cross the default flush threshold.
@@ -57,7 +25,7 @@ describe('Flush position drift — absolute offsets across all input sources', (
   runAcrossAllInputSourcesWithFactory(
     'tag index/openEnd/closeEnd stay absolute across an auto-flush',
     xml,
-    (_result, _inputType, parser) => {
+    (_result, parser) => {
       const lastItemOpenTagStr = `<item id="119" note="padding-119">`;
       const expectedIndex = xml.indexOf(lastItemOpenTagStr);
       const expectedOpenEnd = expectedIndex + lastItemOpenTagStr.length;
@@ -70,20 +38,20 @@ describe('Flush position drift — absolute offsets across all input sources', (
       const expectedCloseEnd = xml.lastIndexOf('</item>') + '</item>'.length;
       expect(closeEvent.closeEnd).toBe(expectedCloseEnd);
     },
-    () => makeRecordingParser()
+    () => makeRecordingParser({ skip: { attributes: false } })
   );
 
   runAcrossAllInputSourcesWithFactory(
     'attribute offsets stay absolute across an auto-flush',
     xml,
-    (_result, _inputType, parser) => {
+    (_result, parser) => {
       const lastNoteAttr = 'note="padding-119"';
       const expectedIndex = xml.lastIndexOf(lastNoteAttr);
 
       const attrEvent = parser._events.attrs.filter(e => e.name === 'note' && e.value === 'padding-119').pop();
       expect(attrEvent.index).toBe(expectedIndex);
     },
-    () => makeRecordingParser()
+    () => makeRecordingParser({ skip: { attributes: false } })
   );
 });
 
@@ -101,7 +69,7 @@ describe('Flush position drift — feedable batch‑threshold', () => {
       parser.feed(xml.slice(i, i + 64));
       thresholdsSeen.push(parser._batchThreshold);
     }
-    const result = parser.end();
+    const result = endDoc(parser);
 
     expect(result.root.item.length).toBe(50);
     expect(parser._batchThreshold).toBe(64);
