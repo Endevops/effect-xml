@@ -46,16 +46,8 @@
     "xml-naming": "^0.3.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.0",
-    "@babel/plugin-transform-runtime": "^7.29.0",
-    "@babel/preset-env": "^7.29.2",
-    "@babel/register": "^7.28.6",
-    "@byspec/xml": "^0.1.0",
     "@nodable/entities": "^2.2.0",
     "@types/node": "^26.6.2",
-    "babel-loader": "^10.1.1",
-    "c8": "^11.0.0",
-    "codebase-map": "^0.6.1",
     "typescript": "^7.0.2",
     "vite": "catalog:",
     "vite-plus": "catalog:"
