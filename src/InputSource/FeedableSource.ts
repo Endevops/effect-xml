@@ -1,0 +1,456 @@
+import { sniff } from '../Encoding/EncodingDetector.ts';
+import { createTextDecoderAdapter } from '../Encoding/TextDecoderAdapter.ts';
+import { ParseError, ErrorCode } from '../ParseError.ts';
+import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.ts';
+import { scanTagExpEnd, scanTagExpEndFast } from './scanTagExpEnd.ts';
+
+// Matches EncodingDetector's own declaration-peek window — bounds how much
+// raw (undecoded) data 'auto' mode ever holds before giving up and resolving
+// on whatever it has (a document with no BOM and no <?xml?> declaration is
+// legitimately using the utf8 default, not something to keep waiting on).
+const SNIFF_CAP = 200;
+
+/**
+ * @description FeedableSource — input source for the feed()/end() API. Accepts incremental string/Buffer chunks via feed(), accumulates them in a single string
+ * buffer, and exposes the same read interface as StringSource so Xml2JsParser can use it without modification.
+ *
+ * ### Incremental parsing
+ *
+ * The parser calls parseXml() after every feed() call, consuming as much of the buffer as possible. When a chunk boundary falls mid-token (e.g. a
+ * CDATA section split across two feeds), every reader function marks its start position with markTokenStart() before it begins. If the reader throws
+ * UNEXPECTED_END, the caller (XMLParser.feed) catches it and calls rewindToMark() to restore startIndex to the beginning of the incomplete token. The
+ * incomplete bytes stay in the buffer and are re-parsed on the next feed() once the rest of the token has arrived.
+ *
+ * ### Two-level mark stack
+ *
+ * There are two mark levels: Level 0 — outer mark, set by parseXml()'s main loop BEFORE it reads the '<' character that begins a tag dispatch. This
+ * is the position that rewindToMark() always restores to, so the full tag (including its '<![', '</', etc. prefix) is replayed correctly on the next
+ * feed(). Level 1 — inner mark, set by individual reader functions (readCdata, readClosingTagName, readTagExp, …) at the point where _they_ begin.
+ * This does NOT affect rewindToMark(); it is used only by flush() to determine the safe trim boundary while a reader is in progress. Using two levels
+ * instead of a single slot prevents inner markTokenStart() calls from overwriting the outer mark that feed() needs to rewind to.
+ *
+ * ### Memory
+ *
+ * Parsed data is reclaimed from the buffer automatically (autoFlush) once the processed portion exceeds flushThreshold bytes. Because parseXml() runs
+ * per chunk and completed tokens are consumed before the next chunk arrives, only incomplete tokens at the current chunk boundary are retained — not
+ * the whole document. MaxBufferSize is checked against the live (unprocessed) portion of the buffer plus the incoming chunk, not the raw
+ * buffer.length, so post-flush sizing stays accurate.
+ */
+export default class FeedableSource {
+  constructor(options = {}) {
+    this.buffer = '';
+    this.startIndex = 0;
+    this.isComplete = false;
+    // Running total of characters trimmed off the front by flush() so far.
+    // See StringSource.js's copy of this field / util.js#absolutePosition —
+    // startIndex alone drifts from the true document offset after any flush.
+    this._baseOffset = 0;
+
+    this.maxBufferSize = options.maxBufferSize || 10 * 1024 * 1024; // 10 MB
+    this.autoFlush = options.autoFlush !== false; // true by default
+    this.flushThreshold = options.flushThreshold || 1024; // 1 KB
+
+    // Encoding resolution. Three modes:
+    //   - explicit name (options.decoding.encoding, e.g. 'utf16le'): resolve
+    //     a decoder immediately via the registry.
+    //   - 'auto': can't build a decoder yet — not enough bytes seen. Buffer
+    //     raw (undecoded) bytes in `_sniffBuffer` until either a BOM+enough
+    //     bytes, a complete `<?xml ... ?>` declaration, or SNIFF_CAP bytes
+    //     have accumulated, then resolve once via _resolveDetection() and
+    //     replay the held bytes through the real decoder. See feed() below.
+    //   - neither supplied (direct FeedableSource construction, bypassing
+    //     XMLParser): falls back to a caller-supplied `options.createDecoder`
+    //     if given, else plain utf8 — identical to this class's behavior
+    //     before this feature existed.
+    this._decodingOptions = options.decoding || null;
+    const requestedEncoding = this._decodingOptions?.encoding;
+    this._detecting = requestedEncoding === 'auto';
+    this._sniffBuffer = this._detecting ? Buffer.alloc(0) : null;
+    if (!this._detecting && requestedEncoding && this._decodingOptions.registry) {
+      const registry = this._decodingOptions.registry;
+      this._createDecoder = () => registry.resolve(requestedEncoding).createDecoder();
+    } else {
+      this._createDecoder = typeof options.createDecoder === 'function' ? options.createDecoder : null;
+    }
+
+    /**
+     * @description Two-level mark stack. _marks[0] — outer mark: set by parseXml()'s loop before consuming '<'. rewindToMark() always restores startIndex here.
+     * _marks[1] — inner mark: set by individual reader functions. Used only by flush() as the safe trim boundary. `null` means "not set" for that
+     * level. Each entry is a plain startIndex number — no line/col to carry alongside it, since position reporting is index-only.
+     */
+    this._marks = [null, null];
+
+    /**
+     * @description Lazily-created, persistent across the whole feed() session. Buffer chunks must go through this rather than Buffer#toString() per chunk —
+     * toString() decodes each chunk in isolation, so a multi-byte UTF-8 character whose bytes straddle a chunk boundary gets corrupted (each half
+     * independently replaced with U+FFFD). The decoder holds back an incomplete trailing sequence internally and prepends it to the next write(), so
+     * a split character decodes correctly once the rest of its bytes arrive. Only created if Buffer input is ever fed — string-only callers never pay
+     * for it.
+     */
+    this._decoder = null;
+
+    // Reused across every scanTagExpEnd() call, never reallocated. See
+    // StringSource.js's copy of this field for the full doc (fixed-capacity
+    // typed array + manual length, not push()). Safe across a
+    // chunk-boundary rewind: the failed scan's contents are irrelevant the
+    // moment the tag is re-scanned from scratch on the next feed().
+    this._quotePairs = new Int32Array(QUOTE_PAIRS_CAPACITY);
+    this._quotePairsLen = 0;
+  }
+
+  /**
+   * @description Append a data chunk to the buffer. MaxBufferSize is checked against the live unprocessed portion (buffer.length - startIndex) plus the incoming
+   * data length. Data that has already been parsed and is waiting to be flushed does not count against the limit.
+   *
+   * @param {string | Buffer} data
+   *
+   * @returns {number} Number of characters appended to the buffer (after decoding) — callers that track fed-byte totals (e.g. XMLParser.feed's batch
+   *   threshold) should use this rather than the raw input length, since a Buffer chunk ending mid-character may decode to fewer chars than its byte
+   *   length until the next chunk completes the sequence.
+   */
+  feed(data) {
+    if (this._detecting) {
+      if (typeof data === 'string') {
+        // Already decoded upstream (e.g. stream.setEncoding() was called by
+        // the caller) — detection is moot, nothing left to sniff.
+        this._detecting = false;
+      } else {
+        const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        this._sniffBuffer = this._sniffBuffer.length ? Buffer.concat([this._sniffBuffer, chunk]) : chunk;
+        const declarationComplete = this._sniffBuffer.includes(Buffer.from('?>'));
+        if (this._sniffBuffer.length < SNIFF_CAP && !declarationComplete) {
+          // Not enough to decide yet — hold everything, decode nothing.
+          return 0;
+        }
+        data = this._resolveDetection();
+      }
+    }
+
+    let newData = this._decodeNow(data);
+
+    const liveBytes = this.buffer.length - this.startIndex;
+
+    if (liveBytes + newData.length > this.maxBufferSize) {
+      throw new ParseError(
+        `Buffer size limit exceeded (${liveBytes + newData.length} > ${this.maxBufferSize}). ` +
+          `Increase feedable.maxBufferSize or reduce chunk size.`,
+        ErrorCode.INVALID_INPUT
+      );
+    }
+
+    this.buffer += newData;
+    return newData.length;
+  }
+
+  /**
+   * @private
+   */
+  _decodeNow(data) {
+    if (typeof data === 'string') return data;
+    if (Buffer.isBuffer(data)) {
+      // Stateful decode: bytes of a multi-byte char split across two feed()
+      // calls are buffered internally by the decoder and correctly stitched
+      // together, instead of each chunk being decoded in isolation.
+      if (!this._decoder) this._decoder = this._createDecoder ? this._createDecoder() : createTextDecoderAdapter('utf-8');
+      return this._decoder.write(data);
+    }
+    if (data?.toString) return data.toString();
+    throw new ParseError('feed() data must be a string or Buffer.', ErrorCode.DATA_MUST_BE_STRING);
+  }
+
+  /**
+   * @description Resolve 'auto' encoding from `_sniffBuffer` (BOM + `<?xml encoding="...">` sniffing, XML 1.0 Appendix F — see Encoding/EncodingDetector.js),
+   * build the real decoder, strip any BOM, and return the held bytes ready to be decoded normally by the caller in feed(). Runs exactly once per
+   * session.
+   *
+   * @private
+   *
+   * @returns {Buffer}
+   */
+  _resolveDetection() {
+    const registry = this._decodingOptions.registry;
+    const { encoding, bomLength } = sniff(this._sniffBuffer, registry);
+    const descriptor = registry.resolve(encoding);
+    this._createDecoder = () => descriptor.createDecoder();
+    this._detecting = false;
+    const held = bomLength ? this._sniffBuffer.subarray(bomLength) : this._sniffBuffer;
+    this._sniffBuffer = null;
+    return held;
+  }
+
+  /**
+   * @description Signal that no more data will be fed.
+   */
+  end() {
+    if (this._detecting) {
+      // Whole document arrived without ever reaching SNIFF_CAP or a
+      // complete declaration (a short, unadorned document like <root/>) —
+      // resolve now, on whatever bytes we have.
+      const held = this._resolveDetection();
+      this.buffer += this._decodeNow(held);
+    }
+    if (this._decoder) {
+      // Flush any final incomplete byte sequence held by the decoder. For
+      // well-formed UTF-8 input this is normally '' (nothing pending); a
+      // non-empty result here means the input was genuinely truncated
+      // mid-character, and the decoder's own U+FFFD substitution is the
+      // correct, standard behavior for that case.
+      const tail = this._decoder.end();
+      if (tail) this.buffer += tail;
+    }
+    this.isComplete = true;
+  }
+
+  /**
+   * @description Returns true when there is at least one character available at or after the given offset (relative to startIndex).
+   *
+   * @param {number} [n=0] Default is `0`
+   */
+  canRead(n = 0) {
+    return this.startIndex + n < this.buffer.length;
+  }
+
+  // ─── Two-level mark API ───────────────────────────────────────────────────
+
+  /**
+   * @description Save the current read position into the mark stack. The `level` parameter selects which mark slot to write: Level 0 (default) — outer mark,
+   * written by parseXml()'s main loop before it reads the '<' that begins a dispatch. level 1 — inner mark, written by reader functions (readCdata,
+   * readClosingTagName, readTagExp, …) at the start of their own logic. The two levels are independent. An inner markTokenStart(1) never overwrites
+   * the outer mark[0] that rewindToMark() relies on.
+   *
+   * @param {0 | 1} [level=0] Default is `0`
+   */
+  markTokenStart(level = 0) {
+    this._marks[level] = this.startIndex;
+  }
+
+  /**
+   * @description Restore startIndex to the OUTER mark (level 0) and clear both marks. Always rewinds to the outermost saved position so the full tag — including
+   * any prefix characters consumed by parseXml() before the dispatch (e.g. '<', '!', '[') — is replayed on the next feed(). Called by
+   * XMLParser.feed() when a reader throws UNEXPECTED_END.
+   */
+  rewindToMark() {
+    if (this._marks[0] !== null) {
+      this.startIndex = this._marks[0];
+    }
+    this._marks[0] = null;
+    this._marks[1] = null;
+  }
+
+  /**
+   * @description Clear both mark slots after a token completes successfully. Should be called (or marks allowed to be overwritten) once a dispatch fully succeeds
+   * so stale positions don't block flush(). In practice the outer mark is overwritten at the top of every parseXml() loop iteration, so explicit
+   * clearing is only needed when the loop does NOT continue (e.g. after a non-'<' character is consumed as plain text). The flush guard uses the
+   * minimum of set marks, so a stale mark only delays flushing — it does not cause correctness issues.
+   */
+  clearMark() {
+    this._marks[0] = null;
+    this._marks[1] = null;
+  }
+
+  /**
+   * @description Read next character and advance position.
+   *
+   * @returns {string}
+   */
+  readCh() {
+    return this.buffer[this.startIndex++];
+  }
+
+  /**
+   * @description Read character at offset without advancing.
+   *
+   * @param {number} index - Offset from current position.
+   *
+   * @returns {string}
+   */
+  readChAt(index) {
+    return this.buffer[this.startIndex + index];
+  }
+
+  /**
+   * @description Read n characters as string.
+   *
+   * @param {number} n - Number of characters to read.
+   * @param {number} from - Start position (default: current position)
+   *
+   * @returns {string}
+   */
+  readStr(n, from) {
+    if (typeof from === 'undefined') from = this.startIndex;
+    return this.buffer.substring(from, from + n);
+  }
+
+  /**
+   * @description See StringSource.js's copy of this method for the full doc — identical contract here. `null` (not enough buffered data yet) is the routine case
+   * for this source in particular, since a chunk boundary can land mid-check; callers already have to handle that the same way they handle
+   * scanTagExpEnd's -1.
+   */
+  matchAhead(expected, caseInsensitive = false) {
+    const len = expected.length;
+    for (let i = 0; i < len; i++) {
+      let ch = this.buffer[this.startIndex + i];
+      if (ch === undefined) return null;
+      if (caseInsensitive) ch = ch.toLowerCase();
+      if (ch !== expected[i]) return false;
+    }
+    return true;
+  }
+
+  // Two variants — caller picks once based on skip.attributes, no flag
+  // evaluated inside the loop. Bracket access (not charCodeAt) is load-bearing
+  // here: this buffer is a V8 ConsString/rope built via repeated +=, and
+  // charCodeAt would force a full flatten on every access (confirmed O(n^2)
+  // memory regression). The shared implementations use bracket access throughout.
+  // See src/InputSource/scanTagExpEnd.js.
+  scanTagExpEnd = scanTagExpEnd;
+  scanTagExpEndFast = scanTagExpEndFast;
+
+  /**
+   * @description Read until stop string is found.
+   *
+   * @param {string} stopStr
+   *
+   * @returns {string} Content before the stop string (stop string is consumed)
+   *
+   * @throws {ParseError} UNEXPECTED_END when stop string is not found
+   */
+  readUpto(stopStr) {
+    const inputLength = this.buffer.length;
+    const stopLength = stopStr.length;
+
+    for (let i = this.startIndex; i < inputLength; i++) {
+      let match = true;
+      for (let j = 0; j < stopLength; j++) {
+        if (this.buffer[i + j] !== stopStr[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        const result = this.buffer.substring(this.startIndex, i);
+        this.startIndex = i + stopLength;
+        return result;
+      }
+    }
+
+    throw new ParseError(`Unexpected end of source reading '${stopStr}'`, ErrorCode.UNEXPECTED_END);
+  }
+
+  /**
+   * @description Single-character variant of readUpto — faster because there is no inner match loop. Reads until `stopChar` is found, consumes it, and returns the
+   * text before it.
+   *
+   * @param {string} stopChar Exactly one character.
+   *
+   * @returns {string}
+   */
+  readUptoChar(stopChar) {
+    const i = this.buffer.indexOf(stopChar, this.startIndex);
+    if (i === -1) {
+      throw new ParseError(`Unexpected end of source reading '${stopChar}'`, ErrorCode.UNEXPECTED_END);
+    }
+    const result = this.buffer.substring(this.startIndex, i);
+    this.startIndex = i + 1;
+    return result;
+  }
+
+  /**
+   * @description Read until a closing tag is found (used for stop nodes).
+   *
+   * @param {string} stopStr E.g. `"</tagname"`
+   *
+   * @returns {string} Raw content between the current position and the closing tag
+   *
+   * @throws {ParseError} UNEXPECTED_END when the closing tag is not found
+   */
+  readUptoCloseTag(stopStr) {
+    const inputLength = this.buffer.length;
+    const stopLength = stopStr.length;
+    let tagMatchStart = -1;
+    let state = 0; // 0=scanning, 1=tag-name matched (scanning for '>'), 2=full match
+
+    for (let i = this.startIndex; i < inputLength; i++) {
+      if (state === 1) {
+        const c = this.buffer[i];
+        if (isSpace(c)) continue;
+        if (c === '>') {
+          state = 2;
+        } else {
+          state = 0;
+          tagMatchStart = -1;
+        } // false match e.g. </scriptX>
+      } else {
+        // Try to match stopStr at position i
+        let matched = true;
+        for (let j = 0; j < stopLength; j++) {
+          if (this.buffer[i + j] !== stopStr[j]) {
+            matched = false;
+            break;
+          }
+        }
+        if (matched) {
+          state = 1;
+          tagMatchStart = i;
+          i += stopLength - 1; // skip past matched string
+        }
+      }
+      if (state === 2) {
+        const result = this.buffer.substring(this.startIndex, tagMatchStart);
+        this.startIndex = i + 1;
+        return result;
+      }
+    }
+
+    throw new ParseError(`Unexpected end of source reading '${stopStr}'`, ErrorCode.UNEXPECTED_END);
+  }
+
+  /**
+   * @description Advance the read cursor by n characters. Triggers an automatic flush of already-processed data when autoFlush is enabled, the processed portion
+   * has grown past flushThreshold, and no mark is currently active. Any active mark (either level) blocks the flush to prevent the saved position
+   * from becoming invalid.
+   *
+   * @param {number} [n=1] Default is `1`
+   */
+  updateBufferBoundary(n = 1) {
+    this.startIndex += n;
+    // No "any mark active" gate here — flush()'s own min(startIndex, marks...)
+    // origin computation already guarantees any in-progress token (at either
+    // mark level) survives the trim. A separate boolean gate on top of that
+    // was redundant, and since _marks[0] is set on every parseXml() loop
+    // iteration and never nulled outside of rewindToMark() (an error path),
+    // that gate was effectively permanent — flush() never ran in normal
+    // operation. See specs/flushArchitecture_spec.js for the regression test.
+    if (this.autoFlush && this.startIndex >= this.flushThreshold) {
+      this.flush();
+    }
+  }
+
+  /**
+   * @description Discard already-processed data from the front of the buffer to free memory. startIndex is reset to 0 after the trim. The flush origin is the
+   * minimum of all active mark positions, so that any in-progress token (at either mark level) is preserved in the buffer and can be re-read after
+   * the flush. This is the sole safety mechanism for flush() — callers do not need to additionally check "is a mark active" before calling this; an
+   * active mark simply caps how much origin can advance, rather than blocking the call outright. If no marks are active, the origin is startIndex
+   * itself — everything before the current read position is discarded.
+   */
+  flush() {
+    // Determine the earliest position that must be kept.
+    let origin = this.startIndex;
+    for (const m of this._marks) {
+      if (m !== null && m < origin) origin = m;
+    }
+
+    if (origin > 0) {
+      this.buffer = this.buffer.substring(origin);
+
+      // Adjust all mark offsets by the amount trimmed.
+      const marksLen = this._marks.length;
+      for (let i = 0; i < marksLen; i++) {
+        if (this._marks[i] !== null) this._marks[i] -= origin;
+      }
+
+      this.startIndex -= origin;
+      this._baseOffset += origin;
+    }
+  }
+}
