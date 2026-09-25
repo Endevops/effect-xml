@@ -21,6 +21,7 @@
     "xml2xml",
     "xml2yaml"
   ],
+  "license": "MIT",
   "files": [
     "dist"
   ],
