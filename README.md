@@ -10,6 +10,7 @@ A pnpm workspace for the Endevops XML packages. One library today, built on
 | [`@endevops/xml-naming`](./packages/xml-naming)                           | Validates XML name productions                          |
 | [`@endevops/xml-builder`](./packages/builder)                             | Builds XML from a JavaScript object                     |
 | [`@endevops/base-output-builder`](./packages/base-output-builder)         | Base classes and value-parser primitives for builders   |
+| [`@endevops/entities`](./packages/entities)                               | XML and HTML entity encoding and decoding               |
 | [`@endevops/compact-builder`](./packages/compact-builder)                 | Builds a compact JS object from XML                     |
 
 ## Layout
