@@ -1,20 +1,24 @@
 import FeedableSource from './FeedableSource.js';
 
 /**
- * @description StreamSource — input source that reads from a Node.js Readable stream. Extends FeedableSource so it shares the same buffer management and read
- * interface. attachStream() wires Node.js stream events. On each 'data' event the chunk is appended to the buffer and onChunk is called so the caller
- * can run parseXml() incrementally. Parsing is therefore driven chunk-by-chunk rather than once over the full accumulated document.
+ * @description StreamSource — input source that reads from a Node.js Readable stream. Extends `FeedableSource` so it shares the same buffer management and read
+ * interface. `attachStream()` wires Node.js stream events. On each 'data' event the chunk is appended to the buffer and `onChunk` is called so the
+ * caller can run `parseXml()` incrementally. Parsing is therefore driven chunk-by-chunk rather than once over the full accumulated document.
  */
 export default class StreamSource extends FeedableSource {
   /**
    * @description Wire a Readable stream to this source.
    *
-   * @param {NodeJS.ReadableStream} readable
-   * @param {function(Error | null):void} onChunk Called after each successful feed() with null, or immediately with the feed error if the buffer
-   *   limit is exceeded. The caller runs parseXml() inside this callback and handles UNEXPECTED_END (chunk boundary mid-token) by calling
-   *   rewindToMark().
-   * @param {function():void} onEnd Called when the stream ends cleanly. The caller should finalise the parse (finalizeXml) here.
-   * @param {function(Error):void} onError Called with any stream-level error (e.g. 'error' event from the readable).
+   * @param readable - The stream to read chunks from.
+   * @param onChunk - Called after each successful `feed()` with `null`, or immediately with the feed error if the buffer limit was exceeded. The
+   *   caller runs `parseXml()` inside this callback and handles UNEXPECTED_END (chunk boundary mid-token) by calling `rewindToMark()`.
+   * @param onEnd - Called when the stream ends cleanly. The caller should finalise the parse (`finalizeXml()`) here.
+   * @param onError - Called with any stream-level error (e.g. the readable's 'error' event).
+   * @param readable - The stream to read chunks from.
+   * @param onChunk - Called after each successful `feed()` with `null`, or immediately with the feed error if the buffer limit was exceeded. The
+   *   caller runs `parseXml()` inside this callback and handles UNEXPECTED_END (chunk boundary mid-token) by calling `rewindToMark()`.
+   * @param onEnd - Called when the stream ends cleanly. The caller should finalise the parse (`finalizeXml()`) here.
+   * @param onError - Called with any stream-level error (e.g. the readable's 'error' event).
    */
   attachStream(readable: NodeJS.ReadableStream, onChunk: (error: Error | null) => void, onEnd: () => void, onError: (error: Error) => void) {
     readable.on('data', chunk => {

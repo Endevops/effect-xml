@@ -1,17 +1,62 @@
+import type { ScanStrategy } from '../InputSource/input-source.ts';
+import type { DecodingOptions, EncodingDecoder } from '../options.ts';
+import type EncodingRegistry from './EncodingRegistry.js';
+import type { ResolvedEncodingDescriptor } from './EncodingRegistry.js';
+
 import { sniff } from './EncodingDetector.js';
 import { defaultEncodingRegistry } from './EncodingRegistry.js';
 import { createByteScanStrategy, decodeCharAtFixedWidth1, decodeCharAtUtf8 } from './ScanStrategy/ByteScanStrategy.js';
 import { createCharScanStrategy } from './ScanStrategy/CharScanStrategy.js';
 
 /**
- * @description BuildProfileForBuffer(bytes, decodingOptions, registry) -> { descriptor, bomLength, scanStrategy } The ONE place encoding decisions are made for
- * BufferSource. Called once per parseBytesArr() call, never per-token — every field on the returned object is a concrete, already-resolved strategy,
- * so BufferSource itself never branches on an encoding name again (Dependency Inversion: BufferSource depends on the ScanStrategy interface, not on
- * "which encoding is this").
+ * @description Everything `BufferSource` needs to know about an encoding, decided once per parse and then never re-examined. This is the Dependency Inversion
+ * boundary: `BufferSource` depends on the `ScanStrategy` interface, not on "which encoding is this". Resolving the decision here means no encoding
+ * name ever appears in the scanning code.
  */
-export function buildProfileForBuffer(bytes, decodingOptions = {}, registry = defaultEncodingRegistry) {
+export interface EncodingProfile {
+  /**
+   * @description The resolved encoding descriptor, used for the decoder and reported as `BufferSource.encodingName`.
+   */
+  descriptor: ResolvedEncodingDescriptor;
+  /**
+   * @description Byte length of the detected BOM to exclude from content and from indices, or `0` when there is none.
+   */
+  bomLength: number;
+  /**
+   * @description Character-level read interface for this encoding's buffer representation.
+   */
+  scanStrategy: ScanStrategy;
+  /**
+   * @description When true, the whole buffer is decoded up front before scanning begins. Required for any encoding where an ASCII delimiter byte could
+   * legitimately appear as part of a different character.
+   */
+  decodeFirst: boolean;
+  /**
+   * @description Whether `_quotePairs` offsets can be reused as indices into a decoded string. `false` for `ByteScanStrategy` + utf8, where a byte offset can land
+   * mid-character once decoded.
+   */
+  quotePairsUsable: boolean;
+}
+
+/**
+ * @description BuildProfileForBuffer(bytes, decodingOptions, registry) -> `{ descriptor, bomLength, scanStrategy, decodeFirst, quotePairsUsable }`. The ONE place
+ * encoding decisions are made for `BufferSource`. Called once per `parseBytesArr()` call, never per-token — every field on the returned object is a
+ * concrete, already-resolved strategy, so `BufferSource` itself never branches on an encoding name again.
+ *
+ * @param bytes - The full document as bytes. Used only for BOM / `<?xml?>` sniffing when `decoding.encoding` is `'auto'` or unset.
+ * @param decodingOptions - User decoding options.
+ * @param registry - Registry to resolve names against. Defaults to the shared registry.
+ *
+ * @throws {ParseError} `UNSUPPORTED_ENCODING` for an unknown name, `ENCODING_MISMATCH` when a BOM contradicts the declaration.
+ */
+export function buildProfileForBuffer(
+  bytes: Buffer,
+  decodingOptions: DecodingOptions = {},
+  registry: EncodingRegistry = defaultEncodingRegistry
+): EncodingProfile {
   const requested = decodingOptions.encoding || 'auto';
-  let name, bomLength;
+  let name: string;
+  let bomLength: number;
   if (requested === 'auto') {
     const detected = sniff(bytes, registry);
     name = detected.encoding;
@@ -24,7 +69,11 @@ export function buildProfileForBuffer(bytes, decodingOptions = {}, registry = de
   const scanStrategy = descriptor.selfSynchronizing
     ? createByteScanStrategy(
         descriptor.name === 'utf8' ? decodeCharAtUtf8 : decodeCharAtFixedWidth1,
-        descriptor.name // 'utf8'/'ascii'/'latin1' — all valid Buffer#toString() encodings
+        // 'utf8'/'ascii'/'latin1' — all valid Buffer#toString() encodings. A custom
+        // self-synchronizing descriptor whose name is not a Buffer encoding label
+        // would throw on the first bulk read; that is the correct failure, but it
+        // belongs here rather than at each toString() call inside the strategy.
+        descriptor.name as BufferEncoding
       )
     : createCharScanStrategy();
 
@@ -47,12 +96,15 @@ export function buildProfileForBuffer(bytes, decodingOptions = {}, registry = de
 }
 
 /**
- * @description BuildDecoderForStream(decodingOptions, registry) -> descriptor's stateful decoder, for FeedableSource/StreamSource. These two are already decode-
- * first architecturally (see CharScanStrategy's doc comment) so they only ever need the decoder half of a profile, never a scan strategy. Streaming
- * auto-detection (peeking enough of the first feed() chunk before a decoder can even be constructed) is NOT implemented in this pass — see the
- * companion doc's "Known follow-ups" section. Until then, 'auto' on a streaming source falls back to utf8, same as today's hardcoded behavior.
+ * @description BuildDecoderForStream(decodingOptions, registry) -> the descriptor's stateful decoder, for `FeedableSource` / `StreamSource`. These two are already
+ * decode-first architecturally (see `CharScanStrategy`'s doc comment) so they only ever need the decoder half of a profile, never a scan strategy.
+ * Streaming auto-detection (peeking enough of the first `feed()` chunk before a decoder can even be constructed) is implemented separately in
+ * `FeedableSource._resolveDetection()`; this helper covers the explicit-encoding case and falls back to utf8 otherwise.
+ *
+ * @param decodingOptions - User decoding options.
+ * @param registry - Registry to resolve names against. Defaults to the shared registry.
  */
-export function buildDecoderForStream(decodingOptions = {}, registry = defaultEncodingRegistry) {
+export function buildDecoderForStream(decodingOptions: DecodingOptions = {}, registry: EncodingRegistry = defaultEncodingRegistry): EncodingDecoder {
   const requested = decodingOptions.encoding && decodingOptions.encoding !== 'auto' ? decodingOptions.encoding : 'utf8';
   return registry.resolve(requested).createDecoder();
 }

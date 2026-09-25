@@ -1,3 +1,7 @@
+import type EncodingRegistry from '../Encoding/EncodingRegistry.ts';
+import type { EncodingDecoder, FeedableOptions } from '../options.ts';
+import type { InputSourceLike } from './input-source.ts';
+
 import { sniff } from '../Encoding/EncodingDetector.ts';
 import { createTextDecoderAdapter } from '../Encoding/TextDecoderAdapter.ts';
 import { ParseError, ErrorCode } from '../ParseError.ts';
@@ -11,33 +15,122 @@ import { scanTagExpEnd, scanTagExpEndFast } from './scanTagExpEnd.ts';
 const SNIFF_CAP = 200;
 
 /**
+ * @description Decoding inputs a `FeedableSource` / `StreamSource` can be constructed with. Internal — `XMLParser` builds this from the user's `feedable` and
+ * `decoding` options; tests may pass `createDecoder` directly.
+ */
+export interface FeedableSourceOptions extends FeedableOptions {
+  /**
+   * @description Encoding name to resolve through {@link _decodingOptions.registry}, or `'auto'` to sniff once enough bytes have arrived. Omit for plain utf8.
+   */
+  decoding?: {
+    /**
+     * @description Encoding name, or `'auto'` to defer resolution until a BOM / `<?xml?>` declaration / {@link SNIFF_CAP} bytes have been seen.
+     */
+    encoding?: string;
+    /**
+     * @description Registry to resolve {@link encoding} against. Required for both the explicit and the `'auto'` path.
+     */
+    registry: EncodingRegistry;
+  };
+  /**
+   * @description Direct decoder factory, bypassing the registry entirely. Used when a `FeedableSource` is constructed without going through `XMLParser`.
+   */
+  createDecoder?: (() => EncodingDecoder) | undefined;
+}
+
+/**
  * @description FeedableSource — input source for the feed()/end() API. Accepts incremental string/Buffer chunks via feed(), accumulates them in a single string
- * buffer, and exposes the same read interface as StringSource so Xml2JsParser can use it without modification.
+ * buffer, and exposes the same read interface as `StringSource` so `Xml2JsParser` can use it without modification.
  *
  * ### Incremental parsing
  *
- * The parser calls parseXml() after every feed() call, consuming as much of the buffer as possible. When a chunk boundary falls mid-token (e.g. a
- * CDATA section split across two feeds), every reader function marks its start position with markTokenStart() before it begins. If the reader throws
- * UNEXPECTED_END, the caller (XMLParser.feed) catches it and calls rewindToMark() to restore startIndex to the beginning of the incomplete token. The
- * incomplete bytes stay in the buffer and are re-parsed on the next feed() once the rest of the token has arrived.
+ * The parser calls `parseXml()` after every `feed()` call, consuming as much of the buffer as possible. When a chunk boundary falls mid-token (e.g. a
+ * CDATA section split across two feeds), every reader function marks its start position with `markTokenStart()` before it begins. If the reader
+ * throws `UNEXPECTED_END`, the caller (`XMLParser.feed`) catches it and calls `rewindToMark()` to restore `startIndex` to the beginning of the
+ * incomplete token. The incomplete bytes stay in the buffer and are re-parsed on the next feed once the rest of the token has arrived.
  *
  * ### Two-level mark stack
  *
- * There are two mark levels: Level 0 — outer mark, set by parseXml()'s main loop BEFORE it reads the '<' character that begins a tag dispatch. This
- * is the position that rewindToMark() always restores to, so the full tag (including its '<![', '</', etc. prefix) is replayed correctly on the next
- * feed(). Level 1 — inner mark, set by individual reader functions (readCdata, readClosingTagName, readTagExp, …) at the point where _they_ begin.
- * This does NOT affect rewindToMark(); it is used only by flush() to determine the safe trim boundary while a reader is in progress. Using two levels
- * instead of a single slot prevents inner markTokenStart() calls from overwriting the outer mark that feed() needs to rewind to.
+ * There are two mark levels: level 0 — outer mark, set by `parseXml()`'s main loop BEFORE it reads the `<` character that begins a tag dispatch. This
+ * is the position that `rewindToMark()` always restores to, so the full tag (including its `<![`, `</`, etc. prefix) is replayed correctly on the
+ * next `feed()`. Level 1 — inner mark, set by individual reader functions (`readCdata`, `readClosingTagName`, `readTagExp`, …) at the point where
+ * _they_ begin. This does NOT affect `rewindToMark()`; it is used only by `flush()` to determine the safe trim boundary while a reader is in
+ * progress. Using two levels instead of a single slot prevents inner `markTokenStart()` calls from overwriting the outer mark that `feed()` needs to
+ * rewind to.
  *
  * ### Memory
  *
- * Parsed data is reclaimed from the buffer automatically (autoFlush) once the processed portion exceeds flushThreshold bytes. Because parseXml() runs
- * per chunk and completed tokens are consumed before the next chunk arrives, only incomplete tokens at the current chunk boundary are retained — not
- * the whole document. MaxBufferSize is checked against the live (unprocessed) portion of the buffer plus the incoming chunk, not the raw
- * buffer.length, so post-flush sizing stays accurate.
+ * Parsed data is reclaimed from the buffer automatically (`autoFlush`) once the processed portion exceeds `flushThreshold` bytes. Because
+ * `parseXml()` runs per chunk and completed tokens are consumed before the next chunk arrives, only incomplete tokens at the current chunk boundary
+ * are retained — not the whole document. `maxBufferSize` is checked against the live (unprocessed) portion of the buffer plus the incoming chunk, not
+ * the raw `buffer.length`, so post-flush sizing stays accurate.
+ *
+ * @implements {InputSourceLike}
  */
-export default class FeedableSource {
-  constructor(options = {}) {
+export default class FeedableSource implements InputSourceLike {
+  /**
+   * @description Decoded, not-yet-trimmed document text. Built by repeated `+=`, so it may be a V8 rope — hence bracket access over `charCodeAt` in the shared
+   * scanners.
+   */
+  buffer: string;
+  /**
+   * @description Offset into {@link buffer} of the next character to read. Rebased downward by `flush()`.
+   */
+  startIndex: number;
+  /**
+   * @description Whether {@link end()} has been called. Readers use it to distinguish a genuine truncation from a chunk boundary.
+   */
+  isComplete: boolean;
+  /**
+   * @description Running total of characters trimmed off the front by {@link flush} so far — the other half of `util.absolutePosition()`.
+   */
+  _baseOffset: number;
+  /**
+   * @description Hard cap on buffered characters, checked against live (unprocessed) data plus the incoming chunk.
+   */
+  maxBufferSize: number;
+  /**
+   * @description Whether processed characters are discarded automatically past {@link flushThreshold}.
+   */
+  autoFlush: boolean;
+  /**
+   * @description Processed-character count that triggers an automatic {@link flush}.
+   */
+  flushThreshold: number;
+  /**
+   * @description How the decoder for this session is produced. Reassigned once when `'auto'` detection resolves.
+   */
+  _createDecoder: (() => EncodingDecoder) | null;
+  /**
+   * @description `'auto'` mode only. Raw undecoded bytes held back until there is enough to decide an encoding.
+   */
+  _sniffBuffer: Buffer | null;
+  /**
+   * @description Two-level mark stack. `null` means "not set" for that level.
+   */
+  _marks: [number | null, number | null];
+  /**
+   * @description Reusable scratch array of quote positions, filled by {@link scanTagExpEnd} and reused by `AttributeProcessor`. Safe across a chunk-boundary
+   * rewind: the failed scan's contents are irrelevant the moment the tag is re-scanned from scratch on the next `feed()`.
+   */
+  _quotePairs: Int32Array<ArrayBuffer>;
+  /**
+   * @description How many {@link _quotePairs} slots hold valid data.
+   */
+  _quotePairsLen: number;
+
+  private _decodingOptions: FeedableSourceOptions['decoding'] | null;
+  private _detecting: boolean;
+  /**
+   * @description Lazily-created and persistent for the whole `feed()` session. Buffer chunks must go through this rather than `Buffer#toString()` per chunk —
+   * `toString()` decodes each chunk in isolation, so a multi-byte UTF-8 character whose bytes straddle a chunk boundary gets corrupted (each half
+   * independently replaced with U+FFFD). The decoder holds back an incomplete trailing sequence internally and prepends it to the next `write()`, so
+   * a split character decodes correctly once the rest of its bytes arrive. Only created if Buffer input is ever fed — string-only callers never pay
+   * for it.
+   */
+  private _decoder: EncodingDecoder | null;
+
+  constructor(options: FeedableSourceOptions = {}) {
     this.buffer = '';
     this.startIndex = 0;
     this.isComplete = false;
@@ -63,11 +156,12 @@ export default class FeedableSource {
     //     if given, else plain utf8 — identical to this class's behavior
     //     before this feature existed.
     this._decodingOptions = options.decoding || null;
-    const requestedEncoding = this._decodingOptions?.encoding;
+    const decodingOptions = this._decodingOptions;
+    const requestedEncoding = decodingOptions?.encoding;
     this._detecting = requestedEncoding === 'auto';
     this._sniffBuffer = this._detecting ? Buffer.alloc(0) : null;
-    if (!this._detecting && requestedEncoding && this._decodingOptions.registry) {
-      const registry = this._decodingOptions.registry;
+    if (!this._detecting && requestedEncoding && decodingOptions?.registry) {
+      const registry = decodingOptions.registry;
       this._createDecoder = () => registry.resolve(requestedEncoding).createDecoder();
     } else {
       this._createDecoder = typeof options.createDecoder === 'function' ? options.createDecoder : null;
@@ -99,16 +193,18 @@ export default class FeedableSource {
   }
 
   /**
-   * @description Append a data chunk to the buffer. MaxBufferSize is checked against the live unprocessed portion (buffer.length - startIndex) plus the incoming
-   * data length. Data that has already been parsed and is waiting to be flushed does not count against the limit.
+   * @description Append a data chunk to the buffer. `maxBufferSize` is checked against the live unprocessed portion (`buffer.length - startIndex`) plus the
+   * incoming data length. Data that has already been parsed and is waiting to be flushed does not count against the limit.
    *
-   * @param {string | Buffer} data
+   * @param data - Next chunk. A `Buffer` is decoded through the session's stateful decoder; a string is assumed to be already decoded.
    *
-   * @returns {number} Number of characters appended to the buffer (after decoding) — callers that track fed-byte totals (e.g. XMLParser.feed's batch
+   * @returns Number of characters appended to the buffer (after decoding) — callers that track fed-byte totals (e.g. `XMLParser.feed`'s batch
    *   threshold) should use this rather than the raw input length, since a Buffer chunk ending mid-character may decode to fewer chars than its byte
    *   length until the next chunk completes the sequence.
+   *
+   * @throws {ParseError} `INVALID_INPUT` when the buffer limit is exceeded, `DATA_MUST_BE_STRING` for an unsupported chunk type.
    */
-  feed(data) {
+  feed(data: string | Buffer): number {
     if (this._detecting) {
       if (typeof data === 'string') {
         // Already decoded upstream (e.g. stream.setEncoding() was called by
@@ -116,7 +212,11 @@ export default class FeedableSource {
         this._detecting = false;
       } else {
         const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
-        this._sniffBuffer = this._sniffBuffer.length ? Buffer.concat([this._sniffBuffer, chunk]) : chunk;
+        // `_detecting` is only true while `// `_detecting` is only true while `_sniffBuffer` is a Buffer — the
+        // constructor sets them together, so the assertion is an invariant,
+        // not a runtime check.
+        const held = this._sniffBuffer as Buffer;
+        this._sniffBuffer = held.length ? Buffer.concat([held, chunk]) : chunk;
         const declarationComplete = this._sniffBuffer.includes(Buffer.from('?>'));
         if (this._sniffBuffer.length < SNIFF_CAP && !declarationComplete) {
           // Not enough to decide yet — hold everything, decode nothing.
@@ -126,7 +226,7 @@ export default class FeedableSource {
       }
     }
 
-    let newData = this._decodeNow(data);
+    const newData = this._decodeNow(data);
 
     const liveBytes = this.buffer.length - this.startIndex;
 
@@ -145,7 +245,7 @@ export default class FeedableSource {
   /**
    * @private
    */
-  _decodeNow(data) {
+  private _decodeNow(data: string | Buffer): string {
     if (typeof data === 'string') return data;
     if (Buffer.isBuffer(data)) {
       // Stateful decode: bytes of a multi-byte char split across two feed()
@@ -154,32 +254,36 @@ export default class FeedableSource {
       if (!this._decoder) this._decoder = this._createDecoder ? this._createDecoder() : createTextDecoderAdapter('utf-8');
       return this._decoder.write(data);
     }
-    if (data?.toString) return data.toString();
+    // Defensive tail: `feed()`'s contract is `string | Buffer` and both are
+    // handled above, but anything else carrying a usable toString() is coerced
+    // rather than rejected outright.
+    const coercible = data as { toString(): string };
+    if (typeof coercible?.toString === 'function') return coercible.toString();
     throw new ParseError('feed() data must be a string or Buffer.', ErrorCode.DATA_MUST_BE_STRING);
   }
 
   /**
-   * @description Resolve 'auto' encoding from `_sniffBuffer` (BOM + `<?xml encoding="...">` sniffing, XML 1.0 Appendix F — see Encoding/EncodingDetector.js),
-   * build the real decoder, strip any BOM, and return the held bytes ready to be decoded normally by the caller in feed(). Runs exactly once per
+   * @description Resolve 'auto' encoding from `_sniffBuffer` (BOM + `<?xml encoding="...">` sniffing, XML 1.0 Appendix F — see `Encoding/EncodingDetector.ts`),
+   * build the real decoder, strip any BOM, and return the held bytes ready to be decoded normally by the caller in `feed()`. Runs exactly once per
    * session.
    *
    * @private
    *
-   * @returns {Buffer}
+   * @returns The held bytes, minus any BOM.
    */
-  _resolveDetection() {
-    const registry = this._decodingOptions.registry;
-    const { encoding, bomLength } = sniff(this._sniffBuffer, registry);
+  private _resolveDetection(): Buffer {
+    const registry = (this._decodingOptions as NonNullable<FeedableSourceOptions['decoding']>).registry;
+    const { encoding, bomLength } = sniff(this._sniffBuffer as Buffer, registry);
     const descriptor = registry.resolve(encoding);
     this._createDecoder = () => descriptor.createDecoder();
     this._detecting = false;
-    const held = bomLength ? this._sniffBuffer.subarray(bomLength) : this._sniffBuffer;
+    const held = bomLength ? (this._sniffBuffer as Buffer).subarray(bomLength) : (this._sniffBuffer as Buffer);
     this._sniffBuffer = null;
     return held;
   }
 
   /**
-   * @description Signal that no more data will be fed.
+   * @description Signal that no more data will be fed. Flushes the decoder's held-back bytes and marks the source complete.
    */
   end() {
     if (this._detecting) {
@@ -203,31 +307,27 @@ export default class FeedableSource {
 
   /**
    * @description Returns true when there is at least one character available at or after the given offset (relative to startIndex).
-   *
-   * @param {number} [n=0] Default is `0`
    */
-  canRead(n = 0) {
+  canRead(n: number = 0) {
     return this.startIndex + n < this.buffer.length;
   }
 
   // ─── Two-level mark API ───────────────────────────────────────────────────
 
   /**
-   * @description Save the current read position into the mark stack. The `level` parameter selects which mark slot to write: Level 0 (default) — outer mark,
-   * written by parseXml()'s main loop before it reads the '<' that begins a dispatch. level 1 — inner mark, written by reader functions (readCdata,
-   * readClosingTagName, readTagExp, …) at the start of their own logic. The two levels are independent. An inner markTokenStart(1) never overwrites
-   * the outer mark[0] that rewindToMark() relies on.
-   *
-   * @param {0 | 1} [level=0] Default is `0`
+   * @description Save the current read position into the mark stack. The `level` parameter selects which mark slot to write: level 0 (default) — outer mark,
+   * written by `parseXml()`'s main loop before it reads the `<` that begins a dispatch. level 1 — inner mark, written by reader functions
+   * (`readCdata`, `readClosingTagName`, `readTagExp`, …) at the start of their own logic. The two levels are independent. An inner
+   * `markTokenStart(1)` never overwrites the outer `mark[0]` that `rewindToMark()` relies on.
    */
-  markTokenStart(level = 0) {
+  markTokenStart(level: 0 | 1 = 0) {
     this._marks[level] = this.startIndex;
   }
 
   /**
    * @description Restore startIndex to the OUTER mark (level 0) and clear both marks. Always rewinds to the outermost saved position so the full tag — including
-   * any prefix characters consumed by parseXml() before the dispatch (e.g. '<', '!', '[') — is replayed on the next feed(). Called by
-   * XMLParser.feed() when a reader throws UNEXPECTED_END.
+   * any prefix characters consumed by `parseXml()` before the dispatch (e.g. `<`, `!`, `[`) — is replayed on the next `feed()`. Called by
+   * `XMLParser.feed()` when a reader throws UNEXPECTED_END.
    */
   rewindToMark() {
     if (this._marks[0] !== null) {
@@ -239,8 +339,8 @@ export default class FeedableSource {
 
   /**
    * @description Clear both mark slots after a token completes successfully. Should be called (or marks allowed to be overwritten) once a dispatch fully succeeds
-   * so stale positions don't block flush(). In practice the outer mark is overwritten at the top of every parseXml() loop iteration, so explicit
-   * clearing is only needed when the loop does NOT continue (e.g. after a non-'<' character is consumed as plain text). The flush guard uses the
+   * so stale positions don't block `flush()`. In practice the outer mark is overwritten at the top of every `parseXml()` loop iteration, so explicit
+   * clearing is only needed when the loop does NOT continue (e.g. after a non-`<` character is consumed as plain text). The flush guard uses the
    * minimum of set marks, so a stale mark only delays flushing — it does not cause correctness issues.
    */
   clearMark() {
@@ -251,7 +351,7 @@ export default class FeedableSource {
   /**
    * @description Read next character and advance position.
    *
-   * @returns {string}
+   * @returns The character, or `undefined` at end of input.
    */
   readCh() {
     return this.buffer[this.startIndex++];
@@ -260,33 +360,31 @@ export default class FeedableSource {
   /**
    * @description Read character at offset without advancing.
    *
-   * @param {number} index - Offset from current position.
+   * @param index - Offset from current position.
    *
-   * @returns {string}
+   * @returns The character, or `undefined` past the end.
    */
-  readChAt(index) {
+  readChAt(index: number) {
     return this.buffer[this.startIndex + index];
   }
 
   /**
    * @description Read n characters as string.
    *
-   * @param {number} n - Number of characters to read.
-   * @param {number} from - Start position (default: current position)
-   *
-   * @returns {string}
+   * @param n - Number of characters to read.
+   * @param from - Start position. Defaults to the current position.
    */
-  readStr(n, from) {
+  readStr(n: number, from?: number) {
     if (typeof from === 'undefined') from = this.startIndex;
     return this.buffer.substring(from, from + n);
   }
 
   /**
-   * @description See StringSource.js's copy of this method for the full doc — identical contract here. `null` (not enough buffered data yet) is the routine case
+   * @description See `StringSource`'s copy of this method for the full doc — identical contract here. `null` (not enough buffered data yet) is the routine case
    * for this source in particular, since a chunk boundary can land mid-check; callers already have to handle that the same way they handle
-   * scanTagExpEnd's -1.
+   * `scanTagExpEnd`'s `-1`.
    */
-  matchAhead(expected, caseInsensitive = false) {
+  matchAhead(expected: string, caseInsensitive: boolean = false) {
     const len = expected.length;
     for (let i = 0; i < len; i++) {
       let ch = this.buffer[this.startIndex + i];
@@ -309,13 +407,13 @@ export default class FeedableSource {
   /**
    * @description Read until stop string is found.
    *
-   * @param {string} stopStr
+   * @param stopStr - The string to read up to. Consumed when found.
    *
-   * @returns {string} Content before the stop string (stop string is consumed)
+   * @returns Content before the stop string.
    *
    * @throws {ParseError} UNEXPECTED_END when stop string is not found
    */
-  readUpto(stopStr) {
+  readUpto(stopStr: string) {
     const inputLength = this.buffer.length;
     const stopLength = stopStr.length;
 
@@ -341,11 +439,9 @@ export default class FeedableSource {
    * @description Single-character variant of readUpto — faster because there is no inner match loop. Reads until `stopChar` is found, consumes it, and returns the
    * text before it.
    *
-   * @param {string} stopChar Exactly one character.
-   *
-   * @returns {string}
+   * @param stopChar Exactly one character.
    */
-  readUptoChar(stopChar) {
+  readUptoChar(stopChar: string) {
     const i = this.buffer.indexOf(stopChar, this.startIndex);
     if (i === -1) {
       throw new ParseError(`Unexpected end of source reading '${stopChar}'`, ErrorCode.UNEXPECTED_END);
@@ -358,13 +454,13 @@ export default class FeedableSource {
   /**
    * @description Read until a closing tag is found (used for stop nodes).
    *
-   * @param {string} stopStr E.g. `"</tagname"`
+   * @param stopStr E.g. `"</tagname"`
    *
-   * @returns {string} Raw content between the current position and the closing tag
+   * @returns Raw content between the current position and the closing tag
    *
    * @throws {ParseError} UNEXPECTED_END when the closing tag is not found
    */
-  readUptoCloseTag(stopStr) {
+  readUptoCloseTag(stopStr: string) {
     const inputLength = this.buffer.length;
     const stopLength = stopStr.length;
     let tagMatchStart = -1;
@@ -409,10 +505,8 @@ export default class FeedableSource {
    * @description Advance the read cursor by n characters. Triggers an automatic flush of already-processed data when autoFlush is enabled, the processed portion
    * has grown past flushThreshold, and no mark is currently active. Any active mark (either level) blocks the flush to prevent the saved position
    * from becoming invalid.
-   *
-   * @param {number} [n=1] Default is `1`
    */
-  updateBufferBoundary(n = 1) {
+  updateBufferBoundary(n: number = 1) {
     this.startIndex += n;
     // No "any mark active" gate here — flush()'s own min(startIndex, marks...)
     // origin computation already guarantees any in-progress token (at either
@@ -446,7 +540,8 @@ export default class FeedableSource {
       // Adjust all mark offsets by the amount trimmed.
       const marksLen = this._marks.length;
       for (let i = 0; i < marksLen; i++) {
-        if (this._marks[i] !== null) this._marks[i] -= origin;
+        const mark = this._marks[i as 0 | 1];
+        if (mark !== null) this._marks[i as 0 | 1] = mark - origin;
       }
 
       this.startIndex -= origin;

@@ -1,18 +1,19 @@
+import type { ParseErrorEntry, ParserState } from './internal/parser-types.ts';
+import type { AutoCloseOptions } from './options.ts';
+
 import { ParseError, ErrorCode } from './ParseError.js';
 import { absolutePosition } from './util.js';
 
 /**
  * @description AutoCloseHandler. Handles two distinct failure modes that arise when XML is malformed or a data stream is interrupted:
  *
- * 1. EOF with open tags — `onEof` option
- * 2. Mismatched close tag — `onMismatch` option The handler is stateless; it receives the parser's live state on each call and mutates it directly
+ * 1. EOF with open tags — the `onEof` option.
+ * 2. Mismatched close tag — the `onMismatch` option. The handler is stateless; it receives the parser's live state on each call and mutates it directly
  *    (matching how the parser normally works).
  */
 
 /**
- * @description Error types returned by getParseErrors() when `collectErrors` is true.
- *
- * @enum {string}
+ * @description Error types returned by `getParseErrors()` when `collectErrors` is true.
  */
 export const AutoCloseErrorType = Object.freeze({
   /**
@@ -31,19 +32,52 @@ export const AutoCloseErrorType = Object.freeze({
   PHANTOM_CLOSE: 'phantom-close',
 
   /**
-   * @description The source ended mid-way through a tag — e.g. `<div><p` or `</di`. The partial tag is discarded; any already-open tags are closed by handleEof.
+   * @description The source ended mid-way through a tag — e.g. `<div><p` or `</di`. The partial tag is discarded; any already-open tags are closed by
+   * `handleEof()`.
    */
   PARTIAL_TAG: 'partial-tag',
-});
+} as const);
+
+/**
+ * @description One of the four recovery outcomes `AutoCloseErrorType` can record.
+ */
+export type AutoCloseErrorTypeValue = (typeof AutoCloseErrorType)[keyof typeof AutoCloseErrorType];
+
+/**
+ * @description What the caller should do after `handleMismatch()` has run.
+ */
+export type AutoCloseDecision =
+  /**
+   * @description The handler already closed the intermediate tags; the caller should now close the matched tag through the normal path.
+   */
+  | { action: 'close-matched' }
+  /**
+   * @description The closing tag is unusable — the caller should skip it entirely.
+   */
+  | { action: 'discard' };
 
 export default class AutoCloseHandler {
   /**
-   * @param {object} autoCloseOptions - Resolved autoClose options.
-   * @param {string} autoCloseOptions.onEof - 'throw' | 'closeAll'
-   * @param {string} autoCloseOptions.onMismatch - 'throw' | 'recover' | 'discard'
-   * @param {boolean} autoCloseOptions.collectErrors
+   * @description What to do when the document ends with tags still open.
    */
-  constructor(autoCloseOptions) {
+  onEof: AutoCloseOptions['onEof'];
+  /**
+   * @description What to do when a closing tag doesn't match the tag on top of the stack.
+   */
+  onMismatch: AutoCloseOptions['onMismatch'];
+  /**
+   * @description Whether recoveries are recorded rather than silently applied.
+   */
+  collectErrors: boolean;
+  /**
+   * @description Recoveries recorded so far. Empty unless `collectErrors` is true.
+   */
+  errors: ParseErrorEntry[];
+
+  /**
+   * @param autoCloseOptions - Fully-resolved autoClose options.
+   */
+  constructor(autoCloseOptions: AutoCloseOptions) {
     this.onEof = autoCloseOptions.onEof || 'throw';
     this.onMismatch = autoCloseOptions.onMismatch || 'throw';
     this.collectErrors = autoCloseOptions.collectErrors || false;
@@ -53,15 +87,12 @@ export default class AutoCloseHandler {
   /**
    * @description Called at end-of-document when `tagsStack` is non-empty.
    *
-   * @param {object} parserState
-   * @param {Array} parserState.tagsStack - Parser's open-tag stack.
-   * @param {object} parserState.currentTagDetail - The currently open TagDetail.
-   * @param {object} parserState.outputBuilder - Live OutputBuilder instance.
-   * @param {object} parserState.readonlyMatcher - Read-only Matcher proxy.
-   * @param {object} parserState.source - Current InputSource (for position)
-   * @param {Function} parserState.addTextNode - Bound addTextNode on the parser.
+   * @param parserState - Live view of the parser. `tagsStack` is the open-tag stack, `currentTagDetail` the currently open tag, `addTextNode` /
+   *   `popTag` the parser's own methods, and `source` the current input source (for positions).
+   *
+   * @throws {ParseError} `UNEXPECTED_TRAILING_DATA` when `onEof` is `'throw'`.
    */
-  handleEof(parserState) {
+  handleEof(parserState: ParserState): void {
     if (this.onEof === 'throw') {
       throw new ParseError('Unexpected data in the end of document', ErrorCode.UNEXPECTED_TRAILING_DATA);
     }
@@ -70,15 +101,13 @@ export default class AutoCloseHandler {
     // Close from innermost outward using the parser's canonical popTag(),
     // which keeps the parser stack and output builder in sync automatically.
 
-    const { addTextNode, popTag } = parserState;
-
     let current = parserState.currentTagDetail;
 
     while (current && !current.root) {
       this._recordError(AutoCloseErrorType.UNCLOSED_EOF, { tag: current.name, expected: null, index: current.index });
 
-      addTextNode();
-      popTag();
+      parserState.addTextNode();
+      parserState.popTag();
 
       // popTag() already updated currentTagDetail via tagsStack.pop()
       current = parserState.currentTagDetail;
@@ -86,20 +115,16 @@ export default class AutoCloseHandler {
   }
 
   /**
-   * @description Called when a closing tag name doesn't match `currentTagDetail.name`. Returns an object describing what the caller should do: { action:
-   * 'close-matched' } — handler already closed intermediates; caller should now close the matched tag normally { action: 'discard' } — caller should
-   * skip this closing tag entirely.
-   *
-   * @param {string} closingTagName - The mismatched closing tag we just read.
-   * @param {object} parserState - Same shape as handleEof.
-   *
-   * @returns {{ action: string }}
+   * @description Called when a closing tag name doesn't match `currentTagDetail.name`. Returns a decision describing what the caller should do: `{ action:
+   * 'close-matched' }` — the handler already closed intermediates, so the caller should now close the matched tag normally; `{ action: 'discard' }` —
+   * the caller should skip this closing tag entirely. @param closingTagName - The mismatched closing tag we just read. @param parserState - Live view
+   * of the parser; same shape as `handleEof()`. @throws {ParseError} `MISMATCHED_CLOSE_TAG` when `onMismatch` is `'throw'`.
    */
-  handleMismatch(closingTagName, parserState) {
-    const { tagsStack, currentTagDetail, source, addTextNode } = parserState;
+  handleMismatch(closingTagName: string, parserState: ParserState): AutoCloseDecision {
+    const { tagsStack, currentTagDetail, source } = parserState;
 
     if (this.onMismatch === 'throw') {
-      throw new ParseError(`Unexpected closing tag '${closingTagName}' expecting '${currentTagDetail.name}'`, ErrorCode.MISMATCHED_CLOSE_TAG, {
+      throw new ParseError(`Unexpected closing tag '${closingTagName}' expecting '${currentTagDetail?.name}'`, ErrorCode.MISMATCHED_CLOSE_TAG, {
         index: source ? absolutePosition(source) : undefined,
       });
     }
@@ -107,7 +132,7 @@ export default class AutoCloseHandler {
     if (this.onMismatch === 'discard') {
       this._recordError(AutoCloseErrorType.MISMATCHED_CLOSE, {
         tag: closingTagName,
-        expected: currentTagDetail.name,
+        expected: currentTagDetail?.name,
         index: source ? absolutePosition(source) : null,
       });
       return { action: 'discard' };
@@ -125,7 +150,7 @@ export default class AutoCloseHandler {
     let matchIndex = -1;
     const stackSnapshotLength = stackSnapshot.length;
     for (let i = stackSnapshotLength - 1; i >= 0; i--) {
-      if (stackSnapshot[i].name === closingTagName) {
+      if (stackSnapshot[i]?.name === closingTagName) {
         matchIndex = i;
         break;
       }
@@ -135,7 +160,7 @@ export default class AutoCloseHandler {
       // No match anywhere — phantom closing tag
       this._recordError(AutoCloseErrorType.PHANTOM_CLOSE, {
         tag: closingTagName,
-        expected: currentTagDetail.name,
+        expected: currentTagDetail?.name,
         index: source ? absolutePosition(source) : null,
       });
       return { action: 'discard' };
@@ -146,31 +171,35 @@ export default class AutoCloseHandler {
     const levelsToClose = stackSnapshotLength - 1 - matchIndex;
 
     for (let i = 0; i < levelsToClose; i++) {
-      const tag = stackSnapshot[stackSnapshotLength - 1 - i];
+      const tag = stackSnapshot[stackSnapshotLength - 1 - i] as NonNullable<(typeof stackSnapshot)[number]>;
 
       this._recordError(AutoCloseErrorType.MISMATCHED_CLOSE, { tag: tag.name, expected: closingTagName, index: tag.index });
 
-      addTextNode();
+      parserState.addTextNode();
       parserState.popTag();
     }
 
     // Update currentTagDetail to the matched one so the normal close path works.
     // popTag() has already walked the stack up by levelsToClose steps; the next
     // currentTagDetail is the one we want to match against.
-    parserState.currentTagDetail = stackSnapshot[matchIndex];
+    //
+    // `matchIndex` is in range and non-null: the loop above only assigns it
+    // after reading `.name` off a real element, and handleMismatch() is only
+    // reachable with a tag actually open.
+    parserState.currentTagDetail = stackSnapshot[matchIndex]!;
 
     return { action: 'close-matched' };
   }
 
   /**
-   * @description Called when the source ended mid-way through a tag token. Records the partial-tag error and delegates remaining open tags to handleEof.
+   * @description Called when the source ended mid-way through a tag token. Records the partial-tag error and delegates remaining open tags to `handleEof()`.
    *
-   * @param {Error} originalError - The error thrown by the read function.
-   * @param {object} parserState - Same shape as handleEof.
+   * @param originalError - The error thrown by the read function.
+   * @param parserState - Live view of the parser; same shape as `handleEof()`.
    */
-  handlePartialTag(originalError, parserState) {
+  handlePartialTag(originalError: Error, parserState: ParserState): void {
     this._recordError(AutoCloseErrorType.PARTIAL_TAG, {
-      tag: _extractPartialTagName(originalError),
+      tag: extractPartialTagName(originalError),
       expected: null,
       index: parserState.source ? absolutePosition(parserState.source) : null,
     });
@@ -183,24 +212,22 @@ export default class AutoCloseHandler {
   }
 
   /**
-   * @description Return a copy of the collected error list. Empty array when collectErrors is false or no errors occurred.
-   *
-   * @returns {Array}
+   * @description Return a copy of the collected error list. Empty array when `collectErrors` is false or no errors occurred.
    */
-  getErrors() {
+  getErrors(): ParseErrorEntry[] {
     return this.errors.slice();
   }
 
   /**
-   * @description Reset error log (useful if the same handler instance is reused).
+   * @description Reset the error log (useful if the same handler instance is reused).
    */
-  reset() {
+  reset(): void {
     this.errors = [];
   }
 
   // ── Private ──────────────────────────────────────────────────────────────
 
-  _recordError(type, detail) {
+  private _recordError(type: AutoCloseErrorTypeValue, detail: Omit<ParseErrorEntry, 'type'>): void {
     if (!this.collectErrors) return;
     this.errors.push({ type, ...detail });
   }
@@ -208,11 +235,12 @@ export default class AutoCloseHandler {
 
 /**
  * @description Best-effort extraction of a partial tag name from a source-exhausted error. Accepts the full error object so it can inspect both message and code.
- * ParseError from readClosingTagName (new format): message: "Unexpected end of source reading closing tag '</di'" Legacy plain Error (old format,
- * kept for safety): message: "Unexpected end of source. Reading closing tag '</di'" ParseError from readTagExp / readPiExp — opening tag truncated
- * before '>': No tag name is embedded; returns null.
+ *
+ * - `ParseError` from `readClosingTagName()` (new format): message `Unexpected end of source reading closing tag '</di'`
+ * - Legacy plain `Error` (old format, kept for safety): message `Unexpected end of source. Reading closing tag '</di'`
+ * - `ParseError` from `readTagExp()` / `readPiExp()` — an opening tag truncated before `>`: no tag name is embedded, so this returns `null`.
  */
-function _extractPartialTagName(err) {
+function extractPartialTagName(err: Error | null | undefined): string | null {
   if (!err) return null;
   const message = typeof err.message === 'string' ? err.message : String(err);
   // Match both "reading closing tag" (new, lowercase) and

@@ -1,8 +1,17 @@
+import type { TagExpressionParser } from './internal/parser-types.ts';
+
 import { ParseError, ErrorCode } from './ParseError.js';
 import { expectMatch, errorPositionOf, sanitizeContent } from './util.js';
 import { readPiExp, flushAttributes } from './XmlPartReader.js';
 
-export function readCdata(parser) {
+/**
+ * @description Read a CDATA section. `<![` has already been consumed by the caller. Normalization is unconditional — it applies even under `xml:space="preserve"`.
+ *
+ * @param parser - Parser context.
+ *
+ * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary mid-section, `ILLEGAL_CHARACTER` on an illegal control code.
+ */
+export function readCdata(parser: TagExpressionParser): void {
   // Level-1 inner mark: records where this reader began, used only by flush()
   // as a safe trim boundary. Does NOT overwrite the level-0 outer mark set by
   // parseXml()'s loop before it consumed '<![', which rewindToMark() restores to.
@@ -17,21 +26,30 @@ export function readCdata(parser) {
   parser.outputBuilder.addLiteral(text);
 }
 
-export function readPiTag(parser) {
+/**
+ * @description Read a processing instruction (`<?…?>`). `<?` has already been consumed by the caller. A `<?xml …?>` declaration additionally seeds
+ * {@link TagExpressionParser.xmlDec} and invalidates the memoized name validators, which were built before the document's XML version was known — see
+ * the inline note below.
+ *
+ * @param parser - Parser context.
+ *
+ * @throws {ParseError} `INVALID_TAG` when the expression can't be read, plus whatever `readPiExp()` throws.
+ */
+export function readPiTag(parser: TagExpressionParser): void {
   const skipOptions = parser.options.skip;
   parser.source.markTokenStart(1);
   //<? already consumed
-  let tagExp = readPiExp(parser, '?>');
+  const tagExp = readPiExp(parser);
   if (!tagExp) {
     throw new ParseError('Invalid Pi Tag expression.', ErrorCode.INVALID_TAG, errorPositionOf(parser.source));
   } else if (tagExp.tagName === 'xml') {
     // Read version from the declaration and store it on the parser for validators.
-    const version = tagExp.rawAttributes?.version;
+    const version = tagExp.rawAttributes?.['version'];
     if (version === '1.1') {
       parser.xmlDec.version = 1.1;
     }
-    parser.xmlDec.encoding = tagExp.rawAttributes?.encoding;
-    parser.xmlDec.standalone = tagExp.rawAttributes?.standalone;
+    parser.xmlDec.encoding = (tagExp.rawAttributes?.['encoding'] as string | undefined) ?? null;
+    parser.xmlDec.standalone = (tagExp.rawAttributes?.['standalone'] as string | undefined) ?? null;
 
     // BUG FIX: getNameValidator('qName') was already called (and memoized)
     // above the moment this PI tag's own name ("xml") got validated — before
@@ -67,7 +85,14 @@ export function readPiTag(parser) {
   }
 }
 
-export function readComment(parser) {
+/**
+ * @description Read a comment. `<!-` has already been consumed by the caller.
+ *
+ * @param parser - Parser context.
+ *
+ * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary mid-comment, `ILLEGAL_CHARACTER` on an illegal control code.
+ */
+export function readComment(parser: TagExpressionParser): void {
   parser.source.markTokenStart(1);
   //<!- already consumed
   expectMatch(parser.source, '-', 'comment second dash');

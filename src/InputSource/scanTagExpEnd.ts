@@ -1,3 +1,5 @@
+import type { CharScanContext } from './input-source.ts';
+
 /**
  * @description Shared scanTagExpEnd implementations for sources whose buffer is a JS string (StringSource, FeedableSource, CharScanStrategy). Two separate
  * functions instead of one with a flag — the flag was evaluated inside the loop on every character, which adds overhead to the hottest path in the
@@ -6,17 +8,17 @@
  */
 
 /**
- * @description Scan for the unquoted '>' that ends a tag expression, and record each quote boundary in `this._quotePairs` as it goes. Used when attributes will be
- * parsed (skip.attributes is false).
+ * @description Scan for the unquoted `>` that ends a tag expression, recording each quote boundary in `this._quotePairs` as it goes. Used when attributes will be
+ * parsed (`skip.attributes` is false). Bracket access rather than `charCodeAt` is load-bearing here: these buffers can be V8 ConsStrings/ropes built
+ * by repeated `+=`, and `charCodeAt` would force a full flatten on every access. The shared implementations use bracket access throughout.
  *
- * @returns {number} Relative offset of the unquoted '>' from startIndex, or -1 if the buffer is exhausted (chunk boundary for FeedableSource,
- *   malformed input for StringSource/CharScanStrategy).
+ * @returns Relative offset of the unquoted `>` from `startIndex`, or `-1` if the buffer was exhausted first (a chunk boundary for `FeedableSource`).
  */
-export function scanTagExpEnd() {
+export function scanTagExpEnd(this: CharScanContext) {
   const buf = this.buffer;
   const len = buf.length;
   const start = this.startIndex;
-  const pairs = this._quotePairs;
+  const pairs = (this as { _quotePairs: Int32Array })._quotePairs;
   const capacity = pairs.length;
   let pairsLen = 0;
   let inSingle = false;
@@ -34,22 +36,21 @@ export function scanTagExpEnd() {
         if (pairsLen < capacity) pairs[pairsLen++] = i - start;
       }
     } else if (c === '>' && !inSingle && !inDouble) {
-      this._quotePairsLen = pairsLen;
+      (this as { _quotePairsLen: number })._quotePairsLen = pairsLen;
       return i - start;
     }
   }
-  this._quotePairsLen = pairsLen;
+  (this as { _quotePairsLen: number })._quotePairsLen = pairsLen;
   return -1;
 }
 
 /**
- * @description Scan for the unquoted '>' that ends a tag expression, without recording quote positions. Used when attributes are being skipped entirely
- * (skip.attributes is true) — nobody will read _quotePairs, so don't pay to populate it.
+ * @description Scan for the unquoted `>` that ends a tag expression, without recording quote positions. Used when attributes are being skipped entirely
+ * (`skip.attributes` is true) — nobody reads `_quotePairs`, so don't pay to populate it.
  *
- * @returns {number} Relative offset of the unquoted '>' from startIndex,
- * or -1 if the buffer is exhausted.
+ * @returns Relative offset of the unquoted `>` from `startIndex`, or `-1` if the buffer was exhausted first.
  */
-export function scanTagExpEndFast() {
+export function scanTagExpEndFast(this: CharScanContext) {
   const buf = this.buffer;
   const len = buf.length;
   const start = this.startIndex;

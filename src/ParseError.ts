@@ -7,12 +7,21 @@
  */
 export class ParseError extends Error {
   /**
-   * @param {string} message - Human-readable error message.
-   * @param {string} code - Machine-readable error code.
-   * @param {object} [position] - Optional position info.
-   * @param {number} [position.index]
+   * @descriptiondescriptiondescription Machine-readable error code. AlwaysAlwaysAlways oneoneone ofofof thethethe {@link ErrorCode} valuesvaluesvalues.
    */
-  constructor(message, code, position = {}) {
+  readonly code: ErrorCodeValue;
+
+  /**
+   * @description 0-based character offset from document start. `undefined` when position information is not available for this error type.
+   */
+  readonly index: number | undefined;
+
+  /**
+   * @param message - Human-readable error message.
+   * @param code - Machine-readable error code.
+   * @param position - Optional position info. `index` is the document offset; a missing one leaves {@link index} `undefined`.
+   */
+  constructor(message: string, code: ErrorCodeValue, position: { index?: number | undefined } = {}) {
     super(message);
     this.name = 'ParseError';
     this.code = code;
@@ -20,12 +29,12 @@ export class ParseError extends Error {
     this.index = position.index ?? undefined;
   }
 
-  toString() {
+  override toString() {
     const pos = this._posStr();
     return pos ? `${this.name} [${this.code}] at ${pos}: ${this.message}` : `${this.name} [${this.code}]: ${this.message}`;
   }
 
-  _posStr() {
+  _posStr(): string | null {
     if (this.index !== undefined) {
       return `index ${this.index}`;
     }
@@ -35,6 +44,10 @@ export class ParseError extends Error {
 
 // ─── Error codes ─────────────────────────────────────────────────────────────
 
+/**
+ * @description All error codes thrown by the parser. Frozen, and typed as a literal map, so `err.code === ErrorCode.XXX` narrows and a typo is a compile error
+ * rather than a silently-never-true comparison at runtime.
+ */
 export const ErrorCode = Object.freeze({
   // Input type errors
   INVALID_INPUT: 'INVALID_INPUT',
@@ -52,6 +65,7 @@ export const ErrorCode = Object.freeze({
   UNEXPECTED_TRAILING_DATA: 'UNEXPECTED_TRAILING_DATA',
   INVALID_TAG: 'INVALID_TAG',
   UNCLOSED_QUOTE: 'UNCLOSED_QUOTE',
+  INVALID_TAG_NAME: 'INVALID_TAG_NAME',
   INVALID_ATTRIBUTE_NAME: 'INVALID_ATTRIBUTE_NAME',
 
   // Namespace
@@ -86,6 +100,11 @@ export const ErrorCode = Object.freeze({
   UNSUPPORTED_ENCODING: 'UNSUPPORTED_ENCODING',
   INVALID_DECODER: 'INVALID_DECODER',
   ENCODING_MISMATCH: 'ENCODING_MISMATCH',
-});
+} as const);
+
+/**
+ * @description Union of every {@link ErrorCode} value — the type of {@link ParseError.code}.
+ */
+export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 export default ParseError;

@@ -1,5 +1,8 @@
 import type { BufferSourceOptions } from '#/InputSource/buffer-source-options.ts';
 
+import type { EncodingProfile } from '../Encoding/EncodingProfile.ts';
+import type { InputSourceLike } from './input-source.ts';
+
 import { createByteScanStrategy, decodeCharAtUtf8 } from '../Encoding/ScanStrategy/ByteScanStrategy.js';
 import { QUOTE_PAIRS_CAPACITY } from '../util.js';
 
@@ -15,34 +18,90 @@ const DEFAULT_SCAN_STRATEGY = createByteScanStrategy(decodeCharAtUtf8, 'utf8');
  *
  * ### Memory reclamation
  *
- * The full document is available from the start, so there is no chunk-boundary risk and rewindToMark() is a safe no-op. However, the parsed prefix of
- * the Buffer is held in memory until the parse finishes. flush() reclaims it by slicing the Buffer and resetting startIndex to 0. The same mark/flush
- * protocol used by FeedableSource is implemented here so all reader functions work without source-type conditionals: MarkTokenStart() — save current
- * read position at the start of a token rewindToMark() — no-op for BufferSource (full doc always present) flush() — drop the already-parsed prefix to
- * free memory. Auto-flush fires inside updateBufferBoundary() whenever the processed portion exceeds flushThreshold and no token checkpoint is
- * active.
+ * The full document is available from the start, so there is no chunk-boundary risk and `rewindToMark()` is a safe no-op. However, the parsed prefix
+ * of the Buffer is held in memory until the parse finishes. `flush()` reclaims it by slicing the Buffer and resetting `startIndex` to 0. The same
+ * mark/flush protocol used by `FeedableSource` is implemented here so all reader functions work without source-type conditionals: `markTokenStart()`
+ * — save current read position at the start of a token; `rewindToMark()` — no-op for `BufferSource` (full doc always present); `flush()` — drop the
+ * already-parsed prefix to free memory. Auto-flush fires inside `updateBufferBoundary()` whenever the processed portion exceeds `flushThreshold` and
+ * no token checkpoint is active.
+ *
+ * ### Index units
+ *
+ * `startIndex` is a BYTE offset, not a character offset, on the byte-scan path. Callers report positions through `util.absolutePosition()` and never
+ * interpret the raw index themselves.
+ *
+ * @implements {InputSourceLike}
  */
-export default class BufferSource {
-  buffer: Buffer;
+export default class BufferSource implements InputSourceLike {
+  /**
+   * @description The live buffer, or — when the profile required decoding first — the decoded string. A prefix is trimmed by `flush()` as the document is
+   * consumed.
+   */
+  buffer: Buffer | string;
+  /**
+   * @description Byte offset into {@link buffer} of the next character to read. Rebased downward by `flush()`.
+   */
   startIndex: number;
+  /**
+   * @description Running total of bytes/chars trimmed off the front by `flush()` so far — the other half of `util.absolutePosition()`.
+   */
   _baseOffset: number;
+  /**
+   * @description Whether already-processed bytes are discarded automatically past {@link flushThreshold}.
+   */
   autoFlush: boolean;
+  /**
+   * @description Processed-byte count that triggers an automatic {@link flush}.
+   */
   flushThreshold: number;
+  /**
+   * @description Start of the token currently being read, or `-1` when no token is in progress. Caps how far {@link flush} may trim.
+   */
   _tokenStart: number;
+  /**
+   * @description Reusable scratch array holding flat `[openIdx, closeIdx, …]` quote positions found by the most recent `scanTagExpEnd()`. See `StringSource`'s
+   * copy of this field for the rationale behind a fixed typed array over `Array.push()`.
+   */
   _quotePairs: Int32Array<ArrayBuffer>;
+  /**
+   * @description How many {@link _quotePairs} slots hold valid data.
+   */
   _quotePairsLen: number;
+  /**
+   * @description Whether `_quotePairs` offsets can be reused as indices into the decoded attribute string. `false` for byte-scan + utf8, where a byte offset can
+   * land mid-character once decoded. Set from the profile; see `EncodingProfile.buildProfileForBuffer()`'s doc for the full reasoning.
+   */
   _quotePairsUsable: boolean;
+  /**
+   * @description Resolved encoding name, for diagnostics. Set from the profile's descriptor.
+   */
   encodingName: string;
 
+  // Character-level reads and cursor movement come from the resolved
+  // `ScanStrategy`, assigned onto this instance in the constructor. Declared
+  // with `declare` so they describe the contract without emitting a field
+  // initialiser that would shadow the assignment.
+  declare readCh: () => string | undefined;
+  declare readChAt: (index: number) => string | undefined;
+  declare readStr: (n: number, from?: number) => string;
+  declare matchAhead: (expected: string, caseInsensitive?: boolean) => boolean | null;
+  declare scanTagExpEnd: () => number;
+  declare scanTagExpEndFast: () => number;
+  declare readUpto: (stopStr: string) => string;
+  declare readUptoChar: (stopChar: string) => string;
+  declare readUptoCloseTag: (stopStr: string) => string;
+  declare readFromBuffer: (n: number, shouldUpdate?: boolean) => string | undefined;
+  declare updateBufferBoundary: (n?: number) => void;
+  declare canRead: (n?: number) => boolean;
+
   /**
-   * @param {Buffer} bytesArr — the full XML document as a Node.js Buffer.
-   * @param {object} [options]
-   * @param {boolean} [options.autoFlush=true] — enable automatic flushing. Default is `true`
-   * @param {number} [options.flushThreshold=1024] — flush after this many processed bytes. Default is `1024`
-   * @param {object} [profile] — resolved encoding profile from Encoding/EncodingProfile.js#buildProfileForBuffer.\
-   *   Omit for the zero-config UTF-8 default (used directly by tests/callers that don't go through XMLParser).
+   * @param bytesArr - The full XML document as a Node.js Buffer.
+   * @param options.autoFlush - Enable automatic flushing. Default is `true`
+   * @param options.flushThreshold - Flush after this many processed bytes. Default is `1024`
+   * @param profile - Resolved encoding profile from `Encoding/EncodingProfile.ts#buildProfileForBuffer`. Omit for the zero-config UTF-8 default (used
+   *   directly by tests/callers that don't go through `XMLParser`).
    */
-  constructor(bytesArr: Buffer, options: BufferSourceOptions = {}, profile = null) {
+  constructor(bytesArr: Buffer, options: BufferSourceOptions = {}, profile: EncodingProfile | null = null) {
     // BOM bytes (if any) are detection artifacts, not content — strip them
     // and exclude from the index.
     this.buffer = profile?.bomLength ? bytesArr.subarray(profile.bomLength) : bytesArr;
@@ -52,7 +111,7 @@ export default class BufferSource {
       // so decode the whole buffer once up front and hand off to
       // CharScanStrategy, which then behaves exactly like StringSource.
       const decoder = profile.descriptor.createDecoder();
-      this.buffer = decoder.write(this.buffer) + decoder.end();
+      this.buffer = decoder.write(this.buffer as Buffer) + decoder.end();
     }
     this.startIndex = 0;
     // Running total of bytes/chars trimmed off the front by flush() so far.
@@ -87,23 +146,24 @@ export default class BufferSource {
   // ─── Token-start checkpoint ───────────────────────────────────────────────
 
   /**
-   * @description Save the current read position as the start of a new logical token. For BufferSource this primarily guards flush() from reclaiming data that is
-   * still being read, mirroring the same safety invariant as FeedableSource.
+   * @description Save the current read position as the start of a new logical token. For `BufferSource` this primarily guards `flush()` from reclaiming data that
+   * is still being read, mirroring the same safety invariant as `FeedableSource`.
    */
   markTokenStart() {
     this._tokenStart = this.startIndex;
   }
 
   /**
-   * @description Restore startIndex to the last markTokenStart() position. BufferSource always has the full document available, so a mid-token end of input cannot
-   * occur and this method is a safe no-op. It exists solely so caller code can call rewindToMark() unconditionally without branching on source type.
+   * @description Restore `startIndex` to the last `markTokenStart()` position. `BufferSource` always has the full document available, so a mid-token end of input
+   * cannot occur and this method is a safe no-op. It exists solely so caller code can call `rewindToMark()` unconditionally without branching on
+   * source type.
    */
   rewindToMark() {
     // No-op: the complete document is in memory; no rewind is ever needed.
   }
 
   /**
-   * @description Discard the already-processed prefix of the buffer to free memory. Uses Buffer.subarray() (zero-copy view) rather than Buffer.slice() for
+   * @description Discard the already-processed prefix of the buffer to free memory. Uses `Buffer.subarray()` (zero-copy view) rather than `Buffer.slice()` for
    * clarity, then copies to a fresh Buffer so the original allocation can be GC'd. If a token checkpoint is active, the flush origin is moved back to
    * the checkpoint so the in-progress token is preserved.
    */
@@ -112,7 +172,7 @@ export default class BufferSource {
     if (origin > 0) {
       // Buffer.from(subarray) copies the bytes so the original large Buffer
       // can be released by the GC once no other references remain.
-      this.buffer = Buffer.from(this.buffer.subarray(origin));
+      this.buffer = Buffer.from((this.buffer as Buffer).subarray(origin));
       if (this._tokenStart >= 0) {
         this.startIndex -= origin;
         this._tokenStart = 0;

@@ -1,17 +1,66 @@
 'use strict';
+
+import type { InputSourceLike } from './InputSource/input-source.ts';
+import type { TagExpressionParser } from './internal/parser-types.ts';
+import type { ParsedAttribute } from './internal/parser-types.ts';
+import type { TagExpressionConfig } from './internal/tag-expression.ts';
+
 import { collectRawAttributes } from './AttributeProcessor.js';
 import { ParseError, ErrorCode } from './ParseError.js';
 import { isSpace, absolutePosition } from './util.js';
+
 // Re-export flushAttributes so Xml2JsParser and XmlSpecialTagsReader can
 // continue to import it from here without changing their import lines.
 export { flushAttributes } from './AttributeProcessor.js';
 
+/**
+ * @description A parsed tag expression: everything between `<` and `>` for an opening tag, or between `<?` and `?>` for a processing instruction. Carries two
+ * representations of the same attribute list, each serving a different consumer: `rawAttributes` for the matcher (keyed by the names _as written_,
+ * because path-expression attribute conditions match against written names), and `_parsedAttrs` for the output builder (keyed by processed names).
+ * Both are produced by a single `collectRawAttributes()` pass.
+ */
 export class TagExp {
+  /**
+   * @description Processed tag name.
+   */
+  tagName: string;
+  /**
+   * @description Whether the tag ended with `/>` rather than `>`.
+   */
+  selfClosing: boolean;
+  /**
+   * @description Raw attribute values keyed by the name as written, for `matcher.push()`.
+   */
+  rawAttributes: Record<string, string | true>;
+  /**
+   * @description Number of attributes that survived name processing.
+   */
+  rawAttributesLen: number;
+  /**
+   * @description The attribute expression, kept for the second-pass flush. Reading it is not needed after `collectRawAttributes()`, but retaining it keeps the
+   * offset bookkeeping single-sourced.
+   */
+  _attrsExp: string;
+  /**
+   * @description Absolute document offset of `_attrsExp`'s first character, or `undefined` when the start offset was unavailable. Used to compute each attribute's
+   * absolute position for `addAttribute()`'s meta argument.
+   */
+  _attrsExpStart: number | undefined;
+  /**
+   * @description Total attributes parsed, including any dropped by name processing. Kept for `maxAttributesPerTag` parity.
+   */
+  _rawAttrMatchCount: number;
+  /**
+   * @description Processed-name/value pairs consumed directly by `flushAttributes()`.
+   */
+  _parsedAttrs: ParsedAttribute[];
+
   constructor() {
     this.tagName = '';
     this.selfClosing = false;
     // rawAttributes= Object.create(null),
     this.rawAttributes = {};
+    this.rawAttributesLen = 0;
     this._attrsExp = ''; // stored for two-pass attribute flushing in readOpeningTag
     this._attrsExpStart = undefined; // absolute document offset of _attrsExp's first char
     this._rawAttrMatchCount = 0;
@@ -23,16 +72,15 @@ export class TagExp {
  * @description Try to match an upcoming closing tag against the name we already expect (the tag sitting on top of the stack) without reading it into a string
  * first. Peeks character-by-character (no consumption) — a mismatch, or running out of buffered data, costs nothing to undo since nothing was
  * consumed. Caller falls back to the normal read+validate+compare path in either case, so this never needs its own error handling or chunk-boundary
- * logic. On success, only whitespace is allowed between the name and '>' — matches XML's own grammar for ETag (`</tag ... >`, no attributes
+ * logic. On success, only whitespace is allowed between the name and `>` — matches XML's own grammar for ETag (`</tag ... >`, no attributes
  * permitted).
  *
- * @param {Source} source
- * @param {string} expectedRawName - The raw (pre namespace-stripped) name the currently-open tag was written with.
+ * @param source - Input source.
+ * @param expectedRawName - The raw (pre namespace-stripped) name the currently-open tag was written with.
  *
- * @returns {number} Characters to consume (name + whitespace + '>'), or -1
- * if this isn't a match (or not enough data yet to tell)
+ * @returns Characters to consume (name + whitespace + `>`), or `-1` if this isn't a match (or not enough data yet to tell).
  */
-export function tryMatchClosingTagName(source, expectedRawName) {
+export function tryMatchClosingTagName(source: InputSourceLike, expectedRawName: string): number {
   // false (mismatch) and null (not enough buffered data yet) both fall back
   // to the same slow path below, so both collapse to -1 here.
   if (source.matchAhead(expectedRawName) !== true) return -1;
@@ -49,14 +97,17 @@ export function tryMatchClosingTagName(source, expectedRawName) {
 }
 
 /**
- * @description Read closing tag name. Uses level-1 (inner) mark so flush() knows the safe trim boundary while this reader is in progress. Does NOT overwrite the
- * level-0 outer mark set by parseXml()'s loop, which rewindToMark() always restores to.
+ * @description Read closing tag name. Uses the level-1 (inner) mark so `flush()` knows the safe trim boundary while this reader is in progress. Does NOT overwrite
+ * the level-0 outer mark set by `parseXml()`'s loop, which `rewindToMark()` always restores to.
  *
- * @param {Source} source
+ * @param source - Input source.
  *
- * @returns {string} Tag name
+ * @returns Tag name.
+ *
+ * @throws {ParseError} `UNEXPECTED_END` when the buffer ran out before `>`, with the partial name embedded in the message so autoClose's truncation
+ *   recovery can still report something useful.
  */
-export function readClosingTagName(source) {
+export function readClosingTagName(source: InputSourceLike): string {
   source.markTokenStart(1);
   // Closing tags never carry attributes, so unlike an opening tag's
   // expression there is no quoting to worry about — the very first '>' is
@@ -67,7 +118,7 @@ export function readClosingTagName(source) {
   try {
     const str = source.readUptoChar('>');
     return str.trimEnd();
-  } catch (err) {
+  } catch {
     // Buffer ran out before '>' showed up — the retryable chunk-boundary
     // case (readUptoChar didn't consume anything on failure). Re-throw with
     // whatever was buffered so far in the message so autoClose's truncation
@@ -80,13 +131,15 @@ export function readClosingTagName(source) {
 
 /**
  * @description Read an XML opening tag expression and return a tag descriptor. Handles normal tags — not comments, CDATA, or DOCTYPE. Example input (from source,
- * after '<'): `tag attr='some"' attr2=">" bool>` Uses level-1 (inner) mark — see readClosingTagName for rationale.
+ * after `<`): `tag attr='some"' attr2=">" bool` Uses the level-1 (inner) mark — see `readClosingTagName()` for rationale.
  *
- * @param {object} parser - Xml2JsParser instance.
+ * @param parser - Parser context.
  *
- * @returns {{ tagName; selfClosing; rawAttributes; _attrsExp }}
+ * @returns The parsed tag expression.
+ *
+ * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary mid-tag, `INVALID_TAG_NAME` when the name fails XML's `QName` production.
  */
-export function readTagExp(parser) {
+export function readTagExp(parser: TagExpressionParser): TagExp {
   parser.source.markTokenStart(1);
   // Absolute document offset where `exp` (tag name onward, right after '<')
   // begins — captured before any reads so buildTagExpObj can compute each
@@ -134,18 +187,20 @@ export function readTagExp(parser) {
 }
 
 /**
- * @description Read a processing-instruction tag expression (<?name attrs?>). Uses level-1 (inner) mark — see readClosingTagName for rationale.
+ * @description Read a processing-instruction tag expression (`<?name attrs?>`). Uses the level-1 (inner) mark — see `readClosingTagName()` for rationale.
  *
- * @param {object} parser
+ * @param parser - Parser context.
  *
- * @returns {{ tagName; selfClosing; rawAttributes; _attrsExp }}
+ * @returns The parsed tag expression.
+ *
+ * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary mid-PI-tag, `UNCLOSED_QUOTE` when `?>` is found inside an unterminated quoted value.
  */
-export function readPiExp(parser) {
+export function readPiExp(parser: TagExpressionParser): TagExp {
   parser.source.markTokenStart(1);
   const expStart = absolutePosition(parser.source);
   let inSingleQuotes = false;
   let inDoubleQuotes = false;
-  let i;
+  let i: number;
   let EOE = false;
 
   for (i = 0; parser.source.canRead(i); i++) {
@@ -188,20 +243,29 @@ export function readPiExp(parser) {
 /**
  * @description Parse a raw tag expression string into a structured tag descriptor.
  *
- * @param {string} exp - Everything between '<' and '>' (exclusive)
- * @param {object} parser
- * @param {number} [expStart] - Absolute document offset where `exp` begins (i.e. right after '<' or '<?'). Used to compute each attribute's absolute
- *   document position (tagExp._attrsExpStart) for addAttribute()'s meta arg. Optional so callers that don't have/need it can omit it — attribute
- *   position metadata is simply unavailable in that case, not an error.
- * @param {number[]} [quotePairs] - Flat [openIdx, closeIdx, ...] list from scanTagExpEnd(), offsets relative to `exp`'s start. Passed through to
- *   collectRawAttributes so parseAttributes() can skip re-scanning for quotes. Undefined when unavailable/unsafe for this source or call site
- *   (readPiExp never supplies one) — collectRawAttributes falls back to its own scan in that case.
- * @param {number} [quotePairsLen=0] - How many entries in `quotePairs` are valid (it's a reused fixed-capacity array, not sized to this tag). Default
- *   is `0`
+ * @param exp - Everything between `<` and `>` (exclusive).
+ * @param parser - Parser context.
+ * @param expStart - Absolute document offset where `exp` begins (i.e. right after `<` or `<?`). Used to compute each attribute's absolute document
+ *   position (`tagExp._attrsExpStart`) for `addAttribute()`'s meta arg. Optional so callers that don't have/need it can omit it — attribute position
+ *   metadata is simply unavailable in that case, not an error.
+ * @param forceToReadAttrs - Read attributes even when the expression carries none. Set for PI tags, whose whole payload is attributes.
+ * @param quotePairs - Flat `[openIdx, closeIdx, …]` list from `scanTagExpEnd()`, offsets relative to `exp`'s start. Passed through to
+ *   `collectRawAttributes()` so `parseAttributes()` can skip re-scanning for quotes. Undefined when unavailable/unsafe for this source or call site
+ *   (`readPiExp()` never supplies one) — `collectRawAttributes()` falls back to its own scan in that case.
+ * @param quotePairsLen - How many entries in `quotePairs` are valid (it's a reused fixed-capacity array, not sized to this tag).
  *
- * @returns {{ tagName; selfClosing; rawAttributes; _attrsExp; _attrsExpStart }}
+ * @returns The populated tag expression.
+ *
+ * @throws {ParseError} `INVALID_TAG_NAME` when the name fails XML's `QName` production, plus anything the attribute pass throws.
  */
-function buildTagExpObj(exp, parser, expStart, forceToReadAttrs = false, quotePairs, quotePairsLen = 0) {
+function buildTagExpObj(
+  exp: string,
+  parser: TagExpressionParser,
+  expStart: number | undefined,
+  forceToReadAttrs: boolean = false,
+  quotePairs?: Int32Array,
+  quotePairsLen: number = 0
+): TagExp {
   const tagExp = new TagExp();
 
   const expLen = exp.length;
@@ -214,7 +278,7 @@ function buildTagExpObj(exp, parser, expStart, forceToReadAttrs = false, quotePa
   // Separate tag name from attribute expression
   let attrsExp = '';
   let i = 0;
-  let attrsLocalOffset; // exp-relative offset where attrsExp begins — rebases quotePairs
+  let attrsLocalOffset: number | undefined; // exp-relative offset where attrsExp begins — rebases quotePairs
 
   for (; i < exp.length; i++) {
     const c = exp[i];
@@ -251,3 +315,7 @@ function buildTagExpObj(exp, parser, expStart, forceToReadAttrs = false, quotePa
   // console.log(tagExp)
   return tagExp;
 }
+
+// Re-exported so callers of `normalizeTagEntry` can name the config shape
+// without reaching into `internal/`.
+export type { TagExpressionConfig };

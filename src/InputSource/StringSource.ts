@@ -9,31 +9,57 @@ import { scanTagExpEnd, scanTagExpEndFast } from './scanTagExpEnd.js';
  *
  * ### Memory reclamation
  *
- * Unlike FeedableSource, the full document is available from the start, so there is no chunk-boundary risk and rewindToMark() is a safe no-op.
- * However, the parsed prefix of the string is still held in memory until the parse finishes. flush() reclaims that prefix by slicing the buffer and
- * resetting startIndex to 0. The same mark/flush protocol used by FeedableSource is implemented here so all reader functions (readTagExp,
- * readClosingTagName, readCdata, etc.) work without any source-type conditionals: MarkTokenStart() — save the current read position at the start of a
- * token rewindToMark() — no-op for StringSource (full doc always present) flush() — drop the already-parsed prefix to free memory. Auto-flush fires
- * inside updateBufferBoundary() whenever the processed portion exceeds flushThreshold and no token checkpoint is active. Position reporting is
- * index-only (absolute character offset from document start) — no line/column tracking. That bookkeeping used to run on every character and every
- * bulk-read span for a field most callers never read; dropping it is a straight speed win. A caller that wants line/column can derive it from `index`
- * plus the original document text.
+ * Unlike `FeedableSource`, the full document is available from the start, so there is no chunk-boundary risk and `rewindToMark()` is a safe no-op.
+ * However, the parsed prefix of the string is still held in memory until the parse finishes. `flush()` reclaims that prefix by slicing the buffer and
+ * resetting `startIndex` to 0. The same mark/flush protocol used by `FeedableSource` is implemented here so all reader functions (`readTagExp`,
+ * `readClosingTagName`, `readCdata`, etc.) work without any source-type conditionals: `markTokenStart()` — save the current read position at the
+ * start of a token; `rewindToMark()` — a no-op, since the full document is always present; `flush()` — drop the already-parsed prefix to free memory.
+ * Auto-flush fires inside `updateBufferBoundary()` whenever the processed portion exceeds `flushThreshold` and no token checkpoint is active.
+ * Position reporting is index-only (absolute character offset from document start) — no line/column tracking. That bookkeeping used to run on every
+ * character and every bulk-read span for a field most callers never read; dropping it is a straight speed win. A caller that wants line/column can
+ * derive it from `index` plus the original document text.
  */
 export default class StringSource {
+  /**
+   * @description The live buffer. A prefix is trimmed off the front by `flush()` as the document is consumed.
+   */
   buffer: string;
+  /**
+   * @description Offset into {@link buffer} of the next character to read. Rebased downward by `flush()`.
+   */
   startIndex: number = 0;
+  /**
+   * @description Whether already-processed characters are discarded automatically past {@link flushThreshold}.
+   */
   autoFlush: boolean;
+  /**
+   * @description Processed-character count that triggers an automatic {@link flush}.
+   */
   flushThreshold: number;
+  /**
+   * @description Running total of characters trimmed off the front so far — the other half of `util.absolutePosition()`.
+   */
   _baseOffset: number;
+  /**
+   * @description Two-level mark stack matching `FeedableSource`'s API. `[0]` is the outer mark (`parseXml` loop), `[1]` the inner mark (readers). `-1` means "not
+   * set" for that level.
+   */
   _marks: [number, number];
+  /**
+   * @description Reusable scratch array holding flat `[openIdx, closeIdx, …]` quote positions found by the most recent `scanTagExpEnd()`. Fixed-size typed array
+   * plus a manually-tracked length, NOT `Array.push()` — `push()` was measured to cost more than the per-character quote re-scan it was meant to
+   * replace (bounds/growth checks on every call add up across thousands of tags). Plain indexed writes with a local counter avoid that entirely.
+   */
   _quotePairs: Int32Array<ArrayBuffer>;
+  /**
+   * @description How many {@link _quotePairs} slots hold valid data — not `_quotePairs.length`, which is always the full capacity.
+   */
   _quotePairsLen: number;
 
   /**
-   * @param {string} str — the full XML document string.
-   * @param {object} [options]
-   * @param {boolean} [options.autoFlush=true] — enable automatic flushing. Default is `true`
-   * @param {number} [options.flushThreshold=1024] — flush after this many processed chars. Default is `1024`
+   * @param str - The full XML document string.
+   * @param options.autoFlush - Enable automatic flushing. Default is `true`
+   * @param options.flushThreshold - Flush after this many processed chars. Default is `1024`
    */
   constructor(str: string, options: BufferSourceOptions = {}) {
     this.buffer = str;
@@ -49,8 +75,6 @@ export default class StringSource {
     this.flushThreshold = options.flushThreshold ?? 1024;
 
     // Two-level mark stack matching FeedableSource's API.
-    // _marks[0] = outer mark (parseXml loop), _marks[1] = inner mark (readers).
-    // -1 means "not set" for that level.
     this._marks = [-1, -1];
 
     // Reused across every scanTagExpEnd() call, never reallocated. Holds
@@ -69,27 +93,25 @@ export default class StringSource {
   // ─── Token-start checkpoint ───────────────────────────────────────────────
 
   /**
-   * @description Save the current read position into the two-level mark stack. Mirrors FeedableSource's two-level API so all reader functions work identically
-   * regardless of source type: Level 0 (default) — outer mark, set by parseXml()'s main loop. level 1 — inner mark, set by individual reader
-   * functions. For StringSource the distinction only matters for flush() boundary calculations — rewindToMark() is always a no-op here.
-   *
-   * @param {0 | 1} [level=0] Default is `0`
+   * @description Save the current read position into the two-level mark stack. Mirrors `FeedableSource`'s two-level API so all reader functions work identically
+   * regardless of source type: level 0 (default) is the outer mark set by `parseXml()`'s main loop; level 1 is the inner mark set by individual
+   * reader functions. For `StringSource` the distinction only matters for `flush()` boundary calculations — `rewindToMark()` is always a no-op here.
    */
   markTokenStart(level: 0 | 1 = 0) {
     this._marks[level] = this.startIndex;
   }
 
   /**
-   * @description Restore startIndex to the last markTokenStart() position. StringSource always has the full document available, so a mid-token end of input cannot
-   * occur and this method is a safe no-op. It exists solely so caller code (XMLParser.feed / parseXml) can call rewindToMark() unconditionally
-   * without branching on source type.
+   * @description Restore `startIndex` to the last `markTokenStart()` position. `StringSource` always has the full document available, so a mid-token end of input
+   * cannot occur and this method is a safe no-op. It exists solely so caller code (`XMLParser.feed` / `parseXml`) can call `rewindToMark()`
+   * unconditionally without branching on source type.
    */
   rewindToMark() {
     // No-op: the complete document is in memory; no rewind is ever needed.
   }
 
   /**
-   * @description Clear both mark slots (mirrors FeedableSource.clearMark).
+   * @description Clear both mark slots (mirrors `FeedableSource.clearMark`).
    */
   clearMark() {
     this._marks[0] = -1;
@@ -97,8 +119,8 @@ export default class StringSource {
   }
 
   /**
-   * @description Discard the already-processed prefix of the buffer to free memory. The flush origin is the minimum of all active mark positions so that any
-   * in-progress token (at either mark level) is preserved in the buffer. If no marks are active, the origin is startIndex itself.
+   * @description Discard the already-processed prefix of the buffer. The flush origin is the minimum of all active mark positions so that any in-progress token
+   * (at either mark level) is preserved in the buffer. If no marks are active, the origin is `startIndex` itself.
    */
   flush() {
     let origin = this.startIndex;
@@ -137,12 +159,12 @@ export default class StringSource {
    * what to do with a match — this never consumes. Follow a `true` result with `updateBufferBoundary(expected.length)` (or more, if something like
    * trailing whitespace should also be consumed).
    *
-   * @param {string} expected - Literal to match against, already in the case matchAhead should compare against when caseInsensitive is true (e.g.
-   *   pass "system", not "SYSTEM", together with caseInsensitive=true)
-   * @param {boolean} [caseInsensitive=false] Default is `false`
+   * @param expected - Literal to match against, already in the case `caseInsensitive` compares against (e.g. pass `"system"`, not `"SYSTEM"`,
+   *   together with `caseInsensitive: true`)
+   * @param caseInsensitive - Lowercase both sides before comparing. Default is `false`
    *
-   * @returns {boolean | null} True on full match, false on a definite mismatch, null if the buffer runs out before enough characters are available to
-   *   decide either way (treat like any other not-enough-data-yet case — same handling as scanTagExpEnd's -1)
+   * @returns `true` on full match, `false` on a definite mismatch, `null` if the buffer runs out before enough characters are available to decide
+   *   either way (treat like any other not-enough-data-yet case — same handling as `scanTagExpEnd`'s `-1`)
    */
   matchAhead(expected: string, caseInsensitive: boolean = false): boolean | null {
     const len = expected.length;
@@ -186,9 +208,7 @@ export default class StringSource {
    * @description Single-character variant of readUpto — faster because there is no inner match loop. Reads until `stopChar` is found, consumes it, and returns the
    * text before it.
    *
-   * @param {string} stopChar Exactly one character.
-   *
-   * @returns {string}
+   * @param stopChar Exactly one character.
    */
   readUptoChar(stopChar: string): string {
     const i = this.buffer.indexOf(stopChar, this.startIndex);
@@ -253,8 +273,6 @@ export default class StringSource {
    * @description Advance the read cursor by n characters. Triggers an automatic flush of already-processed data when autoFlush is enabled, the processed portion
    * has grown past flushThreshold, and no token checkpoint is currently active (a flush while a checkpoint is live would invalidate the saved
    * position).
-   *
-   * @param {number} [n=1] Default is `1`
    */
   updateBufferBoundary(n: number = 1) {
     this.startIndex += n;
@@ -271,8 +289,6 @@ export default class StringSource {
   /**
    * @description Returns true when there is at least one character available at or after the given offset (relative to startIndex). Mirrors FeedableSource's
    * formula so all three sources answer the same question the same way.
-   *
-   * @param {number} [n=0] Default is `0`
    */
   canRead(n: number = 0) {
     return this.startIndex + n < this.buffer.length;

@@ -1,17 +1,48 @@
+import type { ExpressionOptions } from 'path-expression-matcher';
+
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { Expression, ExpressionSet } from 'path-expression-matcher';
+
+import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
+import type { TagExpressionConfig } from './internal/tag-expression.ts';
+import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, X2jOptions } from './options.ts';
+import type { ConfigurableExpressionCtor } from './path-expression-matcher.d.ts';
 
 import { ParseError, ErrorCode } from './ParseError.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
 
-const defaultOnDangerousProperty = name => {
+/**
+ * @description `Expression`'s published declaration stops at two constructor parameters, so the three-argument form below — pattern, options, config — would be a
+ * `TS2554` at every construction site. Aliasing the constructor once keeps the cast in a single documented place.
+ */
+const createExpression = Expression as unknown as ConfigurableExpressionCtor;
+
+/**
+ * @description The default output builder factory, adapted to the structural contract the parser drives. `CompactBuilderFactory` already implements the right
+ * shape at runtime, but `@nodable/compact-builder`'s published typings declare `onStopNode()` and `onExit()` as taking `{ name, line, col, index }`
+ * while FXP reports positions index-only and never produces `line` / `col` (see `BufferSource`'s doc on why line/column tracking was dropped).
+ * Nominal compatibility is therefore unattainable without changing the dependency, so the adaptation is done once, here, where it can be explained —
+ * rather than at every builder call site.
+ */
+const DefaultOutputBuilderFactory = CompactBuilderFactory as unknown as new (options?: unknown) => OutputBuilderFactoryLike;
+
+/**
+ * @description Default rename applied to a dangerous (but not prototype-polluting) property name. Anything not on the list is returned unchanged, so this is safe
+ * to call for every name in the document.
+ */
+const defaultOnDangerousProperty = (name: string): string => {
   if (DANGEROUS_PROPERTY_NAMES.includes(name)) {
     return '__' + name;
   }
   return name;
 };
 
-export const defaultOptions = {
+/**
+ * @description Every option, with its default. `buildOptions()` deep-clones this, merges the caller's options over it, then normalizes the derived fields.
+ * Documented per field where the reasoning isn't obvious from the code; the comments that were purely historical (why an option exists at all) are
+ * kept, because they are the only record of why the default is what it is.
+ */
+export const defaultOptions: ResolvedOptions = {
   // --- skip group ---
   // Controls which node types are excluded from output
   skip: {
@@ -23,6 +54,7 @@ export const defaultOptions = {
     nsPrefix: false, // Strip namespace prefixes (e.g. ns:tag → tag)
     tags: [], // Tag paths to skip entirely — content is silently dropped from output
     whitespaceText: true, // addValue() of a builder would not be called if text is only whitespaces
+    tagsSet: new ExpressionSet(), // populated by buildOptions(); empty here so the object is a complete ResolvedOptions
   },
 
   // --- nameFor group ---
@@ -53,6 +85,7 @@ export const defaultOptions = {
   tags: {
     unpaired: [], // Tags that never have a closing tag (e.g. br, img, hr)
     stopNodes: [], // Tag paths whose content is captured raw without parsing
+    stopNodesSet: new ExpressionSet(), // populated by buildOptions(); empty here so the object is a complete ResolvedOptions
   },
 
   // --- security ---
@@ -158,12 +191,13 @@ export const defaultOptions = {
   // The parse call returns the partial-but-consistent output as normal.
   // No error is thrown.
   //
-  // Default: null (feature disabled)
+  // An explicit `null` from the caller means "no predicate"; the default here
+  // is the always-false one so the hot path never tests for null.
   exitIf: () => false,
 
   //onStopNode(tagDetail, rawContent, matcher)
   // --- output ---
-  OutputBuilder: null, //TODO: accept lower case
+  OutputBuilder: null as unknown as OutputBuilderFactoryLike, //TODO: accept lower case; replaced by a fresh factory below when unset
 
   // --- decoding ---
   // Controls how raw bytes (Buffer/Uint8Array input to parse()/parseBytesArr(),
@@ -174,23 +208,28 @@ export const defaultOptions = {
   //              neither is present. Set explicitly (e.g. 'utf8', 'utf16le',
   //              'latin1', 'ascii', or a custom-registered name) to skip
   //              detection entirely.
-  //              NOTE: streaming inputs (feed()/parseStream()) do not yet
-  //              support 'auto' detection — see docs/16-encoding.md — and
-  //              fall back to utf8 the same way they always have.
   //
   //   customDecoders — { name: descriptor } map merged into the encoding
   //                    registry before resolution, for encodings FXP doesn't
   //                    ship natively (e.g. Shift_JIS via iconv-lite). See
   //                    docs/16-encoding.md for the descriptor shape.
   //
-  decoding: { encoding: 'auto', customDecoders: null },
+  decoding: { encoding: 'auto', customDecoders: null, _registry: null as unknown as ResolvedOptions['decoding']['_registry'] }, // _registry set by XMLParser
+
+  _nameCache: { tags: new Map(), attrs: new Map() },
 };
 
 // All names that should never appear as property keys
 const ALL_RESERVED = new Set([...criticalProperties, ...DANGEROUS_PROPERTY_NAMES]);
 export { ALL_RESERVED as RESERVED_JS_NAMES };
 
-function validatePropertyName(value, optionName) {
+/**
+ * @description Reject an option value that would become a reserved JavaScript property key in the output object. Silently ignored for anything that isn't a
+ * non-empty string, so an absent option (`undefined`) never trips it.
+ *
+ * @throws {ParseError} `SECURITY_RESERVED_OPTION` when the value is a reserved name.
+ */
+function validatePropertyName(value: unknown, optionName: string): void {
   if (typeof value !== 'string' || value === '') return;
   if (ALL_RESERVED.has(value)) {
     throw new ParseError(
@@ -200,7 +239,18 @@ function validatePropertyName(value, optionName) {
   }
 }
 
-export const buildOptions = function (options) {
+/**
+ * @description Validate, merge, and normalize the caller's options into the {@link ResolvedOptions} the parser reads. Three things happen here that the parser must
+ * not have to do per-document: security-sensitive values are rejected, every default is filled in, and stop-node / skip-tag patterns are compiled
+ * once into sealed `ExpressionSet`s.
+ *
+ * @param options - Caller options. Omit for pure defaults.
+ *
+ * @returns A fresh options object. Never the same reference as `defaultOptions`, and never shared between parsers.
+ *
+ * @throws {ParseError} `SECURITY_RESERVED_OPTION`, `INVALID_INPUT` for a malformed `limits`, `exitIf`, or stop-node entry.
+ */
+export const buildOptions = function (options?: X2jOptions | null): ResolvedOptions {
   // Validate security-sensitive option values BEFORE merging
   if (options) {
     if (options.nameFor?.text) validatePropertyName(options.nameFor.text, 'nameFor.text');
@@ -232,14 +282,14 @@ export const buildOptions = function (options) {
     }
   }
 
-  const finalOptions = deepClone(defaultOptions);
+  const finalOptions = deepClone(defaultOptions) as ResolvedOptions;
 
   if (options) {
-    copyProperties(finalOptions, options);
+    copyProperties(finalOptions as unknown as Record<string, unknown>, options as unknown as Record<string, unknown>);
   }
 
   if (!finalOptions.OutputBuilder) {
-    finalOptions.OutputBuilder = new CompactBuilderFactory();
+    finalOptions.OutputBuilder = new DefaultOutputBuilderFactory();
   }
 
   // Normalize stopNodes and skip.tags entries into Expression objects with config embedded
@@ -259,6 +309,9 @@ export const buildOptions = function (options) {
   //
   // `nested` defaults to false; `skipEnclosures` defaults to [].
   // The two flags are fully independent — any combination is valid.
+  //
+  // Normalizing every form into one shape here is what lets the parser's hot
+  // path be a single findMatch() followed by `.data` — no per-entry branch.
   if (Array.isArray(finalOptions.tags?.stopNodes)) {
     const stopSet = new ExpressionSet();
     finalOptions.tags.stopNodes = finalOptions.tags.stopNodes.map(entry => normalizeTagEntry(entry, 'stopNodes', stopSet));
@@ -296,14 +349,14 @@ export const buildOptions = function (options) {
 const HTML_VOID_ELEMENTS = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
 
 /**
- * @description Normalise the raw `autoClose` option value into either null (disabled) or a fully-resolved options object.
+ * @description Normalise the raw `autoClose` option value into either `null` (disabled) or a fully-resolved options object.
  *
- * @param {null | string | object} raw - Value supplied by the user.
- * @param {object} opts - The already-merged final options (mutated for html preset)
+ * @param raw - Value supplied by the user.
+ * @param opts - The already-merged final options. Mutated in place for the `'html'` preset, which appends the HTML void elements to `tags.unpaired`.
  *
- * @returns {null | object}
+ * @returns A fully-resolved options object, or `null` when recovery is disabled.
  */
-function resolveAutoClose(raw, opts) {
+function resolveAutoClose(raw: AutoCloseInput, opts: ResolvedOptions): AutoCloseOptions | null {
   if (!raw) return null;
 
   if (raw === 'html') {
@@ -317,7 +370,7 @@ function resolveAutoClose(raw, opts) {
 
   if (typeof raw === 'string') {
     // e.g. autoClose: 'closeAll' — treat as shorthand for onEof
-    return { onEof: raw, onMismatch: 'throw', collectErrors: false };
+    return { onEof: raw as AutoCloseOptions['onEof'], onMismatch: 'throw', collectErrors: false };
   }
 
   if (typeof raw === 'object') {
@@ -328,18 +381,26 @@ function resolveAutoClose(raw, opts) {
 }
 
 /**
- * @description Normalize one entry from `tags.stopNodes` or `skip.tags` into an Expression whose `.data` carries `{ nested, skipEnclosures }`, and register it in
- * `set`. Accepted forms: string → bare pattern, defaults applied Expression instance → re-wrapped with defaults { expression: string|Expression,
- * nested?, skipEnclosures? }
+ * @description Normalize one entry from `tags.stopNodes` or `skip.tags` into an `Expression` whose `.data` carries `{ nested, skipEnclosures }`, and register it
+ * in `set`. Accepted forms: a plain string pattern, a pre-compiled `Expression` (re-wrapped with the defaults, keeping any config it already
+ * carried), or a `{ expression, nested?, skipEnclosures? }` object whose `expression` may be either a string or an `Expression`.
  *
- * @param {string | Expression | object} entry
- * @param {string} optionName - Used in error messages ("stopNodes" or "skip.tags")
- * @param {ExpressionSet} set - The set to register the resulting Expression into.
+ * @param entry - The caller's entry, in any accepted form.
+ * @param optionName - Used in error messages (`'stopNodes'` or `'skip.tags'`).
+ * @param set - The set to register the resulting expression into.
  *
- * @returns {Expression}
+ * @returns The compiled expression.
+ *
+ * @throws {ParseError} `INVALID_INPUT` for an empty pattern or an unrecognised entry form.
  */
-function normalizeTagEntry(entry, optionName, set) {
-  let pattern, nested, skipEnclosures;
+function normalizeTagEntry(
+  entry: string | Expression | { expression: string | Expression; nested?: boolean; skipEnclosures?: TagExpressionConfig['skipEnclosures'] },
+  optionName: string,
+  set: ExpressionSet
+): Expression {
+  let pattern: string;
+  let nested: boolean;
+  let skipEnclosures: TagExpressionConfig['skipEnclosures'];
 
   if (typeof entry === 'string') {
     if (entry.length === 0) throw new ParseError(`${optionName} expression cannot be empty`, ErrorCode.INVALID_INPUT);
@@ -370,44 +431,56 @@ function normalizeTagEntry(entry, optionName, set) {
     );
   }
 
-  const expr = new Expression(pattern, {}, { nested, skipEnclosures });
+  const expr = new createExpression(pattern, {} satisfies ExpressionOptions, { nested, skipEnclosures });
   set.add(expr);
   return expr;
 }
 
-function deepClone(obj) {
+/**
+ * @description Structural deep clone for plain options data. Functions and `RegExp` are shared rather than copied, and `Expression` instances are returned as-is
+ * because they are immutable and carry compiled pattern data. Everything else is rebuilt recursively, which is what makes `copyProperties` below able
+ * to mutate a nested group in place without touching the caller's object.
+ */
+function deepClone(obj: unknown): unknown {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(deepClone);
   if (obj instanceof RegExp) return obj; // ← guard
   if (obj instanceof Expression) return obj; // ← guard — Expression instances are immutable
-  const clone = {};
+  const clone: Record<string, unknown> = {};
   for (const key of Object.keys(obj)) {
-    clone[key] = typeof obj[key] === 'function' ? obj[key] : deepClone(obj[key]);
+    const value = (obj as Record<string, unknown>)[key];
+    clone[key] = typeof value === 'function' ? value : deepClone(value);
   }
   return clone;
 }
 
-function copyProperties(target, source) {
+/**
+ * @description Recursively merge `source` over `target`, one level of nesting at a time. The hand-rolled walk is deliberate: it must copy functions by reference
+ * (a builder factory or a user callback is not cloneable), and it must refuse `__proto__` / `constructor` / `prototype` as keys, since options come
+ * from user code and the merge target is a plain object.
+ */
+function copyProperties(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const key of Object.keys(source)) {
     // Guard against prototype pollution via option keys
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
 
+    const value = source[key];
     if (key === 'OutputBuilder') {
-      target[key] = source[key];
-    } else if (typeof source[key] === 'function') {
-      target[key] = source[key];
-    } else if (source[key] instanceof RegExp) {
+      target[key] = value;
+    } else if (typeof value === 'function') {
+      target[key] = value;
+    } else if (value instanceof RegExp) {
       // ← guard, before the generic object check
-      target[key] = source[key];
-    } else if (Array.isArray(source[key])) {
-      target[key] = source[key];
-    } else if (typeof source[key] === 'object' && source[key] !== null) {
+      target[key] = value;
+    } else if (Array.isArray(value)) {
+      target[key] = value;
+    } else if (typeof value === 'object' && value !== null) {
       if (typeof target[key] !== 'object' || target[key] === null) {
         target[key] = {};
       }
-      copyProperties(target[key], source[key]);
+      copyProperties(target[key] as Record<string, unknown>, value as Record<string, unknown>);
     } else {
-      target[key] = source[key];
+      target[key] = value;
     }
   }
 }

@@ -1,3 +1,17 @@
+import type { BaseOutputBuilderFactory } from '@nodable/base-output-builder';
+import type { Expression, ExpressionSet } from 'path-expression-matcher';
+
+import type EncodingRegistry from './Encoding/EncodingRegistry.ts';
+import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
+import type { Enclosure } from './internal/tag-expression.ts';
+
+// The runtime error class and its code table live in `ParseError.ts`; re-exported
+// here so option documentation and error documentation can be read together
+// without the two drifting apart.
+export { ErrorCode, ParseError } from './ParseError.ts';
+export type { ErrorCodeValue } from './ParseError.ts';
+export type { Enclosure } from './internal/tag-expression.ts';
+
 /**
  * @description Object form of a skip-tag entry — allows per-node control of nested depth tracking and enclosure skipping when scanning for the closing tag.
  *
@@ -10,9 +24,9 @@
  */
 export interface SkipTagEntry {
   /**
-   * @description Path expression (same syntax as string skip-tag entries).
+   * @description Path expression (same syntax as string skip-tag entries), or a pre-compiled `Expression` from `path-expression-matcher`.
    */
-  expression: string;
+  expression: string | Expression;
   /**
    * @description When true, nested same-name open tags are tracked and the skip ends only when the outermost closing tag is found. Default: false.
    */
@@ -112,18 +126,9 @@ export interface AttributeOptions {
   suffix?: string;
 }
 
-/**
- * @description An open/close pair that defines a region the stop-node processor should skip when scanning for the closing tag. Anything between `open` and `close`
- * is treated as opaque text — closing-tag detection and depth tracking are suspended until `close` is found.
- *
- * @example
- *   { open: '<!--', close: '-->' }   // XML comment
- *   { open: '"',    close: '"'  }    // double-quoted string
- */
-export interface Enclosure {
-  open: string;
-  close: string;
-}
+// `Enclosure` is declared in ./internal/tag-expression.ts and re-exported at the
+// top of this file, because the path-expression-matcher augmentation needs it
+// too and importing the other way round would be circular.
 
 /**
  * @description Object form of a stop-node entry — allows per-node control of which enclosures the processor should skip when scanning for the closing tag.
@@ -143,9 +148,9 @@ export interface Enclosure {
  */
 export interface StopNodeEntry {
   /**
-   * @description Path expression (same syntax as string stop-node entries).
+   * @description Path expression (same syntax as string stop-node entries), or a pre-compiled `Expression` from `path-expression-matcher`.
    */
-  expression: string;
+  expression: string | Expression;
   /**
    * @description When true, nested same-name open tags are tracked and the stop node ends only when the outermost closing tag is found. Default: false.
    */
@@ -206,100 +211,10 @@ export interface DoctypeOptions {
 
 // ─── Error handling ────────────────────────────────────────────────────────────
 
-/**
- * @description All error codes thrown by the parser. Use with `instanceof ParseError` and `err.code === ErrorCode.XXX` for precise error handling without
- * string-matching against messages.
- */
-export declare const ErrorCode: {
-  // Input type errors
-  readonly INVALID_INPUT: 'INVALID_INPUT';
-  readonly INVALID_STREAM: 'INVALID_STREAM';
-
-  // Streaming / feed API
-  readonly ALREADY_STREAMING: 'ALREADY_STREAMING';
-  readonly NOT_STREAMING: 'NOT_STREAMING';
-  readonly DATA_MUST_BE_STRING: 'DATA_MUST_BE_STRING';
-
-  // Tag structure
-  readonly UNEXPECTED_END: 'UNEXPECTED_END';
-  readonly UNEXPECTED_CLOSE_TAG: 'UNEXPECTED_CLOSE_TAG';
-  readonly MISMATCHED_CLOSE_TAG: 'MISMATCHED_CLOSE_TAG';
-  readonly UNEXPECTED_TRAILING_DATA: 'UNEXPECTED_TRAILING_DATA';
-  readonly INVALID_TAG: 'INVALID_TAG';
-  readonly UNCLOSED_QUOTE: 'UNCLOSED_QUOTE';
-
-  // Namespace
-  readonly MULTIPLE_NAMESPACES: 'MULTIPLE_NAMESPACES';
-
-  // Conformance (illegal chars, attribute value rules)
-  readonly ILLEGAL_CHARACTER: 'ILLEGAL_CHARACTER';
-  readonly DUPLICATE_ATTRIBUTE: 'DUPLICATE_ATTRIBUTE';
-  readonly UNQUOTED_ATTRIBUTE_VALUE: 'UNQUOTED_ATTRIBUTE_VALUE';
-  readonly BOOLEAN_ATTRIBUTE_REJECTED: 'BOOLEAN_ATTRIBUTE_REJECTED';
-
-  // Security
-  readonly SECURITY_PROTOTYPE_POLLUTION: 'SECURITY_PROTOTYPE_POLLUTION';
-  readonly SECURITY_RESERVED_OPTION: 'SECURITY_RESERVED_OPTION';
-  readonly SECURITY_RESTRICTED_NAME: 'SECURITY_RESTRICTED_NAME';
-
-  // Limits (DoS prevention)
-  readonly LIMIT_MAX_NESTED_TAGS: 'LIMIT_MAX_NESTED_TAGS';
-  readonly LIMIT_MAX_ATTRIBUTES: 'LIMIT_MAX_ATTRIBUTES';
-
-  // Entity limits
-  readonly ENTITY_MAX_COUNT: 'ENTITY_MAX_COUNT';
-  readonly ENTITY_MAX_SIZE: 'ENTITY_MAX_SIZE';
-  readonly ENTITY_MAX_EXPANSIONS: 'ENTITY_MAX_EXPANSIONS';
-  readonly ENTITY_MAX_EXPANDED_LENGTH: 'ENTITY_MAX_EXPANDED_LENGTH';
-
-  // Entity registration
-  readonly ENTITY_INVALID_KEY: 'ENTITY_INVALID_KEY';
-  readonly ENTITY_INVALID_VALUE: 'ENTITY_INVALID_VALUE';
-
-  // Encoding
-  readonly UNSUPPORTED_ENCODING: 'UNSUPPORTED_ENCODING';
-  readonly INVALID_DECODER: 'INVALID_DECODER';
-  readonly ENCODING_MISMATCH: 'ENCODING_MISMATCH';
-};
-
-export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
-
-/**
- * @description Structured error class thrown by all parser error paths. Always catch with `instanceof ParseError` to distinguish library errors from unexpected
- * runtime errors:
- *
- * ```ts
- * try {
- *   parser.parse(xml);
- * } catch (e) {
- *   if (e instanceof ParseError) {
- *     console.error(e.code, e.index, e.message);
- *   } else {
- *     throw e; // unexpected runtime error
- *   }
- * }
- * ```
- */
-export declare class ParseError extends Error {
-  readonly name: 'ParseError';
-
-  /**
-   * @description Machine-readable error code. Always one of the `ErrorCode` values.
-   */
-  readonly code: ErrorCodeValue;
-
-  /**
-   * @description 0-based character offset from the start of the document. `undefined` when position information is not available for this error type.
-   */
-  readonly index: number | undefined;
-
-  constructor(message: string, code: ErrorCodeValue, position?: { index?: number });
-
-  /**
-   * @description Returns a formatted string: `ParseError [CODE] at index N: message`
-   */
-  toString(): string;
-}
+// `ErrorCode`, `ErrorCodeValue` and `ParseError` are re-exported from
+// `./ParseError.ts` at the top of this file — that module owns the runtime
+// class and the frozen code table, so documenting them in a second place could
+// only ever drift.
 
 // ─── Limits ────────────────────────────────────────────────────────────────────
 
@@ -370,9 +285,45 @@ export interface EncodingDecoder {
 }
 
 /**
+ * @description Fully-resolved autoClose behaviour. Two independent decisions:
+ *
+ * - `onEof` — what to do when the document ends with tags still open.
+ * - `onMismatch` — what to do when a closing tag doesn't match the tag on top of the stack. `collectErrors` turns the recoveries that would otherwise
+ *   be silent into a readable list on `XMLParser.getParseErrors()`. Produced from the much shorter {@link AutoCloseInput} by
+ *   `OptionsBuilder.resolveAutoClose()`, so the parser and `AutoCloseHandler` never see a partially-specified object.
+ */
+export interface AutoCloseOptions {
+  /**
+   * @description `'throw'` (default) — reject the document. `'closeAll'` — silently close every remaining open tag, innermost first.
+   */
+  onEof: 'throw' | 'closeAll';
+  /**
+   * @description `'throw'` (default) — reject the document. `'recover'` — pop the stack toward the nearest matching opener; discard the tag when there is none.
+   * `'discard'` — ignore the bad closing tag.
+   */
+  onMismatch: 'throw' | 'recover' | 'discard';
+  /**
+   * @description Record every recovery in `XMLParser.getParseErrors()`. Default: `false`.
+   */
+  collectErrors: boolean;
+}
+
+/**
+ * @description What a caller may pass as the `autoClose` option. `null` (or omitted) disables the feature entirely and makes any malformed input a hard error.
+ * `'html'` is a preset: `onEof: 'closeAll'`, `onMismatch: 'discard'`, `collectErrors: true`, plus the standard HTML void elements appended to
+ * `tags.unpaired`.
+ */
+export type AutoCloseInput = 'html' | 'closeAll' | AutoCloseOptions | null;
+
+/**
  * @description Descriptor for a custom encoding, registered via `decoding.customDecoders`.
  */
 export interface EncodingDescriptor {
+  /**
+   * @description Canonical name this encoding is resolved and reported under. Lowercased on registration; also how it is matched against a `<?xml encoding="…"?>`
+   * declaration.
+   */
+  name: string;
   /**
    * @description Factory returning a fresh stateful decoder for one parse session.
    */
@@ -387,9 +338,10 @@ export interface EncodingDescriptor {
    */
   variableWidth?: boolean;
   /**
-   * @description Byte-order-mark signature for auto-detection, if this encoding has one.
+   * @description Byte-order-mark signature for auto-detection. Omit (or pass `null`) for an encoding that has none — it is then never auto-detected, only selected
+   * by name.
    */
-  bomBytes?: Buffer;
+  bomBytes?: Buffer | null;
   aliases?: string[];
 }
 
@@ -487,9 +439,21 @@ export interface X2jOptions {
 
   // --- output builder ---
   /**
-   * @description Pluggable output builder instance. Default: CompactObjBuilder.
+   * @description Pluggable output builder
+   * factoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactory. Default:
+   * `CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory`.
+   * Pluggable output builder
+   * factoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactoryfactory. Default:
+   * `CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory``CompactBuilderFactory`.
    */
   OutputBuilder?: BaseOutputBuilderFactory;
+
+  // --- autoClose (malformed-input recovery) ---
+  /**
+   * @description Behaviour when the document is malformed — tags left open at EOF, or a closing tag that doesn't match. `null` (default) disables recovery
+   * entirely: any malformed input is a hard `ParseError`. `'html'` enables the standard lenient HTML preset. See {@link AutoCloseInput}.
+   */
+  autoClose?: AutoCloseInput;
 
   /**
    * @description Callback fired by `NodeTreeBuilder` and `CompactObjBuilder` whenever a stop node is fully collected, before the raw content is added to the
@@ -534,4 +498,124 @@ export interface X2jOptions {
    * @returns `true` to stop parsing now; any other value to continue.
    */
   exitIf?: ((matcher: any) => boolean) | null;
+}
+
+// ─── Resolved options ───────────────────────────────────────────────────────────
+
+/**
+ * @description The fully-resolved option object `buildOptions()` produces and every parser reads. Distinct from {@link X2jOptions} in three ways, each of which
+ * removes work from the hot path:
+ *
+ * 1. **No optionality.** Every branch is present with its default already applied, so no reader needs `?.` or a fallback value.
+ * 2. **Stop-node / skip-tag expressions are pre-compiled.** `Expression` instances with their `{ nested, skipEnclosures }` config attached as `data`,
+ *    sealed into an `ExpressionSet` for O(1) indexed lookup at each opening tag.
+ * 3. **Internal-only fields are present** — the per-instance encoding registry and the shared name cache, neither of which a caller should set.
+ */
+export interface ResolvedOptions {
+  /**
+   * @description Resolved node-type filters, defaults applied.
+   */
+  skip: Omit<SkipOptions, 'tags'> & {
+    /**
+     * @description Compiled `skip.tags` expressions. Replaces the string/object entry forms callers passed in.
+     */
+    tags: Expression[];
+    /**
+     * @description The same expressions, sealed into an `ExpressionSet` so the parser's per-tag check is an O(1) indexed lookup rather than an O(E) scan.
+     */
+    tagsSet: ExpressionSet;
+  };
+  /**
+   * @description Resolved special-node property names, defaults applied.
+   */
+  nameFor: Required<NameForOptions>;
+  /**
+   * @description Resolved attribute behaviour, defaults applied.
+   */
+  attributes: Required<AttributeOptions>;
+  /**
+   * @description Resolved tag behaviour, defaults applied.
+   */
+  tags: Omit<TagOptions, 'stopNodes'> & {
+    /**
+     * @description Compiled `tags.stopNodes` expressions. Replaces the string/object entry forms callers passed in.
+     */
+    stopNodes: Expression[];
+    /**
+     * @description The same expressions, sealed into an `ExpressionSet` for O(1) indexed lookup at each opening tag.
+     */
+    stopNodesSet: ExpressionSet;
+  };
+  /**
+   * @description Resolved DOCTYPE collection settings, defaults applied.
+   */
+  doctypeOptions: Required<DoctypeOptions>;
+  /**
+   * @description Whether a name colliding with a `nameFor.*` / `attributes.groupBy` value is rejected.
+   */
+  strictReservedNames: boolean;
+  /**
+   * @description Renames dangerous-but-not-critical property names. Never `null` after resolution.
+   */
+  onDangerousProperty: (name: string) => string;
+  /**
+   * @description Whether the dangerous-property rename step runs. The critical-property check runs either way.
+   */
+  sanitizeNames: boolean;
+  /**
+   * @description Path-expression filter list. Reserved; not yet applied by the parser.
+   */
+  only: string[];
+  /**
+   * @description Path-expression select list. Reserved; not yet applied by the parser.
+   */
+  select?: string[];
+  /**
+   * @description Resolved structural limits. `null` for a limit means unlimited.
+   */
+  limits: Required<LimitsOptions>;
+  /**
+   * @description Resolved feed/stream buffer settings, defaults applied.
+   */
+  feedable: Required<FeedableOptions>;
+  /**
+   * @description Resolved exitIf predicate. Never `null` after resolution — an unset predicate is `() => false`.
+   */
+  exitIf: (matcher: any) => boolean;
+  /**
+   * @description Output builder factory, defaults applied. `getInstance()` is called once per parse run.
+   */
+  OutputBuilder: OutputBuilderFactoryLike;
+  /**
+   * @description Resolved decoding settings, defaults applied.
+   */
+  decoding: Omit<DecodingOptions, 'encoding' | 'customDecoders'> & {
+    /**
+     * @description Resolved encoding name — never `'auto'` once the registry is in place.
+     */
+    encoding: NonNullable<DecodingOptions['encoding']>;
+    /**
+     * @description Custom decoders merged into {@link _registry}, or `null` when none were supplied.
+     */
+    customDecoders: Record<string, EncodingDescriptor> | null;
+    /**
+     * @description Per-instance registry, built by `XMLParser` from `decoding.customDecoders` when any are supplied, otherwise the shared default. Scoping it to
+     * the instance is what stops a custom decoder registered on one parser from leaking into every other parser in the process. Internal — set by
+     * `XMLParser`, never by a caller.
+     */
+    _registry: EncodingRegistry;
+  };
+  /**
+   * @description Resolved autoClose behaviour, or `null` when the feature is disabled.
+   */
+  autoClose: AutoCloseOptions | null;
+  /**
+   * @description Optional user callback fired when a stop node's raw content has been collected. Read by the output builder, not by the parser.
+   */
+  onStopNode?: X2jOptions['onStopNode'];
+  /**
+   * @description Shared tag/attribute name cache. Held on the options object rather than on a parser so it survives across `parse()` calls. Internal — set by
+   * `XMLParser`, never by a caller.
+   */
+  _nameCache: NameCache;
 }
