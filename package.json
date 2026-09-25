@@ -1,7 +1,7 @@
 {
   "name": "@endevops/flexible-xml-parser-effect",
   "version": "0.0.0",
-  "description": "Fork of the fastest and fully customizable XML parser in pure JS with fully customizable ouput, based on (@nodable/flexible-xml-parser (f51ecad55027aebae1b89740479e9ec4cbdd6e0f))",
+  "description": "Fork of the fastest and fully customizable XML parser in pure JS with fully customizable output, based on (@nodable/flexible-xml-parser (f51ecad55027aebae1b89740479e9ec4cbdd6e0f))",
   "keywords": [
     "buffer",
     "bytes",
