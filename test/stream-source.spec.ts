@@ -1,6 +1,8 @@
 import { Readable } from 'stream';
 import { describe, it, expect } from 'vite-plus/test';
 
+import type { OutputBuilderFactoryLike } from '#/internal/parser-types.ts';
+
 import { parseDoc, endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
@@ -10,7 +12,7 @@ import XMLParser from '#/XMLParser.ts';
  * @description Build a Node.js Readable stream from an array of string chunks. Each chunk is pushed in a separate tick so the parser receives them one at a time —
  * identical to how fs.createReadStream delivers data.
  */
-function makeStream(chunks) {
+function makeStream(chunks: (string | Buffer)[]): Readable {
   return new Readable({
     read() {
       const chunk = chunks.shift();
@@ -26,8 +28,8 @@ function makeStream(chunks) {
 /**
  * @description Split a string into chunks of exactly `size` characters.
  */
-function chunkString(str, size) {
-  const out = [];
+function chunkString(str: string, size: number): string[] {
+  const out: string[] = [];
   for (let i = 0; i < str.length; i += size) {
     out.push(str.slice(i, i + size));
   }
@@ -72,9 +74,13 @@ describe('parseStream — basic', () => {
   });
 
   it('throws synchronously for non-stream input', () => {
-    expect(() => new XMLParser().parseStream('not a stream')).toThrow();
-    expect(() => new XMLParser().parseStream(null)).toThrow();
-    expect(() => new XMLParser().parseStream({})).toThrow();
+    // Deliberately not a Readable: parseStream is specified to reject these
+    // synchronously with INVALID_STREAM, so the inputs are cast past the type
+    // to prove the runtime check rather than the compiler does the rejecting.
+    const notAStream = 'not a stream' as unknown as NodeJS.ReadableStream;
+    expect(() => new XMLParser().parseStream(notAStream)).toThrow();
+    expect(() => new XMLParser().parseStream(null as unknown as NodeJS.ReadableStream)).toThrow();
+    expect(() => new XMLParser().parseStream({} as unknown as NodeJS.ReadableStream)).toThrow();
   });
 });
 
@@ -166,12 +172,12 @@ describe('parseStream — parser options', () => {
 
   it('uses a custom OutputBuilder', async () => {
     // Simple builder that just counts tags
-    const counts = {};
+    const counts: Record<string, number> = {};
     const CustomBuilder = {
       getInstance() {
         return {
           registeredValParsers: {},
-          addElement(tag) {
+          addElement(tag: { name: string }) {
             counts[tag.name] = (counts[tag.name] || 0) + 1;
           },
           closeElement() {},
@@ -191,7 +197,7 @@ describe('parseStream — parser options', () => {
     };
 
     const xml = '<root><item/><item/><item/></root>';
-    const result = await streamDoc(new XMLParser({ OutputBuilder: CustomBuilder }), makeStream([xml]));
+    const result = await streamDoc(new XMLParser({ OutputBuilder: CustomBuilder as unknown as OutputBuilderFactoryLike }), makeStream([xml]));
     expect(result.item).toBe(3);
   });
 });
@@ -241,7 +247,7 @@ describe('feed()/end() — regression', () => {
   it('works with whole-document feed', () => {
     const parser = new XMLParser();
     parser.feed('<root><tag>value</tag></root>');
-    expect(parser.end().root.tag).toBe('value');
+    expect(endDoc(parser).root.tag).toBe('value');
   });
 
   it('accumulates multiple chunks before parsing', () => {
@@ -258,14 +264,14 @@ describe('feed()/end() — regression', () => {
     const parser = new XMLParser({ skip: { declaration: true } });
     parser.feed('<ro');
     parser.feed('ot/>');
-    expect(parser.end().root).toBe('');
+    expect(endDoc(parser).root).toBe('');
   });
 
   it('handles chunk boundary in CDATA', () => {
     const parser = new XMLParser({ skip: { declaration: true } });
     parser.feed('<root><![CDATA[hel');
     parser.feed('lo]]></root>');
-    expect(parser.end().root).toBe('hello');
+    expect(endDoc(parser).root).toBe('hello');
   });
 
   it('is chainable', () => {
@@ -287,10 +293,10 @@ describe('feed()/end() — regression', () => {
   it('allows a fresh feed/end session after end()', () => {
     const parser = new XMLParser();
     parser.feed('<a>1</a>');
-    expect(parser.end().a).toBe(1);
+    expect(endDoc(parser).a).toBe(1);
     // Second session on the same parser instance
     parser.feed('<b>2</b>');
-    expect(parser.end().b).toBe(2);
+    expect(endDoc(parser).b).toBe(2);
   });
 });
 
@@ -317,7 +323,7 @@ describe('feedable options', () => {
     const parser = new XMLParser({ feedable: { autoFlush: false } });
     const xml = '<root><v>ok</v></root>';
     parser.feed(xml);
-    expect(parser.end().root.v).toBe('ok');
+    expect(endDoc(parser).root.v).toBe('ok');
   });
 
   it('feedable options are forwarded to parseStream', async () => {

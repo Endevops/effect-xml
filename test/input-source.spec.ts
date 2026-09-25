@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import BufferSource from '#/InputSource/BufferSource.ts';
 import FeedableSource from '#/InputSource/FeedableSource.ts';
-import { parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
+import { parseDoc, bytesDoc, endDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 describe('Input Sources', function () {
@@ -27,7 +27,7 @@ describe('Input Sources', function () {
     const xmlString = '<root><tag>test</tag></root>';
     const uint8Array = new Uint8Array(Buffer.from(xmlString));
     const parser = new XMLParser();
-    const result = parser.parseBytesArr(uint8Array);
+    const result = bytesDoc(parser, uint8Array);
 
     expect(result.root.tag).toBe('test');
   });
@@ -138,10 +138,10 @@ describe('FeedableSource autoFlush', function () {
         const chunk = item.slice(i, i + chunkSize);
         parser.feed(chunk);
         totalFed += chunk.length;
-        peakBuffer = Math.max(peakBuffer, parser._feedSource.buffer.length);
+        peakBuffer = Math.max(peakBuffer, parser.getFeedBufferLength() as number);
       }
     }
-    const bufferLenBeforeEnd = parser._feedSource.buffer.length;
+    const bufferLenBeforeEnd = parser.getFeedBufferLength() as number;
     parser.end();
 
     // With autoFlush working, the live buffer should stay well below the

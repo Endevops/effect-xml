@@ -19,11 +19,11 @@ describe('FeedableSource flush architecture', () => {
     let sawShrinkBelowThreshold = false;
     for (let i = 0; i < xml.length; i += 30) {
       parser.feed(xml.slice(i, i + 30));
-      if (parser._feedSource.buffer.length < 200) sawShrinkBelowThreshold = true;
+      if ((parser.getFeedBufferLength() as number) < 200) sawShrinkBelowThreshold = true;
     }
 
     expect(sawShrinkBelowThreshold).toBe(true);
-    expect(parser._feedSource.buffer.length).toBeLessThan(xml.length);
+    expect(parser.getFeedBufferLength() as number).toBeLessThan(xml.length);
   });
 
   it('keeps peak buffer size bounded (not ~= full document) on a large document', () => {
@@ -40,7 +40,7 @@ describe('FeedableSource flush architecture', () => {
     let peakBuffer = 0;
     for (let i = 0; i < xml.length; i += 4096) {
       parser.feed(xml.slice(i, i + 4096));
-      peakBuffer = Math.max(peakBuffer, parser._feedSource.buffer.length);
+      peakBuffer = Math.max(peakBuffer, parser.getFeedBufferLength() as number);
     }
     parser.end();
 
@@ -134,11 +134,11 @@ describe('FeedableSource _batchThreshold reset', () => {
     // — didAdvance would wrongly read true. Only a stall before any '>' at
     // all guarantees zero net advance.
     const parser = new XMLParser({ feedable: { bufferSize: 8, flushThreshold: 1024 } });
-    const baseline = parser._batchThreshold;
+    const baseline = parser.getFeedBatchThreshold();
 
     parser.feed('<root id="12345678901234567890');
 
-    expect(parser._batchThreshold).toBeGreaterThan(baseline);
+    expect(parser.getFeedBatchThreshold()).toBeGreaterThan(baseline);
   });
 
   it('resets _batchThreshold back to options.feedable.bufferSize once progress resumes', () => {
@@ -147,12 +147,12 @@ describe('FeedableSource _batchThreshold reset', () => {
 
     // Stall on the very first tag (zero net advance for this feed call).
     parser.feed('<root id="12345');
-    expect(parser._batchThreshold).toBeGreaterThan(bufferSize);
+    expect(parser.getFeedBatchThreshold()).toBeGreaterThan(bufferSize);
 
     // Now supply enough to let the parser actually advance past <root ...>.
     parser.feed('67890"><item>text</item></root>');
 
-    expect(parser._batchThreshold).toBe(bufferSize);
+    expect(parser.getFeedBatchThreshold()).toBe(bufferSize);
   });
 
   it('does not let _batchThreshold escalate toward maxBufferSize across many alternating stall/recover cycles', () => {
@@ -168,10 +168,10 @@ describe('FeedableSource _batchThreshold reset', () => {
     }
     xml += '</root>';
 
-    let maxObservedThreshold = parser._batchThreshold;
+    let maxObservedThreshold = parser.getFeedBatchThreshold();
     for (let i = 0; i < xml.length; i += 3) {
       parser.feed(xml.slice(i, i + 3));
-      maxObservedThreshold = Math.max(maxObservedThreshold, parser._batchThreshold);
+      maxObservedThreshold = Math.max(maxObservedThreshold, parser.getFeedBatchThreshold());
     }
     const result = endDoc(parser);
 
@@ -222,10 +222,10 @@ describe('FeedableSource _batchThreshold reset', () => {
     parser.feed('<root id="12345');
     parser.feed('67890123456789012345');
     parser.feed('67890');
-    expect(parser._batchThreshold).toBeGreaterThan(bufferSize);
+    expect(parser.getFeedBatchThreshold()).toBeGreaterThan(bufferSize);
 
     parser.feed('"><item>text</item></root>');
 
-    expect(parser._batchThreshold).toBe(bufferSize);
+    expect(parser.getFeedBatchThreshold()).toBe(bufferSize);
   });
 });

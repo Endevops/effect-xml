@@ -304,6 +304,19 @@ export function endDoc(parser: XMLParser): ParsedNode {
 }
 
 /**
+ * @description Parse raw bytes and return the tree the tests traverse. The {@link parseDoc} counterpart for `parseBytesArr()`, which returns `unknown` for the same
+ * reason.
+ *
+ * @param parser - The parser to use.
+ * @param bytes - The document, as bytes.
+ *
+ * @returns The parsed tree.
+ */
+export function bytesDoc(parser: XMLParser, bytes: Uint8Array | ArrayBufferView): ParsedNode {
+  return parser.parseBytesArr(bytes) as ParsedNode;
+}
+
+/**
  * @description Await a {@link XMLParser.parseStream} call and return the tree the tests traverse.
  *
  * @param parser - The parser to stream into.

@@ -369,6 +369,31 @@ export default class XMLParser {
     return this._lastParseErrors ?? [];
   }
 
+  /**
+   * @description Characters currently retained in the incremental-parse buffer, or `null` when no `feed()` session is open.
+   *
+   * The live buffer length is the honest measure of how much memory a streaming parse is holding: the `autoFlush` / `flushThreshold` pair exists precisely
+   * to keep this proportional to the largest incomplete token rather than the whole document, and this is the number that shows whether it is doing its
+   * job. Also useful as a general diagnostic for callers streaming very large documents.
+   *
+   * Reading it is safe at any time; it does not disturb the parser.
+   */
+  getFeedBufferLength(): number | null {
+    return this._feedSource === null ? null : this._feedSource.buffer.length;
+  }
+
+  /**
+   * @description The pending-byte count at which the next `feed()` triggers a parse pass.
+   *
+   * Starts at `feedable.bufferSize` and doubles on every pass that makes no progress — the heuristic that stops a parser stuck mid-token from re-running
+   * `parseXml()` on every single byte until substantially more data arrives. Exposed for diagnostics: a threshold that has grown a long way past the
+   * configured value means the parser is waiting on more input before it will try again, which is the behaviour you want, but surprising if you did not
+   * know about it.
+   */
+  getFeedBatchThreshold(): number {
+    return this._batchThreshold;
+  }
+
   // ─── Private helpers ──────────────────────────────────────────────────────
 
   /**

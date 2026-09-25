@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
 
+import type { BufferSourceOptions } from '#/InputSource/buffer-source-options.ts';
+
 import { buildProfileForBuffer } from '#/Encoding/EncodingProfile.ts';
 import BufferSource from '#/InputSource/BufferSource.ts';
 import FeedableSource from '#/InputSource/FeedableSource.ts';
@@ -40,7 +42,9 @@ describe('BufferSource + EncodingProfile wiring', () => {
     const buf = Buffer.from('hi', 'utf16le'); // bytes look nothing like utf8 "hi"
     const profile = buildProfileForBuffer(buf, { encoding: 'utf16le' });
 
-    const wrongSlot = new BufferSource(buf, profile); // profile treated as "options"
+    // Deliberately in the wrong slot: the test is about what happens when a
+    // profile lands where `options` is expected, so it is cast past the type.
+    const wrongSlot = new BufferSource(buf, profile as unknown as BufferSourceOptions); // profile treated as "options"
     let out1 = '';
     while (wrongSlot.canRead()) out1 += wrongSlot.readCh();
     expect(out1).not.toBe('hi'); // silently wrong -- decoded as utf8, not utf16le
@@ -88,7 +92,8 @@ describe('canRead(n) formula — all sources agree, relative to current position
     const xml = 'café'; // 4 chars, 5 bytes
     const buf = Buffer.from(xml, 'utf8');
     const profile = buildProfileForBuffer(buf, { encoding: 'utf8' });
-    const source = new BufferSource(buf, profile);
+    // Same deliberate misplacement as above, for the same reason.
+    const source = new BufferSource(buf, profile as unknown as BufferSourceOptions);
 
     // 1. Read the whole buffer char-by-char and join → should be "café"
     const chars = [];

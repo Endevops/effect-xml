@@ -1,9 +1,8 @@
 import { StringDecoder } from 'node:string_decoder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { buildProfileForBuffer } from '#/Encoding/EncodingProfile.ts';
-import BufferSource from '#/InputSource/BufferSource.ts';
-import { parseDoc, endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
+import { ParseError } from '#/ParseError.ts';
+import { parseDoc, bytesDoc, endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 describe('Encoding support', () => {
@@ -11,7 +10,7 @@ describe('Encoding support', () => {
     const xml = `<root name="Rahul🎉"><city>København</city></root>`;
     const buf = Buffer.from(xml, 'utf8');
     const parser = new XMLParser({ skip: { attributes: false } });
-    const result = parser.parseBytesArr(buf);
+    const result = bytesDoc(parser, buf);
     expect(result.root['@_name']).toBe('Rahul🎉');
     expect(result.root.city).toBe('København');
   });
@@ -28,14 +27,14 @@ describe('Encoding support', () => {
     const xml = Buffer.from(`<root>hello</root>`, 'utf8');
     const buf = Buffer.concat([bom, xml]);
     const parser = new XMLParser();
-    const result = parser.parseBytesArr(buf);
+    const result = bytesDoc(parser, buf);
     expect(result.root).toBe('hello');
   });
 
   it('auto-detects encoding from the XML declaration when no BOM is present', () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><root>hi</root>`;
     const parser = new XMLParser();
-    const result = parser.parseBytesArr(Buffer.from(xml, 'utf8'));
+    const result = bytesDoc(parser, Buffer.from(xml, 'utf8'));
     expect(result.root).toBe('hi');
   });
 
@@ -44,14 +43,14 @@ describe('Encoding support', () => {
     const decl = Buffer.from(`<?xml version="1.0" encoding="UTF-16"?><root>hi</root>`, 'utf8');
     const buf = Buffer.concat([bom, decl]);
     const parser = new XMLParser();
-    expect(() => parser.parseBytesArr(buf)).toThrowError(/encoding/i);
+    expect(() => bytesDoc(parser, buf)).toThrowError(/encoding/i);
   });
 
   it('decodes explicit utf16le buffers correctly (decode-first CharScanStrategy path)', () => {
     const xml = `<root>hello world</root>`;
     const buf = Buffer.from(xml, 'utf16le');
     const parser = new XMLParser({ decoding: { encoding: 'utf16le' } });
-    const result = parser.parseBytesArr(buf);
+    const result = bytesDoc(parser, buf);
     expect(result.root).toBe('hello world');
   });
 
@@ -60,7 +59,7 @@ describe('Encoding support', () => {
     const xmlBuf = Buffer.from(`<root>hi</root>`, 'utf16le');
     const buf = Buffer.concat([bomBuf, xmlBuf]);
     const parser = new XMLParser();
-    const result = parser.parseBytesArr(buf);
+    const result = bytesDoc(parser, buf);
     expect(result.root).toBe('hi');
   });
 
@@ -70,21 +69,23 @@ describe('Encoding support', () => {
     // bytes) are expected to report indices that differ by exactly the
     // extra byte the accented character takes, not the same corrected
     // "character column" the old line/col system used to produce.
-    const parseAndCatch = xml => {
+    const parseAndCatch = (xml: string): ParseError | null => {
       const parser = new XMLParser();
       try {
-        parser.parseBytesArr(Buffer.from(xml, 'utf8'));
+        bytesDoc(parser, Buffer.from(xml, 'utf8'));
         return null;
       } catch (e) {
-        return e;
+        return e as ParseError;
       }
     };
     const withMultiByte = parseAndCatch(`<root>café</wrong></root>`);
     const withAsciiOnly = parseAndCatch(`<root>cafe</wrong></root>`);
     expect(withMultiByte).not.toBeNull();
     expect(withAsciiOnly).not.toBeNull();
-    expect(withMultiByte.code).toBe(withAsciiOnly.code);
-    expect(withMultiByte.index).toBe(withAsciiOnly.index + 1);
+    // Both documents must fail with the same error; only the reported byte
+    // offset differs, by exactly the one extra byte the accented char takes.
+    expect(withMultiByte!.code).toBe(withAsciiOnly!.code);
+    expect(withMultiByte!.index).toBe(withAsciiOnly!.index! + 1);
   });
 
   it('supports a custom-registered encoding via decoding.customDecoders', () => {
@@ -93,11 +94,11 @@ describe('Encoding support', () => {
     const parser = new XMLParser({
       decoding: {
         encoding: 'my-custom',
-        customDecoders: { 'my-custom': { createDecoder: () => new StringDecoder('latin1'), selfSynchronizing: false } },
+        customDecoders: { 'my-custom': { name: 'my-custom', createDecoder: () => new StringDecoder('latin1'), selfSynchronizing: false } },
       },
     });
     const xml = `<root>hi</root>`;
-    const result = parser.parseBytesArr(Buffer.from(xml, 'latin1'));
+    const result = bytesDoc(parser, Buffer.from(xml, 'latin1'));
     expect(result.root).toBe('hi');
   });
 
@@ -142,7 +143,6 @@ describe('Encoding support', () => {
       // Sanity check that detection resolves and the parser makes progress
       // chunk-by-chunk rather than silently buffering the whole document.
       const parser = new XMLParser();
-      let progressed = false;
       const big = '<root>' + 'x'.repeat(5000) + '</root>';
       const buf = Buffer.from(big, 'utf8');
       const first = buf.subarray(0, 50);
