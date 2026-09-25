@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { X2jOptions } from '#/options.ts';
 
-import XMLParser from '#/XMLParser.ts';
+import XMLParser from '#/xml-parser.ts';
 
 /**
  * @description The three ways a document can be handed to the parser, each of which must produce identical output. The suite runs most behavioural tests across
@@ -86,7 +86,7 @@ export type ResultCallback = (result: ParsedNode) => void;
 
 /**
  * @description Callback that also receives the parser, for tests that inspect `wasExited` or re-parse. Generic in the parser type so a test that supplies an
- * instrumented parser (see `recordingBuilder.ts`) receives that concrete type in the callback rather than the base `XMLParser`, keeping fields like
+ * instrumented parser (see `recording-builder.ts`) receives that concrete type in the callback rather than the base `XMLParser`, keeping fields like
  * `_events` typed all the way through.
  */
 export type ResultWithParserCallback<TParser extends XMLParser = XMLParser> = (result: ParsedNode, parser: TParser) => void;

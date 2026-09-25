@@ -1,4 +1,4 @@
-import FeedableSource from './FeedableSource.js';
+import FeedableSource from './feedable-source.js';
 
 /**
  * @description StreamSource — input source that reads from a Node.js Readable stream. Extends `FeedableSource` so it shares the same buffer management and read

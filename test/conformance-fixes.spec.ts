@@ -3,10 +3,10 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue } from '#/options.ts';
 
-import { ErrorCode, ParseError } from '#/ParseError.ts';
-import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
+import { ErrorCode, ParseError } from '#/parse-error.ts';
+import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
 import { sanitizeContent } from '#/util.ts';
-import XMLParser from '#/XMLParser.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // Builder with no value-parser pipeline at all, so assertions see exactly
 // what the parser core produced (no 'ws' collapsing, no entity decoding).

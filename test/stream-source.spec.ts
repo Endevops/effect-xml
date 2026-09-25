@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike } from '#/internal/parser-types.ts';
 
-import { parseDoc, endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { parseDoc, endDoc, streamDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

@@ -16,9 +16,9 @@ import type { MatcherView } from 'path-expression-matcher';
 import { CompactBuilder, CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, expect } from 'vite-plus/test';
 
-import { asOutputBuilder, makeRecordingParser } from '#/test/helpers/recordingBuilder.ts';
-import { runAcrossAllInputSourcesWithFactory } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { asOutputBuilder, makeRecordingParser } from '#/test/helpers/recording-builder.ts';
+import { runAcrossAllInputSourcesWithFactory } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ══════════════════════════════════════════════════════════════════════════════
 describe("Position metadata — TagDetail.index points at '<'", function () {

@@ -1,7 +1,7 @@
 import type { ParseErrorEntry, ParserState } from './internal/parser-types.ts';
 import type { AutoCloseOptions } from './options.ts';
 
-import { ParseError, ErrorCode } from './ParseError.js';
+import { ParseError, ErrorCode } from './parse-error.js';
 import { absolutePosition } from './util.js';
 
 /**

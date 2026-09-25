@@ -1,17 +1,17 @@
 'use strict';
 
-import type { InputSourceLike } from './InputSource/input-source.ts';
+import type { InputSourceLike } from './input-source/input-source.ts';
 import type { TagExpressionParser } from './internal/parser-types.ts';
 import type { ParsedAttribute } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 
-import { collectRawAttributes } from './AttributeProcessor.js';
-import { ParseError, ErrorCode } from './ParseError.js';
+import { collectRawAttributes } from './attribute-processor.js';
+import { ParseError, ErrorCode } from './parse-error.js';
 import { isSpace, absolutePosition } from './util.js';
 
 // Re-export flushAttributes so Xml2JsParser and XmlSpecialTagsReader can
 // continue to import it from here without changing their import lines.
-export { flushAttributes } from './AttributeProcessor.js';
+export { flushAttributes } from './attribute-processor.js';
 
 /**
  * @description A parsed tag expression: everything between `<` and `>` for an opening tag, or between `<?` and `?>` for a processing instruction. Carries two

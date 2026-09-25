@@ -1,5 +1,8 @@
 node_modules
 
+# build output — declared in package.json `files`, never committed
+dist
+
 # dotenv environment variable files
 .env
 .env.*

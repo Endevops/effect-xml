@@ -4,5 +4,6 @@ export default defineConfig({
   deps: { resolveDepSubpath: true },
   dts: true,
   exports: true,
+  unbundle: true,
   // ...config options
 });

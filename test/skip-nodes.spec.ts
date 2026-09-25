@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { xmlEnclosures, quoteEnclosures } from '#/StopNodeProcessor.ts';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { xmlEnclosures, quoteEnclosures } from '#/stop-node-processor.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic skip tag functionality

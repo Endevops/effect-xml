@@ -1,7 +1,7 @@
 import type { EncodingDescriptor } from '../options.ts';
 
-import { ParseError, ErrorCode } from '../ParseError.ts';
-import { createTextDecoderAdapter, createUtf16BeAdapter } from './TextDecoderAdapter.ts';
+import { ParseError, ErrorCode } from '../parse-error.ts';
+import { createTextDecoderAdapter, createUtf16BeAdapter } from './text-decoder-adapter.ts';
 
 /**
  * @description A descriptor with every optional field filled in, so readers never have to test for `undefined`. `Omit` rather than an intersection: intersecting
@@ -30,7 +30,7 @@ export type ResolvedEncodingDescriptor = Omit<EncodingDescriptor, 'aliases' | 'b
 
 /**
  * @description EncodingRegistry — owns the set of known `EncodingDescriptor`s. A descriptor is a pure data + factory bundle, and this class only stores, validates
- * and resolves them. It knows nothing about scanning strategy — see `ScanStrategy/`, composed together in `EncodingProfile.ts`.
+ * and resolves them. It knows nothing about scanning strategy — see `scan-strategy/`, composed together in `encoding-profile.ts`.
  */
 export default class EncodingRegistry {
   /**

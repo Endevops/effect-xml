@@ -1,14 +1,14 @@
 import type { Expression, ExpressionSet, MatcherView } from 'path-expression-matcher';
 
-import type EncodingRegistry from './Encoding/EncodingRegistry.ts';
+import type EncodingRegistry from './encoding/encoding-registry.ts';
 import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { Enclosure } from './internal/tag-expression.ts';
 
-// The runtime error class and its code table live in `ParseError.ts`; re-exported
+// The runtime error class and its code table live in `parse-error.ts`; re-exported
 // here so option documentation and error documentation can be read together
 // without the two drifting apart.
-export { ErrorCode, ParseError } from './ParseError.ts';
-export type { ErrorCodeValue } from './ParseError.ts';
+export { ErrorCode, ParseError } from './parse-error.ts';
+export type { ErrorCodeValue } from './parse-error.ts';
 export type { Enclosure } from './internal/tag-expression.ts';
 
 /**
@@ -211,7 +211,7 @@ export interface DoctypeOptions {
 // ─── Error handling ────────────────────────────────────────────────────────────
 
 // `ErrorCode`, `ErrorCodeValue` and `ParseError` are re-exported from
-// `./ParseError.ts` at the top of this file — that module owns the runtime
+// `./parse-error.ts` at the top of this file — that module owns the runtime
 // class and the frozen code table, so documenting them in a second place could
 // only ever drift.
 

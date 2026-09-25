@@ -1,6 +1,6 @@
-import type { ByteScanContext, ScanStrategy } from '../../InputSource/input-source.ts';
+import type { ByteScanContext, ScanStrategy } from '../../input-source/input-source.ts';
 
-import { ParseError, ErrorCode } from '../../ParseError.js';
+import { ParseError, ErrorCode } from '../../parse-error.js';
 import { isSpaceCode } from '../../util.js';
 
 /**

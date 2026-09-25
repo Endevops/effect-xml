@@ -1,9 +1,9 @@
 import { Readable } from 'stream';
 import { describe, it, expect } from 'vite-plus/test';
 
-import FeedableSource from '#/InputSource/FeedableSource.ts';
-import { endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import FeedableSource from '#/input-source/feedable-source.ts';
+import { endDoc, streamDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

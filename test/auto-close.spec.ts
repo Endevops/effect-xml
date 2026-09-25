@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { X2jOptions } from '#/options.ts';
 
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Default behaviour — still throws (no regression)

@@ -17,9 +17,9 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, TagDetailLike } from '#/internal/parser-types.ts';
 
-import { asOutputBuilder } from '#/test/helpers/recordingBuilder.ts';
-import { parseDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { asOutputBuilder } from '#/test/helpers/recording-builder.ts';
+import { parseDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 type AnyCompactBuilderCtor = new (

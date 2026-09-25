@@ -1,7 +1,7 @@
-import type { CharScanContext, ScanStrategy } from '../../InputSource/input-source.ts';
+import type { CharScanContext, ScanStrategy } from '../../input-source/input-source.ts';
 
-import { scanTagExpEnd, scanTagExpEndFast } from '../../InputSource/scanTagExpEnd.js';
-import { ParseError, ErrorCode } from '../../ParseError.js';
+import { scanTagExpEnd, scanTagExpEndFast } from '../../input-source/scan-tag-exp-end.js';
+import { ParseError, ErrorCode } from '../../parse-error.js';
 import { isSpace } from '../../util.js';
 
 /**
@@ -50,7 +50,7 @@ export function createCharScanStrategy(): ScanStrategy {
     // Two variants — caller picks once based on skip.attributes, no flag
     // evaluated inside the loop. Always character-indexed (scans an already-
     // decoded string), so quote offsets are always safe for AttributeProcessor
-    // to reuse. See src/InputSource/scanTagExpEnd.js.
+    // to reuse. See src/input-source/scan-tag-exp-end.js.
     scanTagExpEnd,
     scanTagExpEndFast,
 

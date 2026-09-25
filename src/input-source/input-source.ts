@@ -64,7 +64,7 @@ export interface InputSourceLike {
   /**
    * @description Read up to and including `stopStr`, returning the text before it.
    *
-   * @throws {import('../ParseError.ts').ParseError} `UNEXPECTED_END` when `stopStr` is not present.
+   * @throws {import('../parse-error.ts').ParseError} `UNEXPECTED_END` when `stopStr` is not present.
    */
   readUpto(stopStr: string): string;
   /**
@@ -72,7 +72,7 @@ export interface InputSourceLike {
    *
    * @param stopChar - Exactly one character.
    *
-   * @throws {import('../ParseError.ts').ParseError} `UNEXPECTED_END` when `stopChar` is not present.
+   * @throws {import('../parse-error.ts').ParseError} `UNEXPECTED_END` when `stopChar` is not present.
    */
   readUptoChar(stopChar: string): string;
   /**

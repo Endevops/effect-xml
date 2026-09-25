@@ -1,7 +1,7 @@
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Default behaviour — attributes skipped

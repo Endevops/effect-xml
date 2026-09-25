@@ -2,10 +2,10 @@ import { NumberValueParser } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import type { InputSourceType } from '#/test/helpers/testRunner.ts';
+import type { InputSourceType } from '#/test/helpers/test-runner.ts';
 
-import { runAcrossAllInputSources, createInputSource, describeAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { runAcrossAllInputSources, createInputSource, describeAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // Helper: build a parser with a custom NumberValueParser configuration.
 const makeParser = (numOpts = {}, parserOpts = {}) => {

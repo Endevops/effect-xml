@@ -7,7 +7,7 @@ import { CompactBuilder, CompactBuilderFactory } from '@nodable/compact-builder'
 import type { AttributeMeta, CloseMeta, OutputBuilderLike, TagDetailLike, XmlDeclaration } from '#/internal/parser-types.ts';
 import type { X2jOptions } from '#/options.ts';
 
-import XMLParser from '#/XMLParser.ts';
+import XMLParser from '#/xml-parser.ts';
 
 /**
  * @description What a recording builder saw when an element was opened.

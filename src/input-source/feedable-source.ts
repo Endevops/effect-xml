@@ -1,12 +1,12 @@
-import type EncodingRegistry from '../Encoding/EncodingRegistry.ts';
+import type EncodingRegistry from '../encoding/encoding-registry.ts';
 import type { EncodingDecoder, FeedableOptions } from '../options.ts';
 import type { InputSourceLike } from './input-source.ts';
 
-import { sniff } from '../Encoding/EncodingDetector.ts';
-import { createTextDecoderAdapter } from '../Encoding/TextDecoderAdapter.ts';
-import { ParseError, ErrorCode } from '../ParseError.ts';
+import { sniff } from '../encoding/encoding-detector.ts';
+import { createTextDecoderAdapter } from '../encoding/text-decoder-adapter.ts';
+import { ParseError, ErrorCode } from '../parse-error.ts';
 import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.ts';
-import { scanTagExpEnd, scanTagExpEndFast } from './scanTagExpEnd.ts';
+import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 
 // Matches EncodingDetector's own declaration-peek window — bounds how much
 // raw (undecoded) data 'auto' mode ever holds before giving up and resolving
@@ -135,7 +135,7 @@ export default class FeedableSource implements InputSourceLike {
     this.startIndex = 0;
     this.isComplete = false;
     // Running total of characters trimmed off the front by flush() so far.
-    // See StringSource.js's copy of this field / util.js#absolutePosition —
+    // See string-source.js's copy of this field / util.js#absolutePosition —
     // startIndex alone drifts from the true document offset after any flush.
     this._baseOffset = 0;
 
@@ -184,7 +184,7 @@ export default class FeedableSource implements InputSourceLike {
     this._decoder = null;
 
     // Reused across every scanTagExpEnd() call, never reallocated. See
-    // StringSource.js's copy of this field for the full doc (fixed-capacity
+    // string-source.js's copy of this field for the full doc (fixed-capacity
     // typed array + manual length, not push()). Safe across a
     // chunk-boundary rewind: the failed scan's contents are irrelevant the
     // moment the tag is re-scanned from scratch on the next feed().
@@ -263,7 +263,7 @@ export default class FeedableSource implements InputSourceLike {
   }
 
   /**
-   * @description Resolve 'auto' encoding from `_sniffBuffer` (BOM + `<?xml encoding="...">` sniffing, XML 1.0 Appendix F — see `Encoding/EncodingDetector.ts`),
+   * @description Resolve 'auto' encoding from `_sniffBuffer` (BOM + `<?xml encoding="...">` sniffing, XML 1.0 Appendix F — see `encoding/encoding-detector.ts`),
    * build the real decoder, strip any BOM, and return the held bytes ready to be decoded normally by the caller in `feed()`. Runs exactly once per
    * session.
    *
@@ -400,7 +400,7 @@ export default class FeedableSource implements InputSourceLike {
   // here: this buffer is a V8 ConsString/rope built via repeated +=, and
   // charCodeAt would force a full flatten on every access (confirmed O(n^2)
   // memory regression). The shared implementations use bracket access throughout.
-  // See src/InputSource/scanTagExpEnd.js.
+  // See src/input-source/scan-tag-exp-end.js.
   scanTagExpEnd = scanTagExpEnd;
   scanTagExpEndFast = scanTagExpEndFast;
 

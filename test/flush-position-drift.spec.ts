@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { makeRecordingParser } from '#/test/helpers/recordingBuilder.ts';
-import { runAcrossAllInputSourcesWithFactory, endDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { makeRecordingParser } from '#/test/helpers/recording-builder.ts';
+import { runAcrossAllInputSourcesWithFactory, endDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 /**
  * @description Builds a document long enough to cross the default flush threshold.

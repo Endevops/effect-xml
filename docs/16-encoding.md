@@ -148,18 +148,18 @@ FXP has three input sources, and they don't all work the same way underneath:
 So this isn't just a decoder swap — `BufferSource` has two genuinely different
 ways to scan, chosen once per document, not per character.
 
-## Architecture (`src/Encoding/`)
+## Architecture (`src/encoding/`)
 
 ```
-EncodingRegistry.js       — descriptors (utf8/ascii/latin1/utf16le/utf16be by
+encoding-registry.js       — descriptors (utf8/ascii/latin1/utf16le/utf16be by
                              default) + register()/resolve(), fail-fast validated
-EncodingDetector.js       — pure function: sniff(bytes, registry) -> {encoding, bomLength}
-EncodingProfile.js        — the one place that turns "which encoding" into
+encoding-detector.js       — pure function: sniff(bytes, registry) -> {encoding, bomLength}
+encoding-profile.js        — the one place that turns "which encoding" into
                              concrete strategy objects, for BufferSource
-ScanStrategy/
-  ByteScanStrategy.js      — byte-indexed scanning, for self-synchronizing
+scan-strategy/
+  byte-scan-strategy.js      — byte-indexed scanning, for self-synchronizing
                              encodings (utf8/ascii/latin1)
-  CharScanStrategy.js      — char-indexed scanning on an eagerly-decoded
+  char-scan-strategy.js      — char-indexed scanning on an eagerly-decoded
                              string, for everything else (utf16le/be, or a
                              custom encoding that isn't self-synchronizing)
 ```
@@ -212,7 +212,7 @@ text.
 ## Adding a new encoding
 
 ```js
-import EncodingRegistry, { defaultEncodingRegistry } from './src/Encoding/EncodingRegistry.js';
+import EncodingRegistry, { defaultEncodingRegistry } from './src/encoding/encoding-registry.js';
 
 defaultEncodingRegistry.register({
   name: 'shift_jis',
@@ -244,7 +244,7 @@ path) and speed is opt-in, not assumed.
   (readCh/readChAt disagreeing with readStr on multi-byte content) — it's
   covered indirectly by the general encoding specs, but a standalone spec
   would pin it down more precisely if it ever regresses.
-- `readPiExp()` (processing instructions) and `DocTypeReader.js` were
+- `readPiExp()` (processing instructions) and `doc-type-reader.js` were
   investigated as a possible gap and found to already be encoding-safe: both
   only ever call `source.readCh()/.readChAt()/.canRead()`, never index the
   raw buffer directly, so whichever scan strategy `BufferSource` was

@@ -1,12 +1,12 @@
-import type { ScanStrategy } from '../InputSource/input-source.ts';
+import type { ScanStrategy } from '../input-source/input-source.ts';
 import type { DecodingOptions, EncodingDecoder } from '../options.ts';
-import type EncodingRegistry from './EncodingRegistry.js';
-import type { ResolvedEncodingDescriptor } from './EncodingRegistry.js';
+import type EncodingRegistry from './encoding-registry.js';
+import type { ResolvedEncodingDescriptor } from './encoding-registry.js';
 
-import { sniff } from './EncodingDetector.js';
-import { defaultEncodingRegistry } from './EncodingRegistry.js';
-import { createByteScanStrategy, decodeCharAtFixedWidth1, decodeCharAtUtf8 } from './ScanStrategy/ByteScanStrategy.js';
-import { createCharScanStrategy } from './ScanStrategy/CharScanStrategy.js';
+import { sniff } from './encoding-detector.js';
+import { defaultEncodingRegistry } from './encoding-registry.js';
+import { createByteScanStrategy, decodeCharAtFixedWidth1, decodeCharAtUtf8 } from './scan-strategy/byte-scan-strategy.js';
+import { createCharScanStrategy } from './scan-strategy/char-scan-strategy.js';
 
 /**
  * @description Everything `BufferSource` needs to know about an encoding, decided once per parse and then never re-examined. This is the Dependency Inversion

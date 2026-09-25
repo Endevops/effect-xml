@@ -8,7 +8,7 @@
 
 import type { X2jOptions } from '#/options.ts';
 
-import XMLParser from '#/XMLParser.ts';
+import XMLParser from '#/xml-parser.ts';
 
 /**
  * @description Generate a catalog document with `n` items. The generated text is deliberately varied in length and includes attributes of several shapes, so the

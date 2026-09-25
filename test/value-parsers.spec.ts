@@ -3,9 +3,9 @@ import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { COMMON_HTML, CURRENCY } from '@nodable/entities';
 import { describe, it, expect } from 'vite-plus/test';
 
-import EntityParser from '#/test/helpers/CustomEntityParser.ts';
-import { parseDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import EntityParser from '#/test/helpers/custom-entity-parser.ts';
+import { parseDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('Value Parsers', function () {
   // ── Default chain behaviour ───────────────────────────────────────────────

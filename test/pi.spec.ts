@@ -3,9 +3,9 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, XmlDeclaration } from '#/internal/parser-types.ts';
 
-import { asOutputBuilder } from '#/test/helpers/recordingBuilder.ts';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { asOutputBuilder } from '#/test/helpers/recording-builder.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. XML declaration (<?xml ... ?>)
@@ -36,7 +36,7 @@ describe('Processing Instructions — XML declaration', function () {
   );
 
   // NOTE: skip.declaration is currently not working as expected due to a bug
-  // in XmlSpecialTagsReader.js. The tagName returned by readPiExp is "xml"
+  // in xml-special-tags-reader.js. The tagName returned by readPiExp is "xml"
   // (without the leading "?"), so the check `tagExp.tagName === "?xml"` always
   // fails — addDeclaration() is never called, addInstruction("?xml") is always used,
   // and skip.declaration: true has no effect. This test documents the BUG:

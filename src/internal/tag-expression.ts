@@ -17,7 +17,7 @@ export interface Enclosure {
 }
 
 /**
- * @description Payload carried in `Expression.data` for every stop-node and skip-tag expression {@link import('./OptionsBuilder.ts').buildOptions} builds.
+ * @description Payload carried in `Expression.data` for every stop-node and skip-tag expression {@link import('./options-builder.ts').buildOptions} builds.
  * Normalizing every accepted entry form (bare string, bare `Expression`, `{ expression, nested?, skipEnclosures? }` object) into one shape is what
  * lets the parser's hot path be a single `ExpressionSet.findMatch()` followed by `matched.data` — no per-entry branch, no second lookup.
  */

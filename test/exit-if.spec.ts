@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { ExitIfPredicate } from '#/options.ts';
 
-import { runAcrossAllInputSources, parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { runAcrossAllInputSources, parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic exitIf — stop on tag name

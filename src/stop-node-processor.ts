@@ -1,8 +1,8 @@
-import type { InputSourceLike } from './InputSource/input-source.ts';
+import type { InputSourceLike } from './input-source/input-source.ts';
 import type { StopNodeResult } from './internal/parser-types.ts';
 import type { Enclosure } from './internal/tag-expression.ts';
 
-import { ParseError, ErrorCode } from './ParseError.js';
+import { ParseError, ErrorCode } from './parse-error.js';
 import { isSpace, ensureCanRead, absolutePosition } from './util.js';
 
 /**

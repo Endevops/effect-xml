@@ -27,8 +27,7 @@
   "type": "module",
   "imports": {
     "#/*": "./src/*",
-    "#/test/*": "./test/*",
-    "#/assets/*": "./assets/*"
+    "#/test/*": "./test/*"
   },
   "exports": {
     ".": "./dist/index.mjs",

@@ -2,7 +2,7 @@ import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { COMMON_HTML } from '@nodable/entities';
 import { describe, it, expect } from 'vite-plus/test';
 
-import EntityParser from '#/test/helpers/CustomEntityParser.ts';
+import EntityParser from '#/test/helpers/custom-entity-parser.ts';
 import {
   runAcrossAllInputSources,
   runAcrossAllInputSourcesWithException,
@@ -10,8 +10,8 @@ import {
   createInputSource,
   parseDoc,
   INPUT_TYPES,
-} from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+} from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: XML with a DOCTYPE internal subset

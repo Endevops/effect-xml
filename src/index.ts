@@ -1,8 +1,8 @@
 // Main exports
-export { default as XMLParser, default } from './XMLParser.ts';
+export { default as XMLParser, default } from './xml-parser.ts';
 
 // Error handling
-export { ParseError, ErrorCode } from './ParseError.ts';
+export { ParseError, ErrorCode } from './parse-error.ts';
 
 // Stop-node utilities
-export { xmlEnclosures, quoteEnclosures } from './StopNodeProcessor.ts';
+export { xmlEnclosures, quoteEnclosures } from './stop-node-processor.ts';

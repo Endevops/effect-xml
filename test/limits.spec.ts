@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue, LimitsOptions } from '#/options.ts';
 
-import { ParseError, ErrorCode } from '#/ParseError.ts';
-import XMLParser from '#/XMLParser.ts';
+import { ParseError, ErrorCode } from '#/parse-error.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

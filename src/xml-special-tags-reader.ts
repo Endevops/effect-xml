@@ -1,8 +1,8 @@
 import type { TagExpressionParser } from './internal/parser-types.ts';
 
-import { ParseError, ErrorCode } from './ParseError.js';
+import { ParseError, ErrorCode } from './parse-error.js';
 import { expectMatch, errorPositionOf, sanitizeContent } from './util.js';
-import { readPiExp, flushAttributes } from './XmlPartReader.js';
+import { readPiExp, flushAttributes } from './xml-part-reader.js';
 
 /**
  * @description Read a CDATA section. `<![` has already been consumed by the caller. Normalization is unconditional — it applies even under `xml:space="preserve"`.

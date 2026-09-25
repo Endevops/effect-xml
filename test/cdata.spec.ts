@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('CDATA', function () {
   it('should parse CDATA and store it separately when nameFor.cdata is set', function () {

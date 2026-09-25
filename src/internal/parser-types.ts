@@ -1,6 +1,6 @@
 import type { Matcher, MatcherView } from 'path-expression-matcher';
 
-import type { InputSourceLike } from '../InputSource/input-source.ts';
+import type { InputSourceLike } from '../input-source/input-source.ts';
 import type { ResolvedOptions } from '../options.ts';
 import type { TagExpressionConfig } from './tag-expression.ts';
 
@@ -193,7 +193,7 @@ export interface OutputBuilderFactoryLike {
 }
 
 /**
- * @description Live mutable parser state handed to {@link import('../AutoCloseHandler.ts').AutoCloseHandler}. A live view, not a copy: the handler drives the
+ * @description Live mutable parser state handed to {@link import('../auto-close-handler.ts').AutoCloseHandler}. A live view, not a copy: the handler drives the
  * parser through the same methods the parser itself uses (`addTextNode()`, `popTag()`, `currentTagDetail = …`) so the parser stack and the output
  * builder stay in sync. Every member forwards to the parser instead of duplicating its state, which is why this is an interface with accessors rather
  * than a plain data bag.
@@ -238,7 +238,7 @@ export interface ParserState {
 }
 
 /**
- * @description Result of one {@link import('../StopNodeProcessor.ts').StopNodeProcessor} collection pass.
+ * @description Result of one {@link import('../stop-node-processor.ts').StopNodeProcessor} collection pass.
  */
 export interface StopNodeResult {
   /**

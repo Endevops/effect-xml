@@ -1,8 +1,8 @@
 'use strict';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, parseDoc, endDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { runAcrossAllInputSources, parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 // Regression coverage for the tag-end scanner sharing quote positions with
 // AttributeProcessor.parseAttributes() instead of re-scanning for quotes.

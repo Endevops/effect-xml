@@ -5,13 +5,13 @@ import { Buffer } from 'node:buffer';
 import type { ParseErrorEntry } from './internal/parser-types.ts';
 import type { ResolvedOptions, X2jOptions } from './options.ts';
 
-import EncodingRegistry, { defaultEncodingRegistry } from './Encoding/EncodingRegistry.js';
-import FeedableSource from './InputSource/FeedableSource.js';
-import StreamSource from './InputSource/StreamSource.js';
-import { buildOptions } from './OptionsBuilder.js';
-import { ParseError, ErrorCode } from './ParseError.js';
+import EncodingRegistry, { defaultEncodingRegistry } from './encoding/encoding-registry.js';
+import FeedableSource from './input-source/feedable-source.js';
+import StreamSource from './input-source/stream-source.js';
+import { buildOptions } from './options-builder.js';
+import { ParseError, ErrorCode } from './parse-error.js';
 import { absolutePosition } from './util.js';
-import Xml2JsParser from './Xml2JsParser.js';
+import Xml2JsParser from './xml2-js-parser.js';
 
 /**
  * @description XMLParser — the public entry point. Owns the resolved options, the shared name cache, and the three ways to get a document in: one-shot ({@link
@@ -87,7 +87,7 @@ export default class XMLParser {
     // every call while `this.options` is passed by reference to all of them.
     // This lets repeated names skip re-validation/re-sanitization across
     // separate parse() calls on the same XMLParser instance, not just within
-    // one document. See Xml2JsParser.js for what's cached and why.
+    // one document. See xml2-js-parser.js for what's cached and why.
     this.options._nameCache = { tags: new Map(), attrs: new Map() };
   }
 

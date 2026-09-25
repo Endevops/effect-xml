@@ -8,7 +8,7 @@ import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, X2jOptions } from './options.ts';
 import type { ConfigurableExpressionCtor } from './path-expression-matcher.d.ts';
 
-import { ParseError, ErrorCode } from './ParseError.js';
+import { ParseError, ErrorCode } from './parse-error.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
 
 /**

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/test-runner.ts';
 import { criticalProperties, DANGEROUS_PROPERTY_NAMES } from '#/util.ts';
-import XMLParser from '#/XMLParser.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('Security - Prototype Pollution Prevention', function () {
   // ─── CRITICAL PROPERTIES ────────────────────────────────────────────────────

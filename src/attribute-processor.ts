@@ -1,6 +1,6 @@
 import type { AttributeMeta, ParsedAttribute, RawAttributeMatch, TagExpressionParser } from './internal/parser-types.ts';
 
-import { ParseError, ErrorCode } from './ParseError.js';
+import { ParseError, ErrorCode } from './parse-error.js';
 import { isSpaceCode, errorPositionOf } from './util.js';
 
 /**

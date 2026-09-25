@@ -1,9 +1,9 @@
-import type { BufferSourceOptions } from '#/InputSource/buffer-source-options.ts';
+import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
 
-import type { EncodingProfile } from '../Encoding/EncodingProfile.ts';
+import type { EncodingProfile } from '../encoding/encoding-profile.ts';
 import type { InputSourceLike } from './input-source.ts';
 
-import { createByteScanStrategy, decodeCharAtUtf8 } from '../Encoding/ScanStrategy/ByteScanStrategy.js';
+import { createByteScanStrategy, decodeCharAtUtf8 } from '../encoding/scan-strategy/byte-scan-strategy.js';
 import { QUOTE_PAIRS_CAPACITY } from '../util.js';
 
 // Zero-config default when no profile is supplied (e.g. tests/callers that
@@ -98,8 +98,8 @@ export default class BufferSource implements InputSourceLike {
    * @param bytesArr - The full XML document as a Node.js Buffer.
    * @param options.autoFlush - Enable automatic flushing. Default is `true`
    * @param options.flushThreshold - Flush after this many processed bytes. Default is `1024`
-   * @param profile - Resolved encoding profile from `Encoding/EncodingProfile.ts#buildProfileForBuffer`. Omit for the zero-config UTF-8 default (used
-   *   directly by tests/callers that don't go through `XMLParser`).
+   * @param profile - Resolved encoding profile from `encoding/encoding-profile.ts#buildProfileForBuffer`. Omit for the zero-config UTF-8 default
+   *   (used directly by tests/callers that don't go through `XMLParser`).
    */
   constructor(bytesArr: Buffer, options: BufferSourceOptions = {}, profile: EncodingProfile | null = null) {
     // BOM bytes (if any) are detection artifacts, not content — strip them
@@ -115,7 +115,7 @@ export default class BufferSource implements InputSourceLike {
     }
     this.startIndex = 0;
     // Running total of bytes/chars trimmed off the front by flush() so far.
-    // See StringSource.js's copy of this field / util.js#absolutePosition —
+    // See string-source.js's copy of this field / util.js#absolutePosition —
     // startIndex alone drifts from the true document offset after any flush.
     this._baseOffset = 0;
 
@@ -126,17 +126,17 @@ export default class BufferSource implements InputSourceLike {
     this._tokenStart = -1;
 
     // Reused across every scanTagExpEnd() call, never reallocated. See
-    // StringSource.js's copy of this field for the full doc. Populated by
+    // string-source.js's copy of this field for the full doc. Populated by
     // whichever ScanStrategy (byte or char) is assigned below.
     this._quotePairs = new Int32Array(QUOTE_PAIRS_CAPACITY);
     this._quotePairsLen = 0;
 
     // Resolve once, dispatch polymorphically from here on — no encoding
-    // branching anywhere else in this class. See EncodingProfile.js.
+    // branching anywhere else in this class. See encoding-profile.js.
     const strategy = profile?.scanStrategy ?? DEFAULT_SCAN_STRATEGY;
     Object.assign(this, strategy);
     this.encodingName = profile?.descriptor?.name ?? 'utf8';
-    // See EncodingProfile.js's buildProfileForBuffer() doc — false only for
+    // See encoding-profile.js's buildProfileForBuffer() doc — false only for
     // ByteScanStrategy+utf8, where a raw byte offset can land mid-character
     // once decoded. DEFAULT_SCAN_STRATEGY (used when no profile is supplied)
     // is itself utf8 byte-scan, so the no-profile default must also be false.

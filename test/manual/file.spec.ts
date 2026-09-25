@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '#/XMLParser.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('XMLParser', () => {
   it('should parse when Buffer is given as input', () => {

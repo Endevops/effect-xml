@@ -2,8 +2,8 @@ import { WSNormalizer } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { parseDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { parseDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('White Space', function () {
   it("should preserve whitespace when xml:space='preserve' and strip it when xml:space='default' and skipping NS", function () {

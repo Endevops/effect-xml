@@ -1,6 +1,6 @@
 import { describe, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/test-runner.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic unpaired tag behaviour

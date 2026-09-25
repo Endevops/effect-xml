@@ -1,6 +1,6 @@
-import type { InputSourceLike } from './InputSource/input-source.ts';
+import type { InputSourceLike } from './input-source/input-source.ts';
 
-import { ParseError, ErrorCode } from './ParseError.ts';
+import { ParseError, ErrorCode } from './parse-error.ts';
 
 /**
  * @description Every capture group of every match of `regex` in `string`, flattened into one array per match, with the match's start offset attached as

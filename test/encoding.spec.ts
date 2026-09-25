@@ -1,9 +1,9 @@
 import { StringDecoder } from 'node:string_decoder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { ParseError } from '#/ParseError.ts';
-import { parseDoc, bytesDoc, endDoc, streamDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { ParseError } from '#/parse-error.ts';
+import { parseDoc, bytesDoc, endDoc, streamDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('Encoding support', () => {
   it('parseBytesArr correctly decodes multi-byte UTF-8 content (prerequisite bug fix)', () => {

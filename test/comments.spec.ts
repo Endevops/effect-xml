@@ -1,6 +1,6 @@
 import { describe, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
+import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
 
 describe('Comments', function () {
   runAcrossAllInputSources(

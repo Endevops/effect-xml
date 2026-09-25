@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { parseDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import { parseDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('name-validator xmlVersion cache (getNameValidator premature memoization bug)', function () {
   const oneDotOneOnlyChar = '\u0487'; // Combining Cyrillic Millions Sign: valid NameChar in XML 1.1 only

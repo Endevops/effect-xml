@@ -1,8 +1,8 @@
-import type { BufferSourceOptions } from '#/InputSource/buffer-source-options.ts';
+import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
 
-import { ParseError, ErrorCode } from '../ParseError.js';
+import { ParseError, ErrorCode } from '../parse-error.js';
 import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.js';
-import { scanTagExpEnd, scanTagExpEndFast } from './scanTagExpEnd.js';
+import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.js';
 
 /**
  * @description StringSource — input source backed by an in-memory string.
@@ -178,7 +178,7 @@ export default class StringSource {
   }
 
   // Two variants — caller picks once based on skip.attributes, no flag
-  // evaluated inside the loop. See src/InputSource/scanTagExpEnd.js.
+  // evaluated inside the loop. See src/input-source/scan-tag-exp-end.js.
   scanTagExpEnd = scanTagExpEnd;
   scanTagExpEndFast = scanTagExpEndFast;
 

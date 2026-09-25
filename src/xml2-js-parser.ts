@@ -4,7 +4,7 @@ import type { Production } from 'xml-naming';
 import { ExpressionSet, Matcher } from 'path-expression-matcher';
 import { createValidator } from 'xml-naming';
 
-import type { InputSourceLike } from './InputSource/input-source.ts';
+import type { InputSourceLike } from './input-source/input-source.ts';
 import type {
   CloseMeta,
   NameCache,
@@ -19,16 +19,16 @@ import type {
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { DecodingOptions, ResolvedOptions } from './options.ts';
 
-import AutoCloseHandler from './AutoCloseHandler.ts';
-import { readDocType } from './DocTypeReader.ts';
-import { buildProfileForBuffer } from './Encoding/EncodingProfile.ts';
-import BufferSource from './InputSource/BufferSource.ts';
-import StringSource from './InputSource/StringSource.ts';
-import { ErrorCode, ParseError } from './ParseError.ts';
-import { StopNodeProcessor } from './StopNodeProcessor.ts';
+import AutoCloseHandler from './auto-close-handler.ts';
+import { readDocType } from './doc-type-reader.ts';
+import { buildProfileForBuffer } from './encoding/encoding-profile.ts';
+import BufferSource from './input-source/buffer-source.ts';
+import StringSource from './input-source/string-source.ts';
+import { ErrorCode, ParseError } from './parse-error.ts';
+import { StopNodeProcessor } from './stop-node-processor.ts';
 import { DANGEROUS_PROPERTY_NAMES, absolutePosition, criticalProperties, errorPositionOf, sanitizeContent } from './util.ts';
-import { flushAttributes, readClosingTagName, readTagExp, tryMatchClosingTagName } from './XmlPartReader.ts';
-import { readCdata, readComment, readPiTag } from './XmlSpecialTagsReader.ts';
+import { flushAttributes, readClosingTagName, readTagExp, tryMatchClosingTagName } from './xml-part-reader.ts';
+import { readCdata, readComment, readPiTag } from './xml-special-tags-reader.ts';
 
 // Cap on the tag-name and attribute-name caches (each capped independently —
 // see SAVEPOINT_name_cache.md for why: real documents have a small closed
@@ -332,7 +332,7 @@ export default class Xml2JsParser implements TagExpressionParser {
   }
 
   /**
-   * @description Parse raw bytes and return the built output, resolving the encoding first (see `Encoding/EncodingProfile.ts`).
+   * @description Parse raw bytes and return the built output, resolving the encoding first (see `encoding/encoding-profile.ts`).
    *
    * @param data - The whole document as bytes.
    */

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import BufferSource from '#/InputSource/BufferSource.ts';
-import FeedableSource from '#/InputSource/FeedableSource.ts';
-import { parseDoc, bytesDoc, endDoc } from '#/test/helpers/testRunner.ts';
-import XMLParser from '#/XMLParser.ts';
+import BufferSource from '#/input-source/buffer-source.ts';
+import FeedableSource from '#/input-source/feedable-source.ts';
+import { parseDoc, bytesDoc, endDoc } from '#/test/helpers/test-runner.ts';
+import XMLParser from '#/xml-parser.ts';
 
 describe('Input Sources', function () {
   it('should parse from string', function () {
