@@ -1,8 +1,8 @@
-import type { MatcherView, PushOptions } from 'path-expression-matcher';
-import type { Production } from 'xml-naming';
+import type { MatcherView, PushOptions } from '@endevops/path-expression-matcher';
+import type { Production } from '@endevops/xml-naming';
 
-import { ExpressionSet, Matcher } from 'path-expression-matcher';
-import { createValidator } from 'xml-naming';
+import { ExpressionSet, Matcher } from '@endevops/path-expression-matcher';
+import { createValidator } from '@endevops/xml-naming';
 
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type {
@@ -185,11 +185,11 @@ export default class Xml2JsParser implements TagExpressionParser {
   /**
    * @description Sealed `tags.stopNodes` expression set, reused from the options. Each expression carries its `{ nested, skipEnclosures }` config in `.data`.
    */
-  stopNodeExpressionsSet: ExpressionSet;
+  stopNodeExpressionsSet: ExpressionSet<TagExpressionConfig>;
   /**
    * @description Sealed `skip.tags` expression set, same shape as {@link stopNodeExpressionsSet}.
    */
-  skipTagExpressionsSet: ExpressionSet;
+  skipTagExpressionsSet: ExpressionSet<TagExpressionConfig>;
   /**
    * @description The active stop-node / skip-tag collector, or `null`.
    */

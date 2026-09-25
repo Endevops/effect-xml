@@ -11,7 +11,7 @@
  *   parser._events which is the array created in _that_ factory call).
  */
 
-import type { MatcherView } from 'path-expression-matcher';
+import type { MatcherView } from '@endevops/path-expression-matcher';
 
 import { CompactBuilder, CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, expect } from 'vite-plus/test';

@@ -179,6 +179,7 @@ catalogs:
 
 overrides:
   vite@*: npm:@voidzero-dev/vite-plus-core@0.3.3
+  path-expression-matcher: link:packages/path-expression-matcher
 
 importers:
 
@@ -221,18 +222,18 @@ importers:
 
   packages/parser:
     dependencies:
+      '@endevops/path-expression-matcher':
+        specifier: workspace:^
+        version: link:../path-expression-matcher
+      '@endevops/xml-naming':
+        specifier: workspace:^
+        version: link:../xml-naming
       '@nodable/base-output-builder':
         specifier: ^2.0.0
         version: 2.0.0
       '@nodable/compact-builder':
         specifier: ^2.0.0
         version: 2.0.0
-      path-expression-matcher:
-        specifier: ^1.6.2
-        version: 1.6.2
-      xml-naming:
-        specifier: ^0.3.0
-        version: 0.3.0
     devDependencies:
       '@nodable/entities':
         specifier: ^2.2.0
@@ -1374,10 +1375,6 @@ packages:
       vite-plus:
         optional: true
 
-  path-expression-matcher@1.6.2:
-    resolution: {integrity: sha512-enSlaiat05iasnzmgNxRj8reFdj3puY2QpNgP1aPIaVfT6nn9ICuPoFlKHk8EN22HcwewshO+mN2DGbkCEOtqQ==}
-    engines: {node: '>=14.0.0'}
-
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
 
@@ -1641,13 +1638,13 @@ snapshots:
     dependencies:
       '@nodable/entities': 2.2.0
       is-unsafe: 1.0.1
-      path-expression-matcher: 1.6.2
+      path-expression-matcher: link:packages/path-expression-matcher
       strnum: 2.4.2
 
   '@nodable/compact-builder@2.0.0':
     dependencies:
       '@nodable/base-output-builder': 2.0.0
-      path-expression-matcher: 1.6.2
+      path-expression-matcher: link:packages/path-expression-matcher
 
   '@nodable/entities@2.2.0': {}
 
@@ -2138,7 +2135,7 @@ snapshots:
 
   fast-xml-builder@1.3.1:
     dependencies:
-      path-expression-matcher: 1.6.2
+      path-expression-matcher: link:packages/path-expression-matcher
       xml-naming: 0.3.0
 
   fast-xml-parser@5.11.1:
@@ -2146,7 +2143,7 @@ snapshots:
       '@nodable/entities': 3.0.0
       fast-xml-builder: 1.3.1
       is-unsafe: 2.0.2
-      path-expression-matcher: 1.6.2
+      path-expression-matcher: link:packages/path-expression-matcher
       strnum: 2.4.2
       xml-naming: 0.3.0
 
@@ -2281,8 +2278,6 @@ snapshots:
       '@oxlint/binding-win32-x64-msvc': 1.83.0
       oxlint-tsgolint: 7.0.2001
       vite-plus: 0.3.3(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(typescript@7.0.2)
-
-  path-expression-matcher@1.6.2: {}
 
   pathe@2.0.3: {}
 

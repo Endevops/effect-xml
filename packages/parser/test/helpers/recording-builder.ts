@@ -1,6 +1,6 @@
+import type { MatcherView } from '@endevops/path-expression-matcher';
 import type { ValueParserRegistry } from '@nodable/base-output-builder';
 import type { FactoryOptions } from '@nodable/compact-builder';
-import type { MatcherView } from 'path-expression-matcher';
 
 import { CompactBuilder, CompactBuilderFactory } from '@nodable/compact-builder';
 

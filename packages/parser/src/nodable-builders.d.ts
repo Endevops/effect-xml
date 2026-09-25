@@ -21,7 +21,7 @@
  *    are corrected. That keeps `strict` at every call site rather than forcing a cast per builder.
  */
 
-import type { MatcherView } from 'path-expression-matcher';
+import type { MatcherView } from '@endevops/path-expression-matcher';
 
 import type { AttributeMeta, CloseMeta, TagDetailLike, XmlDeclaration } from './internal/parser-types.ts';
 

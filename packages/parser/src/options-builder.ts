@@ -1,21 +1,21 @@
-import type { ExpressionOptions } from 'path-expression-matcher';
+import type { Expression as PathExpression } from '@endevops/path-expression-matcher';
 
+import { Expression, ExpressionSet } from '@endevops/path-expression-matcher';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
-import { Expression, ExpressionSet } from 'path-expression-matcher';
 
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, X2jOptions } from './options.ts';
-import type { ConfigurableExpressionCtor } from './path-expression-matcher.d.ts';
 
 import { ParseError, ErrorCode } from './parse-error.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
 
 /**
- * @description `Expression`'s published declaration stops at two constructor parameters, so the three-argument form below — pattern, options, config — would be a
- * `TS2554` at every construction site. Aliasing the constructor once keeps the cast in a single documented place.
+ * @description A path expression carrying this parser's per-entry stop-node/skip-tag config. `@endevops/path-expression-matcher` is generic over the payload, so
+ * the type argument is all that is needed to keep `.data` typed from construction through to `findMatch()`. The alias exists because the type appears
+ * on both sides of this file and the full instantiation is noisy.
  */
-const createExpression = Expression as unknown as ConfigurableExpressionCtor;
+type ConfigExpression = PathExpression<TagExpressionConfig>;
 
 /**
  * @description The default output builder factory, adapted to the structural contract the parser drives. `CompactBuilderFactory` already implements the right
@@ -313,14 +313,14 @@ export const buildOptions = function (options?: X2jOptions | null): ResolvedOpti
   // Normalizing every form into one shape here is what lets the parser's hot
   // path be a single findMatch() followed by `.data` — no per-entry branch.
   if (Array.isArray(finalOptions.tags?.stopNodes)) {
-    const stopSet = new ExpressionSet();
+    const stopSet = new ExpressionSet<TagExpressionConfig>();
     finalOptions.tags.stopNodes = finalOptions.tags.stopNodes.map(entry => normalizeTagEntry(entry, 'stopNodes', stopSet));
     stopSet.seal();
     finalOptions.tags.stopNodesSet = stopSet;
   }
 
   if (Array.isArray(finalOptions.skip?.tags)) {
-    const skipSet = new ExpressionSet();
+    const skipSet = new ExpressionSet<TagExpressionConfig>();
     finalOptions.skip.tags = finalOptions.skip.tags.map(entry => normalizeTagEntry(entry, 'skip.tags', skipSet));
     skipSet.seal();
     finalOptions.skip.tagsSet = skipSet;
@@ -396,8 +396,8 @@ function resolveAutoClose(raw: AutoCloseInput, opts: ResolvedOptions): AutoClose
 function normalizeTagEntry(
   entry: string | Expression | { expression: string | Expression; nested?: boolean; skipEnclosures?: TagExpressionConfig['skipEnclosures'] },
   optionName: string,
-  set: ExpressionSet
-): Expression {
+  set: ExpressionSet<TagExpressionConfig>
+): ConfigExpression {
   let pattern: string;
   let nested: boolean;
   let skipEnclosures: TagExpressionConfig['skipEnclosures'];
@@ -408,10 +408,15 @@ function normalizeTagEntry(
     nested = false;
     skipEnclosures = [];
   } else if (entry instanceof Expression) {
-    // Bare Expression — keep its pattern, apply defaults for missing data fields
+    // Bare Expression — keep its pattern, apply defaults for missing data fields.
+    // A caller-supplied Expression is `Expression<unknown>`, so its payload is
+    // this parser's config only by convention. readTagConfig checks the shape
+    // rather than trusting it, which is also what a caller who attached
+    // something else entirely needs.
     pattern = entry.toString();
-    nested = entry.data?.nested ?? false;
-    skipEnclosures = entry.data?.skipEnclosures ?? [];
+    const carried = readTagConfig(entry.data);
+    nested = carried.nested;
+    skipEnclosures = carried.skipEnclosures;
   } else if (entry && typeof entry === 'object' && entry.expression !== undefined) {
     const raw = entry.expression;
     if (typeof raw === 'string') {
@@ -431,9 +436,28 @@ function normalizeTagEntry(
     );
   }
 
-  const expr = new createExpression(pattern, {} satisfies ExpressionOptions, { nested, skipEnclosures });
+  const expr: ConfigExpression = new Expression(pattern, {}, { nested, skipEnclosures });
   set.add(expr);
   return expr;
+}
+
+/**
+ * @description Read a caller-supplied `Expression`'s payload as this parser's stop-node config, falling back to the defaults field by field. A bare `Expression`
+ * from a caller is `Expression<unknown>`, so its payload is only this parser's config by convention — and a caller is free to have attached something
+ * else. Reading it defensively means a foreign payload degrades to the defaults rather than throwing or, worse, being spread into a config with a
+ * bogus `nested`. A `skipEnclosures` that is not an array is discarded for the same reason; an array is taken as-is, since its element shape is the
+ * caller's to define and `getRawContent` only reads `.open` / `.close`.
+ *
+ * @param data - The payload to read, if any.
+ *
+ * @returns The config to carry forward, with defaults filled in.
+ */
+function readTagConfig(data: unknown): TagExpressionConfig {
+  if (data === null || typeof data !== 'object') {
+    return { nested: false, skipEnclosures: [] };
+  }
+  const candidate = data as Partial<TagExpressionConfig>;
+  return { nested: candidate.nested === true, skipEnclosures: Array.isArray(candidate.skipEnclosures) ? candidate.skipEnclosures : [] };
 }
 
 /**

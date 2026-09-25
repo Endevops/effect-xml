@@ -7,12 +7,11 @@
  * 4. ReadOnlyMatcher — guards against mutation
  */
 
+import type { MatcherView } from '@endevops/path-expression-matcher';
 import type { Context, ValueParser } from '@nodable/base-output-builder';
-import type { MatcherView } from 'path-expression-matcher';
-import type { MatcherView as PEMMatcherView } from 'path-expression-matcher';
 
+import { Expression } from '@endevops/path-expression-matcher';
 import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
-import { Expression } from 'path-expression-matcher';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, TagDetailLike } from '#/internal/parser-types.ts';
@@ -25,7 +24,7 @@ import XMLParser from '#/xml-parser.ts';
 type AnyCompactBuilderCtor = new (
   parserOptions: object,
   builderOptions: ConstructorParameters<typeof CompactBuilder>[1],
-  readonlyMatcher: PEMMatcherView | null,
+  readonlyMatcher: MatcherView | null,
   registry: ConstructorParameters<typeof CompactBuilder>[3]
 ) => CompactBuilder;
 

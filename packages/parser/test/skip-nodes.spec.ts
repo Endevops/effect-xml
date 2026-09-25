@@ -477,20 +477,20 @@ describe('Skip Tags — OptionsBuilder entry normalization', function () {
   it('defaults nested to false when omitted', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.drop' }] } });
     const expr = parser.options.skip.tags[0];
-    expect(expr.data!.nested).toBe(false);
+    expect(expr.data?.nested).toBe(false);
   });
 
   it('defaults skipEnclosures to [] when omitted', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.drop' }] } });
     const expr = parser.options.skip.tags[0];
-    expect(expr.data!.skipEnclosures).toEqual([]);
+    expect(expr.data?.skipEnclosures).toEqual([]);
   });
 
   it('embeds config into Expression.data', function () {
     const parser = new XMLParser({ skip: { tags: [{ expression: 'root.drop', nested: true, skipEnclosures: [...xmlEnclosures] }] } });
     const expr = parser.options.skip.tags[0];
-    expect(expr.data!.nested).toBe(true);
-    expect(expr.data!.skipEnclosures).toEqual(xmlEnclosures);
+    expect(expr.data?.nested).toBe(true);
+    expect(expr.data?.skipEnclosures).toEqual(xmlEnclosures);
   });
 
   it('skip.tagsSet is a sealed ExpressionSet', function () {

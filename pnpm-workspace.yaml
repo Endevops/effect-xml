@@ -10,6 +10,14 @@ catalog:
   vite-plus: 0.3.3
 overrides:
   vite@*: 'catalog:'
+  # The @nodable output builders depend on the upstream `path-expression-matcher`
+  # from npm, and their shipped .d.ts files name its MatcherView. Without this
+  # the tree holds two copies of the same types — the workspace one the parser
+  # uses and the npm one the builders' declarations reference — and a
+  # MatcherView is not assignable across them, so every builder factory fails
+  # to satisfy the parser's own structural contract. Pointing the transitive
+  # dependency at the workspace package collapses them to one.
+  path-expression-matcher: link:packages/path-expression-matcher
 peerDependencyRules:
   allowAny:
     - vite

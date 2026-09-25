@@ -28,5 +28,5 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
-  "include": ["./**/*.ts", "../src/path-expression-matcher.d.ts", "../src/nodable-builders.d.ts", "../src/nodable-entities.d.ts"]
+  "include": ["./**/*.ts", "../src/nodable-builders.d.ts", "../src/nodable-entities.d.ts"]
 }

@@ -12,15 +12,24 @@ Upstream released `@nodable/flexible-xml-parser` as the scoped successor to the 
 
 The parser behaviour is the same. The changes are in how the code is written and built.
 
-| Change                                              | Why                                                                    |
-| --------------------------------------------------- | ---------------------------------------------------------------------- |
-| Every file and directory renamed to dash-case       | The upstream names were PascalCase and SCREAMING_CASE in the same tree |
-| Static types across all of `src/`                   | Upstream shipped types only on the public entry points                 |
-| Test suite and benchmark fully typed                | The specs are now checked by the compiler, which surfaced real bugs    |
-| Built with Vite+ (`vp pack`, `vp test`, `vp check`) | Replaces the previous ad-hoc build setup                               |
-| Latent bugs fixed in specs and entity handling      | Found while typing, listed in the commit history                       |
+| Change                                               | Why                                                                    |
+| ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| Every file and directory renamed to dash-case        | The upstream names were PascalCase and SCREAMING_CASE in the same tree |
+| Static types across all of `src/`                    | Upstream shipped types only on the public entry points                 |
+| Test suite and benchmark fully typed                 | The specs are now checked by the compiler, which surfaced real bugs    |
+| Built with Vite+ (`vp pack`, `vp test`, `vp check`)  | Replaces the previous ad-hoc build setup                               |
+| Latent bugs fixed in specs and entity handling       | Found while typing, listed in the commit history                       |
+| Path matching and name validation are workspace pkgs | The `path-expression-matcher` type augmentations are gone; see below   |
 
 Two known differences worth calling out: `test/compact-builder-force.spec.ts` and the `@nodable/entities` augmentation in `src/nodable-entities.d.ts` are fork-local, and the benchmark has no runner script yet.
+
+### The `path-expression-matcher` augmentations are gone
+
+The parser used to carry `src/path-expression-matcher.d.ts`, a module augmentation patching three things the published `index.d.ts` got wrong: the third `data` constructor argument it never declared, `findMatch()`'s non-nullable return, and the stale doc comments. It also exported a `ConfigurableExpressionCtor` alias, because the two-argument declaration made the parser's three-argument construction a `TS2554` at every call site.
+
+All four are now real. `@endevops/path-expression-matcher` is generic over the expression payload, so `ExpressionSet<TagExpressionConfig>` carries the config type from construction through to `findMatch().data` with no cast and no augmentation — which is what let the file be deleted rather than trimmed.
+
+`@nodable/base-output-builder` and `@nodable/compact-builder` still ship declarations that name the _upstream_ `path-expression-matcher` from npm. A pnpm `overrides` entry points that transitive dependency at the workspace package, so the tree holds one copy of the types rather than two structurally-identical-but-distinct ones; without it, every builder factory fails to satisfy the parser's structural contract. The remaining `src/nodable-builders.d.ts` augmentations are unrelated to this and still needed.
 
 ## Installation
 
@@ -31,7 +40,7 @@ pnpm install
 pnpm build
 ```
 
-Its runtime dependencies (`@nodable/base-output-builder`, `@nodable/compact-builder`, `path-expression-matcher`, `xml-naming`) come from npm as normal.
+Its runtime dependencies are `@nodable/base-output-builder` and `@nodable/compact-builder` from npm, plus the two workspace packages `@endevops/path-expression-matcher` and `@endevops/xml-naming`.
 
 ## Quick start
 

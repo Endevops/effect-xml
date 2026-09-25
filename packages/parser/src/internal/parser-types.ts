@@ -1,4 +1,4 @@
-import type { Matcher, MatcherView } from 'path-expression-matcher';
+import type { Matcher, MatcherView } from '@endevops/path-expression-matcher';
 
 import type { InputSourceLike } from '../input-source/input-source.ts';
 import type { ResolvedOptions } from '../options.ts';

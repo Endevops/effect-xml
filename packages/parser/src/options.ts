@@ -1,8 +1,8 @@
-import type { Expression, ExpressionSet, MatcherView } from 'path-expression-matcher';
+import type { Expression, ExpressionSet, MatcherView } from '@endevops/path-expression-matcher';
 
 import type EncodingRegistry from './encoding/encoding-registry.ts';
 import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
-import type { Enclosure } from './internal/tag-expression.ts';
+import type { Enclosure, TagExpressionConfig } from './internal/tag-expression.ts';
 
 // The runtime error class and its code table live in `parse-error.ts`; re-exported
 // here so option documentation and error documentation can be read together
@@ -524,13 +524,14 @@ export interface ResolvedOptions {
    */
   skip: Omit<SkipOptions, 'tags'> & {
     /**
-     * @description Compiled `skip.tags` expressions. Replaces the string/object entry forms callers passed in.
+     * @description Compiled `skip.tags` expressions, each carrying its `{ nested, skipEnclosures }` config in `data`. Replaces the string/object entry forms
+     * callers passed in.
      */
-    tags: Expression[];
+    tags: Expression<TagExpressionConfig>[];
     /**
      * @description The same expressions, sealed into an `ExpressionSet` so the parser's per-tag check is an O(1) indexed lookup rather than an O(E) scan.
      */
-    tagsSet: ExpressionSet;
+    tagsSet: ExpressionSet<TagExpressionConfig>;
   };
   /**
    * @description Resolved special-node property names, defaults applied.
@@ -545,13 +546,14 @@ export interface ResolvedOptions {
    */
   tags: Omit<TagOptions, 'stopNodes'> & {
     /**
-     * @description Compiled `tags.stopNodes` expressions. Replaces the string/object entry forms callers passed in.
+     * @description Compiled `tags.stopNodes` expressions, each carrying its `{ nested, skipEnclosures }` config in `data`. Replaces the string/object entry forms
+     * callers passed in.
      */
-    stopNodes: Expression[];
+    stopNodes: Expression<TagExpressionConfig>[];
     /**
      * @description The same expressions, sealed into an `ExpressionSet` for O(1) indexed lookup at each opening tag.
      */
-    stopNodesSet: ExpressionSet;
+    stopNodesSet: ExpressionSet<TagExpressionConfig>;
   };
   /**
    * @description Resolved DOCTYPE collection settings, defaults applied.
