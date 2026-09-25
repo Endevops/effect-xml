@@ -7,21 +7,34 @@
  * 4. ReadOnlyMatcher — guards against mutation
  */
 
+import type { Context, ValueParser } from '@nodable/base-output-builder';
+import type { MatcherView } from 'path-expression-matcher';
+import type { MatcherView as PEMMatcherView } from 'path-expression-matcher';
+
 import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
 import { Expression } from 'path-expression-matcher';
 import { describe, it, expect } from 'vite-plus/test';
 
+import type { OutputBuilderFactoryLike, TagDetailLike } from '#/internal/parser-types.ts';
+
+import { asOutputBuilder } from '#/test/helpers/recordingBuilder.ts';
 import { parseDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
-function makeFactory(BuilderSubclass) {
+type AnyCompactBuilderCtor = new (
+  parserOptions: object,
+  builderOptions: ConstructorParameters<typeof CompactBuilder>[1],
+  readonlyMatcher: PEMMatcherView | null,
+  registry: ConstructorParameters<typeof CompactBuilder>[3]
+) => CompactBuilder;
+
+function makeFactory(BuilderSubclass: AnyCompactBuilderCtor): OutputBuilderFactoryLike {
   return {
     getInstance(parserOptions, readonlyMatcher) {
       const base = new CompactBuilderFactory();
-      return new BuilderSubclass(parserOptions, base.builderOptions, readonlyMatcher, base.registry);
+      return asOutputBuilder(new BuilderSubclass(parserOptions, base.builderOptions, readonlyMatcher, base.registry));
     },
-    registerValueParser(name, parser) {},
   };
 }
 
@@ -190,11 +203,11 @@ describe('PEM integration — matcher in value parser context', function () {
   // ══════════════════════════════════════════════════════════════════════════════
 
   it('should pass a ReadOnlyMatcher in context.matcher for tag values', function () {
-    let capturedMatcher = null;
+    let capturedMatcher: MatcherView | null = null;
 
-    class CaptureMatcher {
-      parse(val, context) {
-        if (!context.isAttribute) capturedMatcher = context.matcher;
+    class CaptureMatcher implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context && !context.isAttribute) capturedMatcher = context.matcher;
         return val;
       }
     }
@@ -203,17 +216,18 @@ describe('PEM integration — matcher in value parser context', function () {
     parser.parse(`<root><item>hello</item></root>`);
 
     expect(capturedMatcher).not.toBeNull();
-    expect(typeof capturedMatcher.matches).toBe('function');
-    expect(typeof capturedMatcher.getCurrentTag).toBe('function');
-    expect(typeof capturedMatcher.getPosition).toBe('function');
+    const m = capturedMatcher!;
+    expect(typeof m.matches).toBe('function');
+    expect(typeof m.getCurrentTag).toBe('function');
+    expect(typeof m.getPosition).toBe('function');
   });
 
   it('should pass a ReadOnlyMatcher in context.matcher for attribute values', function () {
-    let capturedMatcher = null;
+    let capturedMatcher: MatcherView | null = null;
 
-    class CaptureMatcher {
-      parse(val, context) {
-        if (context.isAttribute) capturedMatcher = context.matcher;
+    class CaptureMatcher implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context?.isAttribute) capturedMatcher = context.matcher;
         return val;
       }
     }
@@ -225,14 +239,14 @@ describe('PEM integration — matcher in value parser context', function () {
     parser.parse(`<root><item id="1">hello</item></root>`);
 
     expect(capturedMatcher).not.toBeNull();
-    expect(typeof capturedMatcher.matches).toBe('function');
+    expect(typeof capturedMatcher!.matches).toBe('function');
   });
 
   it('should allow Expression matching in a value parser to transform selectively', function () {
     const adminExpr = new Expression('..user[role=admin]');
 
-    class AdminUpperParser {
-      parse(val, context) {
+    class AdminUpperParser implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
         if (context?.matcher?.matches(adminExpr)) {
           return typeof val === 'string' ? val.toUpperCase() : val;
         }
@@ -258,11 +272,11 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should provide correct elementType for tags vs attributes', function () {
-    const types = [];
+    const types: string[] = [];
 
-    class TypeCapture {
-      parse(val, context) {
-        types.push(context.isAttribute ? 'A' : 'E');
+    class TypeCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        types.push(context?.isAttribute ? 'A' : 'E');
         return val;
       }
     }
@@ -279,11 +293,11 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should set isLeafNode:true for simple text-only tags', function () {
-    const leafFlags = [];
+    const leafFlags: { name: string; isLeaf: boolean | null }[] = [];
 
-    class LeafCapture {
-      parse(val, context) {
-        if (!context.isAttribute) {
+    class LeafCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context && !context.isAttribute) {
           leafFlags.push({ name: context.elementName, isLeaf: context.isLeafNode });
         }
         return val;
@@ -293,17 +307,17 @@ describe('PEM integration — matcher in value parser context', function () {
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new LeafCapture()] } }) });
     parser.parse(`<root><leaf>text</leaf></root>`);
 
-    const leaf = leafFlags.find(f => f.name === 'leaf');
+    const leaf = leafFlags.find(f => f.name === 'leaf')!;
     expect(leaf).toBeDefined();
     expect(leaf.isLeaf).toBe(true);
   });
 
   it('should set isLeafNode:false for tags that contain child elements alongside text', function () {
-    const leafFlags = [];
+    const leafFlags: { name: string; isLeaf: boolean | null }[] = [];
 
-    class LeafCapture {
-      parse(val, context) {
-        if (!context.isAttribute) {
+    class LeafCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context && !context.isAttribute) {
           leafFlags.push({ name: context.elementName, isLeaf: context.isLeafNode });
         }
         return val;
@@ -314,17 +328,17 @@ describe('PEM integration — matcher in value parser context', function () {
     // "parent" has mixed content: text + child element — parseValue runs on the text portion
     parser.parse(`<root><parent>intro <child>text</child></parent></root>`);
 
-    const parent = leafFlags.find(f => f.name === 'parent');
+    const parent = leafFlags.find(f => f.name === 'parent')!;
     expect(parent).toBeDefined();
     expect(parent.isLeaf).toBe(false);
   });
 
   it('should always set isLeafNode:true for attribute values', function () {
-    const attrLeafFlags = [];
+    const attrLeafFlags: (boolean | null)[] = [];
 
-    class AttrLeafCapture {
-      parse(val, context) {
-        if (context.isAttribute) {
+    class AttrLeafCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context?.isAttribute) {
           attrLeafFlags.push(context.isLeafNode);
         }
         return val;
@@ -342,11 +356,11 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should provide elementName as the tag name in TAG context', function () {
-    const names = [];
+    const names: string[] = [];
 
-    class NameCapture {
-      parse(val, context) {
-        if (!context.isAttribute) names.push(context.elementName);
+    class NameCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context && !context.isAttribute) names.push(context.elementName);
         return val;
       }
     }
@@ -359,11 +373,11 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should provide elementName as the attribute name in ATTRIBUTE context', function () {
-    const attrNames = [];
+    const attrNames: string[] = [];
 
-    class AttrNameCapture {
-      parse(val, context) {
-        if (context.isAttribute) attrNames.push(context.elementName);
+    class AttrNameCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context?.isAttribute) attrNames.push(context.elementName);
         return val;
       }
     }
@@ -382,8 +396,8 @@ describe('PEM integration — matcher in value parser context', function () {
     const priceExpr = new Expression('..price');
     const qtyExpr = new Expression('..qty');
 
-    class SelectiveNumber {
-      parse(val, context) {
+    class SelectiveNumber implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
         if (typeof val !== 'string') return val;
         if (context?.matcher?.matches(priceExpr) || context?.matcher?.matches(qtyExpr)) {
           const n = parseFloat(val);
@@ -417,9 +431,9 @@ describe('PEM integration — matcher in value parser context', function () {
   it('should allow attribute value transformation based on parent path', function () {
     const productIdExpr = new Expression('catalog.product');
 
-    class PrefixIdParser {
-      parse(val, context) {
-        if (!context.isAttribute) return val;
+    class PrefixIdParser implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (!context?.isAttribute) return val;
         if (context?.elementName === 'id' && context?.matcher?.matches(productIdExpr)) {
           return 'PROD-' + val;
         }
@@ -450,10 +464,10 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   // ══════════════════════════════════════════════════════════════════════════════
 
   it('should pass ReadOnlyMatcher to addElement() override', function () {
-    const tagPaths = [];
+    const tagPaths: string[] = [];
 
     class CapturingBuilder extends CompactBuilder {
-      addElement(tag, matcher) {
+      override addElement(tag: TagDetailLike, matcher: MatcherView): void {
         tagPaths.push(matcher.toString());
         super.addElement(tag, matcher);
       }
@@ -467,10 +481,10 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   });
 
   it('should pass ReadOnlyMatcher to closeElement() override', function () {
-    const closedPaths = [];
+    const closedPaths: string[] = [];
 
     class CapturingBuilder extends CompactBuilder {
-      closeElement(matcher) {
+      override closeElement(matcher: MatcherView): void {
         closedPaths.push(matcher.toString());
         super.closeElement(matcher);
       }
@@ -488,7 +502,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     const legacyExpr = new Expression('root.oldName');
 
     class RenameBuilder extends CompactBuilder {
-      addElement(tag, matcher) {
+      override addElement(tag: TagDetailLike, matcher: MatcherView): void {
         if (matcher.matches(legacyExpr)) {
           tag = { ...tag, name: 'newName' };
         }
@@ -510,11 +524,12 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     const skipExpr = new Expression('root.internal');
 
     class SkipBuilder extends CompactBuilder {
-      constructor(...args) {
+      private _skipDepth: number;
+      constructor(...args: ConstructorParameters<typeof CompactBuilder>) {
         super(...args);
         this._skipDepth = 0;
       }
-      addElement(tag, matcher) {
+      override addElement(tag: TagDetailLike, matcher: MatcherView): void {
         if (matcher.matches(skipExpr)) {
           this._skipDepth++;
           return;
@@ -525,7 +540,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
         }
         super.addElement(tag, matcher);
       }
-      closeElement(matcher) {
+      override closeElement(matcher: MatcherView): void {
         if (this._skipDepth > 0) {
           this._skipDepth--;
           return;
@@ -547,10 +562,10 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
   // ══════════════════════════════════════════════════════════════════════════════
 
   it('should throw error when push() is called on the read-only matcher', function () {
-    let roMatcher = null;
+    let roMatcher: MatcherView | null = null;
 
-    class GrabMatcher {
-      parse(val, context) {
+    class GrabMatcher implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
         if (context?.matcher) roMatcher = context.matcher;
         return val;
       }
@@ -560,14 +575,18 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     parser.parse(`<root><tag>value</tag></root>`);
 
     expect(roMatcher).not.toBeNull();
-    expect(() => roMatcher.push('bad')).toThrowError('roMatcher.push is not a function');
+    // `push` is deliberately absent from MatcherView — that absence IS what this test
+    // asserts. The cast reaches the missing method so the call can be made, and stays
+    // at the call site because the TypeError text embeds the identifier the assertion
+    // string depends on.
+    expect(() => (roMatcher as unknown as { push(name: string): void }).push('bad')).toThrowError('roMatcher.push is not a function');
   });
 
   it('should throw error when pop() is called on the read-only matcher', function () {
-    let roMatcher = null;
+    let roMatcher: MatcherView | null = null;
 
-    class GrabMatcher {
-      parse(val, context) {
+    class GrabMatcher implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
         if (context?.matcher) roMatcher = context.matcher;
         return val;
       }
@@ -576,14 +595,14 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new GrabMatcher()] } }) });
     parser.parse(`<root><tag>value</tag></root>`);
 
-    expect(() => roMatcher.pop()).toThrowError('roMatcher.pop is not a function');
+    expect(() => (roMatcher as unknown as { pop(): void }).pop()).toThrowError('roMatcher.pop is not a function');
   });
 
   it('should throw error when reset() is called on the read-only matcher', function () {
-    let roMatcher = null;
+    let roMatcher: MatcherView | null = null;
 
-    class GrabMatcher {
-      parse(val, context) {
+    class GrabMatcher implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
         if (context?.matcher) roMatcher = context.matcher;
         return val;
       }
@@ -592,14 +611,14 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new GrabMatcher()] } }) });
     parser.parse(`<root><tag>value</tag></root>`);
 
-    expect(() => roMatcher.reset()).toThrowError('roMatcher.reset is not a function');
+    expect(() => (roMatcher as unknown as { reset(): void }).reset()).toThrowError('roMatcher.reset is not a function');
   });
 
   it('should throw error when updateCurrent() is called on the read-only matcher', function () {
-    let roMatcher = null;
+    let roMatcher: MatcherView | null = null;
 
-    class GrabMatcher {
-      parse(val, context) {
+    class GrabMatcher implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
         if (context?.matcher) roMatcher = context.matcher;
         return val;
       }
@@ -608,16 +627,18 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new GrabMatcher()] } }) });
     parser.parse(`<root><tag>value</tag></root>`);
 
-    expect(() => roMatcher.updateCurrent({ x: '1' })).toThrowError('roMatcher.updateCurrent is not a function');
+    expect(() => (roMatcher as unknown as { updateCurrent(v: unknown): void }).updateCurrent({ x: '1' })).toThrowError(
+      'roMatcher.updateCurrent is not a function'
+    );
   });
 
   it('should reflect the correct path at the time the value parser runs', function () {
-    const capturedPaths = [];
+    const capturedPaths: string[] = [];
 
-    class PathCapture {
-      parse(val, context) {
-        if (!context.isAttribute) {
-          capturedPaths.push(context.matcher.toString());
+    class PathCapture implements ValueParser {
+      parse(val: unknown, context?: Context): unknown {
+        if (context && !context.isAttribute) {
+          capturedPaths.push(context.matcher!.toString());
         }
         return val;
       }

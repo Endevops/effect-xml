@@ -258,8 +258,8 @@ export function makeRecordingParser(parserOptions: X2jOptions = {}): RecordingXM
  */
 export function asOutputBuilder(builder: CompactBuilder): OutputBuilderLike {
   const adapted = builder as unknown as {
-    onStopNode(tagDetail: TagDetailLike, rawContent: string): void;
-    onExit(exitInfo: { tagDetail: TagDetailLike; matcher: MatcherView; depth: number }): void;
+    onStopNode(tagDetail: { name: string } & object, rawContent: string): void;
+    onExit(exitInfo: { tagDetail: { name: string } & object; matcher: MatcherView; depth: number }): void;
   };
   return {
     addElement: (tag, matcher) => builder.addElement(tag, matcher),
@@ -271,7 +271,7 @@ export function asOutputBuilder(builder: CompactBuilder): OutputBuilderLike {
     addInstruction: name => builder.addInstruction(name),
     addInputEntities: entities => builder.addInputEntities(entities),
     addAttribute: (name, value, matcher, meta) => builder.addAttribute(name, value, matcher, meta),
-    onStopNode: (tagDetail, rawContent, matcher, end) => adapted.onStopNode(tagDetail, rawContent),
+    onStopNode: (tagDetail, rawContent) => adapted.onStopNode(tagDetail, rawContent),
     onExit: exitInfo => adapted.onExit(exitInfo),
     getOutput: () => builder.getOutput(),
   };

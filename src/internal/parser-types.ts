@@ -163,12 +163,17 @@ export interface OutputBuilderLike {
   addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: AttributeMeta): void;
   /**
    * @description Called once a stop node's raw content has been collected, before it is added to the tree. Optional.
+   *
+   * The tag detail is declared permissively (`{ name: string } & object`) rather than as `TagDetailLike`: `@nodable/compact-builder` types its own
+   * `onStopNode` with a detail carrying `line`/`col` that this index-only parser never produces, and an interface augmentation can only add an overload,
+   * never remove one. Requiring just a `name` — all these callbacks actually read — is what lets the bundled `CompactBuilderFactory` be passed as an
+   * `OutputBuilder` without a cast, while a builder that wants the position fields still receives them at runtime.
    */
-  onStopNode?(tagDetail: TagDetailLike, rawContent: string, matcher: MatcherView, end: { index: number }): void;
+  onStopNode?(tagDetail: { name: string } & object, rawContent: string, matcher?: MatcherView, end?: { index: number }): void;
   /**
    * @description Called instead of normal completion when `exitIf` truncated the parse. Optional.
    */
-  onExit?(exitInfo: { tagDetail: TagDetailLike; matcher: MatcherView; depth: number }): void;
+  onExit?(exitInfo: { tagDetail: { name: string } & object; matcher: MatcherView; depth: number }): void;
   /**
    * @description Finalize and return the parsed tree.
    */

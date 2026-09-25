@@ -76,7 +76,7 @@ export interface SkipOptions {
    *     tags: ['..secret', { expression: 'root.internal', nested: true, skipEnclosures: [...xmlEnclosures] }];
    *   }
    */
-  tags?: Array<string | SkipTagEntry>;
+  tags?: Array<string | Expression | SkipTagEntry>;
   /**
    * @description Skip whitespace only text values to be passed to the builder.
    *
@@ -184,7 +184,7 @@ export interface TagOptions {
    *     { expression: 'head..style', skipEnclosures: [...xmlEnclosures, ...quoteEnclosures] },
    *   ];
    */
-  stopNodes?: Array<string | StopNodeEntry>;
+  stopNodes?: Array<string | Expression | StopNodeEntry>;
 }
 
 /**
