@@ -9,4 +9,4 @@ import { defineConfig } from 'vite-plus';
 // `unbundle: true` keeps the emitted output mirroring src/ one file per module
 // rather than collapsing ten modules into a single chunk, so the published
 // file layout and the source layout stay recognisably the same thing.
-export default defineConfig({ pack: { deps: { resolveDepSubpath: true }, dts: true, exports: true, unbundle: true } });
+export default defineConfig({ pack: { deps: { resolveDepSubpath: true }, dts: true, exports: true, unbundle: true, platform: 'neutral' } });

@@ -34,7 +34,7 @@
     "#/test/*": "./test/*"
   },
   "exports": {
-    ".": "./dist/index.mjs",
+    ".": "./dist/index.js",
     "./package.json": "./package.json"
   },
   "publishConfig": {

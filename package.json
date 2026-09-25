@@ -26,6 +26,7 @@
     "dev": "vp run -r --parallel dev",
     "fmt": "vp fmt",
     "lint": "vp lint",
+    "prepack": "pnpm build",
     "prepare": "vp config",
     "test": "vp test"
   },
