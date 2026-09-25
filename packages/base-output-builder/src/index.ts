@@ -21,6 +21,7 @@ import type { XmlUnsafeMatch, XmlUnsafeRule } from './security/xml-unsafe.ts';
 import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
 import type { EntitiesValueParserOptions } from './value-parsers/entity-parser.ts';
 import type { NumberParserOptions } from './value-parsers/number.ts';
+import type { ToNumberOptions } from './value-parsers/to-number.ts';
 import type { WSNormalizerOptions } from './value-parsers/ws-normalizer.ts';
 
 import BaseOutputBuilderFactory from './base-output-builder-factory.ts';
@@ -32,6 +33,7 @@ import BaseValueParser from './value-parsers/base-value-parser.ts';
 import BooleanParser from './value-parsers/boolean-parser.ts';
 import EntitiesValueParser from './value-parsers/entity-parser.ts';
 import NumberValueParser from './value-parsers/number.ts';
+import toNumber from './value-parsers/to-number.ts';
 import Trim from './value-parsers/trim.ts';
 import WSNormalizer from './value-parsers/ws-normalizer.ts';
 
@@ -44,6 +46,7 @@ export {
   EntitiesValueParser,
   FinalValue,
   NumberValueParser,
+  toNumber,
   SharedContext,
   Trim,
   ValueParserPipeline,
@@ -62,6 +65,7 @@ export type {
   ExitInfoLike,
   NumberParserOptions,
   TagDetailLike,
+  ToNumberOptions,
   TagNameLike,
   ValueParser,
   ValueParserChainOptions,

@@ -10,12 +10,12 @@
 // The library keeps both guards (see ../tsconfig.json, which covers src/ plus
 // its two ambient declaration files). Only the test tree opts out.
 //
-// The `src/*.d.ts` files are named explicitly: they declare `strnum` and the
-// real `EntityDecoder` export, neither of which ships usable types. They are
-// ambient module declarations, so they must be part of this project for the
-// specs' own imports of those two modules to resolve.
+// `src/nodable-entities.d.ts` is named explicitly: it declares the real
+// `EntityDecoder` export, which `@nodable/entities` does not ship usable types
+// for. It is an ambient module declaration, so it has to be part of this
+// project for the specs' own imports of that module to resolve.
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
-  "include": ["./**/*.ts", "../src/strnum.d.ts", "../src/nodable-entities.d.ts"]
+  "include": ["./**/*.ts", "../src/nodable-entities.d.ts"]
 }

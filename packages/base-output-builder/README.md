@@ -11,22 +11,24 @@ This project is not the original package. It started as a copy of [`@nodable/bas
 
 Behaviour is unchanged. What changed is how the code is written and tested:
 
-| Change                                               | Why                                                                                                                                                                                                           |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plain JavaScript with a hand-written `index.d.ts`    | Types now come from the implementation that enforces them. Upstream's declared `getOutput()` did not exist on the runtime class, so calling it on a bare `BaseOutputBuilder` threw `TypeError`; it exists now |
-| `NumberValueParser` options are typed                | `strnum` ships no types, and the old declaration said `options?: any`                                                                                                                                         |
-| `EntityDecoder` is declared as a named export        | `@nodable/entities@2.x` declares it as the _default_ export while the runtime exports it by name — the declaration is the inverse of reality (see `src/nodable-entities.d.ts`)                                |
-| Internal class names match their export names        | Upstream's `boolParser`, `trimmer`, `numParser` and `EntityParser` were exported as `BooleanParser`, `Trim`, `NumberValueParser` and `EntitiesValueParser`                                                    |
-| `ValueParserRegistryLike` added                      | The pipeline depended on the whole registry class; it now depends on the two methods it actually calls, so a test or embedder can supply its own                                                              |
-| `is-unsafe` replaced by `src/security/xml-unsafe.ts` | One dependency fewer, and the XML rules are now this repository's to read and to test. See the note below                                                                                                     |
-| Test suite written from scratch, 200 cases           | Every upstream `test` script was `echo "Error: no test specified" && exit 1` — none of these packages had ever had a working test command                                                                     |
-| Source files renamed to dash-case                    | Matches the rest of the workspace                                                                                                                                                                             |
-| ESM only                                             | Matches the rest of the workspace                                                                                                                                                                             |
+| Change                                                | Why                                                                                                                                                                                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plain JavaScript with a hand-written `index.d.ts`     | Types now come from the implementation that enforces them. Upstream's declared `getOutput()` did not exist on the runtime class, so calling it on a bare `BaseOutputBuilder` threw `TypeError`; it exists now |
+| `NumberValueParser` options are typed                 | `strnum` shipped no types, so the old declaration said `options?: any`. The options are now a real interface                                                                                                  |
+| `EntityDecoder` is declared as a named export         | `@nodable/entities@2.x` declares it as the _default_ export while the runtime exports it by name — the declaration is the inverse of reality (see `src/nodable-entities.d.ts`)                                |
+| Internal class names match their export names         | Upstream's `boolParser`, `trimmer`, `numParser` and `EntityParser` were exported as `BooleanParser`, `Trim`, `NumberValueParser` and `EntitiesValueParser`                                                    |
+| `ValueParserRegistryLike` added                       | The pipeline depended on the whole registry class; it now depends on the two methods it actually calls, so a test or embedder can supply its own                                                              |
+| `is-unsafe` replaced by `src/security/xml-unsafe.ts`  | One dependency fewer, and the XML rules are now this repository's to read and to test. See the note below                                                                                                     |
+| `strnum` replaced by `src/value-parsers/to-number.ts` | One dependency fewer, and `toNumber` is now typed rather than `options?: any`. See the note below                                                                                                             |
+| `decimalPoint` option dropped                         | It was declared and documented but never read — by `strnum` too. A documented no-op is worse than an absent option                                                                                            |
+| Test suite written from scratch, 293 cases            | Every upstream `test` script was `echo "Error: no test specified" && exit 1` — none of these packages had ever had a working test command                                                                     |
+| Source files renamed to dash-case                     | Matches the rest of the workspace                                                                                                                                                                             |
+| ESM only                                              | Matches the rest of the workspace                                                                                                                                                                             |
 
 Two upstream behaviours are preserved deliberately, because both are reachable and changing them would be a breaking change rather than a fix:
 
 - `ValueParserPipeline.run()` has an `if (parser)` guard that reads as though an unresolvable parser name is skipped. It is not: the constructor's `_initAll` resolves every name through `registry.get()`, which throws. So a typo in a chain fails loudly when the pipeline is built.
-- `NumberValueParser`'s guard is `typeof newval !== val`, which compares a type name against a value and is therefore always true. With `IS_FINAL` set, the parser ends the chain even for input it did not convert. Both behaviours are asserted in the specs so they read as decisions.
+- `NumberValueParser`'s guard is `typeof converted !== val`, which compares a type name against a value and is therefore always true. With `IS_FINAL` set, the parser ends the chain even for input it did not convert. Both behaviours are asserted in the specs so they read as decisions.
 
 ## The XML unsafe-value rules
 
@@ -153,16 +155,36 @@ This final the value on successful match and doesn't process further value parse
 
 ### `'number'` — `NumberValueParser`
 
-Converts numeric strings to JS numbers using the [`strnum`](https://www.npmjs.com/package/strnum) library.
+Converts numeric strings to JS numbers. A value that converts comes back as a `number`; one that does not comes back as the original string, so a
+caller tells "this was a number" from "this was text" by the type without checking whether this parser was the one that converted anything.
 
-| Option         | Default      | Description                                                                |
-| -------------- | ------------ | -------------------------------------------------------------------------- |
-| `hex`          | `true`       | Parse `0x…` hex literals                                                   |
-| `leadingZeros` | `true`       | Parse `007` as `7`                                                         |
-| `eNotation`    | `true`       | Parse `1.5e3` as `1500`                                                    |
-| `infinity`     | `"original"` | What to do with overflow: `"original"`, `"infinity"`, `"string"`, `"null"` |
+| Option         | Default      | Description                                                                             |
+| -------------- | ------------ | --------------------------------------------------------------------------------------- |
+| `hex`          | `true`       | Parse `0x…` hex literals. Lower-case prefix only, so `0X1F` is not hex                  |
+| `leadingZeros` | `true`       | Parse `007` as `7`. A zero before a decimal point is not a leading zero                 |
+| `eNotation`    | `true`       | Parse `1.5e3` as `1500`                                                                 |
+| `binary`       | `false`      | Parse `0b…`. Off by default, since a leading zero in a document is likelier a padded ID |
+| `octal`        | `false`      | Parse `0o…`. Off by default, same reasoning                                             |
+| `infinity`     | `"original"` | What to do with a value that is not a finite number. Read the note below                |
+| `skipLike`     | none         | Return the input unchanged when this pattern matches it                                 |
+| `unicode`      | `false`      | Normalize Unicode digits and minus variants to ASCII before matching                    |
 
-Check `strnum` package for more details. To customise, import and register directly:
+`infinity` is reached by **any** value that is not a finite number, not only one that overflows. `'1e1000'` overflows, and so does `'abc'`, because
+`Number('abc')` is `NaN`. So `toNumber('abc', { infinity: 'null' })` returns `null` rather than `'abc'`. Leave this at its default unless an
+overflowing value genuinely needs a different representation.
+
+`toNumber` is exported directly, so you can use it outside a value-parser chain:
+
+```javascript
+import { toNumber } from '@endevops/base-output-builder';
+
+toNumber('42'); // 42
+toNumber('1,000'); // '1,000'
+toNumber('007'); // 7
+toNumber('007', { leadingZeros: false }); // '007'
+```
+
+Or configure the parser with options and register it:
 
 ```javascript
 import { NumberValueParser } from '@endevops/base-output-builder';

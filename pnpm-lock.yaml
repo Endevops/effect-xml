@@ -205,9 +205,6 @@ importers:
       '@nodable/entities':
         specifier: ^2.2.0
         version: 2.2.0
-      strnum:
-        specifier: ^2.4.1
-        version: 2.4.2
     devDependencies:
       vite:
         specifier: 'catalog:'
