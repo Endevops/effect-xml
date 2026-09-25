@@ -11,21 +11,42 @@ This project is not the original package. It started as a copy of [`@nodable/bas
 
 Behaviour is unchanged. What changed is how the code is written and tested:
 
-| Change                                            | Why                                                                                                                                                                                                           |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plain JavaScript with a hand-written `index.d.ts` | Types now come from the implementation that enforces them. Upstream's declared `getOutput()` did not exist on the runtime class, so calling it on a bare `BaseOutputBuilder` threw `TypeError`; it exists now |
-| `NumberValueParser` options are typed             | `strnum` ships no types, and the old declaration said `options?: any`                                                                                                                                         |
-| `EntityDecoder` is declared as a named export     | `@nodable/entities@2.x` declares it as the _default_ export while the runtime exports it by name — the declaration is the inverse of reality (see `src/nodable-entities.d.ts`)                                |
-| Internal class names match their export names     | Upstream's `boolParser`, `trimmer`, `numParser` and `EntityParser` were exported as `BooleanParser`, `Trim`, `NumberValueParser` and `EntitiesValueParser`                                                    |
-| `ValueParserRegistryLike` added                   | The pipeline depended on the whole registry class; it now depends on the two methods it actually calls, so a test or embedder can supply its own                                                              |
-| Test suite written from scratch, 125 cases        | Every upstream `test` script was `echo "Error: no test specified" && exit 1` — none of these packages had ever had a working test command                                                                     |
-| Source files renamed to dash-case                 | Matches the rest of the workspace                                                                                                                                                                             |
-| ESM only                                          | Matches the rest of the workspace                                                                                                                                                                             |
+| Change                                               | Why                                                                                                                                                                                                           |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plain JavaScript with a hand-written `index.d.ts`    | Types now come from the implementation that enforces them. Upstream's declared `getOutput()` did not exist on the runtime class, so calling it on a bare `BaseOutputBuilder` threw `TypeError`; it exists now |
+| `NumberValueParser` options are typed                | `strnum` ships no types, and the old declaration said `options?: any`                                                                                                                                         |
+| `EntityDecoder` is declared as a named export        | `@nodable/entities@2.x` declares it as the _default_ export while the runtime exports it by name — the declaration is the inverse of reality (see `src/nodable-entities.d.ts`)                                |
+| Internal class names match their export names        | Upstream's `boolParser`, `trimmer`, `numParser` and `EntityParser` were exported as `BooleanParser`, `Trim`, `NumberValueParser` and `EntitiesValueParser`                                                    |
+| `ValueParserRegistryLike` added                      | The pipeline depended on the whole registry class; it now depends on the two methods it actually calls, so a test or embedder can supply its own                                                              |
+| `is-unsafe` replaced by `src/security/xml-unsafe.ts` | One dependency fewer, and the XML rules are now this repository's to read and to test. See the note below                                                                                                     |
+| Test suite written from scratch, 200 cases           | Every upstream `test` script was `echo "Error: no test specified" && exit 1` — none of these packages had ever had a working test command                                                                     |
+| Source files renamed to dash-case                    | Matches the rest of the workspace                                                                                                                                                                             |
+| ESM only                                             | Matches the rest of the workspace                                                                                                                                                                             |
 
 Two upstream behaviours are preserved deliberately, because both are reachable and changing them would be a breaking change rather than a fix:
 
 - `ValueParserPipeline.run()` has an `if (parser)` guard that reads as though an unresolvable parser name is skipped. It is not: the constructor's `_initAll` resolves every name through `registry.get()`, which throws. So a typo in a chain fails loudly when the pipeline is built.
 - `NumberValueParser`'s guard is `typeof newval !== val`, which compares a type name against a value and is therefore always true. With `IS_FINAL` set, the parser ends the chain even for input it did not convert. Both behaviours are asserted in the specs so they read as decisions.
+
+## The XML unsafe-value rules
+
+`EntitiesValueParser` refuses to expand a DOCTYPE-declared entity when the entity's value looks like it would subvert an XML parser. That check
+used to be `isUnsafe(value, [VALID_CONTEXTS.XML])` from `is-unsafe`, and it is now `isUnsafeXml(value)` from `src/security/xml-unsafe.ts`.
+
+The port is verbatim for the XML context: all twelve rules, same ids, same regexes, same order, same first-match-wins behaviour. Verified against the
+dependency over 112 assertions covering every rule id, near-misses that must not trip, realistic entity bodies and statelessness, asserting the same
+verdict, the same rule id and the same matched span every time. The dependency's MIT licence is kept at `LICENSE-is-unsafe`.
+
+Only the XML context came across. `is-unsafe` ships nine; the other eight are patterns for strings heading into HTML, SQL, a shell or a log, and no
+code path in this repository can reach them. Nine untested rules inside a security control would be worse than not carrying them, so if one is ever
+needed it should be added with its own tests.
+
+Two things changed on the way in, both deliberate:
+
+- **`whyUnsafeXml` and `allUnsafeXml` are new, and exported.** The old call site threw the reason away, which left a refused entity impossible to
+  diagnose without reimplementing the rules. A caller writing a custom `onInputEntity` can now ask which rule fired and on what span.
+- **A non-string throws rather than being coerced.** `String(null)` is `'null'`, which no rule flags, so a silent coercion would let an unexpected
+  value skip the check entirely.
 
 Verified independently of the suite: 1,846 assertions comparing this build against the original JavaScript over every parser, option set, chain order, registry guard, throw site and comment/CDATA policy combination — identical apart from five documented differences (the class renames, and `getOutput`).
 

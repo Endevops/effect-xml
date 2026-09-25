@@ -47,7 +47,6 @@
   "dependencies": {
     "@endevops/path-expression-matcher": "workspace:^",
     "@nodable/entities": "^2.2.0",
-    "is-unsafe": "^1.0.1",
     "strnum": "^2.4.1"
   },
   "devDependencies": {

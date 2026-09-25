@@ -1,10 +1,10 @@
 import type { EntityDecoderOptions } from '@nodable/entities';
 
 import { COMMON_HTML, ENTITY_ACTION, EntityDecoder, XML } from '@nodable/entities';
-import { VALID_CONTEXTS, isUnsafe } from 'is-unsafe';
 
 import type { Context } from '../value-parser.ts';
 
+import { isUnsafeXml } from '../security/xml-unsafe.ts';
 import BaseValueParser from './base-value-parser.ts';
 
 /**
@@ -14,20 +14,20 @@ import BaseValueParser from './base-value-parser.ts';
 export type EntitiesValueParserOptions = EntityDecoderOptions & {
   /**
    * @description Called for each entity the document declared, to decide whether to expand it. Return an {@link ENTITY_ACTION} to allow or block it. Defaults to
-   * blocking anything `is-unsafe` rejects in an XML context.
+   * blocking anything the XML rules in `security/xml-unsafe.ts` reject.
    */
   onInputEntity?: (name: string, value: string) => unknown;
 };
 
 /**
  * @description The defaults: the standard XML entity set, numeric references allowed, and untrusted DOCTYPE entities blocked. The `onInputEntity` default is the
- * package's security posture, not a convenience. A DOCTYPE entity is attacker-controlled whenever the document is, so anything `is-unsafe` flags for
- * an XML context is refused rather than expanded.
+ * package's security posture, not a convenience. A DOCTYPE entity is attacker-controlled whenever the document is, so anything the XML rules in
+ * `security/xml-unsafe.ts` flag is refused rather than expanded.
  */
 const defaultOptions: EntitiesValueParserOptions = {
   namedEntities: { ...XML },
   numericAllowed: true,
-  onInputEntity: (_name: string, value: string) => (isUnsafe(value, [VALID_CONTEXTS.XML]) ? ENTITY_ACTION.BLOCK : ENTITY_ACTION.ALLOW),
+  onInputEntity: (_name: string, value: string) => (isUnsafeXml(value) ? ENTITY_ACTION.BLOCK : ENTITY_ACTION.ALLOW),
 };
 
 /**

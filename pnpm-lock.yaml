@@ -205,9 +205,6 @@ importers:
       '@nodable/entities':
         specifier: ^2.2.0
         version: 2.2.0
-      is-unsafe:
-        specifier: ^1.0.1
-        version: 1.0.1
       strnum:
         specifier: ^2.4.1
         version: 2.4.2
@@ -1273,9 +1270,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  is-unsafe@1.0.1:
-    resolution: {integrity: sha512-CLK2+VdgERgD96EYm5lUQssZYlRg2tkZnbsxZoacmSiRxiFJ4Nk4SzjCl+Ur+v3kXIY9dTIdb3IH22y1mZ56LA==}
-
   is-unsafe@2.0.2:
     resolution: {integrity: sha512-HgbIHPBH0KHHCcjLfGsCvhtPTVxjaAZlXjwdz7/GQC40SjSe4sfQsar8J5VFo8JOSbarkpV0OLG95bbaNd9aAQ==}
 
@@ -2176,8 +2170,6 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
-
-  is-unsafe@1.0.1: {}
 
   is-unsafe@2.0.2: {}
 
