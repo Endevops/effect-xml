@@ -9,15 +9,15 @@
     "xml",
     "xml-parser"
   ],
-  "homepage": "https://github.com/Endevops/flexible-xml-parser-effect#readme",
+  "homepage": "https://github.com/Endevops/effect-xml#readme",
   "bugs": {
-    "url": "https://github.com/Endevops/flexible-xml-parser-effect/issues"
+    "url": "https://github.com/Endevops/effect-xml/issues"
   },
   "license": "MIT",
   "author": "Endevops",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Endevops/flexible-xml-parser-effect.git"
+    "url": "git+https://github.com/Endevops/effect-xml.git"
   },
   "type": "module",
   "scripts": {

@@ -11,7 +11,7 @@
     "xml",
     "xml-parser"
   ],
-  "homepage": "https://github.com/Endevops/effect-xml/tree/main/packages/compact-builder#readme",
+  "homepage": "https://github.com/Endevops/effect-xml/tree/master/packages/compact-builder#readme",
   "bugs": {
     "url": "https://github.com/Endevops/effect-xml/issues"
   },

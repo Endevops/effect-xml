@@ -15,7 +15,7 @@
     "xml-naming",
     "xml-validation"
   ],
-  "homepage": "https://github.com/Endevops/effect-xml/tree/main/packages/xml-naming#readme",
+  "homepage": "https://github.com/Endevops/effect-xml/tree/master/packages/xml-naming#readme",
   "bugs": {
     "url": "https://github.com/Endevops/effect-xml/issues"
   },

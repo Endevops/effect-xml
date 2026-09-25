@@ -12,7 +12,7 @@
     "xml",
     "xml-builder"
   ],
-  "homepage": "https://github.com/Endevops/effect-xml/tree/main/packages/builder#readme",
+  "homepage": "https://github.com/Endevops/effect-xml/tree/master/packages/builder#readme",
   "bugs": {
     "url": "https://github.com/Endevops/effect-xml/issues"
   },

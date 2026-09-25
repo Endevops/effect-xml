@@ -15,7 +15,7 @@
     "xpath",
     "yaml"
   ],
-  "homepage": "https://github.com/Endevops/effect-xml/tree/main/packages/path-expression-matcher#readme",
+  "homepage": "https://github.com/Endevops/effect-xml/tree/master/packages/path-expression-matcher#readme",
   "bugs": {
     "url": "https://github.com/Endevops/effect-xml/issues"
   },
