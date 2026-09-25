@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
 
+import type { X2jOptions } from '#/options.ts';
+
 import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
@@ -25,7 +27,7 @@ describe('autoClose — default behaviour (throw)', function () {
 // 2. onEof: 'closeAll'
 // ─────────────────────────────────────────────────────────────────────────────
 describe('autoClose — onEof: closeAll', function () {
-  const opts = { autoClose: { onEof: 'closeAll' } };
+  const opts: X2jOptions = { autoClose: { onEof: 'closeAll' } };
 
   runAcrossAllInputSources(
     'should close a single unclosed tag at EOF',
@@ -78,7 +80,7 @@ describe('autoClose — onEof: closeAll', function () {
 // 3. onMismatch: 'recover'
 // ─────────────────────────────────────────────────────────────────────────────
 describe('autoClose — onMismatch: recover', function () {
-  const opts = { autoClose: { onMismatch: 'recover' } };
+  const opts: X2jOptions = { autoClose: { onMismatch: 'recover' } };
 
   runAcrossAllInputSources(
     'should recover when inner tag is not closed before parent closes',
@@ -155,7 +157,7 @@ describe('autoClose — collectErrors / getParseErrors()', function () {
     const parser = new XMLParser({ autoClose: { onMismatch: 'recover', collectErrors: true } });
     parser.parse('<root><outer><inner>x</outer></root>');
     const errors = parser.getParseErrors();
-    const err = errors.find(e => e.type === 'mismatched-close');
+    const err = errors.find(e => e.type === 'mismatched-close')!;
     expect(err).toBeDefined();
     expect(err.tag).toBe('inner');
   });
@@ -235,7 +237,7 @@ describe('autoClose — position tracking', function () {
   it('should record non-zero index for unclosed tags', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
     parser.parse('<root>\n  <child>text</child>\n  <open>');
-    const err = parser.getParseErrors().find(e => e.tag === 'open');
+    const err = parser.getParseErrors().find(e => e.tag === 'open')!;
     expect(err).toBeDefined();
     expect(err.index).toBeGreaterThan(0);
   });
@@ -243,7 +245,7 @@ describe('autoClose — position tracking', function () {
   it('should record position for mismatched-close errors', function () {
     const parser = new XMLParser({ autoClose: { onMismatch: 'recover', collectErrors: true } });
     parser.parse('<root><a><b>x</a></root>');
-    const err = parser.getParseErrors().find(e => e.type === 'mismatched-close');
+    const err = parser.getParseErrors().find(e => e.type === 'mismatched-close')!;
     expect(err).toBeDefined();
     expect(err.index).toBeGreaterThan(0);
   });
@@ -307,7 +309,7 @@ describe('autoClose — partial tag (truncated mid-token)', function () {
   it('should record the partial name for a truncated closing tag', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
     parser.parse('<root><item>val</item></roo');
-    const err = parser.getParseErrors().find(e => e.type === 'partial-tag');
+    const err = parser.getParseErrors().find(e => e.type === 'partial-tag')!;
     expect(err).toBeDefined();
     expect(err.tag).toBe('roo');
   });
@@ -315,7 +317,7 @@ describe('autoClose — partial tag (truncated mid-token)', function () {
   it('should record null tag name for a truncated opening tag', function () {
     const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
     parser.parse('<root><ite');
-    const err = parser.getParseErrors().find(e => e.type === 'partial-tag');
+    const err = parser.getParseErrors().find(e => e.type === 'partial-tag')!;
     expect(err).toBeDefined();
     expect(err.tag).toBeNull();
   });

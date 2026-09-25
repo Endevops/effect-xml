@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vite-plus/test';
 
+import type { ErrorCodeValue, LimitsOptions } from '#/options.ts';
+
 import { ParseError, ErrorCode } from '#/ParseError.ts';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-function nested(depth, content = 'x') {
+function nested(depth: number, content: string = 'x'): string {
   let xml = '';
   for (let i = 0; i < depth; i++) xml += `<n${i}>`;
   xml += content;
@@ -14,23 +15,32 @@ function nested(depth, content = 'x') {
   return xml;
 }
 
-function tagWithAttrs(count) {
+function tagWithAttrs(count: number): string {
   let attrs = '';
   for (let i = 0; i < count; i++) attrs += ` a${i}="v${i}"`;
   return `<root${attrs}></root>`;
 }
 
-function expectParseError(fn, code) {
-  let thrown;
+/**
+ * @description Assert `fn` throws a `ParseError`, optionally with a specific code. Written as try/catch rather than `expect(fn).toThrow()` so the failure message
+ * can name the code that was actually produced — `toThrow` on a ParseError only surfaces the message, and the code is the part a reader debugging a
+ * limit needs.
+ */
+function expectParseError(fn: () => unknown, code?: ErrorCodeValue): void {
+  let thrown: unknown;
   try {
     fn();
   } catch (e) {
     thrown = e;
   }
-  expect(thrown).toBeDefined('Expected a ParseError to be thrown');
-  expect(thrown instanceof ParseError).toBe(true, `Expected ParseError, got ${thrown?.constructor?.name}`);
+  // Vitest's matchers take no custom message, so the detail that a jasmine
+  // message used to carry is asserted on the value itself — `toBe` reports
+  // both sides on failure.
+  expect(thrown).toBeDefined();
+  const err = thrown as ParseError;
+  expect(err instanceof ParseError).toBe(true);
   if (code) {
-    expect(thrown.code).toBe(code, `Expected code '${code}', got '${thrown?.code}'`);
+    expect(err!.code).toBe(code);
   }
 }
 
@@ -68,7 +78,7 @@ describe('limits option — constructor validation', function () {
   });
 
   it("should reject maxNestedTags: '10' (must be number)", function () {
-    expectParseError(() => new XMLParser({ limits: { maxNestedTags: '10' } }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => new XMLParser({ limits: { maxNestedTags: '10' } as unknown as LimitsOptions }), ErrorCode.INVALID_INPUT);
   });
 
   it('should reject maxAttributesPerTag: -1', function () {
@@ -80,7 +90,7 @@ describe('limits option — constructor validation', function () {
   });
 
   it('should reject limits as a non-object (string)', function () {
-    expectParseError(() => new XMLParser({ limits: '50' }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => new XMLParser({ limits: '50' as unknown as LimitsOptions }), ErrorCode.INVALID_INPUT);
   });
 });
 
@@ -105,27 +115,27 @@ describe('limits.maxNestedTags — enforcement', function () {
 
   it('should include tag name in the error message', function () {
     const parser = new XMLParser({ limits: { maxNestedTags: 2 } });
-    let err;
+    let err: ParseError | undefined;
     try {
       parser.parse(nested(3));
     } catch (e) {
-      err = e;
+      err = e as ParseError;
     }
     expect(err instanceof ParseError).toBe(true);
     // The offending tag n2 is at depth 3
-    expect(err.message).toMatch(/n2/);
+    expect((err as ParseError).message).toMatch(/n2/);
   });
 
   it('ParseError should carry position info (index)', function () {
     const parser = new XMLParser({ limits: { maxNestedTags: 2 } });
-    let err;
+    let err: ParseError | undefined;
     try {
       parser.parse(nested(3));
     } catch (e) {
-      err = e;
+      err = e as ParseError;
     }
     expect(err instanceof ParseError).toBe(true);
-    expect(typeof err.index).toBe('number');
+    expect(typeof err!.index).toBe('number');
   });
 
   it('should allow limit: 1 (only root tag)', function () {
@@ -177,15 +187,15 @@ describe('limits.maxAttributesPerTag — enforcement', function () {
 
   it('should include tag name and counts in error message', function () {
     const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
-    let err;
+    let err: ParseError | undefined;
     try {
       parser.parse(tagWithAttrs(5));
     } catch (e) {
-      err = e;
+      err = e as ParseError;
     }
     expect(err instanceof ParseError).toBe(true);
-    expect(err.message).toMatch(/5/); // actual count
-    expect(err.message).toMatch(/2/); // limit
+    expect(err!.message).toMatch(/5/); // actual count
+    expect(err!.message).toMatch(/2/); // limit
   });
 
   it('should enforce limit: 0 (no attributes allowed)', function () {
@@ -262,15 +272,15 @@ describe('ParseError — general error contract', function () {
     ];
 
     for (const fn of cases) {
-      let err;
+      let err: ParseError | undefined;
       try {
         fn();
       } catch (e) {
-        err = e;
+        err = e as ParseError;
       }
       expect(err).toBeDefined();
-      expect(err instanceof ParseError).toBe(true, `Expected ParseError, got: ${err?.constructor?.name}: ${err?.message}`);
-      expect(typeof err.code).toBe('string', `Expected string code, got: ${typeof err?.code}`);
+      expect(err instanceof ParseError).toBe(true);
+      expect(typeof err!.code).toBe('string');
     }
   });
 
@@ -292,15 +302,15 @@ describe('ParseError — general error contract', function () {
 
   it('limit errors carry position info', function () {
     const parser = new XMLParser({ limits: { maxNestedTags: 2 } });
-    let err;
+    let err: ParseError | undefined;
     try {
       parser.parse(nested(3));
     } catch (e) {
-      err = e;
+      err = e as ParseError;
     }
     expect(err instanceof ParseError).toBe(true);
-    expect(err.code).toBe(ErrorCode.LIMIT_MAX_NESTED_TAGS);
-    expect(typeof err.index).toBe('number');
+    expect(err!.code).toBe(ErrorCode.LIMIT_MAX_NESTED_TAGS);
+    expect(typeof err!.index).toBe('number');
   });
 
   it('ErrorCode export contains all expected codes', function () {
@@ -330,7 +340,7 @@ describe('ParseError — general error contract', function () {
       'ENTITY_INVALID_VALUE',
     ];
     for (const code of expected) {
-      expect(ErrorCode[code]).toBe(code, `Missing ErrorCode: ${code}`);
+      expect((ErrorCode as Record<string, string>)[code]).toBe(code);
     }
   });
 });

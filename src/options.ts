@@ -308,11 +308,21 @@ export interface AutoCloseOptions {
 }
 
 /**
- * @description What a caller may pass as the `autoClose` option. `null` (or omitted) disables the feature entirely and makes any malformed input a hard error.
- * `'html'` is a preset: `onEof: 'closeAll'`, `onMismatch: 'discard'`, `collectErrors: true`, plus the standard HTML void elements appended to
- * `tags.unpaired`.
+ * @description What a caller may pass as the `autoClose` option.
+ *
+ * A partial object is accepted because the parser fills the omitted fields:
+ * `resolveAutoClose` in `OptionsBuilder` defaults each one to `'throw'` /
+ * `false`, so `{ autoClose: { onEof: 'closeAll' } }` is a complete, valid
+ * configuration — asking only for EOF recovery — and requiring the caller to
+ * spell out `onMismatch` and `collectErrors` to say nothing about them would
+ * be a false constraint.
+ *
+ * `null` (or omitted) disables the feature entirely and makes any malformed
+ * input a hard error. `'html'` is a preset: `onEof: 'closeAll'`,
+ * `onMismatch: 'discard'`, `collectErrors: true`, plus the standard HTML void
+ * elements appended to `tags.unpaired`.
  */
-export type AutoCloseInput = 'html' | 'closeAll' | AutoCloseOptions | null;
+export type AutoCloseInput = 'html' | 'closeAll' | Partial<AutoCloseOptions> | null;
 
 /**
  * @description Descriptor for a custom encoding, registered via `decoding.customDecoders`.

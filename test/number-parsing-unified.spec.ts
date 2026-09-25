@@ -2,7 +2,9 @@ import { NumberValueParser } from '@nodable/base-output-builder';
 import { CompactBuilderFactory } from '@nodable/compact-builder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, createInputSource, describeAcrossAllInputSources, parseDoc } from '#/test/helpers/testRunner.ts';
+import type { InputSourceType } from '#/test/helpers/testRunner.ts';
+
+import { runAcrossAllInputSources, createInputSource, describeAcrossAllInputSources } from '#/test/helpers/testRunner.ts';
 import XMLParser from '#/XMLParser.ts';
 
 // Helper: build a parser with a custom NumberValueParser configuration.
@@ -36,13 +38,13 @@ describe('Number Parsing - Unified Tests Across All Input Sources', function () 
   ['string', 'buffer', 'feedable'].forEach(inputType => {
     it(`should parse hexadecimal numbers when enabled [${inputType}]`, function () {
       const parser = makeParser({ hex: true });
-      const result = parseDoc(createInputSource('<root><num>0xFF</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>0xFF</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe(255);
     });
 
     it(`should not parse hexadecimal when disabled [${inputType}]`, function () {
       const parser = makeParser({ hex: false });
-      const result = parseDoc(createInputSource('<root><num>0xFF</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>0xFF</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe('0xFF');
       expect(typeof result.root.num).toBe('string');
     });
@@ -52,13 +54,13 @@ describe('Number Parsing - Unified Tests Across All Input Sources', function () 
   ['string', 'buffer', 'feedable'].forEach(inputType => {
     it(`should parse numbers with leading zeros when enabled [${inputType}]`, function () {
       const parser = makeParser({ leadingZeros: true });
-      const result = parseDoc(createInputSource('<root><num>007</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>007</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe(7);
     });
 
     it(`should reject leading zeros when disabled [${inputType}]`, function () {
       const parser = makeParser({ leadingZeros: false });
-      const result = parseDoc(createInputSource('<root><num>007</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>007</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe('007');
       expect(typeof result.root.num).toBe('string');
     });
@@ -68,13 +70,13 @@ describe('Number Parsing - Unified Tests Across All Input Sources', function () 
   ['string', 'buffer', 'feedable'].forEach(inputType => {
     it(`should parse e-notation when enabled [${inputType}]`, function () {
       const parser = makeParser({ eNotation: true });
-      const result = parseDoc(createInputSource('<root><num>1.5e3</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1.5e3</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe(1500);
     });
 
     it(`should not parse e-notation when disabled [${inputType}]`, function () {
       const parser = makeParser({ eNotation: false });
-      const result = parseDoc(createInputSource('<root><num>1.5e3</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1.5e3</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe('1.5e3');
     });
   });
@@ -83,27 +85,27 @@ describe('Number Parsing - Unified Tests Across All Input Sources', function () 
   ['string', 'buffer', 'feedable'].forEach(inputType => {
     it(`should handle infinity with 'original' option (default) [${inputType}]`, function () {
       const parser = makeParser({ infinity: 'original' });
-      const result = parseDoc(createInputSource('<root><num>1e1000</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1e1000</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe('1e1000');
       expect(typeof result.root.num).toBe('string');
     });
 
     it(`should handle infinity with 'infinity' option [${inputType}]`, function () {
       const parser = makeParser({ infinity: 'infinity' });
-      const result = parseDoc(createInputSource('<root><num>1e1000</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1e1000</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe(Infinity);
     });
 
     it(`should handle infinity with 'string' option [${inputType}]`, function () {
       const parser = makeParser({ infinity: 'string' });
-      const result = parseDoc(createInputSource('<root><num>1e1000</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1e1000</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe('Infinity');
       expect(typeof result.root.num).toBe('string');
     });
 
     it(`should handle infinity with 'null' option [${inputType}]`, function () {
       const parser = makeParser({ infinity: 'null' });
-      const result = parseDoc(createInputSource('<root><num>1e1000</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1e1000</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe(null);
     });
   });
@@ -127,7 +129,7 @@ describe('Number Parsing - Unified Tests Across All Input Sources', function () 
   ['string', 'buffer', 'feedable'].forEach(inputType => {
     it(`should parse multiple numbers correctly [${inputType}]`, function () {
       const parser = makeParser({ hex: true });
-      const result = parseDoc(createInputSource('<root><a>123</a><b>456.789</b><c>0xFF</c></root>', inputType), parser);
+      const result = createInputSource('<root><a>123</a><b>456.789</b><c>0xFF</c></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.a).toBe(123);
       expect(result.root.b).toBe(456.789);
       expect(result.root.c).toBe(255);
@@ -153,7 +155,7 @@ describeAcrossAllInputSources('Advanced Number Parsing Scenarios', function (par
     const builder = new CompactBuilderFactory();
     builder.registerValueParser('number', new NumberValueParser({ hex: true }));
     const parser = new XMLParser({ OutputBuilder: builder });
-    const result = parseDoc(createInputSource(xml, inputType), parser);
+    const result = createInputSource(xml, inputType as InputSourceType).parse(parser);
 
     expect(result.data.int).toBe(42);
     expect(result.data.float).toBeCloseTo(3.14159, 5);
@@ -190,13 +192,13 @@ describe('Security - Infinity Handling', function () {
   ['string', 'buffer', 'feedable'].forEach(inputType => {
     it(`should allow explicit infinity conversion when opted in [${inputType}]`, function () {
       const parser = makeParser({ infinity: 'infinity' });
-      const result = parseDoc(createInputSource('<root><num>1e1000</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1e1000</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe(Infinity);
     });
 
     it(`should convert infinity to null when configured [${inputType}]`, function () {
       const parser = makeParser({ infinity: 'null' });
-      const result = parseDoc(createInputSource('<root><num>1e1000</num></root>', inputType), parser);
+      const result = createInputSource('<root><num>1e1000</num></root>', inputType as InputSourceType).parse(parser);
       expect(result.root.num).toBe(null);
     });
   });

@@ -253,7 +253,7 @@ export function frunAcrossAllInputSourcesWithFactory(
 /**
  * @description Parses `xmlString` through one specific input mechanism.
  */
-export type ParseWithSource = (xmlString: string, parserOptions?: X2jOptions) => unknown;
+export type ParseWithSource = (xmlString: string, parserOptions?: X2jOptions) => ParsedNode;
 
 /**
  * @description Re-runs a whole block of tests once per input mechanism, the `describe` counterpart of {@link runAcrossAllInputSources}.
