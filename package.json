@@ -1,25 +1,13 @@
 {
-  "name": "@endevops/flexible-xml-parser-effect",
-  "version": "0.1.0",
-  "description": "XML parser in pure JavaScript with pluggable output builders and composable value parsers. Fork of @nodable/flexible-xml-parser, with static types across the source tree and a fully typed test suite.",
+  "name": "@endevops/effect-xml",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo for the Endevops XML packages. Holds the toolchain and the shared lint, format, and TypeScript configuration; each publishable package lives in packages/.",
   "keywords": [
-    "buffer",
-    "bytes",
-    "fast",
-    "fast-xml-parser",
-    "flexible",
-    "html",
-    "parser",
-    "path-expression-matcher",
-    "sax",
-    "stream",
+    "effect-xml",
+    "monorepo",
     "xml",
-    "xml-naming",
-    "xml-parser",
-    "xml2js",
-    "xml2json",
-    "xml2xml",
-    "xml2yaml"
+    "xml-parser"
   ],
   "homepage": "https://github.com/Endevops/flexible-xml-parser-effect#readme",
   "bugs": {
@@ -31,39 +19,19 @@
     "type": "git",
     "url": "git+https://github.com/Endevops/flexible-xml-parser-effect.git"
   },
-  "files": [
-    "dist"
-  ],
   "type": "module",
-  "sideEffects": false,
-  "types": "./dist/index.d.mts",
-  "imports": {
-    "#/*": "./src/*",
-    "#/test/*": "./test/*"
-  },
-  "exports": {
-    ".": "./dist/index.mjs",
-    "./package.json": "./package.json"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
-    "build": "vp pack",
-    "dev": "vp pack --watch",
+    "build": "vp run -r build",
+    "check": "vp check",
+    "dev": "vp run -r --parallel dev",
+    "fmt": "vp fmt",
+    "lint": "vp lint",
     "prepare": "vp config",
-    "prepublishOnly": "vp pack"
-  },
-  "dependencies": {
-    "@nodable/base-output-builder": "^2.0.0",
-    "@nodable/compact-builder": "^2.0.0",
-    "path-expression-matcher": "^1.6.2",
-    "xml-naming": "^0.3.0"
+    "test": "vp test"
   },
   "devDependencies": {
-    "@nodable/entities": "^2.2.0",
-    "@types/node": "^26.6.2",
-    "typescript": "^7.0.2",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

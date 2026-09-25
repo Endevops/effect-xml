@@ -1,0 +1,70 @@
+{
+  "name": "@endevops/flexible-xml-parser-effect",
+  "version": "0.1.0",
+  "description": "XML parser in pure JavaScript with pluggable output builders and composable value parsers. Fork of @nodable/flexible-xml-parser, with static types across the source tree and a fully typed test suite.",
+  "keywords": [
+    "buffer",
+    "bytes",
+    "fast",
+    "fast-xml-parser",
+    "flexible",
+    "html",
+    "parser",
+    "path-expression-matcher",
+    "sax",
+    "stream",
+    "xml",
+    "xml-naming",
+    "xml-parser",
+    "xml2js",
+    "xml2json",
+    "xml2xml",
+    "xml2yaml"
+  ],
+  "homepage": "https://github.com/Endevops/flexible-xml-parser-effect#readme",
+  "bugs": {
+    "url": "https://github.com/Endevops/flexible-xml-parser-effect/issues"
+  },
+  "license": "MIT",
+  "author": "Endevops",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Endevops/flexible-xml-parser-effect.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.mts",
+  "imports": {
+    "#/*": "./src/*",
+    "#/test/*": "./test/*"
+  },
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "prepublishOnly": "vp pack"
+  },
+  "dependencies": {
+    "@nodable/base-output-builder": "^2.0.0",
+    "@nodable/compact-builder": "^2.0.0",
+    "path-expression-matcher": "^1.6.2",
+    "xml-naming": "^0.3.0"
+  },
+  "devDependencies": {
+    "@nodable/entities": "^2.2.0",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

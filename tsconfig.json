@@ -1,51 +1,15 @@
 {
-  // Visit https://aka.ms/tsconfig to read more about this file
-  "compilerOptions": {
-    "noEmit": true,
-    "module": "esnext",
-    "target": "esnext",
-    "types": ["node"],
-
-    // Other Outputs
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
-
-    // Stricter Typechecking Options
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-
-    // Style Options
-    "noImplicitReturns": true,
-    "noImplicitOverride": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "noPropertyAccessFromIndexSignature": true,
-
-    // Recommended Options
-    "strict": true,
-    "jsx": "react-jsx",
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
-    "skipLibCheck": true,
-    "erasableSyntaxOnly": true,
-    "allowJs": true,
-    "allowImportingTsExtensions": true,
-
-    "paths": { "#/*": ["./src/*"], "#/test/*": ["./test/*"] }
-  },
-  // The library is type-checked here, with every strictness guard on: the
-  // option and data layers here are statically shaped, so
-  // noPropertyAccessFromIndexSignature and noUncheckedIndexedAccess are
-  // load-bearing. The test suite has its own project (test/tsconfig.json)
-  // because a parsed XML tree's keys are only known at runtime, which
-  // those two guards cannot accommodate.
+  // Workspace-root TypeScript project.
   //
-  // bench/ is included here rather than left out: it drives the public API
-  // with statically-typed options, so the same guards apply and there is no
-  // reason for a second untype-checked island in the repo.
-  "include": ["src/**/*.ts", "bench/**/*.ts"]
+  // Covers the repo's own TypeScript — currently just vite.config.ts. Package
+  // sources are deliberately NOT included here: each package type-checks under
+  // its own project so it can pick its own `paths` and `include`, and because a
+  // single root project spanning src/ and test/ would force one set of strictness
+  // guards on both. The library keeps noPropertyAccessFromIndexSignature and
+  // noUncheckedIndexedAccess; the test suite relaxes both, because a parsed XML
+  // tree's keys are only known at runtime.
+  //
+  // See packages/parser/tsconfig.json and packages/parser/test/tsconfig.json.
+  "extends": "./tsconfig.shared.json",
+  "include": ["*.ts"]
 }

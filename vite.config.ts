@@ -1,10 +1,16 @@
 import { defineConfig } from 'vite-plus';
 
-import tsdownConfig from './tsdown.config.js';
-
+// Workspace-root toolchain configuration.
+//
+// Oxlint and Oxfmt are configured here and only here. `vp lint`, `vp fmt`, and
+// `vp check` read the root `lint` and `fmt` blocks even when invoked from a
+// package directory, and Oxlint/Oxfmt ignore nested configs in Vite+ mode, so a
+// package cannot drift from this file. Package-level `vite.config.ts` files
+// are for per-package concerns only (currently just `pack`); anything a second
+// package would also need belongs here, as a `lint.overrides` or `fmt.overrides`
+// entry keyed on workspace globs such as `packages/<name>/**`.
 export default defineConfig({
   staged: { '*': 'vp check --fix' },
-  pack: tsdownConfig,
   fmt: {
     arrowParens: 'avoid',
     bracketSameLine: true,

@@ -1,7 +1,7 @@
 // Test-suite type-check configuration.
 //
-// Extends the project root so the specs stay under the same `strict` family
-// as the library, with two of the index-signature guards relaxed. Both are
+// Extends the package tsconfig so the specs stay under the same `strict`
+// family as the library, with two of the index-signature guards relaxed. Both are
 // load-bearing for src/ (they catch dynamic option-object lookups) and
 // actively hostile to tests, which traverse a parsed XML tree whose keys are
 // only known at runtime:
@@ -16,8 +16,8 @@
 //     `T | undefined` forces a null-check on every assertion, which would
 //     obscure the thing under test behind type noise.
 //
-// The library keeps both rules (see the root tsconfig, which now covers
-// src/ only). Only the test tree opts out, and only because its shape is
+// The library keeps both rules (see ../tsconfig.json, which covers src/ and
+// bench/). Only the test tree opts out, and only because its shape is
 // genuinely dynamic.
 //
 // The `src/*.d.ts` files are pulled in explicitly: they carry the module

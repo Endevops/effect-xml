@@ -1,154 +1,74 @@
-# @endevops/flexible-xml-parser-effect
+# effect-xml
 
-A fork of [`@nodable/flexible-xml-parser`](https://github.com/nodable/flexible-xml-parser), a high-performance XML parser in pure JavaScript with pluggable output builders, composable value parsers, and string, buffer, stream, and incremental feed input modes.
+A pnpm workspace for the Endevops XML packages. One library today, built on
+[Vite+](https://viteplus.dev/guide/) for the toolchain.
 
-## This is a fork
+| Package                                                     | Description                               |
+| ----------------------------------------------------------- | ----------------------------------------- |
+| [`@endevops/flexible-xml-parser-effect`](./packages/parser) | XML parser with pluggable output builders |
 
-This project is not the original parser. It started as a copy of `@nodable/flexible-xml-parser` at commit [`f51ecad5`](https://github.com/nodable/flexible-xml-parser/commit/f51ecad55027aebae1b89740479e9ec4cbdd6e0f) and is maintained separately by Endevops. The package name changed and the code is edited, so this repository is the place to file issues against the fork, not the upstream one.
+## Layout
 
-Upstream released `@nodable/flexible-xml-parser` as the scoped successor to the unscoped `fast-xml-parser`, so the credit chain runs `fast-xml-parser` (Amit Gupta) to `@nodable/flexible-xml-parser` to this fork. The `flexible-xml-parser` name in this package name is inherited from upstream, not chosen here.
+```
+packages/<name>/     publishable package: src/, test/, docs/, package.json
+vite.config.ts       Oxlint, Oxfmt, staged checks — one config for the whole repo
+tsconfig.shared.json compilerOptions every package extends
+pnpm-workspace.yaml  package globs, version catalog, overrides
+```
 
-## What this fork changes
+`vp lint`, `vp fmt`, and `vp check` read the `lint` and `fmt` blocks in the root
+`vite.config.ts` even when you run them from inside a package, and Oxlint and
+Oxfmt ignore nested configs in Vite+ mode. That is deliberate: a package cannot
+quietly opt out of the shared lint and format rules. When one package needs
+different settings, add a `lint.overrides` or `fmt.overrides` entry keyed on
+`packages/<name>/**` rather than a config file in the package.
 
-The parser behaviour is the same. The changes are in how the code is written and built.
+A package's own `vite.config.ts` holds only what is specific to that package —
+here, the tsdown `pack` options. The root config has no `pack` block, because
+`vp pack` at the root needs a target and would otherwise be ambiguous.
 
-| Change                                              | Why                                                                    |
-| --------------------------------------------------- | ---------------------------------------------------------------------- |
-| Every file and directory renamed to dash-case       | The upstream names were PascalCase and SCREAMING_CASE in the same tree |
-| Static types across all of `src/`                   | Upstream shipped types only on the public entry points                 |
-| Test suite and benchmark fully typed                | The specs are now checked by the compiler, which surfaced real bugs    |
-| Built with Vite+ (`vp pack`, `vp test`, `vp check`) | Replaces the previous ad-hoc build setup                               |
-| Latent bugs fixed in specs and entity handling      | Found while typing, listed in the commit history                       |
+## Commands
 
-Two known differences worth calling out: `test/compact-builder-force.spec.ts` and the `@nodable/entities` augmentation in `src/nodable-entities.d.ts` are fork-local, and the benchmark has no runner script yet.
-
-## Installation
-
-The package is not published to npm. Clone the repository and link it into a consuming project, or point a pnpm `catalog:` entry at the local path.
+Run from the workspace root:
 
 ```bash
-pnpm install
-pnpm build
+vp install           # install, via the packageManager field
+vp check             # format, lint, type-check — every package
+vp test              # every package's test suite
+pnpm build           # vp run -r build — pack every package
 ```
 
-Its runtime dependencies (`@nodable/base-output-builder`, `@nodable/compact-builder`, `path-expression-matcher`, `xml-naming`) come from npm as normal.
+For one package, target it with `-C`, which behaves exactly like `cd`-ing there:
 
-## Quick start
-
-```javascript
-import XMLParser from '@endevops/flexible-xml-parser-effect';
-
-const parser = new XMLParser();
-parser.parse('<root><count>3</count><active>true</active></root>');
-// { root: { count: 3, active: true } }
+```bash
+vp -C packages/parser check
+vp -C packages/parser test
+vp -C packages/parser pack
 ```
 
-Attributes are skipped by default. Turn them on to see them:
+A bare `vp pack` at the root refuses to guess between the root and the packages
+and prints the commands to use instead. That is the intended behaviour once
+more than one package exists.
 
-```javascript
-const parser = new XMLParser({ skip: { attributes: false } });
-parser.parse('<item id="1">hello</item>');
-// { item: { '@_id': 1, '#text': 'hello' } }
-```
+## Adding a package
 
-## Input modes
+1. `mkdir -p packages/<name>` with its own `package.json`, and declare it in
+   `pnpm-workspace.yaml` if the name does not match `packages/*`.
+2. Add a `tsconfig.json` that extends `../../tsconfig.shared.json`. Keep `paths`
+   and `include` there, not in the shared file — both resolve relative to the
+   file that declares them, so a `paths` entry in the shared file would anchor
+   to the root.
+3. Take shared dependency versions from the `catalog` in `pnpm-workspace.yaml`
+   with `"<dep>": "catalog:"`, so one edit updates every package.
+4. Add a `pack` block to the package's `vite.config.ts` if it ships a build.
+   Leave lint and format settings alone.
 
-```javascript
-parser.parse('<root/>'); // string
-parser.parse(Buffer.from('<root/>')); // buffer
-parser.parseBytesArr(new Uint8Array([...])); // typed array
-await parser.parseStream(fs.createReadStream('big.xml')); // Node.js readable
+## Publishing
 
-// Incremental feed
-parser.feed('<root>');
-parser.feed('<item>1</item>');
-const result = parser.end();
-```
-
-## Options
-
-Everything is optional.
-
-```javascript
-new XMLParser({
-  skip: {
-    // What to leave out of the output
-    attributes: true, // Skip all attributes
-    declaration: false, // Skip <?xml ...?>
-    pi: false, // Skip processing instructions
-    cdata: false, // Leave CDATA out of the output
-    comment: false, // Leave comments out of the output
-    nsPrefix: false, // Strip namespace prefixes
-    tags: [], // Tag paths to drop from the output
-  },
-  nameFor: {
-    // Property names for special nodes
-    text: '#text', // Mixed-content text property
-    cdata: '', // '' merges into text, '#cdata' gets its own key
-    comment: '', // '' omits, '#comment' captures
-  },
-  attributes: {
-    // Attribute representation
-    prefix: '@_',
-    suffix: '',
-    groupBy: '', // Group attributes under one key, '' keeps them inline
-    booleanType: false, // Allow valueless attributes, read as true
-  },
-  tags: {
-    unpaired: [], // Self-closing tags written without a slash
-    stopNodes: [], // Paths whose content is captured raw
-  },
-  limits: { maxNestedTags: null, maxAttributesPerTag: null },
-  doctypeOptions: { enabled: false, maxEntityCount: 100, maxEntitySize: 10000 },
-  strictReservedNames: false,
-  exitIf: null,
-  feedable: { maxBufferSize: 10 * 1024 * 1024, autoFlush: true, flushThreshold: 1024 },
-  autoClose: null, // null is strict, 'html' recovers and collects errors
-  OutputBuilder: null, // Defaults to CompactBuilder
-});
-```
-
-## Value parsers
-
-Value parsing belongs to the output builder, so tag text and attribute values get independent chains.
-
-```javascript
-import { CompactBuilderFactory } from '@nodable/compact-builder';
-
-const builder = new CompactBuilderFactory({
-  tags: { valueParsers: ['entity', 'boolean', 'number'] },
-  attributes: { valueParsers: ['entity', 'number', 'boolean'] },
-});
-
-const parser = new XMLParser({ OutputBuilder: builder });
-```
-
-## Documentation
-
-The docs are inherited from upstream. Their install and import snippets name this package; the option reference and the internals notes still describe upstream behaviour in upstream's terms, so check a snippet against [10 — TypeScript](./docs/10-typescript.md) if it disagrees with your editor.
-
-| File                                                           | Topic                                            |
-| -------------------------------------------------------------- | ------------------------------------------------ |
-| [`docs/01-getting-started.md`](./docs/01-getting-started.md)   | Installation, first parse, common patterns       |
-| [`docs/02-options.md`](./docs/02-options.md)                   | Full options reference                           |
-| [`docs/03-value-parsers.md`](./docs/03-value-parsers.md)       | Value parser pipeline, built-ins, custom parsers |
-| [`docs/04-stop-nodes.md`](./docs/04-stop-nodes.md)             | Stop nodes and skip tags                         |
-| [`docs/05-output-builders.md`](./docs/05-output-builders.md)   | Built-in and custom output builders              |
-| [`docs/06-streaming.md`](./docs/06-streaming.md)               | Stream, feed and end, memory behaviour           |
-| [`docs/07-auto-close.md`](./docs/07-auto-close.md)             | Lenient HTML parsing and error collection        |
-| [`docs/08-security.md`](./docs/08-security.md)                 | DoS limits and prototype pollution               |
-| [`docs/09-path-expressions.md`](./docs/09-path-expressions.md) | Path expression syntax                           |
-| [`docs/10-typescript.md`](./docs/10-typescript.md)             | TypeScript usage and type definitions            |
-| [`docs/16-encoding.md`](./docs/16-encoding.md)                 | Encoding detection and decoding                  |
-
-## Thanks
-
-This parser exists because [Amit Gupta](https://solothought.com) wrote [`fast-xml-parser`](https://github.com/NaturalIntelligence/fast-xml-parser) and then [`@nodable/flexible-xml-parser`](https://github.com/nodable/flexible-xml-parser). The tag scanning, attribute handling, value coercion, stop nodes, streaming design, and the output builder split that makes this parser configurable are all his work. The MIT license he chose for both packages is what makes this fork possible.
-
-Thanks also to everyone who has reported a bug, sent a pull request, or answered an issue on either repository. A fork only stays useful when the original keeps moving, and that is mostly thanks to the people who keep sending it fixes.
-
-This fork exists because of that work, and the same MIT terms apply to it.
+`prepublishOnly` runs `vp pack` in the package, so `pnpm -r publish` builds each
+package before it goes out. The root manifest is `private` and is never
+published.
 
 ## License
 
-MIT, the same as upstream. See [`LICENSE`](./LICENSE) for the full text. The copyright notices for Amit Gupta (2026, `@nodable/flexible-xml-parser`) and Amit Kumar Gupta (2017, `fast-xml-parser`) are retained there alongside the fork's own, as the MIT terms require.
+MIT. See [`packages/parser/LICENSE`](./packages/parser/LICENSE).

@@ -1,0 +1,53 @@
+{
+  // Shared TypeScript configuration for every package in the workspace.
+  //
+  // This file holds only what is genuinely repo-wide. Anything a single package
+  // decides for itself — module resolution paths, which directories it
+  // type-checks — belongs in that package's own tsconfig.json, because `paths`
+  // and `include` are resolved relative to the file that declares them, not to
+  // the file that extends this one. Putting a `paths` entry here would silently
+  // anchor it to the workspace root.
+  //
+  // A package opts in with `"extends": "../../tsconfig.shared.json"`.
+  //
+  // Named `shared` rather than the more usual `base` because a machine-global
+  // gitignore rule (`*.BASE.*`, matched case-insensitively) silently excludes
+  // tsconfig.base.json from the repo, which breaks every clone.
+  //
+  // Visit https://aka.ms/tsconfig to read more about this file
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "esnext",
+    "target": "esnext",
+    "types": ["node"],
+
+    // Other Outputs
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    // Stricter Typechecking Options
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    // Style Options
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    // Recommended Options
+    "strict": true,
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+    "erasableSyntaxOnly": true,
+    "allowJs": true,
+    "allowImportingTsExtensions": true
+  }
+}
