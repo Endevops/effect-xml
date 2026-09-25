@@ -25,3 +25,13 @@ release. Add a tool name to select part of the graph. For example, run
 - [ ] If setup, runtime, or package-manager behavior looks wrong, run `vp env doctor` and include its output when asking for help.
 
 <!--VITE PLUS END-->
+
+# Git
+
+- After a task runs and its checks pass, commit the work. Do not wait to be asked.
+- Skip the commit when the user says not to commit, or when there is nothing worth committing (no file changes).
+- Never push. Leave the commit on the current branch for the user to review.
+- Before committing, review the diff and leave out unrelated changes, secrets, and generated noise.
+- Write the subject in the imperative mood under 72 characters. Match the existing history (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
+- One logical change per commit. Don't fold unrelated edits into a single commit.
+- If a commit hook rewrites files (formatter, linter), re-stage and amend rather than starting a new commit.
