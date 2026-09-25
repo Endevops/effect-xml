@@ -1,0 +1,60 @@
+{
+  "name": "@endevops/base-output-builder",
+  "version": "2.0.0",
+  "description": "Base classes and value-parsing primitives for XML parser output builders. Fork of @nodable/base-output-builder, with static types across the source tree and a typed test suite.",
+  "keywords": [
+    "builder",
+    "flexible-xml-parser",
+    "output-builder",
+    "parser",
+    "value-parser",
+    "xml",
+    "xml-parser"
+  ],
+  "homepage": "https://github.com/Endevops/effect-xml/tree/main/packages/base-output-builder#readme",
+  "bugs": {
+    "url": "https://github.com/Endevops/effect-xml/issues"
+  },
+  "license": "MIT",
+  "author": "Endevops",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Endevops/effect-xml.git",
+    "directory": "packages/base-output-builder"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.mts",
+  "imports": {
+    "#/*": "./src/*",
+    "#/test/*": "./test/*"
+  },
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "prepublishOnly": "vp pack"
+  },
+  "dependencies": {
+    "@endevops/path-expression-matcher": "workspace:^",
+    "@nodable/entities": "^2.2.0",
+    "is-unsafe": "^1.0.1",
+    "strnum": "^2.4.1"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

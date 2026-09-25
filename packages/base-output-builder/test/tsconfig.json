@@ -1,0 +1,21 @@
+// Test-suite type-check configuration.
+//
+// Extends the package tsconfig so the specs stay under the same `strict`
+// family as the library, with the two index-signature guards relaxed. Both are
+// load-bearing for src/ — the registry is a name-keyed lookup and the pipeline
+// walks an array by index — and hostile to tests, which index into the default
+// parser lists and assert on thrown messages, where a null-check at every site
+// would bury the thing under test.
+//
+// The library keeps both guards (see ../tsconfig.json, which covers src/ plus
+// its two ambient declaration files). Only the test tree opts out.
+//
+// The `src/*.d.ts` files are named explicitly: they declare `strnum` and the
+// real `EntityDecoder` export, neither of which ships usable types. They are
+// ambient module declarations, so they must be part of this project for the
+// specs' own imports of those two modules to resolve.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
+  "include": ["./**/*.ts", "../src/strnum.d.ts", "../src/nodable-entities.d.ts"]
+}

@@ -9,6 +9,7 @@ A pnpm workspace for the Endevops XML packages. One library today, built on
 | [`@endevops/path-expression-matcher`](./packages/path-expression-matcher) | Path tracking and pattern matching for XML/JSON parsers |
 | [`@endevops/xml-naming`](./packages/xml-naming)                           | Validates XML name productions                          |
 | [`@endevops/xml-builder`](./packages/builder)                             | Builds XML from a JavaScript object                     |
+| [`@endevops/base-output-builder`](./packages/base-output-builder)         | Base classes and value-parser primitives for builders   |
 
 ## Layout
 
