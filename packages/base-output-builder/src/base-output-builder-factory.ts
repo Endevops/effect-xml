@@ -51,7 +51,7 @@ export default class BaseOutputBuilderFactory {
    *
    * @throws {Error} Always, in the base class.
    */
-  getInstance(parserOptions: Record<string, unknown>, readonlyMatcher: MatcherView | null): BaseOutputBuilder {
+  getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): BaseOutputBuilder {
     void parserOptions;
     void readonlyMatcher;
     throw new Error('getInstance is not implemented');

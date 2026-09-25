@@ -21,12 +21,15 @@
 // genuinely dynamic.
 //
 // The `src/*.d.ts` files are pulled in explicitly: they carry the module
-// augmentations that correct stale declarations in `path-expression-matcher`,
-// the `@nodable` builder packages and `@nodable/entities`. Without them the
-// specs would see the published — and wrong — types, and the real classes
-// would look unassignable to the parser's structural builder contract.
+// augmentation that corrects `@nodable/entities`, which declares
+// `EntityDecoder` as the module's *default* export while the runtime exports
+// it by name. Without it the specs would see the published — and wrong —
+// types. The augmentations that used to cover the `@nodable` builder
+// packages are gone: the workspace replacements declare the real signatures,
+// so the classes are assignable to the parser's structural contract
+// without help.
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
-  "include": ["./**/*.ts", "../src/nodable-builders.d.ts", "../src/nodable-entities.d.ts"]
+  "include": ["./**/*.ts", "../src/nodable-entities.d.ts"]
 }

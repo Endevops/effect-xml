@@ -62,7 +62,7 @@ The Billion Laughs attack uses recursive entity references to produce exponentia
 | `maxEntityCount` | `100`   | Max entities declared in a single DOCTYPE |
 | `maxEntitySize`  | `10000` | Max bytes per entity definition value     |
 
-**Layer 2 — `EntitiesValueParser`** from `@nodable/base-output-builder` (enforced at replacement time):
+**Layer 2 — `EntitiesValueParser`** from `@endevops/base-output-builder` (enforced at replacement time):
 
 | Option               | Default         | Description                                       |
 | -------------------- | --------------- | ------------------------------------------------- |
@@ -72,8 +72,8 @@ The Billion Laughs attack uses recursive entity references to produce exponentia
 DOCTYPE entity expansion is **disabled by default** (`doctypeOptions.enabled: false`). If you need it, enable it only for trusted input and tighten both layers:
 
 ```javascript
-import { EntitiesValueParser } from '@nodable/base-output-builder';
-import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { EntitiesValueParser } from '@endevops/base-output-builder';
+import { CompactBuilderFactory } from '@endevops/compact-builder';
 
 const evp = new EntitiesValueParser({ default: true, maxTotalExpansions: 200, maxExpandedLength: 10000 });
 const builder = new CompactBuilderFactory();
@@ -100,8 +100,8 @@ When `strictReservedNames: true`, tag or attribute names that collide with any c
 
 ```javascript
 import XMLParser, { ParseError } from '@endevops/flexible-xml-parser-effect';
-import { EntitiesValueParser } from '@nodable/base-output-builder';
-import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { EntitiesValueParser } from '@endevops/base-output-builder';
+import { CompactBuilderFactory } from '@endevops/compact-builder';
 
 const evp = new EntitiesValueParser({ default: true, maxTotalExpansions: 500, maxExpandedLength: 50000 });
 const builder = new CompactBuilderFactory();

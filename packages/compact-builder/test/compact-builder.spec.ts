@@ -61,8 +61,8 @@ const build = (input: WalkNode, builderOptions: FactoryOptions = {}, parserOptio
 
     matcher.push(tagName);
     for (const [name, value] of Object.entries(attributes)) builder.addAttribute(name, value, matcher.readOnly());
-    builder.addElement({ name: tagName });
-    if (text) builder.addValue(text);
+    builder.addElement({ name: tagName, index: matcher.getDepth() }, matcher.readOnly());
+    if (text) builder.addValue(text, matcher.readOnly());
     for (const [name, value] of children) {
       if (Array.isArray(value)) {
         for (const item of value) walk(asNode(item), name);
@@ -70,7 +70,7 @@ const build = (input: WalkNode, builderOptions: FactoryOptions = {}, parserOptio
         walk(asNode(value), name);
       }
     }
-    builder.closeElement();
+    builder.closeElement(matcher.readOnly(), { name: tagName });
     matcher.pop();
   };
 
@@ -345,11 +345,11 @@ describe('CompactBuilder — textJoint', () => {
     const matcher = new Matcher();
     const b = builder.getInstance(PARSER_OPTIONS, matcher.readOnly());
     matcher.push('a');
-    b.addElement({ name: 'a' });
-    b.addValue('one');
-    b.addValue('two');
-    b.addValue('three');
-    b.closeElement();
+    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
+    b.addValue('one', matcher.readOnly());
+    b.addValue('two', matcher.readOnly());
+    b.addValue('three', matcher.readOnly());
+    b.closeElement(matcher.readOnly(), { name: 'a' });
     matcher.pop();
     expect(b.getOutput()).toEqual({ a: 'one|two|three' });
   });
@@ -359,10 +359,10 @@ describe('CompactBuilder — textJoint', () => {
     const matcher = new Matcher();
     const b = builder.getInstance(PARSER_OPTIONS, matcher.readOnly());
     matcher.push('a');
-    b.addElement({ name: 'a' });
-    b.addValue('one');
-    b.addValue('two');
-    b.closeElement();
+    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
+    b.addValue('one', matcher.readOnly());
+    b.addValue('two', matcher.readOnly());
+    b.closeElement(matcher.readOnly(), { name: 'a' });
     matcher.pop();
     expect(b.getOutput()).toEqual({ a: 'onetwo' });
   });

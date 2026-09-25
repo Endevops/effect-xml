@@ -23,7 +23,7 @@ skip: {
 
 `skip.cdata` vs `nameFor.cdata` — `skip.cdata: true` drops CDATA entirely; when `false` (default), `nameFor.cdata` controls whether it's merged into text or stored as a separate property.
 
-XML parser supports whitespace normalisation, for `xml:space="preserve"` and `xml:space="default"` attributes. If `"ws"` value parser is set in `tags.valueParsers`, or you can import `WSNormalizer` from `@nodable/base-output-builder` to preserve white spaces of specific tags like 'script', 'pre', 'style' etc. White spaces are by default preserved for CDATA, comments, or stop nodes irrespective of setting `ws` or `WSNormalizer` in pipeline. `WSNormalizer` skip attributes parsing. You will have to override its `parse` method to change the functionality. There is no impact if you skip or keep namespace.
+XML parser supports whitespace normalisation, for `xml:space="preserve"` and `xml:space="default"` attributes. If `"ws"` value parser is set in `tags.valueParsers`, or you can import `WSNormalizer` from `@endevops/base-output-builder` to preserve white spaces of specific tags like 'script', 'pre', 'style' etc. White spaces are by default preserved for CDATA, comments, or stop nodes irrespective of setting `ws` or `WSNormalizer` in pipeline. `WSNormalizer` skip attributes parsing. You will have to override its `parse` method to change the functionality. There is no impact if you skip or keep namespace.
 
 ---
 

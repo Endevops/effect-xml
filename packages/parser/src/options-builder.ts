@@ -1,7 +1,7 @@
 import type { Expression as PathExpression } from '@endevops/path-expression-matcher';
 
+import { CompactBuilderFactory } from '@endevops/compact-builder';
 import { Expression, ExpressionSet } from '@endevops/path-expression-matcher';
-import { CompactBuilderFactory } from '@nodable/compact-builder';
 
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';

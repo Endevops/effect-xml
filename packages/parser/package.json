@@ -54,10 +54,10 @@
     "prepublishOnly": "vp pack"
   },
   "dependencies": {
+    "@endevops/base-output-builder": "workspace:^",
+    "@endevops/compact-builder": "workspace:^",
     "@endevops/path-expression-matcher": "workspace:^",
-    "@endevops/xml-naming": "workspace:^",
-    "@nodable/base-output-builder": "^2.0.0",
-    "@nodable/compact-builder": "^2.0.0"
+    "@endevops/xml-naming": "workspace:^"
   },
   "devDependencies": {
     "@nodable/entities": "^2.2.0",

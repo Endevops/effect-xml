@@ -124,10 +124,10 @@ To reuse the bundled value-parser pipeline, extend `BaseValueParser` for your pa
 
 ## Custom Value Parser
 
-`BaseValueParser` and the `Context` class come from `@nodable/base-output-builder`. There is no `ElementType` enum and no `ValueParserContext` type: whether a value came from an attribute is a boolean on the context.
+`BaseValueParser` and the `Context` class come from `@endevops/base-output-builder`. There is no `ElementType` enum and no `ValueParserContext` type: whether a value came from an attribute is a boolean on the context.
 
 ```typescript
-import { BaseValueParser, type Context } from '@nodable/base-output-builder';
+import { BaseValueParser, type Context } from '@endevops/base-output-builder';
 
 class UpperCaseParser extends BaseValueParser {
   override parse(val: unknown, context?: Context): unknown {

@@ -1,4 +1,4 @@
-import type { SharedContext } from '@nodable/base-output-builder';
+import type { SharedContext } from '@endevops/base-output-builder';
 import type { EntityDecoderOptions } from '@nodable/entities';
 
 // `EntityDecoder` is a NAMED export at runtime; `@nodable/entities`' index.d.ts

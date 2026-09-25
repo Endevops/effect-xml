@@ -1,4 +1,4 @@
-import { CompactBuilderFactory, CompactBuilder } from '@nodable/compact-builder';
+import { CompactBuilderFactory, CompactBuilder } from '@endevops/compact-builder';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, XmlDeclaration } from '#/internal/parser-types.ts';

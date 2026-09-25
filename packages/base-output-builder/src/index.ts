@@ -15,7 +15,7 @@
  *   ```;
  */
 
-import type { ExitInfoLike, TagDetailLike } from './base-output-builder.ts';
+import type { CloseMetaLike, ExitInfoLike, TagDetailLike, TagNameLike } from './base-output-builder.ts';
 import type { BuiltInValueParserOptions, BuilderParserOptions, ValueParserChainOptions } from './options.ts';
 import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
 import type { EntitiesValueParserOptions } from './value-parsers/entity-parser.ts';
@@ -52,9 +52,11 @@ export type {
   BuiltInValueParserOptions,
   BuilderParserOptions,
   EntitiesValueParserOptions,
+  CloseMetaLike,
   ExitInfoLike,
   NumberParserOptions,
   TagDetailLike,
+  TagNameLike,
   ValueParser,
   ValueParserChainOptions,
   ValueParserRegistryLike,

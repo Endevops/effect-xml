@@ -1,8 +1,7 @@
+import type { ValueParserRegistryLike } from '@endevops/base-output-builder';
 import type { MatcherView } from '@endevops/path-expression-matcher';
-import type { ValueParserRegistry } from '@nodable/base-output-builder';
-import type { FactoryOptions } from '@nodable/compact-builder';
 
-import { CompactBuilder, CompactBuilderFactory } from '@nodable/compact-builder';
+import { CompactBuilder, CompactBuilderFactory } from '@endevops/compact-builder';
 
 import type { AttributeMeta, CloseMeta, OutputBuilderLike, TagDetailLike, XmlDeclaration } from '#/internal/parser-types.ts';
 import type { X2jOptions } from '#/options.ts';
@@ -131,9 +130,9 @@ export class RecordingBuilder implements OutputBuilderLike {
   constructor(
     events: RecordingEvents,
     parserOptions: object,
-    builderOptions: FactoryOptions,
+    builderOptions: ConstructorParameters<typeof CompactBuilder>[1],
     readonlyMatcher: MatcherView | null,
-    registry: ValueParserRegistry
+    registry: ValueParserRegistryLike
   ) {
     this.events = events;
     this.inner = new CompactBuilder(parserOptions, builderOptions, readonlyMatcher, registry);
@@ -246,21 +245,20 @@ export function makeRecordingParser(parserOptions: X2jOptions = {}): RecordingXM
 }
 
 /**
- * @description Adapt a `CompactBuilder`-shaped object to the parser's structural {@link OutputBuilderLike} contract. The published `@nodable/base-output-builder` /
- * `@nodable/compact-builder` types declare `onStopNode` / `onExit` as taking a tag detail carrying `line` and `col` — a shape this parser's
- * index-only position model never produces — and they declare `addElement(tag)` / `closeElement()` with fewer parameters than the parser actually
- * passes. An interface augmentation can add an overload but cannot replace those members, so any real `CompactBuilder` subclass stays nominally
- * unassignable to the structural contract. The runtime reads only `tagDetail.name` and forwards its own matcher, so the calls are safe. Tests that
- * deliberately exercise old-style builder subclasses (a `closeElement(matcher)`, an `addAttribute(name, value, matcher)`) use this to hand the parser
- * an object it can drive. Behaviour is untouched: the returned object forwards every call to `builder`.
+ * @description Adapt a `CompactBuilder`-shaped object to the parser's structural {@link OutputBuilderLike} contract. A real `CompactBuilder` now satisfies
+ * `OutputBuilderLike` directly, so this is not a shim for a type mismatch. It exists for the tests that deliberately drive deliberately old-style
+ * builder subclasses — a `closeElement(matcher)` with no close metadata, an `addAttribute(name, value, matcher)` with no attribute meta — and want
+ * the parser's own adapter rather than a hand-written one. It is also the clearest place to see the full builder contract in one list. History, since
+ * the reason it used to be load-bearing is not obvious: the `@nodable` packages published a hand-written `index.d.ts` that declared `onStopNode` and
+ * `onExit` as taking a tag detail carrying `line` and `col` — a shape this parser's index-only position model never produces — and declared
+ * `addElement(tag)` and `closeElement()` with fewer parameters than the parser actually passes. An interface augmentation could add an overload but
+ * not replace those members, so a real `CompactBuilder` subclass was nominally unassignable to the structural contract. `src/nodable-builders.d.ts`
+ * carried that augmentation. The workspace packages now declare the arity the parser genuinely calls with, the augmentation is deleted, and the cast
+ * this function needed is gone.
  *
  * @param builder - The builder to adapt.
  */
 export function asOutputBuilder(builder: CompactBuilder): OutputBuilderLike {
-  const adapted = builder as unknown as {
-    onStopNode(tagDetail: { name: string } & object, rawContent: string): void;
-    onExit(exitInfo: { tagDetail: { name: string } & object; matcher: MatcherView; depth: number }): void;
-  };
   return {
     addElement: (tag, matcher) => builder.addElement(tag, matcher),
     closeElement: (matcher, closeMeta) => builder.closeElement(matcher, closeMeta),
@@ -271,8 +269,8 @@ export function asOutputBuilder(builder: CompactBuilder): OutputBuilderLike {
     addInstruction: name => builder.addInstruction(name),
     addInputEntities: entities => builder.addInputEntities(entities),
     addAttribute: (name, value, matcher, meta) => builder.addAttribute(name, value, matcher, meta),
-    onStopNode: (tagDetail, rawContent) => adapted.onStopNode(tagDetail, rawContent),
-    onExit: exitInfo => adapted.onExit(exitInfo),
+    onStopNode: (tagDetail, rawContent) => builder.onStopNode(tagDetail, rawContent),
+    onExit: exitInfo => builder.onExit(exitInfo),
     getOutput: () => builder.getOutput(),
   };
 }

@@ -99,7 +99,7 @@ const parser = new XMLParser({ tags: { valueParsers: [new CurrencyParser()] } })
 The `matcher` passed to `addElement`, `closeElement`, and `addValue` reflects the current position:
 
 ```javascript
-import { CompactBuilder } from '@nodable/compact-builder';
+import { CompactBuilder } from '@endevops/compact-builder';
 import { Expression } from 'path-expression-matcher';
 
 const internalExpr = new Expression('..internal');

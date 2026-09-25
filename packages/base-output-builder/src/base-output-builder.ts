@@ -19,11 +19,7 @@ const DEFAULT_ATTR_PARSERS: (string | ValueParser)[] = ['entity', 'boolean', 'nu
 /**
  * @description The detail the parser reports for a tag, at the position it was seen.
  */
-export interface TagDetailLike {
-  /**
-   * @description The tag name.
-   */
-  name: string;
+export interface TagDetailLike extends TagNameLike {
   /**
    * @description Zero-based offset from the start of the document.
    */
@@ -31,13 +27,47 @@ export interface TagDetailLike {
 }
 
 /**
+ * @description The least a parser promises about a tag it is describing: a name. Used where a position cannot be guaranteed. Not every close has a real closing
+ * token — a parser synthesizing one at EOF, or `exitIf` closing already-open ancestors, has no offset to report — so anything beyond `name` would be
+ * a promise no parser could keep. A parser that does have positions passes them anyway, and a {@link TagDetailLike} is assignable to this, so a
+ * builder that wants them can declare the wider type on its own method.
+ */
+export interface TagNameLike {
+  /**
+   * @description The tag name.
+   */
+  name: string;
+}
+
+/**
+ * @description What the parser reports when a tag closes: when it closed, and where. Only `name` is guaranteed. A synthesized close — one the parser invented, at
+ * EOF or to satisfy `exitIf` — has no real closing token, so the two offsets are absent. Both are typed `| undefined` rather than bare optional on
+ * purpose: under `exactOptionalPropertyTypes` a bare `closeEnd?: number` rejects a parser that passes `{ closeEnd: number | undefined }`, and this
+ * interface has to accept a parser's own richer `CloseMeta` unchanged.
+ */
+export interface CloseMetaLike {
+  /**
+   * @description The tag that closed.
+   */
+  name: string;
+  /**
+   * @description Zero-based offset of the closing tag's `<`. Absent for a synthesized close.
+   */
+  index?: number | undefined;
+  /**
+   * @description Zero-based offset just past the closing tag's `>`. Absent for a synthesized close.
+   */
+  closeEnd?: number | undefined;
+}
+
+/**
  * @description The state the parser reports when an `exitIf` predicate fires.
  */
 export interface ExitInfoLike {
   /**
-   * @description The tag that triggered the exit.
+   * @description The tag that triggered the exit. Only a name is guaranteed — `exitIf` can close a tag that never had a closing token.
    */
-  tagDetail: TagDetailLike;
+  tagDetail: TagNameLike;
   /**
    * @description The path at the moment the predicate fired.
    */
@@ -95,7 +125,9 @@ export default class BaseOutputBuilder {
   _pendingStopNode: boolean;
 
   /**
-   * @description Create a builder for one document.
+   * @description Create a builder for one document. `parserOptions` is typed `object` because that is what a parser actually has: its own options interface, which
+   * has no index signature. Promising a `Record<string, unknown>` here would be a lie in the safe direction — it would reject a perfectly good
+   * options interface. The cast below is therefore the single place this package states what it reads, rather than every caller re-encoding it.
    *
    * @param parserOptions - The parser's options.
    * @param builderOptions - This builder's options. The value-parser chains are read from it, falling back to the defaults.
@@ -104,7 +136,7 @@ export default class BaseOutputBuilder {
    * @param resetPipelines - Whether to reset the parsers on construction. Defaults to true; pass false only when the caller has already reset them.
    */
   constructor(
-    parserOptions: BuilderParserOptions & Record<string, unknown>,
+    parserOptions: object,
     builderOptions: BuiltInValueParserOptions,
     matcherView: MatcherView | null,
     registry: ValueParserRegistryLike,
@@ -112,7 +144,9 @@ export default class BaseOutputBuilder {
   ) {
     this.matcher = matcherView;
     this._rootName = '^';
-    this.parserOptions = parserOptions;
+    // Every read below goes through the `?.` chains, so a parser that omitted a
+    // group it never configured is handled rather than merely typed.
+    this.parserOptions = parserOptions as BuilderParserOptions & Record<string, unknown>;
     this.builderOptions = builderOptions;
     this.registry = registry;
 
@@ -135,14 +169,42 @@ export default class BaseOutputBuilder {
   }
 
   /**
+   * @description Enter a tag. Every concrete builder implements this; the base takes no position on a document's shape, so there is nothing to do here.
+   *
+   * @param tag - The tag being entered.
+   * @param matcher - The live path.
+   */
+  addElement(tag: TagDetailLike, matcher: MatcherView): void {
+    // Subclasses build their own structure here.
+    void tag;
+    void matcher;
+  }
+
+  /**
+   * @description Close a tag, appending whatever has accumulated for it to the parent.
+   *
+   * @param matcher - The live path.
+   * @param closeMeta - When and where the tag closed, for a builder that records it.
+   */
+  closeElement(matcher: MatcherView, closeMeta?: CloseMetaLike): void {
+    // Subclasses build their own structure here.
+    void matcher;
+    void closeMeta;
+  }
+
+  /**
    * @description Record an attribute on the current element. The base implementation writes into `this.attributes`, which only exists on the subclass shapes that
    * keep a flat attribute bag. A builder with a different structure should override this rather than call it.
    *
    * @param name - The attribute name, already prefixed and sanitised by the parser.
    * @param value - The raw value.
    * @param matcher - The live path.
+   * @param meta - Where the attribute was seen, for a builder that records it.
    */
-  addAttribute(name: string, value: unknown, matcher: MatcherView): void {
+  addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: unknown): void {
+    // `meta` is accepted because the parser supplies it, not because the base
+    // needs it — only a builder that records attribute positions reads it.
+    void meta;
     // Capture XML version from the declaration tag and make it available to
     // value parsers (e.g. EntityParser) via SharedContext.
     const tagName = (this as { tagName?: string }).tagName;
@@ -158,13 +220,15 @@ export default class BaseOutputBuilder {
   }
 
   /**
-   * @description Append a text value. A subclass whose shape holds text overrides this; the base has nowhere to put it.
+   * @description Append a text value. A subclass whose shape holds text implements this; the base has nowhere to put it.
    *
    * @param text - The text.
+   * @param matcher - The live path.
    */
-  addValue(text: string): void {
-    // The base shape has no text slot; every concrete builder overrides this.
+  addValue(text: string, matcher: MatcherView): void {
+    // The base shape has no text slot; every concrete builder implements this.
     void text;
+    void matcher;
   }
 
   /**
@@ -211,9 +275,10 @@ export default class BaseOutputBuilder {
    * @description Append text to the element's value, bypassing the value-parser chain.
    *
    * @param text - The text.
+   * @param matcher - The live path, forwarded to {@link BaseOutputBuilder.addValue}.
    */
-  addRawValue(text: string): void {
-    this.addValue(text);
+  addRawValue(text: string, matcher?: MatcherView): void {
+    this.addValue(text, matcher as MatcherView);
   }
 
   /**
@@ -221,7 +286,7 @@ export default class BaseOutputBuilder {
    *
    * @param entities - The entity map from the DOCTYPE block.
    */
-  addInputEntities(entities: Record<string, string>): void {
+  addInputEntities(entities: Record<string, unknown>): void {
     this.sharedContext?.set('inputEntities', entities);
   }
 
@@ -229,9 +294,11 @@ export default class BaseOutputBuilder {
    * @description Record an XML declaration. The base treats it as a processing instruction.
    *
    * @param name - The declaration's rendered text.
+   * @param xmlDeclaration - The declaration's attributes, for a builder that records them.
    */
-  addDeclaration(name: string): void {
+  addDeclaration(name: string, xmlDeclaration?: unknown): void {
     this.addInstruction(name);
+    void xmlDeclaration;
   }
 
   /**
@@ -247,17 +314,26 @@ export default class BaseOutputBuilder {
   /**
    * @description Called when a stop node has been fully collected, before its content is added as a value. Sets the pending flag so the collected text bypasses
    * the value-parser chain — a stop node's content is raw text the parser already decided not to decode, and running the chain over it would decode
-   * it a second time. Forwards to the parser's own `onStopNode` option if the caller set one.
+   * it a second time. Forwards to the parser's own `onStopNode` option if the caller set one. The signature is the four arguments a parser actually
+   * passes, not the two the base itself uses. A parser may only promise a `name` on the detail, and may only supply a live matcher and an end offset
+   * for a stop node it fully collected — hence all three are optional — but a builder that needs them has to be able to declare them, and a subclass
+   * cannot widen its base's parameter list.
    *
    * @param tagDetail - Where the stop node was.
    * @param rawContent - Its undecoded content.
+   * @param matcher - The live path, when the parser has one.
+   * @param end - Where the collected `</tag>` token ended.
    */
-  onStopNode(tagDetail: TagDetailLike, rawContent: string): void {
+  onStopNode(tagDetail: TagNameLike, rawContent: string, matcher?: MatcherView, end?: { index: number }): void {
     this._pendingStopNode = true;
+    // The parser's own hook gets this builder's matcher rather than the
+    // argument's, because the argument is optional and the builder always has one.
     const onStopNode = this.parserOptions.onStopNode;
     if (typeof onStopNode === 'function') {
       onStopNode(tagDetail, rawContent, this.matcher);
     }
+    void matcher;
+    void end;
   }
 
   /**

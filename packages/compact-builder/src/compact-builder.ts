@@ -1,4 +1,4 @@
-import type { ValueParserRegistryLike } from '@endevops/base-output-builder';
+import type { CloseMetaLike, TagDetailLike, ValueParserRegistryLike } from '@endevops/base-output-builder';
 import type { MatcherView } from '@endevops/path-expression-matcher';
 
 import { BaseOutputBuilder as BaseOutputBuilderClass, BaseOutputBuilderFactory, Context } from '@endevops/base-output-builder';
@@ -74,7 +74,7 @@ export class CompactBuilderFactory extends BaseOutputBuilderFactory {
    *
    * @returns A fresh builder.
    */
-  override getInstance(parserOptions: Record<string, unknown>, readonlyMatcher: MatcherView | null): CompactBuilder {
+  override getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): CompactBuilder {
     return new CompactBuilder(
       parserOptions as ConstructorParameters<typeof CompactBuilder>[0],
       this.builderOptions as ResolvedFactoryOptions,
@@ -141,7 +141,7 @@ export class CompactBuilder extends BaseOutputBuilderClass {
    * @param resetPipelines - Whether to reset the value parsers. Defaults to true.
    */
   constructor(
-    parserOptions: Record<string, unknown>,
+    parserOptions: object,
     builderOptions: ResolvedFactoryOptions,
     readonlyMatcher: MatcherView | null,
     registry: ValueParserRegistryLike,
@@ -192,10 +192,11 @@ export class CompactBuilder extends BaseOutputBuilderClass {
    *
    * @param tag - The tag being entered, with its name already prefixed and sanitised by the parser.
    */
-  addElement(tag: { name: string }): void {
-    // Not an `override`: the base class takes no position on a document's shape,
-    // so addElement is a method every concrete builder declares rather than one
-    // it overrides. The same goes for closeElement.
+  override addElement(tag: TagDetailLike, matcher: MatcherView): void {
+    // The matcher is accepted because the parser supplies one, not because this
+    // builder needs it — it reads the live path from `this.matcher`, which the
+    // factory was given at construction.
+    void matcher;
     const value = this._buildAttributeValue();
     this.tagsStack.push({ tagName: this.tagName, textValue: this.textValue, parentValue: this.value, hasAttributes: this.hasAttributes });
     this.tagName = tag.name;
@@ -255,7 +256,11 @@ export class CompactBuilder extends BaseOutputBuilderClass {
    * A leaf becomes its parsed text, unless it has attributes, in which case the attributes are the object and the text joins them under
    * `nameFor.text`. A non-leaf becomes an object of its children, plus a text key when it also had text of its own.
    */
-  closeElement(): void {
+  override closeElement(matcher: MatcherView, closeMeta?: CloseMetaLike): void {
+    // Neither argument is needed: the builder tracks position through its own
+    // stack, and closing metadata is the parser's business.
+    void matcher;
+    void closeMeta;
     const tagName = this.tagName;
     let value = this.value; // contains attributes if not skipped
     const textValue = this.textValue;
@@ -359,7 +364,8 @@ export class CompactBuilder extends BaseOutputBuilderClass {
    *
    * @param text - The chunk.
    */
-  override addValue(text: string): void {
+  override addValue(text: string, matcher: MatcherView): void {
+    void matcher;
     if (this.textValue.length > 0) this.textValue += `${this.builderOptions.textJoint}${text}`;
     else this.textValue = text;
   }

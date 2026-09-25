@@ -12,11 +12,13 @@
  *   ```;
  */
 
+import type { CloseMetaLike, TagDetailLike } from '@endevops/base-output-builder';
+
 import type { CompactParserOptions, CompactValue } from './compact-builder.ts';
 import type { FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions } from './options.ts';
 
 import CompactBuilderFactory, { CompactBuilder } from './compact-builder.ts';
 
 export { CompactBuilder, CompactBuilderFactory };
-export type { CompactParserOptions, CompactValue, FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions };
+export type { CloseMetaLike, CompactParserOptions, CompactValue, FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions, TagDetailLike };
 export default CompactBuilderFactory;

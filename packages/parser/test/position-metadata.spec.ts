@@ -13,7 +13,7 @@
 
 import type { MatcherView } from '@endevops/path-expression-matcher';
 
-import { CompactBuilder, CompactBuilderFactory } from '@nodable/compact-builder';
+import { CompactBuilder, CompactBuilderFactory } from '@endevops/compact-builder';
 import { describe, expect } from 'vite-plus/test';
 
 import { asOutputBuilder, makeRecordingParser } from '#/test/helpers/recording-builder.ts';

@@ -1,4 +1,4 @@
-import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { CompactBuilderFactory } from '@endevops/compact-builder';
 import { COMMON_HTML } from '@nodable/entities';
 import { describe, it, expect } from 'vite-plus/test';
 

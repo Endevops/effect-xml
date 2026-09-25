@@ -1,5 +1,5 @@
-import { NumberValueParser, type Context, type ValueParser } from '@nodable/base-output-builder';
-import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { NumberValueParser, type Context, type ValueParser } from '@endevops/base-output-builder';
+import { CompactBuilderFactory } from '@endevops/compact-builder';
 import { COMMON_HTML, CURRENCY } from '@nodable/entities';
 import { describe, it, expect } from 'vite-plus/test';
 

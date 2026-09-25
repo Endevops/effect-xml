@@ -2,7 +2,7 @@
 
 Value parsers transform text values extracted from XML — tag content, CDATA, and attribute values. They run left-to-right so each parser receives the output of the previous one.
 
-Value parsers are configured on the **output builder** (`@nodable/base-output-builder` and its subclasses), not on `XMLParser` directly.
+Value parsers are configured on the **output builder** (`@endevops/base-output-builder` and its subclasses), not on `XMLParser` directly.
 
 CDATA, comments, stopnodes are not processed by any value parser.
 
@@ -11,7 +11,7 @@ CDATA, comments, stopnodes are not processed by any value parser.
 ## Configuring the Pipeline
 
 ```javascript
-import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { CompactBuilderFactory } from '@endevops/compact-builder';
 
 const builder = new CompactBuilderFactory({
   tags: { valueParsers: ['ws', 'entity', 'boolean', 'number'] }, // default
@@ -37,12 +37,12 @@ const builder = new CompactBuilderFactory({ tags: { valueParsers: [] }, attribut
 
 Expands XML entity references (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`), optional HTML entities, DOCTYPE-declared entities, and custom entities added via `addEntity()`.
 
-Which sources are active is controlled by `EntitiesValueParser` from `@nodable/base-output-builder`:
+Which sources are active is controlled by `EntitiesValueParser` from `@endevops/base-output-builder`:
 
 ```javascript
 import { XML, COMMON_HTML, ENTITY_ACTION } from '@nodable/entities';
-import { EntitiesValueParser } from '@nodable/base-output-builder';
-import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { EntitiesValueParser } from '@endevops/base-output-builder';
+import { CompactBuilderFactory } from '@endevops/compact-builder';
 
 const evp = new EntitiesValueParser({
   namedEntities: { ...XML },
@@ -70,7 +70,7 @@ const builder = new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'n
 Converts `"true"` and `"false"` (case-insensitive) to JavaScript `true`/`false`. All other values pass through unchanged. You can pass list of true and false values.
 
 ```javascript
-import { BooleanParser } from '@nodable/base-output-builder';
+import { BooleanParser } from '@endevops/base-output-builder';
 
 const builder = new CompactBuilderFactory();
 builder.registerValueParser('boolean', new BooleanParser({ trueList: ['yes', 'y'], falseList: ['no', 'n'] }));
@@ -93,7 +93,7 @@ Converts numeric strings to JS numbers using the [`strnum`](https://www.npmjs.co
 Check `strnum` package for more details. To customise, import and register directly:
 
 ```javascript
-import { NumberValueParser } from '@nodable/base-output-builder';
+import { NumberValueParser } from '@endevops/base-output-builder';
 
 const builder = new CompactBuilderFactory();
 builder.registerValueParser('number', new NumberValueParser({ leadingZeros: false }));
@@ -125,7 +125,7 @@ Normalization is automatically skipped when:
 - The tag path matches a user-supplied exclusion list
 
 ```javascript
-import { WSNormalizer } from '@nodable/base-output-builder';
+import { WSNormalizer } from '@endevops/base-output-builder';
 
 const ws = new WSNormalizer({
   exclude: ['..pre', '..code', '..script'], // leave whitespace untouched in these
@@ -163,7 +163,7 @@ factory.registerValueParser('upper', new UpperCaseParser());
 
 ## The Context Object
 
-Each parser receives a `context` as its second argument. It is a `Context` instance from `@nodable/base-output-builder`:
+Each parser receives a `context` as its second argument. It is a `Context` instance from `@endevops/base-output-builder`:
 
 ```javascript
 {
@@ -177,7 +177,7 @@ Each parser receives a `context` as its second argument. It is a `Context` insta
 `isAttribute` is how you tell a tag's text apart from an attribute's value. There is no `ElementType` enum to compare against:
 
 ```javascript
-import { BaseValueParser } from '@nodable/base-output-builder';
+import { BaseValueParser } from '@endevops/base-output-builder';
 
 class TagOnlyParser extends BaseValueParser {
   parse(val, context) {
@@ -188,7 +188,7 @@ class TagOnlyParser extends BaseValueParser {
 }
 ```
 
-`ReadOnlyMatcher` is a type from `path-expression-matcher`, not from `@nodable/base-output-builder`. See [09 — Path Expressions](./09-path-expressions.md).
+`ReadOnlyMatcher` is a type from `path-expression-matcher`, not from `@endevops/base-output-builder`. See [09 — Path Expressions](./09-path-expressions.md).
 
 ---
 

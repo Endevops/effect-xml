@@ -11,7 +11,7 @@ import type { MatcherView } from '@endevops/path-expression-matcher';
 import { Matcher } from '@endevops/path-expression-matcher';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { BuilderParserOptions, ValueParser, ValueParserRegistryLike } from '#/index.ts';
+import type { BuilderParserOptions, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
 
 import { BaseOutputBuilder, BaseOutputBuilderFactory, BooleanParser, Context, ValueParserRegistry } from '#/index.ts';
 
@@ -50,6 +50,14 @@ const atA = (): MatcherView => {
 };
 
 const registry = (): ValueParserRegistryLike => new ValueParserRegistry();
+
+/**
+ * @description The stop-node detail a parser sends: a name and a position. Typed as {@link TagDetailLike} rather than written inline at each call site, because
+ * `onStopNode` and `onExit` promise only a `name` — that is the minimum any parser can keep — and a fresh object literal carrying an extra `index`
+ * would fail the excess-property check. A named value of the wider type is assignable, which is the point: real parsers do send the position, and a
+ * builder may rely on it if it declares for it.
+ */
+const scriptDetail: TagDetailLike = { name: 'script', index: 3 };
 
 /**
  * @description Build a recording builder with the given parser and builder options.
@@ -265,7 +273,7 @@ describe('BaseOutputBuilder — onStopNode', () => {
   it('marks a stop node pending, so its content bypasses the value chain', () => {
     const b = builder({});
     expect(b._pendingStopNode).toBe(false);
-    b.onStopNode({ name: 'script', index: 3 }, 'raw');
+    b.onStopNode(scriptDetail, 'raw');
     expect(b._pendingStopNode).toBe(true);
   });
 
@@ -289,13 +297,13 @@ describe('BaseOutputBuilder — onStopNode', () => {
       matcher,
       registry()
     );
-    b.onStopNode({ name: 'script', index: 0 }, 'raw');
+    b.onStopNode(scriptDetail, 'raw');
     expect(calls[0]?.[2]).toBe(matcher);
   });
 
   it('does not throw when the caller set no hook', () => {
     const b = builder({});
-    expect(() => b.onStopNode({ name: 'script', index: 0 }, 'raw')).not.toThrow();
+    expect(() => b.onStopNode(scriptDetail, 'raw')).not.toThrow();
   });
 });
 
@@ -318,7 +326,7 @@ describe('BaseOutputBuilder — declarations and instructions', () => {
 
   it('has a no-op onExit and onStopNode-adjacent hooks', () => {
     const b = builder({});
-    expect(() => b.onExit({ tagDetail: { name: 'a', index: 0 }, matcher: atA(), depth: 1 })).not.toThrow();
+    expect(() => b.onExit({ tagDetail: scriptDetail, matcher: atA(), depth: 1 })).not.toThrow();
   });
 });
 
