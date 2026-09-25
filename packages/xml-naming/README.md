@@ -28,7 +28,7 @@ The runtime behaviour is unchanged. What changed is how the code is written and 
 | ESM only                                            | Matches the rest of the workspace; the CJS build is gone |
 | Built with Vite+ (`vp pack`, `vp test`, `vp check`) | Replaces the previous ad-hoc build setup                 |
 
-`bench/perf.ts` measures the `asciiOnly` fast path against the unicode-aware default. It is not wired to a `package.json` script, so it has to be run directly.
+`bench/naming.bench.ts` is a [Vitest benchmark](https://vitest.dev/guide/benchmarking.html) measuring the `asciiOnly` fast path against the unicode-aware default. Run it with `vp run bench` from the workspace root, or `vp test bench packages/xml-naming` for this package alone. `vp test` skips it.
 
 ---
 

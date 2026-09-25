@@ -41,6 +41,7 @@ Run from the workspace root:
 vp install           # install, via the packageManager field
 vp check             # format, lint, type-check — every package
 vp test              # every package's test suite
+vp run bench         # the `*.bench.ts` benchmarks, no tests
 pnpm build           # vp run -r build — pack every package
 ```
 
@@ -50,6 +51,19 @@ For one package, target it with `-C`, which behaves exactly like `cd`-ing there:
 vp -C packages/parser check
 vp -C packages/parser test
 vp -C packages/parser pack
+```
+
+### Benchmarks
+
+Benchmarks are [Vitest benchmarks](https://vitest.dev/guide/benchmarking.html), not scripts. A
+file named `*.bench.ts` is collected by the benchmark project, which `vp test` skips entirely and
+`vp test bench` runs on its own. Keeping them out of `vp test` is the point: they are slow and
+noisy, and nothing about the suite should depend on a number that moves with the weather.
+
+```bash
+vp run bench                     # every benchmark
+vp test bench packages/parser    # one package
+vp test bench -t asciiOnly       # one test name
 ```
 
 A bare `vp pack` at the root refuses to guess between the root and the packages

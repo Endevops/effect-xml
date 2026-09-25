@@ -26,6 +26,33 @@ release. Add a tool name to select part of the graph. For example, run
 
 <!--VITE PLUS END-->
 
+# Benchmarks
+
+Benchmarks are Vitest benchmarks, not scripts. A file named `*.bench.ts` is
+collected by the benchmark project, which `vp test` skips and `vp test bench`
+runs alone.
+
+- `vp run bench` — every benchmark in the workspace (`vp test bench` under the hood).
+- `vp test bench packages/<name>` — one package. `vp test bench -t <name>` narrows by test name.
+- `vp check` covers `bench/` like any other source: the package `tsconfig.json`
+  already lists `bench/**/*.ts` in `include`, so a benchmark that stops
+  type-checking fails the review checklist like anything else.
+
+Two things the Vitest benchmarking guide warns about, both of which the existing
+files already handle and any new one needs to:
+
+- **A discarded result is a result the JIT may delete.** Fold it into a
+  module-scope counter and read that back in `afterAll`, or the benchmark
+  measures nothing and reports a very fast number.
+- **Vitest 4's `BENCH Summary` ranks every benchmark in a suite against every
+  other benchmark in that suite.** The summary is roughly
+  `benchmark count - suite count` lines, so one suite per configuration, not one
+  benchmark per combination.
+
+Note the argument order: on the installed Vitest 4 it is
+`bench(name, fn, options)`. Vitest 5 documents `bench(name, options, fn)` and
+adds a `bench` test-context fixture; neither applies here.
+
 # Git
 
 - After a task runs and its checks pass, commit the work. Do not wait to be asked.

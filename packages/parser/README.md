@@ -21,7 +21,9 @@ The parser behaviour is the same. The changes are in how the code is written and
 | Latent bugs fixed in specs and entity handling       | Found while typing, listed in the commit history                       |
 | Path matching and name validation are workspace pkgs | The `path-expression-matcher` type augmentations are gone; see below   |
 
-Two known differences worth calling out: `test/compact-builder-force.spec.ts` and the `@nodable/entities` augmentation in `src/nodable-entities.d.ts` are fork-local, and the benchmark has no runner script yet.
+Two known differences worth calling out: `test/compact-builder-force.spec.ts` and the `@nodable/entities` augmentation in `src/nodable-entities.d.ts` are fork-local.
+
+`bench/parse.bench.ts` is a [Vitest benchmark](https://vitest.dev/guide/benchmarking.html) comparing whole-shot `parse()` against chunked `feed()`/`end()`. Run it with `vp run bench` from the workspace root, or `vp test bench packages/parser` for this package alone. `vp test` skips it.
 
 ### The `path-expression-matcher` augmentations are gone
 
