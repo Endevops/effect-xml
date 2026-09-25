@@ -242,6 +242,22 @@ importers:
         specifier: 'catalog:'
         version: 0.3.3(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(typescript@7.0.2)
 
+  packages/compact-builder:
+    dependencies:
+      '@endevops/base-output-builder':
+        specifier: workspace:^
+        version: link:../base-output-builder
+      '@endevops/path-expression-matcher':
+        specifier: workspace:^
+        version: link:../path-expression-matcher
+    devDependencies:
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(typescript@7.0.2)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 0.3.3(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(typescript@7.0.2)
+
   packages/parser:
     dependencies:
       '@endevops/path-expression-matcher':

@@ -1,0 +1,58 @@
+{
+  "name": "@endevops/compact-builder",
+  "version": "2.0.0",
+  "description": "Compact JS object builder for XML parsers. Fork of @nodable/compact-builder, with static types across the source tree and a typed test suite.",
+  "keywords": [
+    "builder",
+    "compact",
+    "flexible-xml-parser",
+    "json",
+    "output-builder",
+    "xml",
+    "xml-parser"
+  ],
+  "homepage": "https://github.com/Endevops/effect-xml/tree/main/packages/compact-builder#readme",
+  "bugs": {
+    "url": "https://github.com/Endevops/effect-xml/issues"
+  },
+  "license": "MIT",
+  "author": "Endevops",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Endevops/effect-xml.git",
+    "directory": "packages/compact-builder"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.mts",
+  "imports": {
+    "#/*": "./src/*",
+    "#/test/*": "./test/*"
+  },
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "prepublishOnly": "vp pack"
+  },
+  "dependencies": {
+    "@endevops/base-output-builder": "workspace:^",
+    "@endevops/path-expression-matcher": "workspace:^"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}
