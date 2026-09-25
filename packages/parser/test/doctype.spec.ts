@@ -1,5 +1,5 @@
 import { CompactBuilderFactory } from '@endevops/compact-builder';
-import { COMMON_HTML } from '@nodable/entities';
+import { COMMON_HTML } from '@endevops/entities';
 import { describe, it, expect } from 'vite-plus/test';
 
 import EntityParser from '#/test/helpers/custom-entity-parser.ts';

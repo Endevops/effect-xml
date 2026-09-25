@@ -7,15 +7,15 @@
 // parser lists and assert on thrown messages, where a null-check at every site
 // would bury the thing under test.
 //
-// The library keeps both guards (see ../tsconfig.json, which covers src/ plus
-// its two ambient declaration files). Only the test tree opts out.
+// The library keeps both guards (see ../tsconfig.json, which covers src/).
+// Only the test tree opts out.
 //
-// `src/nodable-entities.d.ts` is named explicitly: it declares the real
-// `EntityDecoder` export, which `@nodable/entities` does not ship usable types
-// for. It is an ambient module declaration, so it has to be part of this
-// project for the specs' own imports of that module to resolve.
+// There is no `../src/*.d.ts` to pull in any more. The one that corrected
+// `@nodable/entities`' declaration of `EntityDecoder` as the module's *default*
+// export is gone: the entity code is a workspace package that exports it by
+// name and types it itself.
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
-  "include": ["./**/*.ts", "../src/nodable-entities.d.ts"]
+  "include": ["./**/*.ts"]
 }

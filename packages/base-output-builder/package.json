@@ -45,8 +45,8 @@
     "prepublishOnly": "vp pack"
   },
   "dependencies": {
-    "@endevops/path-expression-matcher": "workspace:^",
-    "@nodable/entities": "^2.2.0"
+    "@endevops/entities": "workspace:^",
+    "@endevops/path-expression-matcher": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

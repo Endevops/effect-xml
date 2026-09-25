@@ -1,6 +1,6 @@
-import type { EntityDecoderOptions } from '@nodable/entities';
+import type { EntityDecoderOptions } from '@endevops/entities';
 
-import { COMMON_HTML, ENTITY_ACTION, EntityDecoder, XML } from '@nodable/entities';
+import { COMMON_HTML, ENTITY_ACTION, EntityDecoder, XML } from '@endevops/entities';
 
 import type { Context } from '../value-parser.ts';
 

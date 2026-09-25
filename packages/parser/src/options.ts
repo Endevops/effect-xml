@@ -15,7 +15,7 @@ export type { Enclosure } from './internal/tag-expression.ts';
  * @description Object form of a skip-tag entry — allows per-node control of nested depth tracking and enclosure skipping when scanning for the closing tag.
  *
  * ```ts
- * import { xmlEnclosures } from '@nodable/flexible-xml-parser';
+ * import { xmlEnclosures } from '@endevops/flexible-xml-parser-effect';
  * const parser = new XMLParser({
  *   skip: { tags: ['..secret', { expression: 'root.internal', nested: true, skipEnclosures: [...xmlEnclosures] }] },
  * });
@@ -70,7 +70,7 @@ export interface SkipOptions {
    * - A `SkipTagEntry` object with optional `nested` and `skipEnclosures`. Supports path-expression-matcher syntax. Default: []
    *
    * @example
-   *   import { xmlEnclosures } from '@nodable/flexible-xml-parser';
+   *   import { xmlEnclosures } from '@endevops/flexible-xml-parser-effect';
    *
    *   skip: {
    *     tags: ['..secret', { expression: 'root.internal', nested: true, skipEnclosures: [...xmlEnclosures] }];
@@ -133,7 +133,7 @@ export interface AttributeOptions {
  * @description Object form of a stop-node entry — allows per-node control of which enclosures the processor should skip when scanning for the closing tag.
  *
  * ```ts
- * import { xmlEnclosures, quoteEnclosures } from '@nodable/flexible-xml-parser';
+ * import { xmlEnclosures, quoteEnclosures } from '@endevops/flexible-xml-parser-effect';
  * const parser = new XMLParser({
  *   tags: {
  *     stopNodes: [
@@ -176,7 +176,7 @@ export interface TagOptions {
    *   Supports path-expression-matcher syntax. Default: []
    *
    * @example
-   *   import { xmlEnclosures, quoteEnclosures } from '@nodable/flexible-xml-parser';
+   *   import { xmlEnclosures, quoteEnclosures } from '@endevops/flexible-xml-parser-effect';
    *
    *   stopNodes: [
    *     '..script', // plain

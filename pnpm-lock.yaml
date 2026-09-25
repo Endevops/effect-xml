@@ -199,12 +199,12 @@ importers:
 
   packages/base-output-builder:
     dependencies:
+      '@endevops/entities':
+        specifier: workspace:^
+        version: link:../entities
       '@endevops/path-expression-matcher':
         specifier: workspace:^
         version: link:../path-expression-matcher
-      '@nodable/entities':
-        specifier: ^2.2.0
-        version: 2.2.0
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -222,9 +222,9 @@ importers:
         specifier: workspace:^
         version: link:../xml-naming
     devDependencies:
-      '@nodable/entities':
-        specifier: ^2.2.0
-        version: 2.2.0
+      '@endevops/entities':
+        specifier: workspace:^
+        version: link:../entities
       fast-xml-parser:
         specifier: ^5.11.1
         version: 5.11.1
@@ -275,9 +275,9 @@ importers:
         specifier: workspace:^
         version: link:../xml-naming
     devDependencies:
-      '@nodable/entities':
-        specifier: ^2.2.0
-        version: 2.2.0
+      '@endevops/entities':
+        specifier: workspace:^
+        version: link:../entities
       vite:
         specifier: 'catalog:'
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(typescript@7.0.2)'
@@ -478,9 +478,6 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
-
-  '@nodable/entities@2.2.0':
-    resolution: {integrity: sha512-9uGyhaQavEUMC8AIddIjau4NsnsXhou+j5sBAGojCM1oxmQpVKTWR/9JxABD6UAv12vpIms55fPZKFQEhG6uBg==}
 
   '@nodable/entities@3.0.0':
     resolution: {integrity: sha512-8L9xFeTYKhm49xfIypoe2W5wV1m/3Z58kT+7kR9A8OyFxcPduI4VmxaUMQyKYrRjUoLLSXv6EKKID5Tvj9cUVw==}
@@ -1668,8 +1665,6 @@ snapshots:
     optional: true
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
-
-  '@nodable/entities@2.2.0': {}
 
   '@nodable/entities@3.0.0': {}
 

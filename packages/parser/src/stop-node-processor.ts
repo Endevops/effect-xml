@@ -9,7 +9,7 @@ import { isSpace, ensureCanRead, absolutePosition } from './util.js';
  * @description Well-known enclosure presets. Import these in your parser config to compose `skipEnclosures` arrays:
  *
  * ```ts
- * import { xmlEnclosures, quoteEnclosures } from '@nodable/flexible-xml-parser';
+ * import { xmlEnclosures, quoteEnclosures } from '@endevops/flexible-xml-parser-effect';
  * const parser = new XMLParser({
  *   tags: {
  *     stopNodes: [

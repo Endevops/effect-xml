@@ -50,7 +50,7 @@
     "@endevops/xml-naming": "workspace:^"
   },
   "devDependencies": {
-    "@nodable/entities": "^2.2.0",
+    "@endevops/entities": "workspace:^",
     "fast-xml-parser": "^5.11.1",
     "vite": "catalog:",
     "vite-plus": "catalog:"

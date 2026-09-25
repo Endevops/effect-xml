@@ -20,16 +20,13 @@
 // bench/). Only the test tree opts out, and only because its shape is
 // genuinely dynamic.
 //
-// The `src/*.d.ts` files are pulled in explicitly: they carry the module
-// augmentation that corrects `@nodable/entities`, which declares
-// `EntityDecoder` as the module's *default* export while the runtime exports
-// it by name. Without it the specs would see the published — and wrong —
-// types. The augmentations that used to cover the `@nodable` builder
-// packages are gone: the workspace replacements declare the real signatures,
-// so the classes are assignable to the parser's structural contract
-// without help.
+// There is nothing to pull in from ../src: the two module augmentations that
+// used to be needed are both gone. One corrected `@nodable/entities`, which
+// declared `EntityDecoder` as the module's *default* export while the runtime
+// exports it by name; the other corrected the `@nodable` builder packages'
+// arities. Both are workspace packages now with the real signatures.
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
-  "include": ["./**/*.ts", "../src/nodable-entities.d.ts"]
+  "include": ["./**/*.ts"]
 }

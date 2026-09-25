@@ -3,7 +3,7 @@
  * CDATA, formatting, entity processing, value processors, `oneListGroup`, attribute suppression, prototype pollution and negative zero.
  */
 
-import { EntityEncoder } from '@nodable/entities';
+import { EntityEncoder } from '@endevops/entities';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { XMLBuilder } from '#/index.ts';
