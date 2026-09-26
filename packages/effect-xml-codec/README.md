@@ -154,50 +154,67 @@ one per role a key can play, name resolution memoized per document rather than
 per element, one object per parsed element instead of two, and the indent for
 each depth built once per render rather than once per line.
 
-### Against the libraries in this workspace
+### Against the libraries in this workspace and on npm
 
 `bench/comparison.bench.ts` measures the same object through this codec and
-through the two libraries that do one half of the job. The equivalence is
-established rather than assumed: with `attributeNamePrefix: '@'`,
-`@endevops/xml-builder` produces **byte-identical** output to this codec, and the
-benchmark asserts it in `beforeAll`, so a change that breaks it fails the suite
-instead of quietly comparing different work.
+through four libraries — the two builders and the two parsers, fork and upstream
+alike. The equivalence is established rather than assumed: with
+`attributeNamePrefix: '@'`, **both builders produce byte-identical output to this
+codec**, and the benchmark asserts it in `beforeAll`, so a change that breaks it
+fails the suite instead of quietly comparing different work.
 
 **Encoding** — one object to the same bytes:
 
-| Document            | This codec | `@endevops/xml-builder` |
-| ------------------- | ---------- | ----------------------- |
-| a small order       | 161,176/s  | 145,251/s (0.90x)       |
-| 500 rows            | 1,518/s    | 968/s (0.64x)           |
-| one large text node | 467,329/s  | 167,065/s (0.36x)       |
+| Document            | This codec | `@endevops/xml-builder` | `fast-xml-builder` |
+| ------------------- | ---------- | ----------------------- | ------------------ |
+| a small order       | 152,234/s  | 135,661/s (0.89x)       | 139,345/s (0.92x)  |
+| 500 rows            | 1,402/s    | 922/s (0.66x)           | 841/s (0.60x)      |
+| one large text node | 415,192/s  | 158,970/s (0.38x)       | 153,710/s (0.37x)  |
 
 **Decoding** — one document to the same value:
 
 | Document            | This codec | `@endevops/flexible-xml-parser` | `fast-xml-parser` |
 | ------------------- | ---------- | ------------------------------- | ----------------- |
-| a small order       | 144,060/s  | 54,919/s (0.38x)                | 43,268/s (0.30x)  |
-| 500 rows            | 1,372/s    | 458/s (0.33x)                   | 312/s (0.23x)     |
-| one large text node | 22,449/s   | 4,615/s (0.21x)                 | 5,234/s (0.23x)   |
+| a small order       | 142,934/s  | 57,065/s (0.40x)                | 39,836/s (0.28x)  |
+| 500 rows            | 1,405/s    | 437/s (0.31x)                   | 309/s (0.22x)     |
+| one large text node | 21,980/s   | 4,255/s (0.19x)                 | 5,178/s (0.24x)   |
 
 **A full round trip**, which is the number an application actually pays. Neither
-library here can do both halves, so the comparison is against using them
-together: `73,667/s` for this codec against `38,859/s` for
-`xml-builder` followed by `fast-xml-parser`.
+a builder nor a parser can do both halves, so the last two rows are each
+ecosystem doing the same work with two libraries and hand-joining them:
 
-Three things to be straight about when reading those tables:
+| Path                                               | Throughput       |
+| -------------------------------------------------- | ---------------- |
+| this codec                                         | 70,729/s         |
+| `@endevops` builder, then its parser               | 38,779/s (0.55x) |
+| npm `fast-xml-builder`, then npm `fast-xml-parser` | 31,166/s (0.44x) |
 
+**The fork has not cost anything in speed.** `@endevops/xml-builder` and npm
+`fast-xml-builder` are the same version of the same code, and every encode row is
+within noise of the other — the fork measures 0.97x, 1.10x and 1.03x of upstream
+across the three documents, which is the spread you get from measurement error
+rather than a difference. On decoding the fork's parser is the faster of the two
+on element-shaped documents (1.43x on the small order, 1.41x on 500 rows) and the
+slower on the text-heavy one (0.82x), which is what its pluggable value-parser
+pipeline costs and buys.
+
+Four things to be straight about when reading those tables:
+
+- **These are one machine's numbers, from one run.** The relative error is under
+  2% on most rows, but the 500-row decode row for the fork reported 13% in the
+  run these came from, so treat that one as a range rather than a figure.
 - **This codec's decode does strictly more work.** It parses _and_ validates the
-  result against the schema, coercing `"30"` to `30` and failing on a
-  mismatch. The parsers only parse. On the 500-row document, parsing alone runs
-  at 2,205/s and the schema pass brings it to 1,372/s, so roughly 40% of the
-  decode time is validation that the comparison rows do not pay.
+  result against the schema, coercing `"30"` to `30` and failing on a mismatch.
+  The parsers only parse. On the 500-row document, parsing alone runs at
+  2,205/s and the schema pass brings it to 1,372/s, so roughly 40% of the decode
+  time is validation the comparison rows do not pay.
 - **The parsers do work this codec does not.** They coerce tag values through a
   value-parser pipeline — entity decoding, whitespace normalizing, boolean and
-  number parsing — where a schema already decided the type. Both sides have
-  work the other lacks, and neither is idle.
-- **Neither side is doing the whole job on its own.** `xml-builder` has no
-  reader and the parsers have no writer, so the round-trip row is the honest
-  comparison and the two single-direction rows are the diagnostic ones.
+  number parsing — where a schema already decided the type. Both sides have work
+  the other lacks, and neither is idle.
+- **Neither ecosystem is doing the whole job on its own.** A builder has no
+  reader and a parser has no writer, so the round-trip table is the honest
+  comparison and the single-direction tables are the diagnostic ones.
 
 ## Limitations
 

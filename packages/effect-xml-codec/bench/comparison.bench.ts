@@ -1,24 +1,29 @@
 /**
- * @description Throughput benchmarks for this package against the two libraries it is compared with: `@endevops/xml-builder` (a fork of `fast-xml-builder`) for
- * encoding, and `@endevops/flexible-xml-parser-effect` (a fork of `fast-xml-parser`) plus upstream `fast-xml-parser` for decoding. The comparison is
- * only worth anything if every implementation is handed the same object and asked for the same thing, so that is established rather than assumed:
+ * @description Throughput benchmarks for this package against the libraries it is compared with: `@endevops/xml-builder` (a fork of `fast-xml-builder`) and
+ * upstream `fast-xml-builder` for encoding, and `@endevops/flexible-xml-parser-effect` (a fork of `fast-xml-parser`) plus upstream `fast-xml-parser`
+ * for decoding. Both halves of the comparison are present in both versions, so there are two ecosystems rather than one. The fork and the upstream
+ * package are the same version of the same code -- `@endevops/xml-builder` is 1.3.1 and `fast-xml-builder` is 1.3.1 -- which makes the fork's rows a
+ * check that maintaining it in this workspace has cost nothing in speed. That is a question worth answering rather than assuming, and it only shows
+ * up if both are measured. The comparison is only worth anything if every implementation is handed the same object and asked for the same thing, so
+ * that is established rather than assumed:
  *
- * - All three encode the same value and, with `attributeNamePrefix: '@'`, `@endevops/xml-builder` produces **byte-identical** output to this codec. The
- *   assertion at the bottom of this file checks that, so if a future change breaks the equivalence the benchmark fails rather than quietly comparing
- *   different work.
- * - All three decode that same document, and the fork's parser reproduces the original value exactly. Upstream `fast-xml-parser` produces the same
- *   _content_ in a different key order — attributes last rather than first — so it is compared on throughput and not on the equality of its output.
- *   Two differences in the APIs are worth stating rather than hiding. This codec's value excludes the root element's name, because the schema
- *   describes the root's content; both parsers include it, so their benchmarks read one property off the result. And both parsers are given the
- *   document this codec produced, so neither is being measured against a document it found easy to read. Every implementation is constructed once, at
- *   module scope, which is how each is meant to be used: `XMLBuilder` resolves its options in the constructor and `XMLParser` compiles its options
- *   there, so constructing one per call would measure setup rather than the work. Every benchmark folds its result into a module-scope counter that
- *   `afterAll` reads back, because a discarded result is a result the JIT is free to delete.
+ * - All three encode the same value and, with `attributeNamePrefix: '@'`, every builder produces **byte-identical** output to this codec. The
+ *   assertions at the bottom of this file check it, so a change that breaks the equivalence fails the benchmark rather than quietly reporting a
+ *   speed-up over different work.
+ * - All three decode that same document, and both parsers reproduce the original value's content. Upstream `fast-xml-parser` puts the attributes last
+ *   in key order rather than first, so it is compared on throughput and not on the equality of its output. Two differences in the APIs are worth
+ *   stating rather than hiding. This codec's value excludes the root element's name, because the schema describes the root's content; both parsers
+ *   include it, so their benchmarks read one property off the result. And both parsers are given the document this codec produced, so neither is
+ *   being measured against a document it found easy to read. Every implementation is constructed once, at module scope, which is how each is meant to
+ *   be used: the builders resolve their options in the constructor and the parsers compile theirs there, so constructing one per call would measure
+ *   setup rather than the work. Every benchmark folds its result into a module-scope counter that `afterAll` reads back, because a discarded result
+ *   is a result the JIT is free to delete.
  */
 
 import { XMLParser } from '@endevops/flexible-xml-parser-effect';
 import XMLBuilder from '@endevops/xml-builder';
 import { Schema } from 'effect';
+import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
 import { afterAll, beforeAll, bench, describe, expect } from 'vite-plus/test';
 
@@ -130,11 +135,22 @@ const reportCodec = toCodecXml(Report, { rootName: REPORT_ROOT });
 const noteCodec = toCodecXml(Note, { rootName: NOTE_ROOT });
 
 /**
- * @description `@endevops/xml-builder`. `attributeNamePrefix: '@'` is the one setting that matters: it is the prefix this codec's convention uses, and with it the
- * two produce the same bytes. `ignoreAttributes: false` is required for the builder to read prefixed keys as attributes at all — its default drops
- * them. `suppressEmptyNode` matches this codec's default.
+ * @description The settings that make a builder produce the same bytes as this codec, applied to both versions of it. `attributeNamePrefix: '@'` is the one that
+ * matters: it is the prefix this codec's convention uses, and with it the two produce the same document. `ignoreAttributes: false` is required for a
+ * builder to read prefixed keys as attributes at all — its default drops them. `suppressEmptyNode` matches this codec's default, and `format: false`
+ * is what both sides do by default anyway.
  */
-const builder = new XMLBuilder({ attributeNamePrefix: '@', ignoreAttributes: false, suppressEmptyNode: true, format: false });
+const BUILDER_OPTIONS = { attributeNamePrefix: '@', ignoreAttributes: false, suppressEmptyNode: true, format: false } as const;
+
+/**
+ * @description `@endevops/xml-builder`, the fork maintained in this workspace.
+ */
+const builder = new XMLBuilder({ ...BUILDER_OPTIONS });
+
+/**
+ * @description Upstream `fast-xml-builder` from npm, at the same version as the fork.
+ */
+const upstreamBuilder = new UpstreamXMLBuilder({ ...BUILDER_OPTIONS });
 
 /**
  * @description `@endevops/flexible-xml-parser-effect`. Attributes are skipped by default, and the `@` prefix has to be set separately, so both are given.
@@ -190,10 +206,15 @@ const measure =
 const sizeOf = (value: unknown): number => (typeof value === 'object' && value !== null ? Object.keys(value).length : String(value).length);
 
 beforeAll(() => {
-  // The equivalence the whole comparison rests on. If a change to the renderer, the builder's defaults, or the parser's options breaks it, the
-  // benchmark says so here instead of reporting a speed-up over work that is not the same.
+  // The equivalence the whole comparison rests on. If a change to the renderer, a builder's defaults, or a parser's options breaks it, the benchmark says
+  // so here instead of reporting a speed-up over work that is not the same.
   expect(builder.build({ [ROOT]: order })).toBe(orderDocument);
+  expect(upstreamBuilder.build({ [ROOT]: order })).toBe(orderDocument);
   expect(JSON.stringify((parser.parse(orderDocument) as Record<string, unknown>)[ROOT])).toBe(JSON.stringify(order));
+  // Upstream's key order puts attributes last rather than first, so the check is that every field survives rather than that the serialisation matches.
+  expect(JSON.stringify((upstream.parse(orderDocument) as Record<string, unknown>)[ROOT], Object.keys(order).reverse())).toBe(
+    JSON.stringify(order, Object.keys(order).reverse())
+  );
 });
 
 afterAll(() => {
@@ -212,6 +233,11 @@ describe('encoding — a small document', () => {
     measure(() => builder.build({ [ROOT]: order }).length),
     BUDGET
   );
+  bench(
+    'fast-xml-builder',
+    measure(() => upstreamBuilder.build({ [ROOT]: order }).length),
+    BUDGET
+  );
 });
 
 describe('encoding — a 500-row document', () => {
@@ -225,6 +251,11 @@ describe('encoding — a 500-row document', () => {
     measure(() => builder.build({ [REPORT_ROOT]: report }).length),
     BUDGET
   );
+  bench(
+    'fast-xml-builder',
+    measure(() => upstreamBuilder.build({ [REPORT_ROOT]: report }).length),
+    BUDGET
+  );
 });
 
 describe('encoding — one large text node', () => {
@@ -236,6 +267,11 @@ describe('encoding — one large text node', () => {
   bench(
     '@endevops/xml-builder',
     measure(() => builder.build({ [NOTE_ROOT]: note }).length),
+    BUDGET
+  );
+  bench(
+    'fast-xml-builder',
+    measure(() => upstreamBuilder.build({ [NOTE_ROOT]: note }).length),
     BUDGET
   );
 });
@@ -295,17 +331,23 @@ describe('decoding — one large text node', () => {
 });
 
 describe('a full round trip, both halves measured', () => {
-  // The number an application actually cares about: the cost of writing a document and reading it back. Neither library in this workspace can do both —
-  // `xml-builder` only writes and `fast-xml-parser` only reads — so the comparison here is against doing the same work with one library and hand-joining
-  // the two, which is what using them together costs.
+  // The number an application actually cares about: the cost of writing a document and reading it back. Neither builder nor either parser can do both
+  // halves, so the last two rows are each ecosystem doing the same work with two libraries and hand-joining them, which is what using them together
+  // costs. The two ecosystems are measured separately because a caller picks one, and the difference between them is the difference between the fork
+  // and what is on npm.
   bench(
     'this codec',
     measure(() => orderCodec.decodeTextSync(orderCodec.encodeTextSync(order))),
     BUDGET
   );
   bench(
-    'builder then parser',
+    'then parser, both @endevops',
     measure(() => sizeOf((parser.parse(builder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT])),
+    BUDGET
+  );
+  bench(
+    'then parser, both from npm',
+    measure(() => sizeOf((upstream.parse(upstreamBuilder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT])),
     BUDGET
   );
 });
