@@ -266,9 +266,18 @@ importers:
         specifier: workspace:^
         version: link:../xml-naming
     devDependencies:
+      '@endevops/flexible-xml-parser-effect':
+        specifier: workspace:^
+        version: link:../parser
+      '@endevops/xml-builder':
+        specifier: workspace:^
+        version: link:../builder
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
+      fast-xml-parser:
+        specifier: ^5.11.1
+        version: 5.11.1
       vite:
         specifier: 'catalog:'
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(typescript@7.0.2)'

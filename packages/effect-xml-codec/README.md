@@ -117,9 +117,10 @@ character data, since that is what it is.
 
 ## Performance
 
-`bench/codec.bench.ts` measures the two directions, split by layer so the cost
+`bench/codec.bench.ts` measures this package alone, split by layer so the cost
 of Effect's derivation and the cost of this package's renderer are told apart.
-Run it with `vp test bench packages/effect-xml-codec`.
+`bench/comparison.bench.ts` measures it against `@endevops/xml-builder` and the
+two parsers. Run both with `vp test bench packages/effect-xml-codec`.
 
 | Benchmark                   | Throughput |
 | --------------------------- | ---------- |
@@ -152,6 +153,51 @@ The other things the benchmarks changed: one pass over a record's keys instead o
 one per role a key can play, name resolution memoized per document rather than
 per element, one object per parsed element instead of two, and the indent for
 each depth built once per render rather than once per line.
+
+### Against the libraries in this workspace
+
+`bench/comparison.bench.ts` measures the same object through this codec and
+through the two libraries that do one half of the job. The equivalence is
+established rather than assumed: with `attributeNamePrefix: '@'`,
+`@endevops/xml-builder` produces **byte-identical** output to this codec, and the
+benchmark asserts it in `beforeAll`, so a change that breaks it fails the suite
+instead of quietly comparing different work.
+
+**Encoding** — one object to the same bytes:
+
+| Document            | This codec | `@endevops/xml-builder` |
+| ------------------- | ---------- | ----------------------- |
+| a small order       | 161,176/s  | 145,251/s (0.90x)       |
+| 500 rows            | 1,518/s    | 968/s (0.64x)           |
+| one large text node | 467,329/s  | 167,065/s (0.36x)       |
+
+**Decoding** — one document to the same value:
+
+| Document            | This codec | `@endevops/flexible-xml-parser` | `fast-xml-parser` |
+| ------------------- | ---------- | ------------------------------- | ----------------- |
+| a small order       | 144,060/s  | 54,919/s (0.38x)                | 43,268/s (0.30x)  |
+| 500 rows            | 1,372/s    | 458/s (0.33x)                   | 312/s (0.23x)     |
+| one large text node | 22,449/s   | 4,615/s (0.21x)                 | 5,234/s (0.23x)   |
+
+**A full round trip**, which is the number an application actually pays. Neither
+library here can do both halves, so the comparison is against using them
+together: `73,667/s` for this codec against `38,859/s` for
+`xml-builder` followed by `fast-xml-parser`.
+
+Three things to be straight about when reading those tables:
+
+- **This codec's decode does strictly more work.** It parses _and_ validates the
+  result against the schema, coercing `"30"` to `30` and failing on a
+  mismatch. The parsers only parse. On the 500-row document, parsing alone runs
+  at 2,205/s and the schema pass brings it to 1,372/s, so roughly 40% of the
+  decode time is validation that the comparison rows do not pay.
+- **The parsers do work this codec does not.** They coerce tag values through a
+  value-parser pipeline — entity decoding, whitespace normalizing, boolean and
+  number parsing — where a schema already decided the type. Both sides have
+  work the other lacks, and neither is idle.
+- **Neither side is doing the whole job on its own.** `xml-builder` has no
+  reader and the parsers have no writer, so the round-trip row is the honest
+  comparison and the two single-direction rows are the diagnostic ones.
 
 ## Limitations
 

@@ -50,7 +50,10 @@
     "@endevops/xml-naming": "workspace:^"
   },
   "devDependencies": {
+    "@endevops/flexible-xml-parser-effect": "workspace:^",
+    "@endevops/xml-builder": "workspace:^",
     "effect": "catalog:",
+    "fast-xml-parser": "^5.11.1",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
