@@ -30,7 +30,8 @@
   "types": "./dist/index.d.mts",
   "imports": {
     "#/*": "./src/*",
-    "#/test/*": "./test/*"
+    "#/test/*": "./test/*",
+    "#/bench/*": "./bench/*"
   },
   "exports": {
     ".": "./dist/index.js",

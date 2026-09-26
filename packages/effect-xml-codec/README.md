@@ -115,6 +115,44 @@ unless it is written `&#10;`.
 them, which is what `@endevops/xml-builder` does by default. CDATA becomes
 character data, since that is what it is.
 
+## Performance
+
+`bench/codec.bench.ts` measures the two directions, split by layer so the cost
+of Effect's derivation and the cost of this package's renderer are told apart.
+Run it with `vp test bench packages/effect-xml-codec`.
+
+| Benchmark                   | Throughput |
+| --------------------------- | ---------- |
+| a 300-byte document, encode | ~160k/sec  |
+| a 300-byte document, decode | ~160k/sec  |
+| a 500-row document, encode  | ~1,500/sec |
+| a 500-row document, decode  | ~1,500/sec |
+| 20,000 characters of text   | ~500k/sec  |
+
+Two findings shaped the code, and both are measured rather than assumed:
+
+- **Escaping was the whole cost of a large document.**
+  `@endevops/entities` escapes by applying five sequential global replacements,
+  one per character, so a document with a single `&` in twenty thousand
+  characters was scanned five times over to change one byte — 58µs for that one
+  document. Escaping is now a single pattern scan to find the first character
+  that needs replacing, then one pass to build the result, which is 7.6x faster
+  for clean text and 28x faster for text with a character in it.
+  `test/render.spec.ts` compares the two implementations across every ASCII
+  character so the fast path is checked against the library rather than trusted.
+- **A small document is dominated by something this package does not own.** Of
+  the ~6µs it takes to serialize one, the great majority is Effect's
+  `toCodecStringTree` and `toCodecArrayFromSingle` derivation, which are
+  memoized per schema but still walk the schema on every call. The renderer and
+  parser underneath it run at roughly 1.5µs and 1.7µs. A caller serializing the
+  same shape on every request should build the codec once and reuse it, which is
+  what the API is shaped for.
+
+The other things the benchmarks changed: one pass over a record's keys instead of
+one per role a key can play, name resolution memoized per document rather than
+per element, one object per parsed element instead of two, and the indent for
+each depth built once per render rather than once per line.
+
 ## Limitations
 
 Each of these is a property of the format or of the underlying derivation rather
@@ -153,9 +191,10 @@ quietly.
 ## Commands
 
 ```bash
-vp -C packages/effect-xml-codec check   # format, lint, type-check
-vp -C packages/effect-xml-codec test    # the suite
-vp -C packages/effect-xml-codec pack    # build
+vp -C packages/effect-xml-codec check           # format, lint, type-check
+vp -C packages/effect-xml-codec test            # the suite
+vp -C packages/effect-xml-codec test bench      # the benchmarks
+vp -C packages/effect-xml-codec pack            # build
 ```
 
 ## License

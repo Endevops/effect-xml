@@ -169,11 +169,17 @@ interface Element {
 }
 
 /**
- * @description The attributes read off a start tag, and whether the tag closed itself.
+ * @description What a start tag yielded: the record its attributes went into, which becomes the element's value, and whether the tag closed itself.
  */
 interface StartTag {
-  readonly attributes: Record<string, XmlValue>;
+  readonly record: Record<string, XmlValue>;
   readonly selfClosing: boolean;
+
+  /**
+   * @description Whether the tag carried any attribute. Counted as they are read rather than asked of the record afterwards, which would mean a key array per
+   * element.
+   */
+  readonly hasAttributes: boolean;
 }
 
 /**
@@ -194,9 +200,25 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     throw new XmlParseError({ message, position, input: text });
   };
 
+  /**
+   * @description The options every name is resolved with, built once. They cannot change during a parse, and building them per name would allocate one object per
+   * element and per attribute in the document.
+   */
+  const nameOptions = { mode: resolved.name, xmlVersion: resolved.xmlVersion };
+
+  /**
+   * @description Names already resolved by this parse. A document repeats names — every one of five hundred rows has a `sku` — and a validator that ran per
+   * occurrence would pay for the same answer five hundred times.
+   */
+  const nameCache = new Map<string, string>();
+
   const resolve = (raw: string, what: string, position: number): string => {
+    const cached = nameCache.get(raw);
+    if (cached !== undefined) return cached;
+
+    let name: string;
     try {
-      return resolveName(raw, { mode: resolved.name, xmlVersion: resolved.xmlVersion });
+      name = resolveName(raw, nameOptions);
     } catch (cause) {
       // `resolveName` throws a `TypeError` because it is also called from the
       // renderer, which has no error channel. Here the failure is a property of
@@ -204,6 +226,9 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
       const reason = cause instanceof Error ? cause.message : String(cause);
       return fail(`${what} ${JSON.stringify(raw)} is not a legal XML name: ${reason}`, position);
     }
+
+    nameCache.set(raw, name);
+    return name;
   };
 
   /**
@@ -277,17 +302,21 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   const readStartTag = (): StartTag => {
-    const attributes: Record<string, XmlValue> = {};
+    // Built as the record the element will end up holding rather than as a
+    // separate set of attributes, so that folding the text and the children into
+    // it later costs no copy. One object per element instead of two.
+    const record: Record<string, XmlValue> = {};
+    let hasAttributes = false;
     for (;;) {
       skipSpaces();
       if (at >= text.length) fail('Unterminated start tag', at);
       if (text.charCodeAt(at) === GT) {
         at++;
-        return { attributes, selfClosing: false };
+        return { record, selfClosing: false, hasAttributes };
       }
       if (text.charCodeAt(at) === SLASH && text[at + 1] === '>') {
         at += 2;
-        return { attributes, selfClosing: true };
+        return { record, selfClosing: true, hasAttributes };
       }
       const nameStart = at;
       const name = resolve(readName('attribute name'), 'Attribute', nameStart);
@@ -295,7 +324,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
       if (text.charCodeAt(at) !== EQUALS) fail(`Attribute ${JSON.stringify(name)} has no "="`, at);
       at++;
       skipSpaces();
-      attributes[ATTRIBUTE_PREFIX + name] = readAttributeValue(name, nameStart);
+      record[ATTRIBUTE_PREFIX + name] = readAttributeValue(name, nameStart);
+      hasAttributes = true;
     }
   };
 
@@ -305,15 +335,14 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     at++;
 
     const name = resolve(readName('element name'), 'Element', at);
-    const { attributes, selfClosing } = readStartTag();
+    const { record, selfClosing, hasAttributes } = readStartTag();
 
-    if (selfClosing) return { name, value: finishElement(attributes, '', false) };
+    if (selfClosing) return { name, value: finishElement(record, hasAttributes, '', false) };
 
-    // The parser collects attributes, character data and child elements as it
-    // goes rather than in passes, because the order they appear in is the only
-    // order available: attributes always come first on the tag, but text and
-    // children interleave freely.
-    const record: Record<string, XmlValue> = { ...attributes };
+    // The parser folds character data and child elements into the record the
+    // start tag produced, as it goes rather than in passes, because the order
+    // they appear in is the only order available: attributes always come first on
+    // the tag, but text and children interleave freely.
     let childText = '';
     let hasChildren = false;
 
@@ -336,7 +365,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
         skipSpaces();
         if (text.charCodeAt(at) !== GT) fail(`Malformed closing tag </${closing}>`, at);
         at++;
-        return { name, value: finishElement(record, childText, hasChildren) };
+        return { name, value: finishElement(record, hasAttributes, childText, hasChildren) };
       }
 
       if (text.startsWith('<!--', at)) {
@@ -371,7 +400,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   /**
    * @description Decides what an element with the given attributes, text and children reduces to.
    */
-  const finishElement = (attributes: Record<string, XmlValue>, text: string, hasChildren: boolean): XmlValue => {
+  const finishElement = (record: Record<string, XmlValue>, hasAttributes: boolean, text: string, hasChildren: boolean): XmlValue => {
     // Whitespace at the edges of a text run is dropped unless the caller asked to
     // keep it. This is what makes a pretty-printed document round trip: the
     // indentation a renderer puts around a child element and around a closing tag
@@ -379,7 +408,6 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     // and nothing else. Whitespace *inside* the run — between two words, or a
     // newline in the middle of a paragraph — is content and stays.
     const content = resolved.preserveWhitespace ? text : text.trim();
-    const hasAttributes = Object.keys(attributes).length > 0;
 
     if (!hasAttributes && !hasChildren) {
       // A leaf is character data on its own. Returning the string rather than a `{ '#text': … }` record is what lets
@@ -387,7 +415,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
       return content;
     }
 
-    const record: Record<string, XmlValue> = { ...attributes };
+    // Folded in place: the record is the one the start tag built and that the children were added to, so there is
+    // nothing left to copy.
     if (content !== '') record[TEXT_KEY] = content;
     return record;
   };

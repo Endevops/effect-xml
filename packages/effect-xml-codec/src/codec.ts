@@ -312,6 +312,16 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S & ServiceFree<
   const rootIsArray = rootTag === 'Arrays';
   const reconcile = (xml: unknown): unknown => reconcileRoot(xml, rootIsRecord, rootIsArray);
 
+  // The options are merged once per call rather than once per codec, and only when
+  // there is something to merge. Spreading them on every call would allocate an
+  // object per serialize, which on a hot path is an allocation the caller cannot
+  // see and the garbage collector certainly can.
+  const renderFor = (overrides: XmlRenderOptions | undefined): XmlRenderOptions =>
+    overrides === undefined ? renderOptions : { ...renderOptions, ...overrides };
+
+  const parseFor = (overrides: XmlParseOptions | undefined): XmlParseOptions =>
+    overrides === undefined ? parseOptions : { ...parseOptions, ...overrides };
+
   return {
     schema,
     rootName,
@@ -319,14 +329,14 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S & ServiceFree<
     encodeValueSync: value => encodeSync(value),
     decodeValue: xml => decode(reconcile(xml)),
     decodeValueSync: xml => decodeSync(reconcile(xml)),
-    encodeText: (value, overrides) => Effect.try({ try: () => renderXml(encodeSync(value), { ...renderOptions, ...overrides }), catch: toNameError }),
-    encodeTextSync: (value, overrides) => renderXml(encodeSync(value), { ...renderOptions, ...overrides }),
+    encodeText: (value, overrides) => Effect.try({ try: () => renderXml(encodeSync(value), renderFor(overrides)), catch: toNameError }),
+    encodeTextSync: (value, overrides) => renderXml(encodeSync(value), renderFor(overrides)),
     decodeText: (text, overrides) =>
-      Effect.flatMap(Effect.try({ try: () => parseXmlDocument(text, { ...parseOptions, ...overrides }), catch: asParseError }), document =>
+      Effect.flatMap(Effect.try({ try: () => parseXmlDocument(text, parseFor(overrides)), catch: asParseError }), document =>
         decode(reconcile(document.value))
       ),
-    decodeTextSync: (text, overrides) => decodeSync(reconcile(parseXmlDocument(text, { ...parseOptions, ...overrides }).value)),
-    readDocument: (text, overrides) => Effect.try({ try: () => parseXmlDocument(text, { ...parseOptions, ...overrides }), catch: asParseError }),
+    decodeTextSync: (text, overrides) => decodeSync(reconcile(parseXmlDocument(text, parseFor(overrides)).value)),
+    readDocument: (text, overrides) => Effect.try({ try: () => parseXmlDocument(text, parseFor(overrides)), catch: asParseError }),
   };
 };
 

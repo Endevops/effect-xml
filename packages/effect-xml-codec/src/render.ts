@@ -1,14 +1,23 @@
 // Rendering: an `XmlValue` to XML text.
 //
-// This is the hot path for an application that serializes often, so it builds
-// into one array of chunks and joins once, resolves each distinct name at most
-// once per render, and hands escaping to `@endevops/entities` — which returns
-// its input by identity when there is nothing to escape, so clean text costs
-// one regex test and no allocation.
+// This is the hot path for an application that serializes often, so it is built
+// around three things: one pass over each record's keys rather than one per
+// role a key can play, one pass over each character rather than one per
+// character class, and one array of chunks joined once rather than a growing
+// string.
+//
+// Escaping is the part that scales with the size of the document rather than
+// with its structure, and it is written out here rather than delegated, for a
+// measured reason. `@endevops/entities` escapes by applying five sequential
+// global replacements, one per character, so a document with a single `&` in
+// twenty thousand characters is scanned five times over to change one byte --
+// which is what the `render 20k` rows in `bench/codec.bench.ts` measure. The
+// table below covers the same five characters `EntityEncoder` escapes with
+// `encodeAllNamed: false`, and `test/render.spec.ts` asserts the two agree
+// character for character, so the fast path is checked against the library
+// rather than trusted.
 
 import type { XmlVersion } from '@endevops/xml-naming';
-
-import { EntityEncoder } from '@endevops/entities';
 
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
@@ -17,20 +26,44 @@ import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, is
 import { isXmlArray } from './xml-value.ts';
 
 /**
- * @description One escaping pass for the whole module. `encodeAllNamed: false` matters for XML: the encoder's named tables are HTML's, and an HTML name such as
- * `&eacute;` is _not_ a predefined XML entity — writing one produces a document that is well-formed but not valid against any DTD, and that no XML
- * parser will resolve. With it off, the only names the encoder can emit are the five XML predefines, which is exactly the set an XML parser is
- * required to know. A single shared instance is safe because `maxReplacements` defaults to 0, which the encoder treats as unlimited, so the instance
- * carries no state between calls.
+ * @description The five characters XML predefines an entity for, and the names to write for them. Written out rather than referenced from `@endevops/entities`
+ * because the table is indexed by character code below; the spec asserts the two produce identical output.
  */
-const encoder = new EntityEncoder({ encodeAllNamed: false });
+const XML_PREDEFINED = { 34: '&quot;', 38: '&amp;', 39: '&apos;', 60: '&lt;', 62: '&gt;' } as const;
 
 /**
- * @description The character references that survive XML's attribute-value whitespace normalization. An XML parser replaces a literal newline, carriage return or
- * tab inside an attribute value with a space, so a value that has to survive a round trip has to spell them as numeric references. The `&` is written
- * after {@link escapeText}, never before, or the escaping pass would rewrite the `&` of the reference it just introduced.
+ * @description The character references for the whitespace XML normalizes inside an attribute value. A parser replaces a literal newline, carriage return or tab
+ * in an attribute with a space, so a value that has to survive a round trip has to spell them as references. They are in the attribute table and not
+ * the text one: in character data they are content, and only an attribute value is normalized.
  */
-const ATTRIBUTE_WHITESPACE = /[\n\r\t]/g;
+const ATTRIBUTE_WHITESPACE = { 9: '&#9;', 10: '&#10;', 13: '&#13;' } as const;
+
+/**
+ * @description The replacement for each ASCII character that needs one, and `undefined` for the ones that do not. Indexed by character code and 128 long, so the
+ * check is one comparison and one array read with no string search in it.
+ *
+ * @param extra - Characters to escape in addition to the five predefines.
+ *
+ * @returns The lookup table.
+ */
+const buildTable = (extra: Record<number, string>): ReadonlyArray<string | undefined> => {
+  const table = Array.from<string | undefined>({ length: 128 }).fill(undefined);
+  for (const [code, entity] of Object.entries({ ...XML_PREDEFINED, ...extra })) table[Number(code)] = entity;
+  return table;
+};
+
+const TEXT_TABLE = buildTable({});
+const ATTRIBUTE_TABLE = buildTable(ATTRIBUTE_WHITESPACE);
+
+/**
+ * @description The characters each table escapes, as a pattern rather than as a set of replacement passes. Finding the first one with a pattern is what makes
+ * clean text cheap: V8 compiles a single character class into a scan that is several times faster than a JavaScript loop reading the same string a
+ * code unit at a time, and clean text is most text. `render 20k of clean text` in `bench/codec.bench.ts` is the row that says so — a hand-written
+ * loop over the same twenty thousand characters is roughly two and a half times slower. Neither pattern is global, so `exec` ignores `lastIndex` and
+ * always starts at the beginning. One module-level instance of each is therefore safe to reuse, and nothing has to be reset between calls.
+ */
+const TEXT_UNSAFE = /[<>&"']/;
+const ATTRIBUTE_UNSAFE = /[<>&"'\n\r\t]/;
 
 /**
  * @description Options for {@link renderXml}.
@@ -103,6 +136,12 @@ interface ResolvedOptions {
    * a call to `resolveName`.
    */
   readonly namer: (name: string) => string;
+
+  /**
+   * @description The indent for a given depth, when pretty-printing. Built on first use at each depth and kept, so an indented document builds one string per
+   * level rather than one per line.
+   */
+  readonly lineAt: (depth: number) => string;
 }
 
 /**
@@ -115,7 +154,7 @@ interface ResolvedOptions {
  *
  * @returns A function from field name to legal XML name.
  */
-const makeNamer = (options: Omit<ResolvedOptions, 'namer'>): ((name: string) => string) => {
+const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: string) => string) => {
   const cache = new Map<string, string>();
   return name => {
     const hit = cache.get(name);
@@ -127,6 +166,10 @@ const makeNamer = (options: Omit<ResolvedOptions, 'namer'>): ((name: string) => 
 };
 
 const resolveOptions = (options: XmlRenderOptions): ResolvedOptions => {
+  // One string per depth, built as the render reaches it. A document of a few
+  // thousand elements on several lines each would otherwise call `repeat` once per
+  // line and allocate the same handful of strings thousands of times over.
+  const lines: Array<string> = [''];
   const resolved = {
     rootName: options.rootName ?? DEFAULT_ROOT_NAME,
     itemName: options.itemName ?? DEFAULT_ITEM_NAME,
@@ -138,7 +181,17 @@ const resolveOptions = (options: XmlRenderOptions): ResolvedOptions => {
     xmlVersion: options.xmlVersion ?? ('1.0' as XmlVersion),
     maxDepth: options.maxDepth ?? 256,
   };
-  return { ...resolved, namer: makeNamer(resolved) };
+  return {
+    ...resolved,
+    namer: makeNamer(resolved),
+    lineAt: depth => {
+      const line = lines[depth];
+      if (line !== undefined) return line;
+      const built = resolved.indent.repeat(depth);
+      lines[depth] = built;
+      return built;
+    },
+  };
 };
 
 /**
@@ -146,9 +199,9 @@ const resolveOptions = (options: XmlRenderOptions): ResolvedOptions => {
  *
  * @param value - The text to escape.
  *
- * @returns The text with the XML-unsafe characters replaced by predefined entities.
+ * @returns The text with the XML-unsafe characters replaced by predefined entities, or the very same string when there is nothing to escape.
  */
-export const escapeText = (value: string): string => encoder.encode(value);
+export const escapeText = (value: string): string => escape(value, TEXT_UNSAFE, TEXT_TABLE);
 
 /**
  * @description Escapes a value for use inside a double-quoted attribute.
@@ -157,8 +210,41 @@ export const escapeText = (value: string): string => encoder.encode(value);
  *
  * @returns The escaped text, with the whitespace that XML would otherwise normalize spelled as character references.
  */
-export const escapeAttribute = (value: string): string =>
-  encoder.encode(value).replace(ATTRIBUTE_WHITESPACE, character => `&#${character.charCodeAt(0)};`);
+export const escapeAttribute = (value: string): string => escape(value, ATTRIBUTE_UNSAFE, ATTRIBUTE_TABLE);
+
+/**
+ * @description Replaces every character the table has an entry for, in one pass over the string. The pattern finds the first character that needs replacing, and a
+ * string with none is handed straight back — which is the common case, and the one the pattern is there to make fast. From there the rest of the
+ * string is copied in runs between the replacements rather than a character at a time, so the cost is one pattern scan, one copy, and one
+ * concatenation per replacement, rather than a whole pass per character class. Only ASCII is looked up. XML carries every other character natively,
+ * and a code unit above 127 has no entity an XML parser is required to know.
+ *
+ * @param value - The text to escape.
+ * @param pattern - Matches the first character that needs replacing.
+ * @param table - The replacement for each ASCII character that needs one.
+ *
+ * @returns The escaped text, or `value` itself when there is nothing to escape.
+ */
+const escape = (value: string, pattern: RegExp, table: ReadonlyArray<string | undefined>): string => {
+  const found = pattern.exec(value);
+  if (found === null) return value; // nothing to escape: hand back the same string
+
+  const length = value.length;
+  const start = found.index;
+  let out = value.slice(0, start);
+  let copied = start;
+
+  for (let index = start; index < length; index++) {
+    const code = value.charCodeAt(index);
+    const entity = code < 128 ? table[code] : undefined;
+    if (entity !== undefined) {
+      out += value.slice(copied, index) + entity;
+      copied = index + 1;
+    }
+  }
+
+  return copied === length ? out : out + value.slice(copied);
+};
 
 /**
  * @description Renders an {@link XmlValue} as an XML document. A record becomes an element: `@`-prefixed keys become attributes, the reserved `#text` key becomes
@@ -258,31 +344,80 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
   }
 
   const record: XmlRecord = value;
-  const attributes = renderAttributes(record, options);
+
+  // One pass over the keys collects all three roles at once: the attributes are
+  // rendered as they are found, the child names are set aside for the second pass
+  // that writes them, and the text key is read in place. A pass for the
+  // attributes, a pass for the children and an index for the text instead walks
+  // the keys three times and allocates the key array twice, which on a document
+  // of a few thousand elements is thousands of allocations for nothing.
+  const keys = Object.keys(record);
+  let attributes = '';
+  let children: Array<string> | undefined;
+
+  // Sorting is off by default, and the default path is the one that matters, so
+  // the attributes are built as they are found and there is nothing to sort. When
+  // it is on the attribute keys are collected instead and rendered afterwards,
+  // which costs an array per element and buys output that does not depend on the
+  // order the fields happened to be declared in.
+  const sortAttributes = options.sortKeys ? ([] as Array<string>) : undefined;
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i] as string;
+    const child = record[key];
+
+    if (isAttributeKey(key)) {
+      // An absent field is not written at all, which is what keeps an unset
+      // optional attribute out of the document rather than in it as `a=""`.
+      if (child === undefined) continue;
+      if (sortAttributes !== undefined) {
+        sortAttributes.push(key);
+        continue;
+      }
+      attributes += ' ' + options.namer(attributeName(key)) + '="' + escapeAttribute(attributeText(child)) + '"';
+      continue;
+    }
+
+    if (isTextKey(key) || child === undefined) continue; // an absent field is not written at all
+    (children ??= []).push(key);
+  }
+
+  if (sortAttributes !== undefined) {
+    sortAttributes.sort();
+    for (let i = 0; i < sortAttributes.length; i++) {
+      const key = sortAttributes[i] as string;
+      const child = record[key];
+      if (child === undefined) continue;
+      attributes += ' ' + options.namer(attributeName(key)) + '="' + escapeAttribute(attributeText(child)) + '"';
+    }
+  }
+
+  if (options.sortKeys && children !== undefined) children.sort();
+
   const text = textOf(record);
-  const children = childKeys(record, options);
 
   // Self-closing is decided by whether the element has any *content*, not by
   // whether it has attributes: `<a id="1"/>` is the same element as `<a id="1">`
   // with nothing in it, and the short form is what every XML writer produces.
-  if (children.length === 0 && text === '') {
+  if (children === undefined && text === '') {
     writeEmpty(out, tag, options, attributes);
     return;
   }
 
-  const childrenAreElements = children.length > 0;
+  const hasChildren = children !== undefined;
   out.push('<', tag, attributes, '>');
 
   // Character data sits inline when it is all an element has, and on its own
   // line when the element also has children, so an indented document does not
   // end up with its first line of text glued to its opening tag.
   if (text !== '') {
-    if (childrenAreElements && options.format) openLine(out, depth + 1, options);
+    if (hasChildren && options.format) openLine(out, depth + 1, options);
     out.push(escapeText(text));
   }
 
-  if (childrenAreElements) {
-    for (const key of children) {
+  if (children !== undefined) {
+    for (let i = 0; i < children.length; i++) {
+      const key = children[i] as string;
       const child = record[key];
       if (child === undefined) continue;
       renderElement(out, key, child, depth + 1, options);
@@ -302,7 +437,7 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
  */
 const openLine = (out: Array<string>, depth: number, options: ResolvedOptions): void => {
   out.push('\n');
-  out.push(options.indent.repeat(depth));
+  out.push(options.lineAt(depth));
 };
 
 /**
@@ -335,47 +470,18 @@ const textOf = (record: XmlRecord): string => {
 };
 
 /**
- * @description Renders an element's attributes, or an empty string when it has none.
+ * @description An attribute value as the character data it is written as. A bare string is the only sensible shape, since an attribute holds nothing else. A
+ * non-string is stringified rather than rejected: the schema is what enforces the field's type, and rejecting here would duplicate that check with a
+ * different error and a message that names neither the field nor the document.
  *
- * @param record - The element's value.
- * @param options - Resolved render options.
+ * @param value - The attribute's value.
  *
- * @returns The attribute text, each name preceded by a space, or `''`.
+ * @returns The text to escape and write between the quotes.
  */
-const renderAttributes = (record: XmlRecord, options: ResolvedOptions): string => {
-  let out = '';
-  for (const key of Object.keys(record)) {
-    if (!isAttributeKey(key)) continue;
-    const value = record[key];
-    if (value === undefined) continue; // an absent attribute is not written at all
-    const name = options.namer(attributeName(key));
-    // An attribute's value is always character data, so a bare string is the
-    // only sensible shape. A non-string is stringified rather than rejected:
-    // the schema is what enforces the field's type, and rejecting here would
-    // duplicate that check with a different error.
-    const text = typeof value === 'string' ? value : renderScalar(value);
-    out += ' ' + name + '="' + escapeAttribute(text) + '"';
-  }
-  return out;
-};
-
-/**
- * @description Collects the keys of an element's child elements, in the order they should be written.
- *
- * @param record - The element's value.
- * @param options - Resolved render options.
- *
- * @returns The child element names, attributes and the reserved text key excluded.
- */
-const childKeys = (record: XmlRecord, options: ResolvedOptions): Array<string> => {
-  const keys: Array<string> = [];
-  for (const key of Object.keys(record)) {
-    if (isAttributeKey(key) || isTextKey(key)) continue;
-    if (record[key] === undefined) continue; // an absent field is not written
-    keys.push(key);
-  }
-  if (options.sortKeys) keys.sort();
-  return keys;
+const attributeText = (value: XmlValue): string => {
+  if (typeof value === 'string') return value;
+  if (value === undefined) return '';
+  return renderScalar(value);
 };
 
 /**
