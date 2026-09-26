@@ -26,6 +26,31 @@ release. Add a tool name to select part of the graph. For example, run
 
 <!--VITE PLUS END-->
 
+# Effect
+
+This workspace uses [Effect](https://effect.website) 4, pinned in the `catalog`
+in `pnpm-workspace.yaml` and currently on a release candidate. Before writing
+Effect code, read `node_modules/effect/AGENTS.md` in full, and search
+`node_modules/effect/src` for anything it does not cover.
+
+Two things about this version are worth knowing before designing anything on
+top of it, both found the hard way while building
+`packages/effect-xml-codec`:
+
+- **The schema derivations are internal.** `toCodecJson`, `toCodecIso` and
+  `toCodecStringTree` walk a schema AST through `SchemaAST.replaceEncoding` and
+  a per-node `recur` walker, both `/** @internal */` and stripped from the
+  published `.d.ts`; `./internal/*` is not on the export map. A derivation of
+  your own cannot reuse them, and casting over `effect/SchemaAST` to reach them
+  pins a library to one patch release.
+- **`Schema.decodeTo` declares its transformation getters backwards.** It types
+  `decode` as `To.Encoded → From.Type` and `encode` as `From.Type →
+To.Encoded`, and its implementation runs them the other way round. Every use
+  inside Effect's own source is a target that is a `Declaration` or a primitive
+  — where `Type` and `Encoded` coincide and the inversion is invisible — so
+  composing two genuine codecs through it silently needs casts. `test/`
+  behaviour, not the types, is what to trust here.
+
 # Benchmarks
 
 Benchmarks are Vitest benchmarks, not scripts. A file named `*.bench.ts` is

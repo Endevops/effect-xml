@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "effect": "4.0.0-rc.117",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"

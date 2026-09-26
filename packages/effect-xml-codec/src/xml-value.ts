@@ -1,0 +1,134 @@
+// The encoded side of the codec: the value an `XmlValue` takes between a schema's
+// `Type` and the XML text that carries it.
+//
+// The shape is deliberately the plainest one that can hold a document —
+// strings, arrays and records — for two reasons. It is what Effect's own
+// `Schema.toCodecStringTree` derivation produces, so every schema feature
+// Effect supports (structs, arrays, unions, records, recursion, refinements)
+// already round-trips through it without this package re-implementing the
+// derivation. And it costs nothing to inspect, log or diff in a test, where a
+// dedicated node-type AST would need its own equality and its own snapshots.
+//
+// XML meaning comes from the key conventions in `./conventions.ts`, not from
+// the value's shape: `@name` is an attribute, `#text` is character data, and
+// every other key is a child element.
+
+import { Schema } from 'effect';
+
+/**
+ * @description A record of child elements, attributes and character data. A key starting with `@` is an attribute, the reserved `#text` key is character data, and
+ * every other key is a child element name. An `undefined` value means the field is absent, which is how an absent optional field stays
+ * distinguishable from an empty one.
+ */
+export interface XmlRecord {
+  readonly [name: string]: XmlValue | undefined;
+}
+
+/**
+ * @description One value in an XML document: nothing at all, character data, a repeated run of children, or a record of attributes, text and child elements.
+ * `undefined` is a value of its own rather than an omission, because that is how an absent optional field survives a round trip: a field with no
+ * value stays distinguishable from a field whose value is the empty string, and the renderer writes neither of them. The shape is deliberately the
+ * same one `Schema.toCodecStringTree` derives, which is what lets every schema feature Effect supports round-trip through this package without
+ * re-implementing the derivation.
+ */
+export type XmlValue = string | undefined | ReadonlyArray<XmlValue> | XmlRecord;
+
+/**
+ * @description How deep {@link isXmlValue} will walk before giving up. A document nested deeper than this is treated as invalid rather than allowed to exhaust the
+ * stack.
+ */
+const MAX_GUARD_DEPTH = 512;
+
+/**
+ * @description Whether a value is a repeated run of child elements. A type guard rather than a bare `Array.isArray`, which TypeScript cannot use to exclude the
+ * `ReadonlyArray` member of {@link XmlValue} from a union: the narrowing works at runtime but the negative branch keeps the array type, and every
+ * caller would then have to narrow by hand.
+ *
+ * @param input - The candidate value.
+ *
+ * @returns Whether the value is an array of `XmlValue`.
+ */
+export const isXmlArray = (input: XmlValue): input is ReadonlyArray<XmlValue> => Array.isArray(input);
+
+/**
+ * @description Whether a value is a record of attributes, text and child elements. A type guard for the same reason as {@link isXmlArray}: the remaining members of
+ * the {@link XmlValue} union are not excluded by a bare `Array.isArray` check, so every caller would otherwise have to narrow by hand.
+ *
+ * @param input - The candidate value.
+ *
+ * @returns Whether the value is a record.
+ */
+export const isXmlRecord = (input: unknown): input is XmlRecord =>
+  typeof input === 'object' && input !== null && !Array.isArray(input) && isPlainRecord(input);
+
+/**
+ * @description Whether an arbitrary value is a well-formed {@link XmlValue}.
+ *
+ * @param input - The candidate value.
+ *
+ * @returns Whether the value is absent, character data, an array of `XmlValue`, or a plain record of them.
+ */
+export const isXmlValue = (input: unknown): input is XmlValue => check(input, 0);
+
+/**
+ * @description One level of {@link isXmlValue}, with the depth it was reached at. The depth is the whole defence against a value built to be hostile: a
+ * self-referential object would otherwise recurse until the stack gave out, and a value nested thousands deep would take it with it. Both are
+ * rejected here instead, which is why this is a real recursion with a bound rather than a loop — the model is a tree, and a tree is walked by walking
+ * it.
+ *
+ * @param input - The candidate value.
+ * @param depth - How many levels down this value sits.
+ *
+ * @returns Whether the value is a legal `XmlValue` at this depth.
+ */
+const check = (input: unknown, depth: number): boolean => {
+  // `undefined` is a value in its own right: it is how an absent optional field survives a round trip, so a
+  // record is allowed to hold one and a document is allowed to be missing a field.
+  if (input === undefined || typeof input === 'string') return true;
+  if (input === null || typeof input !== 'object') return false;
+  if (depth > MAX_GUARD_DEPTH) return false;
+
+  if (Array.isArray(input)) {
+    for (const member of input) {
+      if (!check(member, depth + 1)) return false;
+    }
+    return true;
+  }
+
+  if (!isPlainRecord(input)) return false;
+  for (const key of Object.keys(input)) {
+    if (!check((input as Record<string, unknown>)[key], depth + 1)) return false;
+  }
+  return true;
+};
+
+/**
+ * @description Whether a value is a plain object — not null, not an array, not a class instance. A `Date` or a `Map` in a document is a programming error, not
+ * character data, and the parser can only represent what the model allows.
+ *
+ * @param input - The candidate object.
+ *
+ * @returns Whether the object is a plain record.
+ */
+const isPlainRecord = (input: object): input is XmlRecord => {
+  const prototype = Object.getPrototypeOf(input) as object | null;
+  return prototype === Object.prototype || prototype === null;
+};
+
+/**
+ * @description A schema for {@link XmlValue}, so a value can be validated on its own — when it arrives from a store or a queue rather than from {@link parseXml},
+ * and the schema it belongs to is not in hand.
+ *
+ * @example
+ *   ```typescript
+ *   import { Schema } from 'effect';
+ *   import { XmlValue } from '@endevops/effect-xml-codec';
+ *
+ *   Schema.decodeUnknownSync(XmlValue)({ book: { '@id': '1', title: 'Dune' } }); // => { book: { '@id': '1', title: 'Dune' } }
+ *   Schema.decodeUnknownSync(XmlValue)({ book: { title: 42 } }); // => throws XmlValue
+ *   ```;
+ */
+export const XmlValue: Schema.Codec<XmlValue> = Schema.declare<XmlValue>(isXmlValue, {
+  identifier: 'XmlValue',
+  expected: 'an XML value: character data, an array of them, or a record of them',
+});

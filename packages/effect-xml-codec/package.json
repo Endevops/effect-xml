@@ -1,0 +1,62 @@
+{
+  "name": "@endevops/effect-xml-codec",
+  "version": "0.1.0",
+  "description": "A round-trip Effect Schema codec for XML. Derives an XML representation from any Effect Schema and reads it back, with attributes as `@`-prefixed fields.",
+  "keywords": [
+    "codec",
+    "effect",
+    "effect-schema",
+    "xml",
+    "xml-codec",
+    "xml-parser",
+    "xml-serialization"
+  ],
+  "homepage": "https://github.com/Endevops/effect-xml/tree/master/packages/effect-xml-codec#readme",
+  "bugs": {
+    "url": "https://github.com/Endevops/effect-xml/issues"
+  },
+  "license": "MIT",
+  "author": "Endevops",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Endevops/effect-xml.git",
+    "directory": "packages/effect-xml-codec"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.mts",
+  "imports": {
+    "#/*": "./src/*",
+    "#/test/*": "./test/*"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "prepublishOnly": "vp pack"
+  },
+  "dependencies": {
+    "@endevops/entities": "workspace:^",
+    "@endevops/xml-naming": "workspace:^"
+  },
+  "devDependencies": {
+    "effect": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

@@ -1,6 +1,6 @@
 # effect-xml
 
-A pnpm workspace for the Endevops XML packages. One library today, built on
+A pnpm workspace for the Endevops XML packages, built on
 [Vite+](https://viteplus.dev/guide/) for the toolchain.
 
 | Package                                                                   | Description                                             |
@@ -12,6 +12,7 @@ A pnpm workspace for the Endevops XML packages. One library today, built on
 | [`@endevops/base-output-builder`](./packages/base-output-builder)         | Base classes and value-parser primitives for builders   |
 | [`@endevops/entities`](./packages/entities)                               | XML and HTML entity encoding and decoding               |
 | [`@endevops/compact-builder`](./packages/compact-builder)                 | Builds a compact JS object from XML                     |
+| [`@endevops/effect-xml-codec`](./packages/effect-xml-codec)               | Round-trip Effect Schema codec for XML                  |
 
 ## Layout
 
