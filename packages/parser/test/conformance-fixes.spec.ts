@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue } from '#/options.ts';
 
-import { ErrorCode, ParseError } from '#/parse-error.ts';
+import { ErrorCode, type ParseError } from '#/parse-error.ts';
 import { makeParser, runAcrossAllInputSources, runParser } from '#/test/helpers/test-runner.ts';
 import { sanitizeContent } from '#/util.ts';
 

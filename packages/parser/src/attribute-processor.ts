@@ -1,6 +1,13 @@
 import type { AttributeMeta, ParsedAttribute, RawAttributeMatch, TagExpressionParser } from './internal/parser-types.ts';
 
-import { ErrorCode, parseError, runBuilder } from './parse-error.js';
+import {
+  BooleanAttributeRejected,
+  DuplicateAttribute,
+  IllegalCharacter,
+  LimitMaxAttributes,
+  UnquotedAttributeValue,
+  runBuilder,
+} from './parse-error.js';
 import { isSpaceCode, errorPositionOf } from './util.js';
 
 /**
@@ -57,11 +64,12 @@ function scanAttrValue(attrStr: string, i: number, end: number, parser: TagExpre
       value += attrStr.substring(segStart, i) + ' ';
       segStart = i + 1;
     } else if (isIllegalAttrCode(c)) {
-      throw parseError(
-        { _tag: ErrorCode.ILLEGAL_CHARACTER, code: c, in: 'attribute' },
-        `Illegal control character 0x${c.toString(16).padStart(2, '0')} in attribute value`,
-        parser ? errorPositionOf(parser.source).index : undefined
-      );
+      throw new IllegalCharacter({
+        charCode: c,
+        in: 'attribute',
+        message: `Illegal control character 0x${c.toString(16).padStart(2, '0')} in attribute value`,
+        index: parser ? errorPositionOf(parser.source).index : undefined,
+      });
     }
   }
   value += attrStr.substring(segStart, i);
@@ -137,11 +145,11 @@ function parseAttributes(
     const quote = attrStr.charCodeAt(i); // NaN when i >= len — also fails both checks below
     if (quote !== 34 && quote !== 39) {
       // not " or '
-      throw parseError(
-        { _tag: ErrorCode.UNQUOTED_ATTRIBUTE_VALUE, name },
-        `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
-        parser ? errorPositionOf(parser.source).index : undefined
-      );
+      throw new UnquotedAttributeValue({
+        name,
+        message: `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
+        index: parser ? errorPositionOf(parser.source).index : undefined,
+      });
     }
 
     // Fast path: the tag-end scanner already found this exact quote pair
@@ -241,11 +249,7 @@ export function collectRawAttributes(
     if (seen) {
       if (seen.has(m.name)) {
         if (dupMode === 'throw') {
-          throw parseError(
-            { _tag: ErrorCode.DUPLICATE_ATTRIBUTE, name: m.name },
-            `Duplicate attribute '${m.name}'`,
-            errorPositionOf(parser.source).index
-          );
+          throw new DuplicateAttribute({ name: m.name, message: `Duplicate attribute '${m.name}'`, index: errorPositionOf(parser.source).index });
         }
         continue; // 'ignore' — first occurrence wins, later ones dropped entirely
       }
@@ -255,11 +259,11 @@ export function collectRawAttributes(
     const rawVal = m.value;
     if (rawVal === undefined) {
       if (boolMode === 'throw') {
-        throw parseError(
-          { _tag: ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED, name: m.name },
-          `Valueless attribute '${m.name}' is not allowed`,
-          errorPositionOf(parser.source).index
-        );
+        throw new BooleanAttributeRejected({
+          name: m.name,
+          message: `Valueless attribute '${m.name}' is not allowed`,
+          index: errorPositionOf(parser.source).index,
+        });
       }
       if (boolMode === 'ignore') continue; // drop silently, rest of tag unaffected
     }
@@ -305,11 +309,13 @@ export function flushAttributes(
 
   const maxAttrs = parser.options.limits?.maxAttributesPerTag;
   if (maxAttrs !== undefined && maxAttrs !== null && rawAttrMatchCount > maxAttrs) {
-    throw parseError(
-      { _tag: ErrorCode.LIMIT_MAX_ATTRIBUTES, limit: maxAttrs, count: rawAttrMatchCount, tag: tagName },
-      `Tag '${tagName}' has ${rawAttrMatchCount} attributes, exceeding limit of ${maxAttrs}`,
-      errorPositionOf(parser.source).index
-    );
+    throw new LimitMaxAttributes({
+      limit: maxAttrs,
+      count: rawAttrMatchCount,
+      tag: tagName,
+      message: `Tag '${tagName}' has ${rawAttrMatchCount} attributes, exceeding limit of ${maxAttrs}`,
+      index: errorPositionOf(parser.source).index,
+    });
   }
 
   const len = parsedAttrs.length;

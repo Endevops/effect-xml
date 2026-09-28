@@ -44,41 +44,43 @@ they cannot fail. `feed` yields the parser rather than `void` so a chain of feed
 
 ## Key Exported Types
 
-| Export               | Description                                                                 |
-| -------------------- | --------------------------------------------------------------------------- |
-| `XMLParser`          | The parser class (also the default export); build one with `XMLParser.make` |
-| `X2jOptions`         | Full options interface for `XMLParser.make(options)`                        |
-| `ParseError`         | The error in the `E` channel of every effect this package returns           |
-| `ErrorCode`          | Const object with all error code strings                                    |
-| `ErrorCodeValue`     | Union type of all error code values                                         |
-| `SkipOptions`        | Type for the `skip` option group                                            |
-| `NameForOptions`     | Type for the `nameFor` option group                                         |
-| `AttributeOptions`   | Type for the `attributes` option group                                      |
-| `TagOptions`         | Type for the `tags` option group                                            |
-| `DoctypeOptions`     | Type for the `doctypeOptions` option group                                  |
-| `LimitsOptions`      | Type for the `limits` option group                                          |
-| `FeedableOptions`    | Type for the `feedable` option group                                        |
-| `AutoCloseInput`     | What `autoClose` accepts (see 07-auto-close.md)                             |
-| `AutoCloseOptions`   | Fully-resolved autoClose behaviour                                          |
-| `DecodingOptions`    | Type for the `decoding` option group                                        |
-| `EncodingDecoder`    | Shape a custom decoder must satisfy                                         |
-| `EncodingDescriptor` | Descriptor for a custom encoding                                            |
-| `ExitIfPredicate`    | Type of the `exitIf` callback                                               |
-| `SkipTagEntry`       | Object form of a `skip.tags` entry                                          |
-| `StopNodeEntry`      | Object form of a `stopNodes` entry                                          |
-| `ParseErrorEntry`    | One recovery from `getParseErrors()`                                        |
-| `Enclosure`          | `{ open: string; close: string }` pair                                      |
-| `xmlEnclosures`      | Built-in XML enclosure array (comments + CDATA)                             |
-| `quoteEnclosures`    | Built-in quote enclosure array                                              |
+| Export                                        | Description                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `XMLParser`                                   | The parser class (also the default export); build one with `XMLParser.make`      |
+| `X2jOptions`                                  | Full options interface for `XMLParser.make(options)`                             |
+| `ParseError`                                  | Union of the 33 reason classes, and the error in the `E` channel of every effect |
+| `LimitMaxNestedTags`, `MismatchedCloseTag`, … | One named class per cause, each tagged with its `ErrorCode` value                |
+| `isParseError`                                | `value is ParseError`. A union has no `instanceof`, so this is the substitute    |
+| `ErrorCode`                                   | Const object with all error code strings                                         |
+| `ErrorCodeValue`                              | Union type of all error code values                                              |
+| `SkipOptions`                                 | Type for the `skip` option group                                                 |
+| `NameForOptions`                              | Type for the `nameFor` option group                                              |
+| `AttributeOptions`                            | Type for the `attributes` option group                                           |
+| `TagOptions`                                  | Type for the `tags` option group                                                 |
+| `DoctypeOptions`                              | Type for the `doctypeOptions` option group                                       |
+| `LimitsOptions`                               | Type for the `limits` option group                                               |
+| `FeedableOptions`                             | Type for the `feedable` option group                                             |
+| `AutoCloseInput`                              | What `autoClose` accepts (see 07-auto-close.md)                                  |
+| `AutoCloseOptions`                            | Fully-resolved autoClose behaviour                                               |
+| `DecodingOptions`                             | Type for the `decoding` option group                                             |
+| `EncodingDecoder`                             | Shape a custom decoder must satisfy                                              |
+| `EncodingDescriptor`                          | Descriptor for a custom encoding                                                 |
+| `ExitIfPredicate`                             | Type of the `exitIf` callback                                                    |
+| `SkipTagEntry`                                | Object form of a `skip.tags` entry                                               |
+| `StopNodeEntry`                               | Object form of a `stopNodes` entry                                               |
+| `ParseErrorEntry`                             | One recovery from `getParseErrors()`                                             |
+| `Enclosure`                                   | `{ open: string; close: string }` pair                                           |
+| `xmlEnclosures`                               | Built-in XML enclosure array (comments + CDATA)                                  |
+| `quoteEnclosures`                             | Built-in quote enclosure array                                                   |
 
 ---
 
 ## Error Handling
 
 Every effect this package returns already has `ParseError` in its error channel, so there is no
-`instanceof` check to write and no `try` to catch: recovery is a combinator on the effect. The
-`catchIf` below recovers the one code it can handle and re-fails everything else unchanged, which
-is why there is no fallthrough branch and no `throw e`.
+`try` to catch: recovery is a combinator on the effect. Each of the 33 causes is its own class, so
+`Effect.catchTag` names the one it can handle and re-fails everything else unchanged — which is why
+the handler below needs no fallthrough branch and no `throw e`.
 
 ```typescript
 import { Effect } from 'effect';
@@ -87,16 +89,22 @@ import XMLParser, { ErrorCode } from '@endevops/parser';
 const parser = Effect.runSync(XMLParser.make({ limits: { maxNestedTags: 100 } }));
 
 const result = parser.parse(xml).pipe(
-  Effect.catchReason('ParseError', ErrorCode.LIMIT_MAX_NESTED_TAGS, reason => {
+  Effect.catchTag(ErrorCode.LIMIT_MAX_NESTED_TAGS, error => {
     console.error('Document too deeply nested');
     // The payload is the point: these are the two numbers, not a sentence to parse.
-    console.error(`depth ${reason.depth} exceeds the ceiling of ${reason.limit}`);
-    // reason.index is a 0-based character offset, or undefined when the
+    console.error(`depth ${error.depth} exceeds the ceiling of ${error.limit}`);
+    // error.index is a 0-based character offset, or undefined when the
     // parser had no position to report for this error
     return Effect.succeed(null);
   })
 );
 ```
+
+The handler gets the whole error, not a payload in a wrapper, so `error.message` and `error.index`
+are in reach next to `error.depth` and `error.limit`. `ErrorCode.LIMIT_MAX_NESTED_TAGS` and the bare
+string `'LIMIT_MAX_NESTED_TAGS'` are the same tag — a class is tagged with its code rather than with
+its own name — so either compiles, and the `ErrorCode` member turns a typo into a compile error
+instead of a handler that never fires.
 
 `ParseError` reports positions as a single `index`, not `line` and `col`.
 
@@ -108,43 +116,110 @@ const result = parser.parse(xml).pipe(
 `parseBytesArr`, `parseStream`, `feed`, `end`, and `make` itself. Configuring a parser validates
 options, refuses reserved property names and compiles every stop-node and skip-tag path expression,
 so construction can fail on the same channel as parsing. There is no second error type to branch
-on: failures from `@endevops/common-xml` and `@endevops/builder` are mapped in rather than unioned
-with it.
+on: a failure from `@endevops/common-xml` or `@endevops/builder` arrives as a `DependencyError`,
+mapped in rather than unioned with the parser's own.
 
-| Field     | Type                  | Meaning                                                                                    |
-| --------- | --------------------- | ------------------------------------------------------------------------------------------ |
-| `reason`  | `ParseErrorReason`    | The cause, as a tagged union. Its `_tag` is one of the `ErrorCode` values.                 |
-| `index`   | `number \| undefined` | 0-based offset from document start. `undefined` when the parser had no position to report. |
-| `message` | `string`              | Human-readable text. Kept, and kept verbatim — it is part of the contract.                 |
-| `code`    | `ErrorCodeValue`      | An alias for `reason._tag`. The two cannot disagree; the alias is for existing call sites. |
+It is a **union of 33 classes**, one per cause, and it is exported as a type. A union has no value,
+so `new ParseError(...)` and `instanceof ParseError` do not exist. Each class is a named export, so
+a handler can name the failure it recovers from, and a test can build one.
 
-### The reason carries the payload
+### Why one class per cause
 
-`reason` is not just a label. It carries the numbers and names a handler needs, which used to exist
-only inside the English sentence in `message` — so reading a ceiling or a mismatched tag name meant
-parsing prose.
+`@endevops/common-xml` and `@endevops/builder` keep one error class with a `reason` union, and that
+is the right shape when the causes are facets of a single decision — a bad _configuration_ versus a
+bad _document_. The parser's causes are not facets of one decision. A tripped limit is a rejection
+the caller may honour and keep serving; a mismatched close tag is a document to hand back with an
+error; a reserved option name is a bug in the caller's own configuration, and a program that
+recovers from the first two while quietly renaming the third has shipped something wrong. Each of
+those is a decision, and each decision wants a name of its own.
+
+A class per cause buys three things a `reason` field cannot:
+
+- **A class in a type position.** `error instanceof MismatchedCloseTag` is a real check, with no
+  predicate and no string comparison.
+- **`Effect.catchTag`, with the payload already narrowed.** The handler's parameter is a
+  `LimitMaxNestedTags`, so `error.limit` and `error.depth` are typed fields. A refinement predicate
+  over the union hands the handler the union instead, with the payload one `e is` away.
+- **The payload on the class that owns it, where the compiler checks it.** The ceiling and the depth
+  used to exist only inside the English sentence in `message`, so reading a number meant parsing
+  prose. `LimitMaxNestedTags` now declares `limit: number` and `depth: number`, and a misspelled
+  field is a compile error rather than a silent `undefined`.
+
+It costs one thing, worth stating plainly: there is no class to construct for an arbitrary
+`ParseError`, so there is no generic way to rebuild one with a new `message`. Adding context means
+naming the cause — see [Adding context without losing the cause](#adding-context-without-losing-the-cause).
+
+### The fields every class carries
+
+| Field     | Type                  | Meaning                                                                                                                                                      |
+| --------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `_tag`    | `ErrorCodeValue`      | Which of the 33 causes this is. This is what `Effect.catchTag` matches on.                                                                                   |
+| `code`    | `ErrorCodeValue`      | An alias for `_tag`, kept for the `err.code === ErrorCode.X` comparisons that predate the classes.                                                           |
+| `index`   | `number \| undefined` | 0-based offset from document start. `undefined` when the parser had no position — a rejected configuration, or a limit checked before the document was read. |
+| `message` | `string`              | Human-readable text. Kept, and kept verbatim — it is part of the contract.                                                                                   |
+
+`code` and `_tag` are two names for one value, which is usually a smell. Here the alias is the point:
+it is the field most call sites already read, and it is a getter rather than a stored value, so the
+two cannot drift apart.
+
+`toString()` is the tag, the position, and the message, with no class name in front — the tag _is_
+the identity now:
+
+```
+LIMIT_MAX_NESTED_TAGS at index 9: Nesting depth 4 exceeds limit of 3 (tag: 'd')
+INVALID_INPUT: 'limits.maxNestedTags' must be a positive integer, got 0
+```
+
+### The class carries the payload
+
+A cause is not just a label. It carries the numbers and names a handler needs, and it carries them
+itself, so reading a ceiling or a mismatched tag name is a property access rather than prose
+parsing.
+
+| Class                        | Payload                 | Notes                                                                                                       |
+| ---------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `LimitMaxNestedTags`         | `limit`, `depth`        | `depth` is the level that tripped it, so one level too deep is told apart from orders of magnitude too deep |
+| `MismatchedCloseTag`         | `tag`, `expected?`      | `expected` is absent when the stack was empty, which is a different situation from a mismatch               |
+| `IllegalCharacter`           | `charCode`, `in`        | `in` is `'content'` or `'attribute'`. The field is `charCode` because `code` is this class's own tag        |
+| `LimitMaxAttributes`         | `limit`, `count`, `tag` | Which tag was refused, not just how many attributes                                                         |
+| `InvalidInput`               | `option?`, `received?`  | `option` as a caller writes it: `'limits.maxNestedTags'`                                                    |
+| `UnexpectedEnd`              | `reading?`              | What the reader was waiting for — a `'>'`, a `'</div>'`                                                     |
+| `SecurityPrototypePollution` | `name`                  | The name that would have polluted `Object.prototype`                                                        |
+| `SecurityRestrictedName`     | `name`, `kind`          | `kind` is `'tag'` or `'attribute'`, which are checked against different sets                                |
+| `SecurityReservedOption`     | `option`, `value`       | No `index`: an option is refused before a document is read                                                  |
+| `DependencyError`            | `package`, `cause`      | `cause` is the upstream message, verbatim                                                                   |
+
+The rest group the same way: `actual` and `limit` for the four entity ceilings, `name` for every
+check that refused a name, and `declared` / `actual` for an encoding that contradicts its own
+declaration. Every class is a named export, so `new EntityMaxCount({ ... })` types itself in a test.
+
+Causes with nothing to carry — a truncated document, a stream that is not a stream, an
+`ALREADY_STREAMING` — carry only the four fields above, which is itself information: there is
+nothing there to branch on.
 
 ```typescript
 const error = ...; // a ParseError
 
-switch (error.reason._tag) {
+switch (error._tag) {
   case 'LIMIT_MAX_NESTED_TAGS':
-    return { depth: error.reason.depth, ceiling: error.reason.limit }; // both numbers, no parsing
+    return { depth: error.depth, ceiling: error.limit }; // both numbers, no parsing
   case 'MISMATCHED_CLOSE_TAG':
-    return { got: error.reason.tag, wanted: error.reason.expected };
+    return { got: error.tag, wanted: error.expected };
   case 'ILLEGAL_CHARACTER':
-    return { code: error.reason.code, where: error.reason.in }; // 'content' | 'attribute'
+    return { code: error.charCode, where: error.in }; // 'content' | 'attribute'
   default:
     return { message: error.message };
 }
 ```
 
-Causes that have nothing to carry — a truncated document, a stream that is not a stream — have an
-empty payload, which is itself information: there is nothing there to branch on.
+A `switch` on `_tag` narrows the union, so each arm reads the payload of the class it matched. Write
+all 33 cases and the `default` arm can be `const unhandled: never = error`, which then fails to
+compile the moment a 34th cause is added — the completeness check the union gives for free.
 
-The tag is one of the `ErrorCode` values, one for one. Coarsening them into "malformed document" and
-"hostile document" would have been fewer cases, but each of these is a condition a caller may treat
-differently, and `code` has been the public discriminant for this package's whole life.
+The tag vocabulary is unchanged, one `ErrorCode` value per class. Coarsening them into "malformed
+document" and "hostile document" would have been fewer cases, but each of these is a condition a
+caller may treat differently, and `code` has been the public discriminant for this package's whole
+life.
 
 ### Inspecting a failure
 
@@ -158,7 +233,7 @@ const result = Effect.runSync(Effect.result(parser.parse('<a><b></a></b>')));
 
 if (Result.isFailure(result)) {
   const error = result.failure; // ParseError
-  console.error(error.reason._tag, error.index, error.message);
+  console.error(error._tag, error.index, error.message);
   // MISMATCHED_CLOSE_TAG 10 Unexpected closing tag 'a' expecting 'b'
 }
 ```
@@ -166,71 +241,116 @@ if (Result.isFailure(result)) {
 Note the asymmetry: `Effect.runSync` _throws_ a failed effect's error, while
 `Effect.runSyncExit` hands the whole `Exit` back. For a parse that is expected to fail, use one of
 those two rather than wrapping `runSync` in a `try` — or `Effect.runPromise(...).catch(...)` in
-async code.
+async code, which rejects with the error itself, not a wrapper around it.
 
-### Recovering from one reason
+### Asking whether a value is one of ours
 
-`Effect.catchReason` is the direct form: it names the cause, and the handler receives the payload
-already narrowed. A non-matching reason re-fails with its original cause, so a catch is a genuine
-partial recovery rather than a catch-all.
+`ParseError` is a union, so there is no `instanceof` to write for "is this a parser error at all".
+`isParseError` is the substitute, and it is exported for exactly that. It checks the one thing every
+member has — a `_tag` the union recognises — on a value that is an `Error`, so an object merely
+shaped like one is refused:
 
 ```typescript
-import { Effect } from 'effect';
-import { ErrorCode } from '@endevops/parser';
+import { isParseError } from '@endevops/parser';
 
-// Refuse an over-deep document without discarding the rest of the program's work
-const rejected = Effect.catchReason(parser.parse(xml), 'ParseError', ErrorCode.LIMIT_MAX_NESTED_TAGS, reason =>
-  Effect.succeed({ rejected: true, atDepth: reason.depth, ceiling: reason.limit })
-);
+const describeUnknown = (value: unknown): string => {
+  if (isParseError(value)) return `${value._tag} at ${value.index ?? 'unknown position'}`; // value is a ParseError
+  return 'not a parser failure';
+};
+
+if (Result.isFailure(result)) describeUnknown(result.failure); // 'MISMATCHED_CLOSE_TAG at 10'
+describeUnknown(new Error('x')); // 'not a parser failure'
+describeUnknown({ _tag: 'LIMIT_MAX_NESTED_TAGS' }); // 'not a parser failure'
 ```
 
-`Effect.catchIf` takes a refinement instead, which is the form to reach for when the test is a
-predicate rather than an equality — "recover from any security failure", say, rather than from one
-named reason. `ParseError` carries a real `_tag` (`"ParseError"`), so `Effect.catchTag` works here
-too; the `catchReason` above is preferred because it hands the handler the payload.
+To test one specific cause, ask the class: `value instanceof MismatchedCloseTag`.
+
+### Recovering from one cause
+
+`Effect.catchTag` is the direct form: it names the tag, and the handler receives that class with its
+payload already narrowed. A non-matching cause re-fails with itself, so a catch is a genuine partial
+recovery rather than a catch-all.
 
 ```typescript
 import { Effect } from 'effect';
-import { ErrorCode, type ParseError } from '@endevops/parser';
+import XMLParser, { ErrorCode } from '@endevops/parser';
 
-// Treat a mismatched closing tag as end-of-document rather than a failure
-const lenient = Effect.catchIf(
-  parser.parse(xml),
-  (e): e is ParseError => e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG,
-  () => Effect.succeed({ truncated: true })
+const parser = Effect.runSync(XMLParser.make({ limits: { maxNestedTags: 3 } }));
+
+// Refuse an over-deep document without discarding the rest of the program's work
+const rejected = Effect.catchTag(parser.parse('<a><b><c><d>x</d></c></b></a>'), ErrorCode.LIMIT_MAX_NESTED_TAGS, error =>
+  Effect.succeed({ rejected: true, atDepth: error.depth, ceiling: error.limit })
 );
+// { rejected: true, atDepth: 4, ceiling: 3 }
+```
+
+`Effect.catchTags` is the same thing for several at once, which is how a caller says "these are the
+malformed-document family and everything else still fails":
+
+```typescript
+const lenient = Effect.catchTags(parser.parse('<a><b></c></b></a>'), {
+  MISMATCHED_CLOSE_TAG: error => Effect.succeed({ truncated: true, got: error.tag }),
+  UNEXPECTED_TRAILING_DATA: error => Effect.succeed({ truncated: true, after: error.index }),
+});
+// { truncated: true, got: 'c' }
+```
+
+`Effect.catchIf` takes a refinement instead, and it is the form to reach for when the test is a
+predicate rather than a tag — "recover from any security failure", say. A guard can name the class
+it matched, so the payload is still there:
+
+```typescript
+import { Effect } from 'effect';
+import { SecurityPrototypePollution } from '@endevops/parser';
+
+// Treat a prototype-polluting name as a rejected document, whatever else fails
+const safe = Effect.catchIf(
+  parser.parse('<__proto__>x</__proto__>'),
+  (e): e is SecurityPrototypePollution => e instanceof SecurityPrototypePollution,
+  e => Effect.succeed({ refused: e.name })
+);
+// { refused: '__proto__' }
 ```
 
 When the recovery is itself a multi-step program, `Effect.matchEffect` is the readable form. It
 takes `{ onFailure, onSuccess }`, and the `onFailure` branch re-fails anything it does not handle:
 
 ```typescript
-const lenient = Effect.matchEffect(parser.parse(xml), {
+import { Effect } from 'effect';
+import { ErrorCode, type ParseError } from '@endevops/parser';
+
+const lenient = Effect.matchEffect(parser.parse('<a><b></c></b></a>'), {
   onFailure: (e): Effect.Effect<unknown, ParseError> =>
-    e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
+    e._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
   onSuccess: value => Effect.succeed(value),
 });
 ```
 
-### Adding context without losing the code
+`Effect.catchReason` has no place in any of this. It recovers from a `reason` field on a single error
+class, which is not a shape this package has any more.
 
-`Effect.mapError` keeps `reason` and `index` while rewriting the message, which is what makes a
-failure report readable once it has crossed a service boundary. A `ParseError` is constructed from
-its fields, and `reason` rides along unchanged — which is the point: the context is added for the
-reader, and the cause is not lost.
+### Adding context without losing the cause
+
+Rewriting a `message` so a failure reads properly once it has crossed a service boundary now means
+rebuilding the same class, which means naming the cause — that is the price of a union. Spread the
+error to keep its payload, replace `message`, and the class comes out the other side unchanged:
 
 ```typescript
 import { Effect } from 'effect';
-import { ParseError } from '@endevops/parser';
+import { MismatchedCloseTag } from '@endevops/parser';
 
-const withContext = Effect.mapError(
-  parser.parse(xml),
-  e => new ParseError({ reason: e.reason, message: `config.xml: ${e.message}`, ...(e.index === undefined ? {} : { index: e.index }) })
+const withContext = Effect.catchTag(parser.parse('<a><b></c></b></a>'), 'MISMATCHED_CLOSE_TAG', error =>
+  Effect.fail(new MismatchedCloseTag({ ...error, message: `config.xml: ${error.message}` }))
 );
+// MismatchedCloseTag, message 'config.xml: Unexpected closing tag \'c\' expecting \'b\'',
+// still carrying tag: 'c', expected: 'b' and index: 10
 ```
 
-`ParseError` is a value, not a type — importing it with `import type` and then constructing one is
-a `TS1361`.
+The context is added for the reader and the cause is not lost: what comes out is a
+`MismatchedCloseTag`, with `tag`, `expected` and `index` as they were, and a `_tag` a downstream
+`Effect.catchTag` still matches. For a cause a program does not know in advance, leave the message
+alone and log `error.message` next to `error.index` — the class name is in `error.constructor.name`,
+so nothing is lost by not rewriting it.
 
 ---
 

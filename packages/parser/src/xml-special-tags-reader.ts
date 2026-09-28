@@ -1,6 +1,6 @@
 import type { TagExpressionParser } from './internal/parser-types.ts';
 
-import { ErrorCode, parseError } from './parse-error.js';
+import { InvalidTag } from './parse-error.js';
 import { expectMatch, errorPositionOf, sanitizeContent } from './util.js';
 import { readPiExp, flushAttributes } from './xml-part-reader.js';
 
@@ -41,7 +41,7 @@ export function readPiTag(parser: TagExpressionParser): void {
   //<? already consumed
   const tagExp = readPiExp(parser);
   if (!tagExp) {
-    throw parseError({ _tag: ErrorCode.INVALID_TAG }, 'Invalid Pi Tag expression.', errorPositionOf(parser.source).index);
+    throw new InvalidTag({ message: 'Invalid Pi Tag expression.', index: errorPositionOf(parser.source).index });
   } else if (tagExp.tagName === 'xml') {
     // Read version from the declaration and store it on the parser for validators.
     const version = tagExp.rawAttributes?.['version'];

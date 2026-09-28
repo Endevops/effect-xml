@@ -1,14 +1,52 @@
 // Main exports
 export { default as XMLParser, default } from './xml-parser.ts';
 
-// Error handling. `ParseErrorReason` is exported as a value (it is the schema) and as a type (it is
-// `typeof ParseErrorReason.Type`), the same way `@endevops/common-xml` exports `XmlErrorReason` — a
-// caller narrowing a failure needs the tag, and a caller validating one at a boundary needs the
-// schema. The parser's own construction and running helpers — `parseError`, `runXml`, `runBuilder`,
-// `toParseError` — stay unexported, matching the builder's treatment of `compilePattern` and
-// `liftXml`: they are for this package's internals, not for a call site.
-export { ParseError, ParseErrorReason, ErrorCode } from './parse-error.ts';
-export type { ErrorCodeValue, ParseErrorReason as ParseErrorReasonType } from './parse-error.ts';
+// Error handling. Every reason is its own class, so every reason is a named export: a caller
+// recovering from one writes `Effect.catchTag(program, 'LIMIT_MAX_NESTED_TAGS', ...)` and a caller
+// building one in a test writes `new LimitMaxNestedTags({ ... })`. `ParseError` is the union of them
+// and is exported as a type only — a union has no value to export.
+//
+// `ErrorCode` and `ErrorCodeValue` stay, and `isParseError` with them: the first two are the
+// long-standing public vocabulary (and each class's `_tag` is one of its values), and the third is
+// the only way to test "is this one of ours", since `instanceof` cannot be used on a union.
+export {
+  AlreadyStreaming,
+  BooleanAttributeRejected,
+  DataMustBeString,
+  DependencyError,
+  DuplicateAttribute,
+  EncodingMismatch,
+  EntityInvalidKey,
+  EntityInvalidValue,
+  EntityMaxCount,
+  EntityMaxExpandedLength,
+  EntityMaxExpansions,
+  EntityMaxSize,
+  ErrorCode,
+  IllegalCharacter,
+  InvalidAttributeName,
+  InvalidDecoder,
+  InvalidInput,
+  InvalidStream,
+  InvalidTag,
+  InvalidTagName,
+  isParseError,
+  LimitMaxAttributes,
+  LimitMaxNestedTags,
+  MismatchedCloseTag,
+  MultipleNamespaces,
+  NotStreaming,
+  SecurityPrototypePollution,
+  SecurityReservedOption,
+  SecurityRestrictedName,
+  UnexpectedCloseTag,
+  UnexpectedEnd,
+  UnexpectedTrailingData,
+  UnclosedQuote,
+  UnsupportedEncoding,
+  UnquotedAttributeValue,
+} from './parse-error.ts';
+export type { ErrorCodeValue, ParseError } from './parse-error.ts';
 
 // Stop-node utilities
 export { xmlEnclosures, quoteEnclosures } from './stop-node-processor.ts';

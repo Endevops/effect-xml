@@ -1,7 +1,7 @@
 import type { ParseErrorEntry, ParserState } from './internal/parser-types.ts';
 import type { AutoCloseOptions } from './options.ts';
 
-import { ErrorCode, parseError } from './parse-error.js';
+import { MismatchedCloseTag, UnexpectedTrailingData } from './parse-error.js';
 import { absolutePosition } from './util.js';
 
 /**
@@ -94,7 +94,7 @@ export default class AutoCloseHandler {
    */
   handleEof(parserState: ParserState): void {
     if (this.onEof === 'throw') {
-      throw parseError({ _tag: ErrorCode.UNEXPECTED_TRAILING_DATA }, 'Unexpected data in the end of document');
+      throw new UnexpectedTrailingData({ message: 'Unexpected data in the end of document' });
     }
 
     // onEof === 'closeAll'
@@ -124,11 +124,12 @@ export default class AutoCloseHandler {
     const { tagsStack, currentTagDetail, source } = parserState;
 
     if (this.onMismatch === 'throw') {
-      throw parseError(
-        { _tag: ErrorCode.MISMATCHED_CLOSE_TAG, tag: closingTagName, expected: currentTagDetail?.name },
-        `Unexpected closing tag '${closingTagName}' expecting '${currentTagDetail?.name}'`,
-        source ? absolutePosition(source) : undefined
-      );
+      throw new MismatchedCloseTag({
+        tag: closingTagName,
+        expected: currentTagDetail?.name,
+        message: `Unexpected closing tag '${closingTagName}' expecting '${currentTagDetail?.name}'`,
+        index: source ? absolutePosition(source) : undefined,
+      });
     }
 
     if (this.onMismatch === 'discard') {

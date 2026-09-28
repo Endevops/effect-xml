@@ -1,6 +1,6 @@
 import type { EncodingDescriptor } from '../options.ts';
 
-import { ErrorCode, parseError } from '../parse-error.ts';
+import { InvalidDecoder, UnsupportedEncoding } from '../parse-error.ts';
 import { createTextDecoderAdapter, createUtf16BeAdapter } from './text-decoder-adapter.ts';
 
 /**
@@ -106,17 +106,17 @@ export default class EncodingRegistry {
    */
   register(descriptor: EncodingDescriptor): void {
     if (!descriptor || typeof descriptor.name !== 'string' || !descriptor.name) {
-      throw parseError({ _tag: ErrorCode.INVALID_DECODER }, 'Encoding descriptor requires a non-empty "name"');
+      throw new InvalidDecoder({ message: 'Encoding descriptor requires a non-empty "name"' });
     }
     if (typeof descriptor.createDecoder !== 'function') {
-      throw parseError({ _tag: ErrorCode.INVALID_DECODER, encoding: descriptor.name }, `Encoding "${descriptor.name}" is missing createDecoder()`);
+      throw new InvalidDecoder({ encoding: descriptor.name, message: `Encoding "${descriptor.name}" is missing createDecoder()` });
     }
     const probe = descriptor.createDecoder();
     if (!probe || typeof probe.write !== 'function' || typeof probe.end !== 'function') {
-      throw parseError(
-        { _tag: ErrorCode.INVALID_DECODER, encoding: descriptor.name },
-        `Encoding "${descriptor.name}"'s createDecoder() must return an object with write()/end()`
-      );
+      throw new InvalidDecoder({
+        encoding: descriptor.name,
+        message: `Encoding "${descriptor.name}"'s createDecoder() must return an object with write()/end()`,
+      });
     }
     const resolved: ResolvedEncodingDescriptor = {
       selfSynchronizing: false, // safe default per savepoint §3 — opt-in speed, not opt-in correctness
@@ -139,7 +139,7 @@ export default class EncodingRegistry {
   resolve(name: string): ResolvedEncodingDescriptor {
     const descriptor = this.#byName.get(String(name).toLowerCase());
     if (!descriptor) {
-      throw parseError({ _tag: ErrorCode.UNSUPPORTED_ENCODING, encoding: name }, `Unsupported encoding "${name}"`);
+      throw new UnsupportedEncoding({ encoding: name, message: `Unsupported encoding "${name}"` });
     }
     return descriptor;
   }

@@ -78,8 +78,10 @@ Effect.runSync(parser.parse('<book id="1"><title>1984</title></book>'));
 
 ## Handling failure
 
-A `ParseError` carries a machine-readable `code` and, where the failure has a position, an
-`index`. Match on `reason._tag` rather than on the message — and read the numbers out of `reason` rather than parsing them out of the text.
+`ParseError` is a union of 33 classes, one per cause, so a failure names itself: `_tag` is the
+cause, `code` is an alias for it, and `index` is the position where there is one. Match on `_tag`
+rather than on the message — and read the numbers off the error rather than parsing them out of the
+text.
 
 ```typescript
 import { Effect, Result } from 'effect';
@@ -105,20 +107,22 @@ its own right, so there is no `Exit` to unpack and no cast to write. `Effect.run
 the individual `Fail` reason, not on the cause itself — so reaching for it takes more than
 `cause.error`.
 
-Recovering from one specific failure, rather than inspecting every one. `ParseError` is a plain
-`Schema.TaggedError`, so it carries a real `_tag` and `Effect.catchTag` works — and its
-`reason` carries the numbers and names a handler needs. `Effect.catchReason` is the direct form:
+Recovering from one specific failure, rather than inspecting every one. Every cause is its own class
+tagged with its `ErrorCode` value, so `Effect.catchTag` matches on that tag and hands the handler the
+class — with the numbers and names a handler needs.
 
 ```typescript
 import { Effect } from 'effect';
-import XMLParser, { ErrorCode, ParseError } from '@endevops/parser';
+import XMLParser, { ErrorCode } from '@endevops/parser';
+
+const program = Effect.gen(function* () {
+  const parser = yield* XMLParser.make();
+  return yield* parser.parse(xml);
+});
 
 // Treat a mismatched closing tag as end-of-document rather than a failure
-const lenient = Effect.catchReason(
-  Effect.flatMap(XMLParser.make(), p => p.parse(xml)),
-  'ParseError',
-  ErrorCode.MISMATCHED_CLOSE_TAG,
-  reason => Effect.succeed({ truncated: true, got: reason.tag, wanted: reason.expected })
+const lenient = Effect.catchTag(program, ErrorCode.MISMATCHED_CLOSE_TAG, error =>
+  Effect.succeed({ truncated: true, got: error.tag, wanted: error.expected })
 );
 ```
 
@@ -127,14 +131,14 @@ const lenient = Effect.catchReason(
 rather than being swallowed:
 
 ```typescript
-const lenient = Effect.matchEffect(
-  Effect.flatMap(XMLParser.make(), p => p.parse(xml)),
-  {
-    onFailure: (e): Effect.Effect<unknown, ParseError> =>
-      e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
-    onSuccess: value => Effect.succeed(value),
-  }
-);
+import { Effect } from 'effect';
+import { ErrorCode, type ParseError } from '@endevops/parser';
+
+const lenient = Effect.matchEffect(program, {
+  onFailure: (e): Effect.Effect<unknown, ParseError> =>
+    e._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
+  onSuccess: value => Effect.succeed(value),
+});
 ```
 
 ## Common Patterns
@@ -200,7 +204,7 @@ Effect.runSync(parser.parse('<soap:Envelope><soap:Body><m:Item>Apple</m:Item></s
 
 ```typescript
 import { Effect } from 'effect';
-import XMLParser, { ErrorCode, ParseError } from '@endevops/parser';
+import XMLParser, { type ParseError } from '@endevops/parser';
 
 const program = Effect.gen(function* () {
   const parser = yield* XMLParser.make({ limits: { maxNestedTags: 50, maxAttributesPerTag: 20 }, doctypeOptions: { enabled: false } });

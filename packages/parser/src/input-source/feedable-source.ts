@@ -4,7 +4,7 @@ import type { InputSourceLike } from './input-source.ts';
 
 import { sniff } from '../encoding/encoding-detector.ts';
 import { createTextDecoderAdapter } from '../encoding/text-decoder-adapter.ts';
-import { ErrorCode, parseError } from '../parse-error.ts';
+import { DataMustBeString, InvalidInput, UnexpectedEnd } from '../parse-error.ts';
 import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.ts';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 
@@ -232,11 +232,13 @@ export default class FeedableSource implements InputSourceLike {
     const liveBytes = this.buffer.length - this.startIndex;
 
     if (liveBytes + newData.length > this.maxBufferSize) {
-      throw parseError(
-        { _tag: ErrorCode.INVALID_INPUT, option: 'feedable.maxBufferSize', received: `${liveBytes + newData.length} > ${this.maxBufferSize}` },
-        `Buffer size limit exceeded (${liveBytes + newData.length} > ${this.maxBufferSize}). ` +
-          `Increase feedable.maxBufferSize or reduce chunk size.`
-      );
+      throw new InvalidInput({
+        option: 'feedable.maxBufferSize',
+        received: `${liveBytes + newData.length} > ${this.maxBufferSize}`,
+        message:
+          `Buffer size limit exceeded (${liveBytes + newData.length} > ${this.maxBufferSize}). ` +
+          `Increase feedable.maxBufferSize or reduce chunk size.`,
+      });
     }
 
     this.buffer += newData;
@@ -257,7 +259,7 @@ export default class FeedableSource implements InputSourceLike {
     // rather than rejected outright.
     const coercible = data as { toString(): string };
     if (typeof coercible?.toString === 'function') return coercible.toString();
-    throw parseError({ _tag: ErrorCode.DATA_MUST_BE_STRING, received: typeof data }, 'feed() data must be a string or Buffer.');
+    throw new DataMustBeString({ received: typeof data, message: 'feed() data must be a string or Buffer.' });
   }
 
   /**
@@ -428,7 +430,7 @@ export default class FeedableSource implements InputSourceLike {
       }
     }
 
-    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
+    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
   }
 
   /**
@@ -440,7 +442,7 @@ export default class FeedableSource implements InputSourceLike {
   readUptoChar(stopChar: string) {
     const i = this.buffer.indexOf(stopChar, this.startIndex);
     if (i === -1) {
-      throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopChar}'` }, `Unexpected end of source reading '${stopChar}'`);
+      throw new UnexpectedEnd({ reading: `'${stopChar}'`, message: `Unexpected end of source reading '${stopChar}'` });
     }
     const result = this.buffer.substring(this.startIndex, i);
     this.startIndex = i + 1;
@@ -494,7 +496,7 @@ export default class FeedableSource implements InputSourceLike {
       }
     }
 
-    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
+    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
   }
 
   /**

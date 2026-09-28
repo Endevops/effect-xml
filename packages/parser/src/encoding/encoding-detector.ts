@@ -1,7 +1,7 @@
 import type EncodingRegistry from './encoding-registry.ts';
 import type { ResolvedEncodingDescriptor } from './encoding-registry.ts';
 
-import { ErrorCode, parseError } from '../parse-error.ts';
+import { EncodingMismatch } from '../parse-error.ts';
 
 const DECL_PEEK_BYTES = 200; // more than enough for a <?xml ... ?> declaration
 
@@ -51,10 +51,11 @@ export function sniff(bytes: Buffer, registry: EncodingRegistry): EncodingDetect
   const declaredEncoding = sniffDeclaration(bytes, bomMatch ? bomMatch.bomLength : 0);
 
   if (bomMatch && declaredEncoding && !sameEncoding(bomMatch.descriptor.name, declaredEncoding, registry)) {
-    throw parseError(
-      { _tag: ErrorCode.ENCODING_MISMATCH, declared: declaredEncoding, actual: bomMatch.descriptor.name },
-      `Byte-order mark indicates "${bomMatch.descriptor.name}" but the XML declaration says encoding="${declaredEncoding}"`
-    );
+    throw new EncodingMismatch({
+      declared: declaredEncoding,
+      actual: bomMatch.descriptor.name,
+      message: `Byte-order mark indicates "${bomMatch.descriptor.name}" but the XML declaration says encoding="${declaredEncoding}"`,
+    });
   }
 
   if (bomMatch) {

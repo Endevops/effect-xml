@@ -1,15 +1,22 @@
-import { Effect, Exit, Option, Schema } from 'effect';
+import { Effect, Exit, Option } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import { ErrorCode, ParseError, type ParseErrorReasonType, ParseErrorReason, XMLParser } from '#/index.ts';
+import {
+  ErrorCode,
+  IllegalCharacter,
+  LimitMaxAttributes,
+  LimitMaxNestedTags,
+  MismatchedCloseTag,
+  SecurityPrototypePollution,
+  SecurityReservedOption,
+  SecurityRestrictedName,
+  XMLParser,
+  isParseError,
+  type ErrorCodeValue,
+  type ParseError,
+} from '#/index.ts';
 import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
-/**
- * @description The reason payloads. Before the error carried a typed `reason`, a handler that needed the ceiling it tripped, the two tag names involved in a
- * mismatch, or the character code of an illegal control character had exactly one way to get them: parse the English sentence in `message`. These
- * specs pin the numbers and names to the fields, because a payload that is populated but wrong is worse than one that is absent — the first fails
- * silently, the second does not compile.
- */
 /**
  * @description Run a parse expected to fail and hand back the error in the channel. `Effect.runSync` would throw instead, which is the right behaviour for a test
  * asserting a throw but the wrong tool here — these specs want to inspect the error, not catch it.
@@ -22,31 +29,41 @@ const failedWith = (program: Effect.Effect<unknown, ParseError>): ParseError => 
   return error;
 };
 
-describe('ParseError — the reason payload', () => {
+/**
+ * @description Every reason is its own class, so the assertions here are about what the class carries. Before, a handler that needed the ceiling it tripped, the
+ * two tag names in a mismatch, or the character code of an illegal control character had exactly one route: parse the English sentence in `message`.
+ * These specs pin the numbers and names to the fields, because a payload that is populated but wrong is worse than one that is absent — the first
+ * fails silently, the second does not compile.
+ */
+describe('ParseError — a class per reason, carrying its payload', () => {
   it('carries the ceiling and the depth that tripped a nesting limit', function () {
     const error = failedWith(makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>'));
 
-    expect(error.reason).toEqual({ _tag: 'LIMIT_MAX_NESTED_TAGS', limit: 3, depth: 4 });
+    expect(error).toBeInstanceOf(LimitMaxNestedTags);
+    expect(error).toMatchObject({ limit: 3, depth: 4, _tag: 'LIMIT_MAX_NESTED_TAGS' });
     // The message is unchanged, and still names the tag — a caller reading only the prose is no worse off.
-    expect(error.message).toContain('exceeds limit of 3');
+    expect((error as LimitMaxNestedTags).message).toContain('exceeds limit of 3');
   });
 
   it('carries the attribute ceiling, the count, and which tag', function () {
     const error = failedWith(makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } }).parse('<a x="1" y="2" z="3"/>'));
 
-    expect(error.reason).toEqual({ _tag: 'LIMIT_MAX_ATTRIBUTES', limit: 2, count: 3, tag: 'a' });
+    expect(error).toBeInstanceOf(LimitMaxAttributes);
+    expect(error).toMatchObject({ limit: 2, count: 3, tag: 'a' });
   });
 
   it('carries both tag names on a mismatched close', function () {
     const error = failedWith(makeParser().parse('<a><b></c></b></a>'));
 
-    expect(error.reason).toEqual({ _tag: 'MISMATCHED_CLOSE_TAG', tag: 'c', expected: 'b' });
+    expect(error).toBeInstanceOf(MismatchedCloseTag);
+    expect(error).toMatchObject({ tag: 'c', expected: 'b' });
   });
 
   it('carries the name a prototype-polluting check refused', function () {
     const error = failedWith(makeParser().parse('<__proto__>x</__proto__>'));
 
-    expect(error.reason).toEqual({ _tag: 'SECURITY_PROTOTYPE_POLLUTION', name: '__proto__' });
+    expect(error).toBeInstanceOf(SecurityPrototypePollution);
+    expect(error).toMatchObject({ name: '__proto__' });
   });
 
   it('carries the character code and which scanner found it', function () {
@@ -54,43 +71,47 @@ describe('ParseError — the reason payload', () => {
     const inAttribute = failedWith(makeParser({ skip: { attributes: false } }).parse('<a x="q"/>'));
 
     // Same illegal code, two different scanners, and a caller treating them differently has to be able to tell them apart without the message.
-    expect(inContent.reason).toEqual({ _tag: 'ILLEGAL_CHARACTER', code: 1, in: 'content' });
-    expect(inAttribute.reason).toEqual({ _tag: 'ILLEGAL_CHARACTER', code: 1, in: 'attribute' });
+    // The field is `charCode`, not `code`, because `code` is the class's own tag.
+    expect(inContent).toBeInstanceOf(IllegalCharacter);
+    expect(inContent).toMatchObject({ charCode: 1, in: 'content' });
+    expect(inAttribute).toMatchObject({ charCode: 1, in: 'attribute' });
   });
 
   it('carries the option and the value a reserved-name check refused, and no position', function () {
     const error = failedWith(XMLParser.make({ nameFor: { text: '__proto__' } }));
 
-    expect(error.reason).toEqual({ _tag: 'SECURITY_RESERVED_OPTION', option: 'nameFor.text', value: '__proto__' });
+    expect(error).toBeInstanceOf(SecurityReservedOption);
+    expect(error).toMatchObject({ option: 'nameFor.text', value: '__proto__' });
     // A configuration is refused before the document is read, so there is no offset to report.
-    expect(error.index).toBeUndefined();
+    expect((error as SecurityReservedOption).index).toBeUndefined();
   });
 
   it('tells a tag collision from an attribute collision', function () {
-    // A name has to be legal XML *and* reserved to collide, so `nameFor.cdata: 'raw'` is the shape that reaches the check — the obvious
-    // example, a tag literally called `#text`, is rejected earlier as an invalid name.
+    // A name has to be legal XML *and* reserved to collide, so `nameFor.cdata: 'raw'` is the shape that reaches the check — the obvious example, a
+    // tag literally called `#text`, is rejected earlier as an invalid name.
     const tag = failedWith(makeParser({ strictReservedNames: true, nameFor: { cdata: 'raw' } }).parse('<a><raw>x</raw></a>'));
     const attribute = failedWith(
       makeParser({ strictReservedNames: true, attributes: { groupBy: 'g' }, skip: { attributes: false } }).parse('<a g="x"/>')
     );
 
-    expect(tag.reason).toEqual({ _tag: 'SECURITY_RESTRICTED_NAME', name: 'raw', kind: 'tag' });
-    // Attributes are checked against `attributes.groupBy` only. `X2jOptions.strictReservedNames` also claims to cover `nameFor.*` for
-    // attributes, and it does not — an attribute named like `nameFor.cdata` is accepted. That divergence predates this work and is left
-    // alone here rather than changed silently; the spec pins what the parser actually does, so changing it has to be deliberate.
-    expect(attribute.reason).toEqual({ _tag: 'SECURITY_RESTRICTED_NAME', name: 'g', kind: 'attribute' });
+    expect(tag).toBeInstanceOf(SecurityRestrictedName);
+    expect(tag).toMatchObject({ name: 'raw', kind: 'tag' });
+    // Attributes are checked against `attributes.groupBy` only. `X2jOptions.strictReservedNames` also claims to cover `nameFor.*` for attributes, and
+    // it does not — an attribute named like `nameFor.cdata` is accepted. That divergence predates this work and is left alone here rather than changed
+    // silently; the spec pins what the parser actually does, so changing it has to be deliberate.
+    expect(attribute).toMatchObject({ name: 'g', kind: 'attribute' });
   });
 });
 
 /**
- * @description `catchReason` is the thing a typed error buys over a thrown one with a `code` field, and it only works because the tag is a real `_tag`. Before,
- * recovering from one cause meant writing a predicate over `code` by hand and re-failing everything it did not handle.
+ * @description A class per cause is what makes `instanceof` and `Effect.catchTag` work, and both are worth pinning: a caller that can name the failure it is
+ * recovering from does not have to write a predicate over a string.
  */
-describe('ParseError — recovering by reason', () => {
-  it('recovers from one reason, with its payload in the handler', function () {
-    const program = Effect.flatMap(XMLParser.make({ limits: { maxNestedTags: 3 } }), parser => parser.parse('<a><b><c><d>x</d></c></b></a>'));
+describe('ParseError — narrowing and recovery', () => {
+  it('recovers from one reason with catchTag, with its payload in the handler', function () {
+    const program = makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>');
 
-    const recovered = Effect.catchReason(program, 'ParseError', 'LIMIT_MAX_NESTED_TAGS', reason =>
+    const recovered = Effect.catchTag(program, ErrorCode.LIMIT_MAX_NESTED_TAGS, reason =>
       Effect.succeed({ rejected: true, atDepth: reason.depth, ceiling: reason.limit })
     );
 
@@ -98,54 +119,82 @@ describe('ParseError — recovering by reason', () => {
   });
 
   it('leaves every other reason failing rather than swallowing it', function () {
-    // The point of `catchReason` is partial recovery. A catch-all here would be a lie about what the handler covers.
-    const program = Effect.flatMap(XMLParser.make(), parser => parser.parse('<a><b></a>'));
-    const exit = Effect.runSyncExit(Effect.catchReason(program, 'ParseError', 'LIMIT_MAX_NESTED_TAGS', () => Effect.succeed('caught')));
+    // The point of a per-reason catch is partial recovery. A catch-all here would be a lie about what the handler covers.
+    const exit = Effect.runSyncExit(
+      Effect.catchTag(makeParser().parse('<a><b></a>'), ErrorCode.LIMIT_MAX_NESTED_TAGS, () => Effect.succeed('caught'))
+    );
 
     expect(Exit.isFailure(exit)).toBe(true);
+  });
+
+  it('recovers several reasons at once with catchTags', function () {
+    const program = makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>');
+    const recovered = Effect.catchTags(program, {
+      LIMIT_MAX_NESTED_TAGS: reason => Effect.succeed(`depth ${reason.depth}`),
+      MISMATCHED_CLOSE_TAG: reason => Effect.succeed(`got ${reason.tag}`),
+    });
+
+    expect(runParser(recovered)).toBe('depth 4');
+  });
+
+  it('narrows an exhaustive switch to the payload of the matched reason', function () {
+    const describe = (error: ParseError): string => {
+      switch (error._tag) {
+        case 'LIMIT_MAX_NESTED_TAGS':
+          return `depth ${error.depth} exceeds ${error.limit}`;
+        case 'MISMATCHED_CLOSE_TAG':
+          return `expected ${error.expected}, got ${error.tag}`;
+        default:
+          return error.message;
+      }
+    };
+
+    expect(describe(failedWith(makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>')))).toBe('depth 4 exceeds 3');
+    expect(describe(failedWith(makeParser().parse('<a><b></c></b></a>')))).toBe('expected b, got c');
+  });
+
+  it('answers "is this one of ours", which instanceof cannot on a union', function () {
+    // `ParseError` is a union of 33 classes, so `err instanceof ParseError` does not exist. `isParseError` is the substitute, and it must not be fooled
+    // by anything that merely looks like one — which includes an `Error` subclass carrying one of our tags, since `_tag` is a plain string.
+    class Foreign extends Error {
+      readonly _tag = 'INVALID_INPUT';
+    }
+
+    const error = failedWith(makeParser().parse('<a><b></a>'));
+
+    expect(isParseError(error)).toBe(true);
+    expect(isParseError(new MismatchedCloseTag({ tag: 'a', message: 'boom' }))).toBe(true);
+    expect(isParseError(new Foreign('not ours'))).toBe(false);
+    expect(isParseError(new Error('boom'))).toBe(false);
+    expect(isParseError({ _tag: 'LIMIT_MAX_NESTED_TAGS', message: 'x' })).toBe(false);
+    expect(isParseError(null)).toBe(false);
   });
 });
 
 /**
- * @description `code` predates `reason` and is the field most existing call sites read, so it has to keep working and it has to agree with the tag. Two names for
- * one value is normally a smell; this one is a compatibility alias and the agreement is the thing worth pinning.
+ * @description `code` predates the classes and is the field most existing call sites read, so it has to keep working and it has to agree with the tag. Two names
+ * for one value is normally a smell; this one is a compatibility alias and the agreement is the thing worth pinning.
  */
 describe('ParseError — the code alias', () => {
-  it('reads the same as the reason tag, for every reason the parser can raise', function () {
+  it('reads the same as the tag', function () {
     expect(failedWith(makeParser().parse('<a><b></a>')).code).toBe('MISMATCHED_CLOSE_TAG');
     // `maxNestedTags: 0` is refused at construction; `1` would not be, since the limit is "a positive integer".
     expect(failedWith(XMLParser.make({ limits: { maxNestedTags: 0 } })).code).toBe('INVALID_INPUT');
   });
 
   it('agrees with the tag on a constructed error', function () {
-    const error = new ParseError({ reason: { _tag: ErrorCode.UNEXPECTED_CLOSE_TAG, tag: 'a' }, message: 'boom', index: 3 });
+    const error = new MismatchedCloseTag({ tag: 'a', expected: 'b', message: 'boom', index: 3 });
 
-    expect(error.code).toBe(error.reason._tag);
-    expect(error.code).toBe('UNEXPECTED_CLOSE_TAG');
+    expect(error.code).toBe(error._tag);
+    expect(error.code).toBe(ErrorCode.MISMATCHED_CLOSE_TAG);
     expect(error.index).toBe(3);
   });
-});
 
-/**
- * @description The two vocabularies are kept in step by a compile-time assertion in `parse-error.ts`, so this spec is about the thing a type cannot check: that
- * the schema and the runtime `ErrorCode` table really are the same set, rather than one of them having drifted at runtime.
- */
-describe('ParseError — the reason schema and the code table agree', () => {
-  it('accepts every code in the table as a reason tag', function () {
-    // A schema decode of a bare tag is the cheapest proof the table names a tag the union can be built from.
-    for (const code of Object.values(ErrorCode)) {
-      const decoded = Schema.decodeUnknownOption(ParseErrorReason)({ _tag: code });
-      // Members with required payload legitimately refuse a bare tag; what must never happen is a tag the union has never heard of, which fails
-      // as a malformed *union* rather than a malformed member.
-      if (Option.isNone(decoded)) {
-        expect(String(decoded)).not.toContain('is not a member');
-      }
-    }
-  });
+  it('is a number-typed ErrorCodeValue, so a typo is a compile error', function () {
+    // Compile-time only: a caller narrowing on `code` needs it to be the literal union, not `string`.
+    const error = new LimitMaxNestedTags({ limit: 1, depth: 2, message: 'x' });
+    const code: ErrorCodeValue = error.code;
 
-  it('exposes the reason type for narrowing', function () {
-    // Compile-time only, like the option-group bindings above: a caller narrowing on `_tag` needs this name to exist and be a union of the tags.
-    const reason: ParseErrorReasonType = { _tag: ErrorCode.INVALID_TAG, tag: '?' };
-    expect(reason._tag).toBe('INVALID_TAG');
+    expect(code).toBe('LIMIT_MAX_NESTED_TAGS');
   });
 });

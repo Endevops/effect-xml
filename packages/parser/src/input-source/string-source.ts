@@ -1,6 +1,6 @@
 import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
 
-import { ErrorCode, parseError } from '../parse-error.js';
+import { UnexpectedEnd } from '../parse-error.js';
 import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.js';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.js';
 
@@ -201,7 +201,7 @@ export default class StringSource {
       }
     }
 
-    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
+    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
   }
 
   /**
@@ -213,7 +213,7 @@ export default class StringSource {
   readUptoChar(stopChar: string): string {
     const i = this.buffer.indexOf(stopChar, this.startIndex);
     if (i === -1) {
-      throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopChar}'` }, `Unexpected end of source reading '${stopChar}'`);
+      throw new UnexpectedEnd({ reading: `'${stopChar}'`, message: `Unexpected end of source reading '${stopChar}'` });
     }
     const result = this.buffer.substring(this.startIndex, i);
     this.startIndex = i + 1;
@@ -260,7 +260,7 @@ export default class StringSource {
       }
     }
 
-    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
+    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
   }
 
   readFromBuffer(n: number, updateIndex?: number) {

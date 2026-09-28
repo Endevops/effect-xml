@@ -3,7 +3,8 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import XMLParser, {
   ErrorCode,
-  ParseError,
+  LimitMaxNestedTags,
+  MismatchedCloseTag,
   quoteEnclosures,
   xmlEnclosures,
   type AttributeOptions,
@@ -19,6 +20,7 @@ import XMLParser, {
   type FeedableOptions,
   type LimitsOptions,
   type NameForOptions,
+  type ParseError,
   type ParseErrorEntry,
   type SkipOptions,
   type SkipTagEntry,
@@ -26,7 +28,6 @@ import XMLParser, {
   type TagOptions,
   type X2jOptions,
 } from '#/index.ts';
-import { parseError } from '#/parse-error.ts';
 import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
@@ -40,7 +41,7 @@ import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 describe('Public API surface', function () {
   it('exposes the runtime exports the docs list', function () {
     expect(typeof XMLParser).toBe('function');
-    expect(typeof ParseError).toBe('function');
+    expect(typeof LimitMaxNestedTags).toBe('function');
     expect(typeof ErrorCode).toBe('object');
     expect(Array.isArray(xmlEnclosures)).toBe(true);
     expect(Array.isArray(quoteEnclosures)).toBe(true);
@@ -110,9 +111,10 @@ describe('Public API surface', function () {
 
   it('narrows ErrorCodeValue to real codes only', function () {
     const code: ErrorCodeValue = ErrorCode.MISMATCHED_CLOSE_TAG;
-    const err = parseError({ _tag: code, tag: 'a', expected: 'b' }, 'boom', 4);
+    // Every reason is its own class, so the class is what a call site names — the code is on the instance, not in its type.
+    const err: ParseError = new MismatchedCloseTag({ tag: 'a', expected: 'b', message: 'boom', index: 4 });
 
-    expect(err.code).toBe('MISMATCHED_CLOSE_TAG');
+    expect(err.code).toBe(code);
     expect(err.index).toBe(4);
   });
 });

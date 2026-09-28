@@ -1,6 +1,6 @@
 import type { ByteScanContext, ScanStrategy } from '../../input-source/input-source.ts';
 
-import { ErrorCode, parseError } from '../../parse-error.js';
+import { UnexpectedEnd } from '../../parse-error.js';
 import { isSpaceCode } from '../../util.js';
 
 /**
@@ -153,7 +153,7 @@ export function createByteScanStrategy(
           return result;
         }
       }
-      throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
+      throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
     },
 
     readUptoChar(this: ByteScanContext, stopChar: string) {
@@ -167,7 +167,7 @@ export function createByteScanStrategy(
           return result;
         }
       }
-      throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopChar}'` }, `Unexpected end of source reading '${stopChar}'`);
+      throw new UnexpectedEnd({ reading: `'${stopChar}'`, message: `Unexpected end of source reading '${stopChar}'` });
     },
 
     readUptoCloseTag(this: ByteScanContext, stopStr: string) {
@@ -207,7 +207,7 @@ export function createByteScanStrategy(
           return result;
         }
       }
-      throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
+      throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
     },
 
     readFromBuffer(this: ByteScanContext, n: number, shouldUpdate?: boolean) {

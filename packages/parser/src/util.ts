@@ -1,6 +1,6 @@
 import type { InputSourceLike } from './input-source/input-source.ts';
 
-import { ErrorCode, parseError } from './parse-error.ts';
+import { IllegalCharacter, InvalidTag, UnexpectedEnd } from './parse-error.ts';
 
 /**
  * @description Every capture group of every match of `regex` in `string`, flattened into one array per match, with the match's start offset attached as
@@ -148,11 +148,12 @@ export function sanitizeContent(str: string, source?: InputSourceLike): string {
   for (let i = 0; i < len; i++) {
     const c = str.charCodeAt(i);
     if (isIllegalControlCode(c)) {
-      throw parseError(
-        { _tag: ErrorCode.ILLEGAL_CHARACTER, code: c, in: 'content' },
-        `Illegal control character 0x${c.toString(16).padStart(2, '0')} in document content`,
-        source ? absolutePosition(source) : undefined
-      );
+      throw new IllegalCharacter({
+        charCode: c,
+        in: 'content',
+        message: `Illegal control character 0x${c.toString(16).padStart(2, '0')} in document content`,
+        index: source ? absolutePosition(source) : undefined,
+      });
     }
     if (c === 13) hasCR = true;
   }
@@ -185,11 +186,11 @@ export function sanitizeContent(str: string, source?: InputSourceLike): string {
 export function expectMatch(source: InputSourceLike, expected: string, errorMsg: string, caseInsensitive: boolean = false): void {
   const len = expected.length;
   if (!source.canRead(len)) {
-    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: errorMsg }, `Unexpected end of source reading ${errorMsg}`, absolutePosition(source));
+    throw new UnexpectedEnd({ reading: errorMsg, message: `Unexpected end of source reading ${errorMsg}`, index: absolutePosition(source) });
   }
   const matched = source.matchAhead(expected, caseInsensitive);
   if (matched !== true) {
-    throw parseError({ _tag: ErrorCode.INVALID_TAG }, `Invalid ${errorMsg}`, absolutePosition(source));
+    throw new InvalidTag({ message: `Invalid ${errorMsg}`, index: absolutePosition(source) });
   }
   source.updateBufferBoundary(len);
 }
@@ -206,6 +207,6 @@ export function expectMatch(source: InputSourceLike, expected: string, errorMsg:
  */
 export function ensureCanRead(source: InputSourceLike, n: number, errorMsg: string): void {
   if (!source.canRead(n)) {
-    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: errorMsg }, `Unexpected end of source reading ${errorMsg}`, absolutePosition(source));
+    throw new UnexpectedEnd({ reading: errorMsg, message: `Unexpected end of source reading ${errorMsg}`, index: absolutePosition(source) });
   }
 }

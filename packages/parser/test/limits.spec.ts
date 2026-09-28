@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue, LimitsOptions } from '#/options.ts';
 
-import { ErrorCode, ParseError, parseError } from '#/parse-error.ts';
+import { ErrorCode, InvalidInput, UnexpectedCloseTag, isParseError, type ParseError } from '#/parse-error.ts';
 import { makeParser, makeParserOrThrow, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ function expectParseError(fn: () => unknown, code?: ErrorCodeValue): void {
   // both sides on failure.
   expect(thrown).toBeDefined();
   const err = thrown as ParseError;
-  expect(err instanceof ParseError).toBe(true);
+  expect(isParseError(err)).toBe(true);
   if (code) {
     expect(err!.code).toBe(code);
   }
@@ -121,7 +121,7 @@ describe('limits.maxNestedTags — enforcement', function () {
     } catch (e) {
       err = e as ParseError;
     }
-    expect(err instanceof ParseError).toBe(true);
+    expect(isParseError(err)).toBe(true);
     // The offending tag n2 is at depth 3
     expect((err as ParseError).message).toMatch(/n2/);
   });
@@ -134,7 +134,7 @@ describe('limits.maxNestedTags — enforcement', function () {
     } catch (e) {
       err = e as ParseError;
     }
-    expect(err instanceof ParseError).toBe(true);
+    expect(isParseError(err)).toBe(true);
     expect(typeof err!.index).toBe('number');
   });
 
@@ -193,7 +193,7 @@ describe('limits.maxAttributesPerTag — enforcement', function () {
     } catch (e) {
       err = e as ParseError;
     }
-    expect(err instanceof ParseError).toBe(true);
+    expect(isParseError(err)).toBe(true);
     expect(err!.message).toMatch(/5/); // actual count
     expect(err!.message).toMatch(/2/); // limit
   });
@@ -261,7 +261,9 @@ describe('limits — combined maxNestedTags + maxAttributesPerTag', function () 
 // ─── ParseError general contract ─────────────────────────────────────────────
 
 describe('ParseError — general error contract', function () {
-  it('all parser errors should be instanceof ParseError', function () {
+  it('all parser errors should be recognisable as one of the reason classes', function () {
+    // `ParseError` is a union of 33 classes, so `instanceof ParseError` does not exist. `isParseError` is the substitute, and the test name says so
+    // rather than naming a check that is no longer possible.
     const cases = [
       // Invalid input type
       () => runParser(makeParser().parse(12345)),
@@ -279,25 +281,24 @@ describe('ParseError — general error contract', function () {
         err = e as ParseError;
       }
       expect(err).toBeDefined();
-      expect(err instanceof ParseError).toBe(true);
+      expect(isParseError(err)).toBe(true);
       expect(typeof err!.code).toBe('string');
     }
   });
 
   it('ParseError should have a meaningful toString()', function () {
-    const e = parseError({ _tag: ErrorCode.UNEXPECTED_CLOSE_TAG, tag: 'b' }, 'bad tag', 50);
+    const e = new UnexpectedCloseTag({ tag: 'b', message: 'bad tag', index: 50 });
     const str = e.toString();
-    expect(str).toContain('ParseError');
-    expect(str).toContain('UNEXPECTED_CLOSE_TAG');
-    expect(str).toContain('index 50');
-    expect(str).toContain('bad tag');
+    // The line is the tag, the offset, then the message. There is no `ParseError` prefix to print any more: every reason is its own class, so the
+    // tag *is* the identity, and a second name in front of it would be saying the same thing twice.
+    expect(str).toBe('UNEXPECTED_CLOSE_TAG at index 50: bad tag');
   });
 
   it('ParseError without position still has a useful toString()', function () {
-    const e = parseError({ _tag: ErrorCode.INVALID_INPUT, option: 'limits' }, 'bad input');
+    const e = new InvalidInput({ option: 'limits', message: 'bad input' });
     expect(e.index).toBeUndefined();
-    expect(e.toString()).toContain('[INVALID_INPUT]');
-    expect(e.toString()).toContain('bad input');
+    // A configuration failure has no offset, and says so by leaving it out rather than printing `undefined`.
+    expect(e.toString()).toBe('INVALID_INPUT: bad input');
   });
 
   it('limit errors carry position info', function () {
@@ -308,7 +309,7 @@ describe('ParseError — general error contract', function () {
     } catch (e) {
       err = e as ParseError;
     }
-    expect(err instanceof ParseError).toBe(true);
+    expect(isParseError(err)).toBe(true);
     expect(err!.code).toBe(ErrorCode.LIMIT_MAX_NESTED_TAGS);
     expect(typeof err!.index).toBe('number');
   });

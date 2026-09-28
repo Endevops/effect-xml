@@ -17,6 +17,7 @@ The parsing behaviour is the same. The changes are in how the code is written, b
 | Every file and directory renamed to dash-case        | The upstream names were PascalCase and SCREAMING_CASE in the same tree                           |
 | Static types across all of `src/`                    | Upstream shipped types only on the public entry points                                           |
 | Every entry point returns an `Effect`                | Construction and parsing can fail, so they report failure on a typed channel instead of throwing |
+| One error class per parse failure                    | A limit, a broken tag and a refused option are three different decisions, so each gets a class   |
 | Test suite and benchmark fully typed                 | The specs are now checked by the compiler, which surfaced real bugs                              |
 | Built with Vite+ (`vp pack`, `vp test`, `vp check`)  | Replaces the previous ad-hoc build setup                                                         |
 | Latent bugs fixed in specs and entity handling       | Found while typing, listed in the commit history                                                 |
@@ -67,9 +68,10 @@ Effect.runSync(parser.parse('<item id="1">hello</item>'));
 // { item: { '@_id': 1, '#text': 'hello' } }
 ```
 
-A `ParseError` — with a machine-readable `code` and, where the failure has a position, an `index` —
-is the only thing that can fail. Recover from a code you can handle with `Effect.catchIf`; a code
-you do not handle re-fails unchanged.
+A `ParseError` — a union of 33 classes, one per cause, each tagged with its `ErrorCode` value, and
+each carrying the numbers and names a handler needs — is the only thing that can fail. Recover from a
+code you can handle with `Effect.catchTag`; a code you do not handle re-fails unchanged, and the
+handler is handed that class rather than a payload in a wrapper.
 
 ## Input modes
 

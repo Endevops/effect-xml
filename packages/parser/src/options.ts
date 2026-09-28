@@ -8,7 +8,7 @@ import type { Enclosure, TagExpressionConfig } from './internal/tag-expression.t
 // The runtime error class and its code table live in `parse-error.ts`; re-exported
 // here so option documentation and error documentation can be read together
 // without the two drifting apart.
-export { ErrorCode, ParseError } from './parse-error.ts';
+export { ErrorCode } from './parse-error.ts';
 export type { ErrorCodeValue } from './parse-error.ts';
 export type { Enclosure } from './internal/tag-expression.ts';
 

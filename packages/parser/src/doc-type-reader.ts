@@ -1,7 +1,16 @@
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type { TagExpressionParser } from './internal/parser-types.ts';
 
-import { ErrorCode, ParseError, parseError } from './parse-error.js';
+import {
+  EntityInvalidKey,
+  EntityInvalidValue,
+  EntityMaxCount,
+  EntityMaxSize,
+  ErrorCode,
+  InvalidTag,
+  UnexpectedEnd,
+  isParseError,
+} from './parse-error.js';
 import { expectMatch, ensureCanRead, errorPositionOf, isSpace } from './util.js';
 
 /**
@@ -77,11 +86,11 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
         const bang = parser.source.readStr(1);
         parser.source.updateBufferBoundary(1);
         if (bang !== '!')
-          throw parseError(
-            { _tag: ErrorCode.INVALID_TAG, tag: `<${bang}` },
-            `Invalid DOCTYPE body tag starting with "<${bang}"`,
-            errorPositionOf(parser.source).index
-          );
+          throw new InvalidTag({
+            tag: `<${bang}`,
+            message: `Invalid DOCTYPE body tag starting with "<${bang}"`,
+            index: errorPositionOf(parser.source).index,
+          });
 
         ensureCanRead(parser.source, 0, 'DOCTYPE sub-tag type');
         const typeChar = parser.source.readStr(1);
@@ -92,7 +101,7 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
           ensureCanRead(parser.source, 0, 'DOCTYPE comment');
           const dash2 = parser.source.readStr(1);
           parser.source.updateBufferBoundary(1);
-          if (dash2 !== '-') throw parseError({ _tag: ErrorCode.INVALID_TAG }, 'Invalid comment in DOCTYPE', errorPositionOf(parser.source).index);
+          if (dash2 !== '-') throw new InvalidTag({ message: 'Invalid comment in DOCTYPE', index: errorPositionOf(parser.source).index });
           parser.source.readUpto('-->');
         } else if (typeChar === 'E') {
           // ENTITY or ELEMENT — one more char to distinguish
@@ -109,11 +118,12 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
             if (entityValue.indexOf('&') === -1) {
               const ep = parser.options?.doctypeOptions;
               if (ep?.maxEntityCount && entityCount >= ep.maxEntityCount) {
-                throw parseError(
-                  { _tag: ErrorCode.ENTITY_MAX_COUNT, actual: entityCount + 1, limit: ep.maxEntityCount },
-                  `Entity count (${entityCount + 1}) exceeds maximum allowed (${ep.maxEntityCount})`,
-                  errorPositionOf(parser.source).index
-                );
+                throw new EntityMaxCount({
+                  actual: entityCount + 1,
+                  limit: ep.maxEntityCount,
+                  message: `Entity count (${entityCount + 1}) exceeds maximum allowed (${ep.maxEntityCount})`,
+                  index: errorPositionOf(parser.source).index,
+                });
               }
               const escaped = entityName.replace(/[.\-+*:]/g, '\\$&');
               entities[entityName] = { regx: RegExp(`&${escaped};`, 'g'), val: entityValue };
@@ -124,11 +134,11 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
             expectMatch(parser.source, 'EMENT', 'DOCTYPE ELEMENT keyword');
             readElementExp(parser);
           } else {
-            throw parseError(
-              { _tag: ErrorCode.INVALID_TAG, tag: `<!E${typeChar2}` },
-              `Invalid DOCTYPE sub-tag "<!E${typeChar2}"`,
-              errorPositionOf(parser.source).index
-            );
+            throw new InvalidTag({
+              tag: `<!E${typeChar2}`,
+              message: `Invalid DOCTYPE sub-tag "<!E${typeChar2}"`,
+              index: errorPositionOf(parser.source).index,
+            });
           }
         } else if (typeChar === 'A') {
           // <!ATTLIST — need 6 more chars for "TTLIST"
@@ -139,14 +149,14 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
           expectMatch(parser.source, 'OTATION', 'DOCTYPE NOTATION keyword');
           readNotationExp(parser);
         } else {
-          throw parseError(
-            { _tag: ErrorCode.INVALID_TAG, tag: `<!${typeChar}` },
-            `Invalid DOCTYPE sub-tag "<!${typeChar}"`,
-            errorPositionOf(parser.source).index
-          );
+          throw new InvalidTag({
+            tag: `<!${typeChar}`,
+            message: `Invalid DOCTYPE sub-tag "<!${typeChar}"`,
+            index: errorPositionOf(parser.source).index,
+          });
         }
       } catch (err) {
-        if (err instanceof ParseError && err.code === ErrorCode.UNEXPECTED_END) {
+        if (isParseError(err) && err._tag === ErrorCode.UNEXPECTED_END) {
           // Restore cursor to the '<' that started this sub-tag so
           // that when feed() calls rewindToMark() (which goes all the
           // way back to the DOCTYPE '<' via parseXml's level-0 mark)
@@ -170,7 +180,7 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
     // whitespace, external identifier text, public id text — all skipped
   }
 
-  throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: 'DOCTYPE' }, 'Unclosed DOCTYPE', errorPositionOf(parser.source).index);
+  throw new UnexpectedEnd({ reading: 'DOCTYPE', message: 'Unclosed DOCTYPE', index: errorPositionOf(parser.source).index });
 }
 
 // ---------------------------------------------------------------------------
@@ -214,20 +224,12 @@ function readEntityExp(parser: TagExpressionParser): [string, string] {
   // SYSTEM check requires 6 chars; only peek when they are available
   if (source.canRead(5)) {
     if (source.matchAhead('system', true) === true) {
-      throw parseError(
-        { _tag: ErrorCode.ENTITY_INVALID_VALUE, name: entityName },
-        'External entities are not supported',
-        errorPositionOf(source).index
-      );
+      throw new EntityInvalidValue({ name: entityName, message: 'External entities are not supported', index: errorPositionOf(source).index });
     }
   }
 
   if (source.readStr(1) === '%') {
-    throw parseError(
-      { _tag: ErrorCode.ENTITY_INVALID_VALUE, name: entityName },
-      'Parameter entities are not supported',
-      errorPositionOf(source).index
-    );
+    throw new EntityInvalidValue({ name: entityName, message: 'Parameter entities are not supported', index: errorPositionOf(source).index });
   }
 
   // Need at least the opening quote char
@@ -237,11 +239,13 @@ function readEntityExp(parser: TagExpressionParser): [string, string] {
 
   const ep = parser.options?.doctypeOptions;
   if (ep?.maxEntitySize && entityValue.length > ep.maxEntitySize) {
-    throw parseError(
-      { _tag: ErrorCode.ENTITY_MAX_SIZE, actual: entityValue.length, limit: ep.maxEntitySize, name: entityName },
-      `Entity "${entityName}" size (${entityValue.length}) exceeds maximum allowed size (${ep.maxEntitySize})`,
-      errorPositionOf(source).index
-    );
+    throw new EntityMaxSize({
+      actual: entityValue.length,
+      limit: ep.maxEntitySize,
+      name: entityName,
+      message: `Entity "${entityName}" size (${entityValue.length}) exceeds maximum allowed size (${ep.maxEntitySize})`,
+      index: errorPositionOf(source).index,
+    });
   }
 
   // readUpto throws UNEXPECTED_END automatically if ">" is not in the buffer yet
@@ -277,7 +281,7 @@ function readElementExp(parser: TagExpressionParser): { elementName: string; con
   ensureCanRead(source, 1, 'ELEMENT name');
 
   if (!parser.getNameValidator('name')(elementName)) {
-    throw parseError({ _tag: ErrorCode.INVALID_TAG, tag: elementName }, `Invalid element name: "${elementName}"`, errorPositionOf(source).index);
+    throw new InvalidTag({ tag: elementName, message: `Invalid element name: "${elementName}"`, index: errorPositionOf(source).index });
   }
 
   skipSourceWhitespace(source);
@@ -363,11 +367,7 @@ function readNotationExp(parser: TagExpressionParser): void {
     }
   } else {
     const found = source.readStr(6);
-    throw parseError(
-      { _tag: ErrorCode.INVALID_TAG, tag: found },
-      `Expected SYSTEM or PUBLIC in NOTATION, found "${found}"`,
-      errorPositionOf(source).index
-    );
+    throw new InvalidTag({ tag: found, message: `Expected SYSTEM or PUBLIC in NOTATION, found "${found}"`, index: errorPositionOf(source).index });
   }
 
   source.readUptoChar('>');
@@ -388,11 +388,11 @@ function readIdentifierVal(source: InputSourceLike, type: string): [string] {
   ensureCanRead(source, 1, type + ' opening quote');
   const startChar = source.readStr(1);
   if (startChar !== '"' && startChar !== "'") {
-    throw parseError(
-      { _tag: ErrorCode.INVALID_TAG, tag: startChar },
-      `Expected quoted string for ${type}, found "${startChar}"`,
-      errorPositionOf(source).index
-    );
+    throw new InvalidTag({
+      tag: startChar,
+      message: `Expected quoted string for ${type}, found "${startChar}"`,
+      index: errorPositionOf(source).index,
+    });
   }
   source.updateBufferBoundary(1);
   // readUpto throws UNEXPECTED_END automatically when the closing quote is absent
@@ -415,5 +415,5 @@ function skipSourceWhitespace(source: InputSourceLike): void {
  */
 function validateEntityName(name: string, parser: TagExpressionParser): string {
   if (parser.getNameValidator('name')(name)) return name;
-  throw parseError({ _tag: ErrorCode.ENTITY_INVALID_KEY, name }, `Invalid entity name "${name}"`);
+  throw new EntityInvalidKey({ name, message: `Invalid entity name "${name}"` });
 }

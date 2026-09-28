@@ -6,13 +6,13 @@
 
 ## ParseError
 
-`ParseError` is the one type in the error channel of every effect this package returns, so you can
-distinguish parser errors from unexpected runtime bugs with a single `instanceof` check. It is a plain
-`Schema.TaggedError`, so `Effect.catchTag` and `Effect.catchReason` both apply — match on
-`code`.
+`ParseError` is the one type in the error channel of every effect this package returns. It is a union
+of 33 classes, one per cause, and a union has no `instanceof` — so telling a parser failure from an
+unexpected runtime bug is `isParseError`, and recovering from one is `Effect.catchTag` on its `_tag`,
+which is the same value `code` reads.
 
-Inspect a failure without catching a throw, using `Effect.runSyncExit` (which hands the failure back,
-where `Effect.runSync` would throw it):
+Inspect a failure without catching a throw. `Effect.result` hands the failure back in a `Result`,
+where `Effect.runSync` would throw it:
 
 ```typescript
 import { Effect, Result } from 'effect';
@@ -21,33 +21,54 @@ import XMLParser from '@endevops/parser';
 const result = Effect.runSync(Effect.result(parser.parse(xmlInput)));
 
 if (Result.isFailure(result)) {
-  // `ParseError` is the only type in the channel, so there is no `instanceof`
-  // to write and nothing to rethrow.
+  // Every failure in the channel is one of the 33 classes, so there is no
+  // second error type to rethrow and no `instanceof` to write.
   const error = result.failure;
   console.error(`[${error.code}] index ${error.index}: ${error.message}`);
 }
 ```
 
-Or handle it as a recoverable branch of the program, with `Effect.catchIf`:
+Or handle one as a recoverable branch of the program, by its tag:
 
 ```typescript
 import { Effect } from 'effect';
-import { ErrorCode, ParseError } from '@endevops/parser';
+import { ErrorCode } from '@endevops/parser';
 
-const rejected = Effect.catchIf(
+const rejected = Effect.catchTag(
   parser.parse(xmlInput),
-  (e): e is ParseError => e.reason._tag === ErrorCode.SECURITY_PROTOTYPE_POLLUTION,
-  () => Effect.succeed(null) // anything not matched is re-failed
+  ErrorCode.SECURITY_PROTOTYPE_POLLUTION,
+  error => Effect.succeed(null) // anything not matched is re-failed
 );
 ```
 
-### ParseError properties
+`Effect.catchIf` takes a refinement instead, for when the test is a predicate rather than a tag. Name
+the class in the guard and the payload stays available in the handler:
 
-| Property  | Type                  | Description                                       |
-| --------- | --------------------- | ------------------------------------------------- |
-| `message` | `string`              | Human-readable description                        |
-| `code`    | `ErrorCodeValue`      | Machine-readable code; an alias for `reason._tag` |
-| `index`   | `number \| undefined` | 0-based character offset from the document start  |
+```typescript
+import { Effect } from 'effect';
+import { SecurityPrototypePollution } from '@endevops/parser';
+
+const rejected = Effect.catchIf(
+  parser.parse(xmlInput),
+  (e): e is SecurityPrototypePollution => e instanceof SecurityPrototypePollution,
+  error => Effect.succeed(error.name)
+);
+```
+
+### What a `ParseError` carries
+
+All 33 classes carry the same four fields:
+
+| Property  | Type                  | Description                                                            |
+| --------- | --------------------- | ---------------------------------------------------------------------- |
+| `_tag`    | `ErrorCodeValue`      | The cause. This is what `Effect.catchTag` matches on                   |
+| `code`    | `ErrorCodeValue`      | An alias for `_tag`, kept for the comparisons that predate the classes |
+| `index`   | `number \| undefined` | 0-based character offset from the document start                       |
+| `message` | `string`              | Human-readable description                                             |
+
+The security causes carry the name they refused, so a handler can report it without re-reading
+`message`: `SecurityPrototypePollution` has `name`, `SecurityReservedOption` has `option` and
+`value`, `SecurityRestrictedName` has `name` and a `kind` of `'tag'` or `'attribute'`.
 
 There is no `line` and no `col`. This parser does no line or column tracking, so a position is an
 offset into the source document or nothing at all. See [05-output-builders.md](./05-output-builders.md#position-meta-data).
@@ -111,13 +132,13 @@ Effect.runSync(XMLParser.make({ doctypeOptions: { enabled: true, maxEntityCount:
 
 ## Prototype Pollution Prevention
 
-Property names that could corrupt the JavaScript prototype (`__proto__`, `constructor`, `prototype`) are **always rejected** — the effect fails with a `ParseError` whose code is `SECURITY_PROTOTYPE_POLLUTION`, regardless of options.
+Property names that could corrupt the JavaScript prototype (`__proto__`, `constructor`, `prototype`) are **always rejected** — the effect fails with a `SecurityPrototypePollution`, whose `_tag` is `SECURITY_PROTOTYPE_POLLUTION`, regardless of options.
 
 Dangerous but non-critical names (`hasOwnProperty`, `toString`, `valueOf`, etc.) are sanitised by default: the name is prefixed with `__` in the output. Use `onDangerousProperty` to customise this behaviour.
 
-Option values that would place reserved names into output keys are rejected when the options are resolved, which means `XMLParser.make` fails with code `SECURITY_RESERVED_OPTION` — before a document is read.
+Option values that would place reserved names into output keys are rejected when the options are resolved, which means `XMLParser.make` fails with a `SecurityReservedOption` — before a document is read, so there is no `index` to report.
 
-When `strictReservedNames: true`, tag or attribute names that collide with any configured `nameFor.*` or `attributes.groupBy` value fail with a `ParseError` whose code is `SECURITY_RESTRICTED_NAME`.
+When `strictReservedNames: true`, tag or attribute names that collide with any configured `nameFor.*` or `attributes.groupBy` value fail with a `SecurityRestrictedName`, carrying `name` and a `kind` of `'tag'` or `'attribute'`.
 
 ---
 
@@ -125,7 +146,7 @@ When `strictReservedNames: true`, tag or attribute names that collide with any c
 
 ```typescript
 import { Effect } from 'effect';
-import XMLParser, { ParseError } from '@endevops/parser';
+import XMLParser, { type ParseError } from '@endevops/parser';
 import { EntitiesValueParser } from '@endevops/builder';
 import { CompactBuilderFactory } from '@endevops/builder';
 
@@ -152,16 +173,19 @@ const result = await Effect.runPromise(parser.parse(untrustedXml)).catch((e: unk
 
 ### ErrorCode Quick Reference
 
-| `ErrorCode`                    | Likely cause                               |
-| ------------------------------ | ------------------------------------------ |
-| `LIMIT_MAX_NESTED_TAGS`        | Deeply nested or recursive XML             |
-| `LIMIT_MAX_ATTRIBUTES`         | Attribute-flood attack                     |
-| `ENTITY_MAX_COUNT`             | DOCTYPE with excessive entity declarations |
-| `ENTITY_MAX_EXPANSIONS`        | Billion Laughs / XML bomb                  |
-| `ENTITY_MAX_EXPANDED_LENGTH`   | Large entity expansion output              |
-| `SECURITY_PROTOTYPE_POLLUTION` | Tag/attribute named `__proto__` etc.       |
-| `MISMATCHED_CLOSE_TAG`         | Malformed XML (may be intentional fuzzing) |
-| `UNEXPECTED_TRAILING_DATA`     | Junk after the root close tag              |
+Each code is the `_tag` of the class beside it, so a row names both the thing to compare and the
+thing to `instanceof`.
+
+| `ErrorCode`                    | Class                        | Likely cause                               |
+| ------------------------------ | ---------------------------- | ------------------------------------------ |
+| `LIMIT_MAX_NESTED_TAGS`        | `LimitMaxNestedTags`         | Deeply nested or recursive XML             |
+| `LIMIT_MAX_ATTRIBUTES`         | `LimitMaxAttributes`         | Attribute-flood attack                     |
+| `ENTITY_MAX_COUNT`             | `EntityMaxCount`             | DOCTYPE with excessive entity declarations |
+| `ENTITY_MAX_EXPANSIONS`        | `EntityMaxExpansions`        | Billion Laughs / XML bomb                  |
+| `ENTITY_MAX_EXPANDED_LENGTH`   | `EntityMaxExpandedLength`    | Large entity expansion output              |
+| `SECURITY_PROTOTYPE_POLLUTION` | `SecurityPrototypePollution` | Tag/attribute named `__proto__` etc.       |
+| `MISMATCHED_CLOSE_TAG`         | `MismatchedCloseTag`         | Malformed XML (may be intentional fuzzing) |
+| `UNEXPECTED_TRAILING_DATA`     | `UnexpectedTrailingData`     | Junk after the root close tag              |
 
 ---
 

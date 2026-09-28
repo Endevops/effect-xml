@@ -78,8 +78,13 @@ const parser = Effect.runSync(XMLParser.make({ autoClose: { onEof: 'closeAll', c
 Effect.runSync(parser.parse('<root><a><b>hi</b>'));
 
 Effect.runSync(parser.getParseErrors());
-// [{ type: 'unclosed-eof', tag: 'a', expected: null, index: 6 }]
+// [{ type: 'unclosed-eof', tag: 'a', expected: null, index: 6 },
+//  { type: 'unclosed-eof', tag: 'root', expected: null, index: 0 }]
 ```
+
+One record per tag the recovery closed, not one per document. Closing walks the open stack from the
+innermost outward, so a truncated document reports every still-open tag — here both `a` and `root` —
+innermost first.
 
 #### Error record fields
 
@@ -97,40 +102,43 @@ These are records, not `ParseError`s. They report what recovery did; they do not
 ## Recovering at the Effect Level
 
 `autoClose` is one recovery strategy — a policy the parser applies to itself. The other is to let
-the parse fail and handle the reason at the call site, which is what `Effect.catchReason` is for:
+the parse fail and handle the cause at the call site, which is what `Effect.catchTag` is for:
 
 ```typescript
 import { Effect } from 'effect';
-import XMLParser, { ErrorCode, ParseError } from '@endevops/parser';
+import XMLParser, { ErrorCode } from '@endevops/parser';
 
 const program = Effect.gen(function* () {
   const parser = yield* XMLParser.make();
   return yield* parser.parse(html);
 });
 
-const lenient = Effect.catchIf(
-  program,
-  (e): e is ParseError => e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG,
-  () => Effect.succeed({ truncated: true })
-);
+const lenient = Effect.catchTag(program, ErrorCode.MISMATCHED_CLOSE_TAG, () => Effect.succeed({ truncated: true }));
 ```
 
-`catchReason` matches one reason and re-fails everything else, so the fallback cannot quietly swallow a
-security failure. When the recovery is itself more than one step, `Effect.matchEffect` takes the
-same shape with an `onFailure` branch that re-fails whatever it does not handle:
+`catchTag` matches one cause and re-fails everything else, so the fallback cannot quietly swallow a
+security failure. `Effect.catchIf` takes the same shape when the test is a predicate rather than a
+tag — recover from any security failure, say. When the recovery is itself more than one step,
+`Effect.matchEffect` takes the same shape with an `onFailure` branch that re-fails whatever it does
+not handle:
 
 ```typescript
+import { Effect } from 'effect';
+import { ErrorCode, type ParseError } from '@endevops/parser';
+
 const lenient = Effect.matchEffect(parser.parse(html), {
   onFailure: (e): Effect.Effect<unknown, ParseError> =>
-    e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
+    e._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
   onSuccess: value => Effect.succeed(value),
 });
 ```
 
-`ParseError` is a `Schema.TaggedError`, so `Effect.catchTag` applies to it and `Effect.catchReason` gives the handler the payload —
-match on `code`. And note the asymmetry: `Effect.runSync` **throws** a failed effect's error while
-`Effect.runSyncExit` hands it back, so a parse expected to fail wants the latter rather than a
-`try` around the former:
+Each cause is its own `Schema.TaggedError`, tagged with its `ErrorCode` value rather than with its
+class name, so `Effect.catchTag` both matches the tag and hands the handler that class with its
+payload — `error.tag`, `error.expected` on a `MismatchedCloseTag`. There is no `catchReason` any
+more, because there is no `reason` field. And note the asymmetry: `Effect.runSync` **throws** a
+failed effect's error while `Effect.runSyncExit` hands it back, so a parse expected to fail wants the
+latter rather than a `try` around the former:
 
 ```typescript
 import { Effect, Result } from 'effect';
