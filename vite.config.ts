@@ -11,6 +11,7 @@ import { defineConfig } from 'vite-plus';
 // entry keyed on workspace globs such as `packages/<name>/**`.
 export default defineConfig({
   staged: { '*': 'vp check --fix' },
+  run: { cache: { scripts: true } },
   fmt: {
     arrowParens: 'avoid',
     bracketSameLine: true,
