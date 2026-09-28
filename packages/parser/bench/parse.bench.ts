@@ -11,7 +11,7 @@
  * every number reported here.
  */
 
-import { afterAll, bench, describe, expect } from 'vite-plus/test';
+import { afterAll, expect, test } from 'vite-plus/test';
 
 import type { X2jOptions } from '#/options.ts';
 
@@ -88,16 +88,16 @@ afterAll(() => {
   expect(observed).toBeGreaterThan(0);
 });
 
-describe('parse() — whole document', () => {
-  bench('20k-item catalog', () => {
+test('parse() — whole document', async ({ bench }) => {
+  await bench('20k-item catalog', () => {
     observed += rootKeyCount(new Parser(options).parse(doc));
-  });
+  }).run();
 });
 
-describe('feed()/end() — chunked', () => {
-  bench(`4KB chunks (${Math.ceil(doc.length / CHUNK_SIZE)} feed calls)`, () => {
+test('feed()/end() — chunked', async ({ bench }) => {
+  await bench(`4KB chunks (${Math.ceil(doc.length / CHUNK_SIZE)} feed calls)`, () => {
     const parser = new Parser(options);
     for (let offset = 0; offset < doc.length; offset += CHUNK_SIZE) parser.feed(doc.slice(offset, offset + CHUNK_SIZE));
     observed += rootKeyCount(parser.end());
-  });
+  }).run();
 });

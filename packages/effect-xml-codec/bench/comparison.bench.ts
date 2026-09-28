@@ -18,6 +18,10 @@
  *   be used: the builders resolve their options in the constructor and the parsers compile theirs there, so constructing one per call would measure
  *   setup rather than the work. Every benchmark folds its result into a module-scope counter that `afterAll` reads back, because a discarded result
  *   is a result the JIT is free to delete.
+ * - One asymmetry is left in and is worth naming, because it flatters this codec. The two forks are imported by package name, which resolves to their
+ *   built `dist/`, so their cross-module calls go through the module runner's export getters — overhead an installed copy does not pay. This codec is
+ *   imported from `src/`, and Vite 5 warns about it by name on the decoding rows: `packages/parser/dist/util.js > isSpace` is read on a hot path,
+ *   once per character. The fork's decoding numbers are therefore a floor, not what the same code does in production.
  */
 
 import XMLBuilder from '@endevops/builder';
@@ -25,7 +29,7 @@ import { XMLParser } from '@endevops/parser';
 import { Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
-import { afterAll, beforeAll, bench, describe, expect } from 'vite-plus/test';
+import { afterAll, beforeAll, expect, test } from 'vite-plus/test';
 
 import { toCodecXml } from '#/index.ts';
 
@@ -176,8 +180,8 @@ const noteDocument = noteCodec.encodeTextSync(note);
 let observed = 0;
 
 /**
- * @description How long to sample each benchmark, and how long to warm it up first. A small document takes single-digit microseconds, so a shorter sample than
- * Tinybench's default still collects tens of thousands of samples without a suite that takes a minute.
+ * @description How long to sample each benchmark in a group, and how long to warm it up first. A small document takes single-digit microseconds, so a shorter
+ * sample than Tinybench's default still collects tens of thousands of samples without a suite that takes a minute.
  */
 const BUDGET = { time: 300, warmupTime: 50 } as const;
 
@@ -222,132 +226,132 @@ afterAll(() => {
   expect(observed).toBeGreaterThan(0);
 });
 
-describe('encoding — a small document', () => {
-  bench(
-    'this codec',
-    measure(() => orderCodec.encodeTextSync(order).length),
-    BUDGET
-  );
-  bench(
-    '@endevops/builder',
-    measure(() => builder.build({ [ROOT]: order }).length),
-    BUDGET
-  );
-  bench(
-    'fast-xml-builder',
-    measure(() => upstreamBuilder.build({ [ROOT]: order }).length),
-    BUDGET
-  );
-});
-
-describe('encoding — a 500-row document', () => {
-  bench(
-    'this codec',
-    measure(() => reportCodec.encodeTextSync(report).length),
-    BUDGET
-  );
-  bench(
-    '@endevops/builder',
-    measure(() => builder.build({ [REPORT_ROOT]: report }).length),
-    BUDGET
-  );
-  bench(
-    'fast-xml-builder',
-    measure(() => upstreamBuilder.build({ [REPORT_ROOT]: report }).length),
+test('encoding — a small document', async ({ bench }) => {
+  await bench.compare(
+    bench(
+      'this codec',
+      measure(() => orderCodec.encodeTextSync(order).length)
+    ),
+    bench(
+      '@endevops/builder',
+      measure(() => builder.build({ [ROOT]: order }).length)
+    ),
+    bench(
+      'fast-xml-builder',
+      measure(() => upstreamBuilder.build({ [ROOT]: order }).length)
+    ),
     BUDGET
   );
 });
 
-describe('encoding — one large text node', () => {
-  bench(
-    'this codec',
-    measure(() => noteCodec.encodeTextSync(note).length),
-    BUDGET
-  );
-  bench(
-    '@endevops/builder',
-    measure(() => builder.build({ [NOTE_ROOT]: note }).length),
-    BUDGET
-  );
-  bench(
-    'fast-xml-builder',
-    measure(() => upstreamBuilder.build({ [NOTE_ROOT]: note }).length),
-    BUDGET
-  );
-});
-
-describe('decoding — a small document', () => {
-  bench(
-    'this codec',
-    measure(() => orderCodec.decodeTextSync(orderDocument)),
-    BUDGET
-  );
-  bench(
-    '@endevops/flexible-xml-parser',
-    measure(() => sizeOf((parser.parse(orderDocument) as Record<string, unknown>)[ROOT])),
-    BUDGET
-  );
-  bench(
-    'fast-xml-parser',
-    measure(() => sizeOf((upstream.parse(orderDocument) as Record<string, unknown>)[ROOT])),
+test('encoding — a 500-row document', async ({ bench }) => {
+  await bench.compare(
+    bench(
+      'this codec',
+      measure(() => reportCodec.encodeTextSync(report).length)
+    ),
+    bench(
+      '@endevops/builder',
+      measure(() => builder.build({ [REPORT_ROOT]: report }).length)
+    ),
+    bench(
+      'fast-xml-builder',
+      measure(() => upstreamBuilder.build({ [REPORT_ROOT]: report }).length)
+    ),
     BUDGET
   );
 });
 
-describe('decoding — a 500-row document', () => {
-  bench(
-    'this codec',
-    measure(() => reportCodec.decodeTextSync(reportDocument)),
-    BUDGET
-  );
-  bench(
-    '@endevops/flexible-xml-parser',
-    measure(() => sizeOf((parser.parse(reportDocument) as Record<string, unknown>)[REPORT_ROOT])),
-    BUDGET
-  );
-  bench(
-    'fast-xml-parser',
-    measure(() => sizeOf((upstream.parse(reportDocument) as Record<string, unknown>)[REPORT_ROOT])),
-    BUDGET
-  );
-});
-
-describe('decoding — one large text node', () => {
-  bench(
-    'this codec',
-    measure(() => noteCodec.decodeTextSync(noteDocument)),
-    BUDGET
-  );
-  bench(
-    '@endevops/flexible-xml-parser',
-    measure(() => sizeOf((parser.parse(noteDocument) as Record<string, unknown>)[NOTE_ROOT])),
-    BUDGET
-  );
-  bench(
-    'fast-xml-parser',
-    measure(() => sizeOf((upstream.parse(noteDocument) as Record<string, unknown>)[NOTE_ROOT])),
+test('encoding — one large text node', async ({ bench }) => {
+  await bench.compare(
+    bench(
+      'this codec',
+      measure(() => noteCodec.encodeTextSync(note).length)
+    ),
+    bench(
+      '@endevops/builder',
+      measure(() => builder.build({ [NOTE_ROOT]: note }).length)
+    ),
+    bench(
+      'fast-xml-builder',
+      measure(() => upstreamBuilder.build({ [NOTE_ROOT]: note }).length)
+    ),
     BUDGET
   );
 });
 
-describe('a full round trip, both halves measured', () => {
+test('decoding — a small document', async ({ bench }) => {
+  await bench.compare(
+    bench(
+      'this codec',
+      measure(() => orderCodec.decodeTextSync(orderDocument))
+    ),
+    bench(
+      '@endevops/flexible-xml-parser',
+      measure(() => sizeOf((parser.parse(orderDocument) as Record<string, unknown>)[ROOT]))
+    ),
+    bench(
+      'fast-xml-parser',
+      measure(() => sizeOf((upstream.parse(orderDocument) as Record<string, unknown>)[ROOT]))
+    ),
+    BUDGET
+  );
+});
+
+test('decoding — a 500-row document', async ({ bench }) => {
+  await bench.compare(
+    bench(
+      'this codec',
+      measure(() => reportCodec.decodeTextSync(reportDocument))
+    ),
+    bench(
+      '@endevops/flexible-xml-parser',
+      measure(() => sizeOf((parser.parse(reportDocument) as Record<string, unknown>)[REPORT_ROOT]))
+    ),
+    bench(
+      'fast-xml-parser',
+      measure(() => sizeOf((upstream.parse(reportDocument) as Record<string, unknown>)[REPORT_ROOT]))
+    ),
+    BUDGET
+  );
+});
+
+test('decoding — one large text node', async ({ bench }) => {
+  await bench.compare(
+    bench(
+      'this codec',
+      measure(() => noteCodec.decodeTextSync(noteDocument))
+    ),
+    bench(
+      '@endevops/flexible-xml-parser',
+      measure(() => sizeOf((parser.parse(noteDocument) as Record<string, unknown>)[NOTE_ROOT]))
+    ),
+    bench(
+      'fast-xml-parser',
+      measure(() => sizeOf((upstream.parse(noteDocument) as Record<string, unknown>)[NOTE_ROOT]))
+    ),
+    BUDGET
+  );
+});
+
+test('a full round trip, both halves measured', async ({ bench }) => {
   // The number an application actually cares about: the cost of writing a document and reading it back. Neither builder nor either parser can do both
   // halves, so the last two rows are each ecosystem doing the same work with two libraries and hand-joining them, which is what using them together
   // costs. The two ecosystems are measured separately because a caller picks one, and the difference between them is the difference between the fork
   // and what is on npm.
-  bench(
-    'this codec',
-    measure(() => orderCodec.decodeTextSync(orderCodec.encodeTextSync(order))),
-    BUDGET
-  );
-  bench(
-    'then parser, both @endevops',
-    measure(() => sizeOf((parser.parse(builder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT])),
-    BUDGET
-  );
-  bench(
-    'then parser, both from npm',
-    measure(() => sizeOf((upstream.parse(upstreamBuilder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT])),
+  await bench.compare(
+    bench(
+      'this codec',
+      measure(() => orderCodec.decodeTextSync(orderCodec.encodeTextSync(order)))
+    ),
+    bench(
+      'then parser, both @endevops',
+      measure(() => sizeOf((parser.parse(builder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT]))
+    ),
+    bench(
+      'then parser, both from npm',
+      measure(() => sizeOf((upstream.parse(upstreamBuilder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT]))
+    ),
     BUDGET
   );
 });

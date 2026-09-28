@@ -5,15 +5,15 @@
  * warmup and picks the iteration count per input, so the hand-rolled version's fixed `ITERATIONS`/`WARMUP_ITERATIONS` pair and its manual warmup loop
  * are both gone. The point is the `asciiOnly` row: the same work is measured with and without the fast path, so the cost of the unicode-aware regex
  * is visible rather than assumed. The 5 productions × 6 inputs × 3 option sets grid is measured along two axes rather than all three at once. Every
- * cell was a benchmark in the hand-rolled version, but Vitest's `BENCH Summary` reports the ranking of every benchmark against every other benchmark
- * in the same suite, so a 90-row file printed 87 lines of "1.15x faster than" after the table and buried it. Splitting the input axis out costs the
- * cross-product and buys output you can read:
+ * cell was a benchmark in the hand-rolled version, and printing all 90 of them in one file buried the comparison anyone actually reads — the same
+ * production under `asciiOnly` against the unicode-aware default, which is two tables of identical rows read against each other. Splitting the input
+ * axis out costs the cross-product and buys output you can read:
  *
- * - One suite per option set, one benchmark per production, each running the whole input set — the asciiOnly comparison, apples to apples;
- * - One suite for input shape, one benchmark per input with the fast path off and on — where the length and unicode costs actually show up.
+ * - One test per option set, one benchmark per production, each running the whole input set — the asciiOnly comparison, apples to apples;
+ * - One test for input shape, one benchmark per input with the fast path off and on — where the length and unicode costs actually show up.
  */
 
-import { afterAll, bench, describe, expect } from 'vite-plus/test';
+import { afterAll, expect, test } from 'vite-plus/test';
 
 import type { Production, ValidationOptions } from '#/index.ts';
 
@@ -62,9 +62,9 @@ const INPUTS: readonly string[] = Object.values(CASES);
 let observed = 0;
 
 /**
- * @description How long to sample each benchmark, in milliseconds, and how long to warm it up first. The validators run in well under a microsecond, so
- * Tinybench's 500ms default would spend most of a minute on this file for no extra precision; 200ms still collects tens of thousands of samples per
- * benchmark.
+ * @description How long to sample the benchmarks in one group, in milliseconds, and how long to warm them up first. The validators run in well under a
+ * microsecond, so Tinybench's 1000ms default would spend most of a minute on this file for no extra precision; 200ms still collects tens of thousands
+ * of samples per benchmark.
  */
 const BUDGET = { time: 200, warmupTime: 50 } as const;
 
@@ -86,37 +86,35 @@ afterAll(() => {
 });
 
 for (const { label, options } of OPTION_SETS) {
-  describe(label, () => {
-    for (const production of PRODUCTIONS) {
+  test(label, async ({ bench }) => {
+    // One registration per production. The validator is bound before the body
+    // runs rather than read inside it — see `validatorFor`.
+    const measurements = PRODUCTIONS.map(production => {
       const validate = validatorFor(production);
 
-      // The whole input set in one benchmark, so every option set and every
-      // production does byte-identical work and the rows compare directly.
-      // The two 1000-character inputs dominate the per-op time here, which
-      // is why the next suite measures the shapes separately.
-      bench(
-        production,
-        () => {
-          for (const input of INPUTS) observed += validate(input, options) ? 1 : 0;
-        },
-        BUDGET
-      );
-    }
+      return bench(production, () => {
+        // The whole input set in one benchmark, so every option set and every
+        // production does byte-identical work and the rows compare directly.
+        // The two 1000-character inputs dominate the per-op time here, which
+        // is why the next test measures the shapes separately.
+        for (const input of INPUTS) observed += validate(input, options) ? 1 : 0;
+      });
+    });
+
+    await bench.compare(...measurements, BUDGET);
   });
 }
 
-describe('input shape — name production', () => {
-  for (const [caseLabel, input] of Object.entries(CASES)) {
-    for (const asciiOnly of [false, true]) {
-      const validate = validatorFor('name');
+test('input shape — name production', async ({ bench }) => {
+  const validate = validatorFor('name');
 
-      bench(
-        `${caseLabel} / asciiOnly=${asciiOnly}`,
-        () => {
-          observed += validate(input, { xmlVersion: '1.0', asciiOnly }) ? 1 : 0;
-        },
-        BUDGET
-      );
-    }
-  }
+  const measurements = Object.entries(CASES).flatMap(([caseLabel, input]) =>
+    [false, true].map(asciiOnly =>
+      bench(`${caseLabel} / asciiOnly=${asciiOnly}`, () => {
+        observed += validate(input, { xmlVersion: '1.0', asciiOnly }) ? 1 : 0;
+      })
+    )
+  );
+
+  await bench.compare(...measurements, BUDGET);
 });

@@ -69,14 +69,25 @@ files already handle and any new one needs to:
 - **A discarded result is a result the JIT may delete.** Fold it into a
   module-scope counter and read that back in `afterAll`, or the benchmark
   measures nothing and reports a very fast number.
-- **Vitest 4's `BENCH Summary` ranks every benchmark in a suite against every
-  other benchmark in that suite.** The summary is roughly
-  `benchmark count - suite count` lines, so one suite per configuration, not one
-  benchmark per combination.
+- **`bench` is a test-context fixture, not an import.** Vite+ 1.0 bundles
+  Vitest 5, which dropped the top-level `bench` the v4 files imported. A
+  benchmark is a `test` that takes `bench` off its context and registers its
+  workloads inside:
 
-Note the argument order: on the installed Vitest 4 it is
-`bench(name, fn, options)`. Vitest 5 documents `bench(name, options, fn)` and
-adds a `bench` test-context fixture; neither applies here.
+  ```ts
+  test('encoding — a small document', async ({ bench }) => {
+    await bench.compare(bench('this codec', measure(...)), bench('fast-xml-builder', measure(...)), BUDGET);
+  });
+  ```
+
+  One `test` per configuration, with `bench.compare` over the workloads in it,
+  so the printed table is the comparison and the fastest row is marked; a
+  single workload calls `bench(name, fn).run(BUDGET)` instead. `BUDGET` — the
+  sample and warmup window — moved with the rest: `time` and `warmupTime` are
+  run options in v5, handed to `run` or `compare`, not to `bench` itself. A
+  benchmark option that moved without being noticed is a silently changed
+  measurement, so check the durations after a Vite+ upgrade rather than
+  assuming the numbers mean what they meant.
 
 # Git
 

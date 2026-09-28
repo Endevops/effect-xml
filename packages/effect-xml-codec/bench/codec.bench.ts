@@ -10,7 +10,7 @@
  */
 
 import { Schema } from 'effect';
-import { afterAll, bench, describe, expect } from 'vite-plus/test';
+import { afterAll, expect, test } from 'vite-plus/test';
 
 import type { XmlValue } from '#/index.ts';
 
@@ -112,8 +112,8 @@ const sizeOf = (value: XmlValue): number => {
 };
 
 /**
- * @description How long to sample each benchmark, and how long to warm it up first. Serialization is measured in the tens of microseconds for the small document,
- * so a shorter sample than Tinybench's default collects plenty of samples without a suite that takes a minute.
+ * @description How long to sample each benchmark in a group, and how long to warm it up first. Serialization is measured in the tens of microseconds for the small
+ * document, so a shorter sample than Tinybench's default collects plenty of samples without a suite that takes a minute.
  */
 const BUDGET = { time: 300, warmupTime: 50 } as const;
 
@@ -145,152 +145,98 @@ afterAll(() => {
   expect(observed).toBeGreaterThan(0);
 });
 
-describe('codec — a small document', () => {
+test('codec — a small document', async ({ bench }) => {
   const encode = encoderFor(Order, 'order');
   const decode = decoderFor(Order, 'order');
 
-  bench(
-    'encode',
-    () => {
+  await bench.compare(
+    bench('encode', () => {
       observed += encode(order as never).length;
-    },
-    BUDGET
-  );
-
-  bench(
-    'decode',
-    () => {
+    }),
+    bench('decode', () => {
       observed += decode(orderDocument) === null ? 0 : 1;
-    },
-    BUDGET
-  );
-
-  bench(
-    'round trip',
-    () => {
+    }),
+    bench('round trip', () => {
       observed += decode(encode(order as never)) === null ? 0 : 1;
-    },
+    }),
     BUDGET
   );
 });
 
-describe('codec — a large document', () => {
+test('codec — a large document', async ({ bench }) => {
   const schema = Schema.Struct({ row: Schema.Array(Row) });
   const encode = encoderFor(schema, 'report');
   const decode = decoderFor(schema, 'report');
 
-  bench(
-    'encode',
-    () => {
+  await bench.compare(
+    bench('encode', () => {
       observed += encode(rows as never).length;
-    },
-    BUDGET
-  );
-
-  bench(
-    'decode',
-    () => {
+    }),
+    bench('decode', () => {
       observed += decode(rowsDocument) === null ? 0 : 1;
-    },
+    }),
     BUDGET
   );
 });
 
-describe('codec — the layer underneath', () => {
+test('codec — the layer underneath', async ({ bench }) => {
   // The same work without the schema, so the difference between these rows and
   // the rows above is what Effect's derivation costs on every call.
   const xml: XmlValue = { '@id': 'A-1001', title: 'Dune', total: '1234.56', placed: 'true', tag: ['a', 'b', 'c'] };
 
-  bench(
-    'render, no schema',
-    () => {
+  await bench.compare(
+    bench('render, no schema', () => {
       observed += renderXml(xml, { rootName: 'r' }).length;
-    },
-    BUDGET
-  );
-
-  bench(
-    'parse, no schema',
-    () => {
+    }),
+    bench('parse, no schema', () => {
       observed += sizeOf(
         parseXmlSync('<r id="A-1001"><title>Dune</title><total>1234.56</total><placed>true</placed><tag>a</tag><tag>b</tag><tag>c</tag></r>')
       );
-    },
+    }),
     BUDGET
   );
 });
 
-describe('codec — what escaping costs', () => {
+test('codec — what escaping costs', async ({ bench }) => {
   // The two rows either side of these are the same render with and without
   // anything to escape, so the difference is the escaping pass itself.
-  bench(
-    'render clean text',
-    () => {
-      observed += renderXml(cleanValue, { rootName: 'r' }).length;
-    },
-    BUDGET
-  );
-
-  bench(
-    'render text needing escapes',
-    () => {
-      observed += renderXml(dirtyValue, { rootName: 'r' }).length;
-    },
-    BUDGET
-  );
-
   const long = 'word '.repeat(4000);
-  bench(
-    'render 20k of clean text',
-    () => {
-      observed += renderXml({ body: long }, { rootName: 'r' }).length;
-    },
-    BUDGET
-  );
 
-  bench(
-    'render 20k of text with one unsafe character',
-    () => {
+  await bench.compare(
+    bench('render clean text', () => {
+      observed += renderXml(cleanValue, { rootName: 'r' }).length;
+    }),
+    bench('render text needing escapes', () => {
+      observed += renderXml(dirtyValue, { rootName: 'r' }).length;
+    }),
+    bench('render 20k of clean text', () => {
+      observed += renderXml({ body: long }, { rootName: 'r' }).length;
+    }),
+    bench('render 20k of text with one unsafe character', () => {
       observed += renderXml({ body: `${long}&` }, { rootName: 'r' }).length;
-    },
+    }),
     BUDGET
   );
 });
 
-describe('codec — the document shape', () => {
+test('codec — the document shape', async ({ bench }) => {
   const xml: XmlValue = {
     row: Array.from({ length: ROWS }, (_, i) => ({ '@id': `R-${i}`, sku: `SKU-${i}`, name: `Product ${i}`, price: `${i}.5` })),
   };
 
-  bench(
-    'render, compact',
-    () => {
+  await bench.compare(
+    bench('render, compact', () => {
       observed += renderXml(xml, { rootName: 'report' }).length;
-    },
-    BUDGET
-  );
-
-  bench(
-    'render, indented',
-    () => {
+    }),
+    bench('render, indented', () => {
       observed += renderXml(xml, { rootName: 'report', format: true }).length;
-    },
-    BUDGET
-  );
-
-  bench(
-    'parse, 500 rows',
-    () => {
+    }),
+    bench('parse, 500 rows', () => {
       observed += sizeOf(parseXmlSync(rowsDocument));
-    },
-    BUDGET
-  );
-
-  bench(
-    'parse, 500 rows, keeping whitespace',
-    () => {
+    }),
+    bench('parse, 500 rows, keeping whitespace', () => {
       observed += sizeOf(parseXmlSync(rowsDocument, { preserveWhitespace: true }));
-    },
+    }),
     BUDGET
   );
 });
