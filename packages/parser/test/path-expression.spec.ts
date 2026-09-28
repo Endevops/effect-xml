@@ -523,25 +523,25 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     const skipExpr = new Expression('root.internal');
 
     class SkipBuilder extends CompactBuilder {
-      private _skipDepth: number;
+      #skipDepth: number;
       constructor(...args: ConstructorParameters<typeof CompactBuilder>) {
         super(...args);
-        this._skipDepth = 0;
+        this.#skipDepth = 0;
       }
       override addElement(tag: TagDetailLike, matcher: MatcherView): void {
         if (matcher.matches(skipExpr)) {
-          this._skipDepth++;
+          this.#skipDepth++;
           return;
         }
-        if (this._skipDepth > 0) {
-          this._skipDepth++;
+        if (this.#skipDepth > 0) {
+          this.#skipDepth++;
           return;
         }
         super.addElement(tag, matcher);
       }
       override closeElement(matcher: MatcherView): void {
-        if (this._skipDepth > 0) {
-          this._skipDepth--;
+        if (this.#skipDepth > 0) {
+          this.#skipDepth--;
           return;
         }
         super.closeElement(matcher);

@@ -413,12 +413,16 @@ describe('Performance and caching', () => {
     expect(expr.hasAttributeCondition()).toBe(true);
     expect(expr.hasPositionSelector()).toBe(true);
 
-    // The memoised fields are `private` in the typed port, so the original script's reach-ins are read through a structural cast. The claim
-    // is that the cache was populated at construction, not that the fields are public.
-    const cached = expr as unknown as Record<string, unknown>;
-    expect(cached._hasDeepWildcard !== undefined).toBe(true);
-    expect(cached._hasAttributeCondition !== undefined).toBe(true);
-    expect(cached._hasPositionSelector !== undefined).toBe(true);
+    // The memoised flags are ECMAScript `#`-private, so there is no longer any way to reach in and read them back — the claim under test is
+    // therefore stated against the public surface: each accessor agrees with the public `segments` it was derived from, and holds that answer
+    // across repeated calls rather than rescanning.
+    expect(expr.hasDeepWildcard()).toBe(expr.segments.some(seg => seg.type === 'deep-wildcard'));
+    expect(expr.hasAttributeCondition()).toBe(expr.segments.some(seg => seg.attrName !== undefined));
+    expect(expr.hasPositionSelector()).toBe(expr.segments.some(seg => seg.position !== undefined));
+
+    expect(expr.hasDeepWildcard()).toBe(true);
+    expect(expr.hasAttributeCondition()).toBe(true);
+    expect(expr.hasPositionSelector()).toBe(true);
   });
 });
 

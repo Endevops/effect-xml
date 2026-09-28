@@ -44,8 +44,8 @@ const MAX_TOKEN_LENGTH = 32;
 const MAX_CODE_POINT = 0x10ffff;
 
 /**
- * @description Returned by {@link EntityDecoder._classifyNCR} for a codepoint that carries no minimum action level, which is what distinguishes "no restriction"
- * from `NCR_LEVEL.allow` — both end up expanding, but only the first lets `numericAllowed: false` short-circuit the whole pipeline.
+ * @description Returned by `#classifyNCR` for a codepoint that carries no minimum action level, which is what distinguishes "no restriction" from
+ * `NCR_LEVEL.allow` — both end up expanding, but only the first lets `numericAllowed: false` short-circuit the whole pipeline.
  */
 const NO_MINIMUM_LEVEL = -1;
 
@@ -83,7 +83,7 @@ const LIMIT_TIER_BASE = 'base';
 const LIMIT_TIER_ALL = 'all';
 
 /**
- * @description Which side of the trust boundary an entity came from, as {@link EntityDecoder._tierCounts} and the limit errors name it.
+ * @description Which side of the trust boundary an entity came from, as `#tierCounts` and the limit errors name it.
  */
 type LimitTier = typeof LIMIT_TIER_ALL | typeof LIMIT_TIER_BASE | typeof LIMIT_TIER_EXTERNAL;
 
@@ -100,8 +100,8 @@ type NcrLevelName = keyof typeof NCR_LEVEL;
 
 /**
  * @description The XML version that governs which codepoint ranges a numeric reference is checked against. Narrowed to the two values the constructor and
- * {@link EntityDecoder.setXmlVersion} can actually store, because {@link EntityDecoder._classifyNCR} compares it with `=== 1.0` and a third value
- * would silently disable the XML 1.0 C0 check.
+ * {@link EntityDecoder.setXmlVersion} can actually store, because `#classifyNCR` compares it with `=== 1.0` and a third value would silently disable
+ * the XML 1.0 C0 check.
  */
 type XmlVersion = 1 | 1.1;
 
@@ -345,8 +345,7 @@ type HookContext = 'external' | 'input';
 
 /**
  * @description Reject an entity name that could never be written as a reference. `#` is refused positionally rather than by the character sweep, because a name
- * starting with `#` is a numeric reference's token and would collide with {@link EntityDecoder._resolveNCR}. Everything else is refused per
- * character.
+ * starting with `#` is a numeric reference's token and would collide with `#resolveNCR`. Everything else is refused per character.
  *
  * @param name - The name to check.
  *
@@ -668,7 +667,7 @@ export class EntityDecoder {
    *
    * @throws Error - When the hook returns `throw`. The message quotes the entity, so it is the only record left that a document was rejected.
    */
-  private _applyRegistrationHook(hook: EntityRegistrationHook | null, name: string, value: string, context: HookContext): boolean {
+  #applyRegistrationHook(hook: EntityRegistrationHook | null, name: string, value: string, context: HookContext): boolean {
     if (!hook) return true; // no hook to ask
     const action = hook(name, value);
     if (action === ENTITY_ACTION.BLOCK) return false;
@@ -702,7 +701,7 @@ export class EntityDecoder {
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(flat)) {
-      if (this._applyRegistrationHook(this._onExternalEntity, name, value, 'external')) {
+      if (this.#applyRegistrationHook(this._onExternalEntity, name, value, 'external')) {
         filtered[name] = value;
       }
     }
@@ -725,7 +724,7 @@ export class EntityDecoder {
     // The two guards are unreachable from typed code — `value` is a `string` — and are kept for
     // untyped callers, which is the only way to reach them.
     if (typeof value === 'string' && value.indexOf('&') === -1) {
-      if (this._applyRegistrationHook(this._onExternalEntity, key, value, 'external')) {
+      if (this.#applyRegistrationHook(this._onExternalEntity, key, value, 'external')) {
         this._externalMap[key] = value;
       }
     }
@@ -752,7 +751,7 @@ export class EntityDecoder {
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(flat)) {
-      if (this._applyRegistrationHook(this._onInputEntity, name, value, 'input')) {
+      if (this.#applyRegistrationHook(this._onInputEntity, name, value, 'input')) {
         filtered[name] = value;
       }
     }
@@ -854,7 +853,7 @@ export class EntityDecoder {
       } else if (token.charCodeAt(0) === CODE_HASH) {
         // Classification runs before any decision about `numericAllowed`: the ranges that carry a
         // minimum have to be caught whichever way that option is set.
-        const ncrResult = this._resolveNCR(token);
+        const ncrResult = this.#resolveNCR(token);
         if (ncrResult === undefined) {
           i++;
           continue;
@@ -862,7 +861,7 @@ export class EntityDecoder {
         replacement = ncrResult; // '' for remove, the character for allow
         tier = LIMIT_TIER_BASE;
       } else {
-        const resolved = this._resolveName(token);
+        const resolved = this.#resolveName(token);
         replacement = resolved?.value;
         tier = resolved?.tier;
       }
@@ -878,7 +877,7 @@ export class EntityDecoder {
       last = j + 1;
       i = last;
 
-      if (checkLimits && this._tierCounts(tier)) {
+      if (checkLimits && this.#tierCounts(tier)) {
         if (limitExpansions) {
           this._totalExpansions++;
           if (this._totalExpansions > this._maxTotalExpansions) {
@@ -915,7 +914,7 @@ export class EntityDecoder {
    * @returns `true` when it counts. `'all'` short-circuits, and a `tier` of `undefined` never counts, which is the same answer a set lookup for a
    *   non-member would give.
    */
-  private _tierCounts(tier: LimitTier | undefined): boolean {
+  #tierCounts(tier: LimitTier | undefined): boolean {
     if (this._limitTiers.has(LIMIT_TIER_ALL)) return true;
     return tier !== undefined && this._limitTiers.has(tier);
   }
@@ -928,7 +927,7 @@ export class EntityDecoder {
    * @returns The value and the tier to charge it to, or `undefined` when the name is registered nowhere. A name registered to the empty string
    *   resolves to `''` rather than to `undefined`, so it deletes the reference instead of leaving it alone.
    */
-  private _resolveName(name: string): ResolvedEntity | undefined {
+  #resolveName(name: string): ResolvedEntity | undefined {
     // Input and external share the `external` tier: both are injected at runtime, and that is the
     // surface the limits exist to bound.
     const fromInput = ownEntity(this._inputMap, name);
@@ -956,7 +955,7 @@ export class EntityDecoder {
    *
    * @returns The minimum level from {@link NCR_LEVEL}, or {@link NO_MINIMUM_LEVEL} when the codepoint carries none.
    */
-  private _classifyNCR(cp: number): number {
+  #classifyNCR(cp: number): number {
     if (cp === 0) return this._ncrNullLevel;
 
     if (cp >= 0xd800 && cp <= 0xdfff) return NCR_LEVEL.remove;
@@ -980,7 +979,7 @@ export class EntityDecoder {
    *
    * @throws Error - For `throw`, naming both the token and the codepoint.
    */
-  private _applyNCRAction(action: number, token: string, cp: number): string | undefined {
+  #applyNCRAction(action: number, token: string, cp: number): string | undefined {
     switch (action) {
       case NCR_LEVEL.allow:
         return String.fromCodePoint(cp);
@@ -1016,7 +1015,7 @@ export class EntityDecoder {
    *
    * @throws Error - When the effective action is `throw`.
    */
-  private _resolveNCR(token: string): string | undefined {
+  #resolveNCR(token: string): string | undefined {
     const second = token.charCodeAt(1);
     let cp: number;
     if (second === CODE_LOWER_X || second === CODE_UPPER_X) {
@@ -1029,12 +1028,12 @@ export class EntityDecoder {
     // deleting a document's characters because one of them was malformed is not a safe default.
     if (Number.isNaN(cp) || cp < 0 || cp > MAX_CODE_POINT) return undefined;
 
-    const minimum = this._classifyNCR(cp);
+    const minimum = this.#classifyNCR(cp);
 
     if (!this._numericAllowed && minimum < NCR_LEVEL.remove) return undefined;
 
     const effective = minimum === NO_MINIMUM_LEVEL ? this._ncrOnLevel : Math.max(this._ncrOnLevel, minimum);
 
-    return this._applyNCRAction(effective, token, cp);
+    return this.#applyNCRAction(effective, token, cp);
   }
 }

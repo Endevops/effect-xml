@@ -26,35 +26,35 @@ export default class ExpressionSet<T = unknown> {
   /**
    * @description Exact depth + exact tag name. The tightest bucket, and where most expressions live.
    */
-  private readonly _byDepthAndTag: Map<string, Expression<T>[]>;
+  readonly #byDepthAndTag: Map<string, Expression<T>[]>;
   /**
    * @description Exact depth, terminal tag `*`. Indexed by depth only.
    */
-  private readonly _wildcardByDepth: Map<number, Expression<T>[]>;
+  readonly #wildcardByDepth: Map<number, Expression<T>[]>;
   /**
    * @description Expressions containing `..` whose terminal segment is a wildcard, so they cannot be indexed by tag either.
    */
-  private readonly _deepWildcards: Expression<T>[];
+  readonly #deepWildcards: Expression<T>[];
   /**
    * @description Expressions containing `..` with a concrete terminal tag, indexed by that tag.
    */
-  private readonly _deepByTerminalTag: Map<string, Expression<T>[]>;
+  readonly #deepByTerminalTag: Map<string, Expression<T>[]>;
   /**
    * @description Pattern strings already added, for deduplication and for {@link ExpressionSet.size}.
    */
-  private readonly _patterns: Set<string>;
+  readonly #patterns: Set<string>;
   /**
    * @description Whether {@link ExpressionSet.seal} has been called.
    */
-  private _sealed: boolean;
+  #sealed: boolean;
 
   constructor() {
-    this._byDepthAndTag = new Map();
-    this._wildcardByDepth = new Map();
-    this._deepWildcards = [];
-    this._deepByTerminalTag = new Map();
-    this._patterns = new Set();
-    this._sealed = false;
+    this.#byDepthAndTag = new Map();
+    this.#wildcardByDepth = new Map();
+    this.#deepWildcards = [];
+    this.#deepByTerminalTag = new Map();
+    this.#patterns = new Set();
+    this.#sealed = false;
   }
 
   /**
@@ -68,13 +68,13 @@ export default class ExpressionSet<T = unknown> {
    * @throws {TypeError} If the set has been sealed.
    */
   add(expression: Expression<T>): this {
-    if (this._sealed) {
+    if (this.#sealed) {
       throw new TypeError('ExpressionSet is sealed. Create a new ExpressionSet to add more expressions.');
     }
 
     // Deduplicate by pattern string
-    if (this._patterns.has(expression.pattern)) return this;
-    this._patterns.add(expression.pattern);
+    if (this.#patterns.has(expression.pattern)) return this;
+    this.#patterns.add(expression.pattern);
 
     if (expression.hasDeepWildcard()) {
       // `..` breaks depth indexing, so these are indexed by terminal tag when
@@ -83,14 +83,14 @@ export default class ExpressionSet<T = unknown> {
       const lastSeg = expression.segments[expression.segments.length - 1];
       const tag = lastSeg?.type === 'deep-wildcard' ? undefined : lastSeg?.tag;
       if (tag !== undefined && tag !== '*') {
-        const bucket = this._deepByTerminalTag.get(tag);
+        const bucket = this.#deepByTerminalTag.get(tag);
         if (bucket) {
           bucket.push(expression);
         } else {
-          this._deepByTerminalTag.set(tag, [expression]);
+          this.#deepByTerminalTag.set(tag, [expression]);
         }
       } else {
-        this._deepWildcards.push(expression);
+        this.#deepWildcards.push(expression);
       }
       return this;
     }
@@ -101,20 +101,20 @@ export default class ExpressionSet<T = unknown> {
 
     if (!tag || tag === '*') {
       // Can index by depth but not by tag
-      const bucket = this._wildcardByDepth.get(depth);
+      const bucket = this.#wildcardByDepth.get(depth);
       if (bucket) {
         bucket.push(expression);
       } else {
-        this._wildcardByDepth.set(depth, [expression]);
+        this.#wildcardByDepth.set(depth, [expression]);
       }
     } else {
       // Tightest bucket: depth + tag
       const key = `${depth}:${tag}`;
-      const bucket = this._byDepthAndTag.get(key);
+      const bucket = this.#byDepthAndTag.get(key);
       if (bucket) {
         bucket.push(expression);
       } else {
-        this._byDepthAndTag.set(key, [expression]);
+        this.#byDepthAndTag.set(key, [expression]);
       }
     }
 
@@ -143,21 +143,21 @@ export default class ExpressionSet<T = unknown> {
    * @returns Whether that pattern was already added.
    */
   has(expression: Expression<unknown>): boolean {
-    return this._patterns.has(expression.pattern);
+    return this.#patterns.has(expression.pattern);
   }
 
   /**
    * @description How many distinct patterns the set holds.
    */
   get size(): number {
-    return this._patterns.size;
+    return this.#patterns.size;
   }
 
   /**
    * @description Whether {@link ExpressionSet.seal} has been called.
    */
   get isSealed(): boolean {
-    return this._sealed;
+    return this.#sealed;
   }
 
   /**
@@ -166,7 +166,7 @@ export default class ExpressionSet<T = unknown> {
    * @returns `this`, for chaining.
    */
   seal(): this {
-    this._sealed = true;
+    this.#sealed = true;
     return this;
   }
 
@@ -206,7 +206,7 @@ export default class ExpressionSet<T = unknown> {
     const tag = matcher.getCurrentTag();
 
     // 1. Tightest bucket — most expressions live here
-    const exactBucket = this._byDepthAndTag.get(`${depth}:${tag}`);
+    const exactBucket = this.#byDepthAndTag.get(`${depth}:${tag}`);
     if (exactBucket) {
       for (const expression of exactBucket) {
         if (matcher.matches(expression)) return expression;
@@ -214,7 +214,7 @@ export default class ExpressionSet<T = unknown> {
     }
 
     // 2. Depth-matched wildcard-tag expressions
-    const wildcardBucket = this._wildcardByDepth.get(depth);
+    const wildcardBucket = this.#wildcardByDepth.get(depth);
     if (wildcardBucket) {
       for (const expression of wildcardBucket) {
         if (matcher.matches(expression)) return expression;
@@ -224,13 +224,13 @@ export default class ExpressionSet<T = unknown> {
     // 3. Deep wildcards — indexed by terminal tag, then unindexed fallback.
     // An empty path has no current tag, so there is no key to look up; the
     // unindexed list below still gets its turn.
-    const deepBucket = tag === undefined ? undefined : this._deepByTerminalTag.get(tag);
+    const deepBucket = tag === undefined ? undefined : this.#deepByTerminalTag.get(tag);
     if (deepBucket) {
       for (const expression of deepBucket) {
         if (matcher.matches(expression)) return expression;
       }
     }
-    for (const expression of this._deepWildcards) {
+    for (const expression of this.#deepWildcards) {
       if (matcher.matches(expression)) return expression;
     }
 

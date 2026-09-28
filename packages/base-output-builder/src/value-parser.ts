@@ -171,7 +171,7 @@ export class ValueParserPipeline {
     this.registry = registry;
     this.sharedContext = sharedContext || new SharedContext();
 
-    this._initAll(valParsers);
+    this.#initAll(valParsers);
   }
 
   /**
@@ -225,7 +225,7 @@ export class ValueParserPipeline {
    *
    * @param instances - The chain entries, as names or instances.
    */
-  private _initAll(instances: (string | ValueParser)[]): void {
+  #initAll(instances: (string | ValueParser)[]): void {
     if (!this.sharedContext) return;
     const seen = new Set<ValueParser>();
     for (const entry of instances) {

@@ -104,7 +104,7 @@ export default class AutoCloseHandler {
     let current = parserState.currentTagDetail;
 
     while (current && !current.root) {
-      this._recordError(AutoCloseErrorType.UNCLOSED_EOF, { tag: current.name, expected: null, index: current.index });
+      this.#recordError(AutoCloseErrorType.UNCLOSED_EOF, { tag: current.name, expected: null, index: current.index });
 
       parserState.addTextNode();
       parserState.popTag();
@@ -130,7 +130,7 @@ export default class AutoCloseHandler {
     }
 
     if (this.onMismatch === 'discard') {
-      this._recordError(AutoCloseErrorType.MISMATCHED_CLOSE, {
+      this.#recordError(AutoCloseErrorType.MISMATCHED_CLOSE, {
         tag: closingTagName,
         expected: currentTagDetail?.name,
         index: source ? absolutePosition(source) : null,
@@ -158,7 +158,7 @@ export default class AutoCloseHandler {
 
     if (matchIndex === -1) {
       // No match anywhere — phantom closing tag
-      this._recordError(AutoCloseErrorType.PHANTOM_CLOSE, {
+      this.#recordError(AutoCloseErrorType.PHANTOM_CLOSE, {
         tag: closingTagName,
         expected: currentTagDetail?.name,
         index: source ? absolutePosition(source) : null,
@@ -173,7 +173,7 @@ export default class AutoCloseHandler {
     for (let i = 0; i < levelsToClose; i++) {
       const tag = stackSnapshot[stackSnapshotLength - 1 - i] as NonNullable<(typeof stackSnapshot)[number]>;
 
-      this._recordError(AutoCloseErrorType.MISMATCHED_CLOSE, { tag: tag.name, expected: closingTagName, index: tag.index });
+      this.#recordError(AutoCloseErrorType.MISMATCHED_CLOSE, { tag: tag.name, expected: closingTagName, index: tag.index });
 
       parserState.addTextNode();
       parserState.popTag();
@@ -198,7 +198,7 @@ export default class AutoCloseHandler {
    * @param parserState - Live view of the parser; same shape as `handleEof()`.
    */
   handlePartialTag(originalError: Error, parserState: ParserState): void {
-    this._recordError(AutoCloseErrorType.PARTIAL_TAG, {
+    this.#recordError(AutoCloseErrorType.PARTIAL_TAG, {
       tag: extractPartialTagName(originalError),
       expected: null,
       index: parserState.source ? absolutePosition(parserState.source) : null,
@@ -227,7 +227,7 @@ export default class AutoCloseHandler {
 
   // ── Private ──────────────────────────────────────────────────────────────
 
-  private _recordError(type: AutoCloseErrorTypeValue, detail: Omit<ParseErrorEntry, 'type'>): void {
+  #recordError(type: AutoCloseErrorTypeValue, detail: Omit<ParseErrorEntry, 'type'>): void {
     if (!this.collectErrors) return;
     this.errors.push({ type, ...detail });
   }

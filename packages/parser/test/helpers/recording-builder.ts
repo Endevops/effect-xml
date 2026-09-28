@@ -118,7 +118,7 @@ export class RecordingBuilder implements OutputBuilderLike {
    */
   readonly events: RecordingEvents;
 
-  private readonly inner: CompactBuilder;
+  readonly #inner: CompactBuilder;
 
   /**
    * @param events - Buckets to record into.
@@ -135,46 +135,46 @@ export class RecordingBuilder implements OutputBuilderLike {
     registry: ValueParserRegistryLike
   ) {
     this.events = events;
-    this.inner = new CompactBuilder(parserOptions, builderOptions, readonlyMatcher, registry);
+    this.#inner = new CompactBuilder(parserOptions, builderOptions, readonlyMatcher, registry);
   }
 
   addElement(tag: TagDetailLike, matcher: MatcherView): void {
     this.events.tags.push({ name: tag.name, index: tag.index, openEnd: tag.openEnd });
-    this.inner.addElement(tag, matcher);
+    this.#inner.addElement(tag, matcher);
   }
 
   closeElement(matcher: MatcherView, closeMeta?: CloseMeta): void {
     this.events.closes.push({ name: closeMeta?.name as string, index: closeMeta?.index, closeEnd: closeMeta?.closeEnd });
-    this.inner.closeElement(matcher, closeMeta);
+    this.#inner.closeElement(matcher, closeMeta);
   }
 
   addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: AttributeMeta): void {
     this.events.attrs.push({ name, value, index: meta?.index });
-    this.inner.addAttribute(name, value, matcher, meta);
+    this.#inner.addAttribute(name, value, matcher, meta);
   }
 
   addValue(text: string, matcher: MatcherView): void {
-    this.inner.addValue(text, matcher);
+    this.#inner.addValue(text, matcher);
   }
 
   addLiteral(text: string): void {
-    this.inner.addLiteral(text);
+    this.#inner.addLiteral(text);
   }
 
   addComment(text: string): void {
-    this.inner.addComment(text);
+    this.#inner.addComment(text);
   }
 
   addDeclaration(name: string, xmlDec?: XmlDeclaration): void {
-    this.inner.addDeclaration(name, xmlDec);
+    this.#inner.addDeclaration(name, xmlDec);
   }
 
   addInstruction(name: string): void {
-    this.inner.addInstruction(name);
+    this.#inner.addInstruction(name);
   }
 
   addInputEntities(entities: Record<string, unknown>): void {
-    this.inner.addInputEntities(entities);
+    this.#inner.addInputEntities(entities);
   }
 
   onStopNode(tagDetail: TagDetailLike, rawContent: string, _matcher: MatcherView, end: { index: number }): void {
@@ -185,7 +185,7 @@ export class RecordingBuilder implements OutputBuilderLike {
     // not replace one. The runtime reads just `tagDetail.name` and forwards its
     // own `this.matcher`, so these two calls are safe and the cast is confined
     // to them rather than to every builder the tests build.
-    const inner = this.inner as unknown as {
+    const inner = this.#inner as unknown as {
       onStopNode(tagDetail: TagDetailLike, rawContent: string): void;
       onExit(exitInfo: { tagDetail: TagDetailLike; matcher: MatcherView; depth: number }): void;
     };
@@ -193,12 +193,12 @@ export class RecordingBuilder implements OutputBuilderLike {
   }
 
   onExit(exitInfo: { tagDetail: TagDetailLike; matcher: MatcherView; depth: number }): void {
-    const inner = this.inner as unknown as { onExit(exitInfo: { tagDetail: TagDetailLike; matcher: MatcherView; depth: number }): void };
+    const inner = this.#inner as unknown as { onExit(exitInfo: { tagDetail: TagDetailLike; matcher: MatcherView; depth: number }): void };
     inner.onExit(exitInfo);
   }
 
   getOutput(): unknown {
-    return this.inner.getOutput();
+    return this.#inner.getOutput();
   }
 }
 

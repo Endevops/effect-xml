@@ -36,14 +36,14 @@ export default class EncodingRegistry {
   /**
    * @description Lowercased name/alias → descriptor. Aliases share the descriptor instance with their canonical name.
    */
-  private _byName: Map<string, ResolvedEncodingDescriptor>;
+  #byName: Map<string, ResolvedEncodingDescriptor>;
 
   constructor() {
-    this._byName = new Map();
-    this._seedDefaults();
+    this.#byName = new Map();
+    this.#seedDefaults();
   }
 
-  private _seedDefaults(): void {
+  #seedDefaults(): void {
     this.register({
       name: 'utf8',
       aliases: ['utf-8'],
@@ -122,8 +122,8 @@ export default class EncodingRegistry {
       bomBytes: null,
       ...descriptor,
     };
-    this._byName.set(resolved.name.toLowerCase(), resolved);
-    for (const alias of resolved.aliases) this._byName.set(alias.toLowerCase(), resolved);
+    this.#byName.set(resolved.name.toLowerCase(), resolved);
+    for (const alias of resolved.aliases) this.#byName.set(alias.toLowerCase(), resolved);
   }
 
   /**
@@ -134,7 +134,7 @@ export default class EncodingRegistry {
    * @throws {ParseError} `UNSUPPORTED_ENCODING` when no descriptor is registered under that name or any of its aliases.
    */
   resolve(name: string): ResolvedEncodingDescriptor {
-    const descriptor = this._byName.get(String(name).toLowerCase());
+    const descriptor = this.#byName.get(String(name).toLowerCase());
     if (!descriptor) {
       throw new ParseError(`Unsupported encoding "${name}"`, ErrorCode.UNSUPPORTED_ENCODING);
     }
@@ -148,7 +148,7 @@ export default class EncodingRegistry {
   bomCandidates(): ResolvedEncodingDescriptor[] {
     const seen = new Set<string>();
     const out: ResolvedEncodingDescriptor[] = [];
-    for (const d of this._byName.values()) {
+    for (const d of this.#byName.values()) {
       if (d.bomBytes && !seen.has(d.name)) {
         seen.add(d.name);
         out.push(d);

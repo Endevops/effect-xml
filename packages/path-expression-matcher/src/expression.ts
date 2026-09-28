@@ -114,15 +114,15 @@ export default class Expression<T = unknown> {
   /**
    * @description Whether any segment is a `deep-wildcard`. Cached at construction because matching consults it on every tag.
    */
-  private readonly _hasDeepWildcard: boolean;
+  readonly #hasDeepWildcard: boolean;
   /**
    * @description Whether any segment carries an attribute condition. Cached for the same reason.
    */
-  private readonly _hasAttributeCondition: boolean;
+  readonly #hasAttributeCondition: boolean;
   /**
    * @description Whether any segment carries a position selector. Cached for the same reason.
    */
-  private readonly _hasPositionSelector: boolean;
+  readonly #hasPositionSelector: boolean;
 
   /**
    * @description Parse a pattern string into a matcher-ready expression.
@@ -136,12 +136,12 @@ export default class Expression<T = unknown> {
   constructor(pattern: string, options: ExpressionOptions = {}, data?: T) {
     this.pattern = pattern;
     this.separator = options.separator || '.';
-    this.segments = this._parse(pattern);
+    this.segments = this.#parse(pattern);
     this.data = data;
     // Cache expensive checks for performance (O(1) instead of O(n))
-    this._hasDeepWildcard = this.segments.some(seg => seg.type === 'deep-wildcard');
-    this._hasAttributeCondition = this.segments.some(seg => seg.attrName !== undefined);
-    this._hasPositionSelector = this.segments.some(seg => seg.position !== undefined);
+    this.#hasDeepWildcard = this.segments.some(seg => seg.type === 'deep-wildcard');
+    this.#hasAttributeCondition = this.segments.some(seg => seg.attrName !== undefined);
+    this.#hasPositionSelector = this.segments.some(seg => seg.position !== undefined);
   }
 
   /**
@@ -151,7 +151,7 @@ export default class Expression<T = unknown> {
    *
    * @returns The segments, in path order.
    */
-  private _parse(pattern: string): Segment[] {
+  #parse(pattern: string): Segment[] {
     const segments: Segment[] = [];
 
     // Split by separator but handle ".." specially.
@@ -169,7 +169,7 @@ export default class Expression<T = unknown> {
         if (i + 1 < pattern.length && pattern.charAt(i + 1) === this.separator) {
           // Flush current part if any
           if (currentPart.trim()) {
-            segments.push(this._parseSegment(currentPart.trim()));
+            segments.push(this.#parseSegment(currentPart.trim()));
             currentPart = '';
           }
           // Add deep wildcard
@@ -178,7 +178,7 @@ export default class Expression<T = unknown> {
         } else {
           // Regular separator
           if (currentPart.trim()) {
-            segments.push(this._parseSegment(currentPart.trim()));
+            segments.push(this.#parseSegment(currentPart.trim()));
           }
           currentPart = '';
           i++;
@@ -191,7 +191,7 @@ export default class Expression<T = unknown> {
 
     // Flush remaining part
     if (currentPart.trim()) {
-      segments.push(this._parseSegment(currentPart.trim()));
+      segments.push(this.#parseSegment(currentPart.trim()));
     }
 
     return segments;
@@ -206,7 +206,7 @@ export default class Expression<T = unknown> {
    *
    * @throws {Error} `Invalid namespace in pattern: …` or `Invalid segment pattern: …`.
    */
-  private _parseSegment(part: string): Segment {
+  #parseSegment(part: string): Segment {
     const segment: Segment = { type: 'tag' };
 
     // NAMESPACE AND POSITION SYNTAX (v2.0):
@@ -328,21 +328,21 @@ export default class Expression<T = unknown> {
    * @description Whether the pattern contains a `..` deep wildcard, and so cannot be matched by depth.
    */
   hasDeepWildcard(): boolean {
-    return this._hasDeepWildcard;
+    return this.#hasDeepWildcard;
   }
 
   /**
    * @description Whether any segment carries an attribute condition.
    */
   hasAttributeCondition(): boolean {
-    return this._hasAttributeCondition;
+    return this.#hasAttributeCondition;
   }
 
   /**
    * @description Whether any segment carries a position selector.
    */
   hasPositionSelector(): boolean {
-    return this._hasPositionSelector;
+    return this.#hasPositionSelector;
   }
 
   /**

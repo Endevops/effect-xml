@@ -99,7 +99,7 @@ export function buildProfileForBuffer(
  * @description BuildDecoderForStream(decodingOptions, registry) -> the descriptor's stateful decoder, for `FeedableSource` / `StreamSource`. These two are already
  * decode-first architecturally (see `CharScanStrategy`'s doc comment) so they only ever need the decoder half of a profile, never a scan strategy.
  * Streaming auto-detection (peeking enough of the first `feed()` chunk before a decoder can even be constructed) is implemented separately in
- * `FeedableSource._resolveDetection()`; this helper covers the explicit-encoding case and falls back to utf8 otherwise.
+ * `FeedableSource`'s `#resolveDetection()`; this helper covers the explicit-encoding case and falls back to utf8 otherwise.
  *
  * @param decodingOptions - User decoding options.
  * @param registry - Registry to resolve names against. Defaults to the shared registry.

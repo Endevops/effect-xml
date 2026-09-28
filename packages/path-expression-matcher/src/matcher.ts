@@ -124,7 +124,7 @@ export interface PushOptions {
  *   ```;
  */
 export class MatcherView {
-  private readonly _matcher: Matcher;
+  readonly #matcher: Matcher;
 
   /**
    * @description Wrap a matcher. Called by {@link Matcher} itself; there is no reason to construct one directly.
@@ -132,21 +132,21 @@ export class MatcherView {
    * @param matcher - The matcher to read from.
    */
   constructor(matcher: Matcher) {
-    this._matcher = matcher;
+    this.#matcher = matcher;
   }
 
   /**
    * @description The path separator the parent matcher was configured with.
    */
   get separator(): string {
-    return this._matcher.separator;
+    return this.#matcher.separator;
   }
 
   /**
    * @description The current tag name, or `undefined` on an empty path.
    */
   getCurrentTag(): string | undefined {
-    const path = this._matcher.path;
+    const path = this.#matcher.path;
     return path.length > 0 ? path[path.length - 1]?.tag : undefined;
   }
 
@@ -154,7 +154,7 @@ export class MatcherView {
    * @description The current tag's namespace, or `undefined` if it has none or the path is empty.
    */
   getCurrentNamespace(): string | undefined {
-    const path = this._matcher.path;
+    const path = this.#matcher.path;
     return path.length > 0 ? path[path.length - 1]?.namespace : undefined;
   }
 
@@ -166,7 +166,7 @@ export class MatcherView {
    * @returns The attribute value, or `undefined`.
    */
   getAttrValue(attrName: string): unknown {
-    const path = this._matcher.path;
+    const path = this.#matcher.path;
     if (path.length === 0) return undefined;
     return path[path.length - 1]?.values?.[attrName];
   }
@@ -179,7 +179,7 @@ export class MatcherView {
    * @returns Whether the attribute is present on the current node.
    */
   hasAttr(attrName: string): boolean {
-    const path = this._matcher.path;
+    const path = this.#matcher.path;
     if (path.length === 0) return false;
     const current = path[path.length - 1];
     return current !== undefined && current.values !== undefined && attrName in current.values;
@@ -193,7 +193,7 @@ export class MatcherView {
    * @returns The value, or `undefined` if no ancestor kept this attribute.
    */
   getAnyParentAttr(attrName: string): unknown {
-    return this._matcher.getAnyParentAttr(attrName);
+    return this.#matcher.getAnyParentAttr(attrName);
   }
 
   /**
@@ -204,14 +204,14 @@ export class MatcherView {
    * @returns Whether a kept entry with that name exists.
    */
   hasAnyParentAttr(attrName: string): boolean {
-    return this._matcher.hasAnyParentAttr(attrName);
+    return this.#matcher.hasAnyParentAttr(attrName);
   }
 
   /**
    * @description The current node's index among its siblings, or `-1` on an empty path.
    */
   getPosition(): number {
-    const path = this._matcher.path;
+    const path = this.#matcher.path;
     if (path.length === 0) return -1;
     return path[path.length - 1]?.position ?? 0;
   }
@@ -220,7 +220,7 @@ export class MatcherView {
    * @description The current node's occurrence count among same-named siblings, or `-1` on an empty path.
    */
   getCounter(): number {
-    const path = this._matcher.path;
+    const path = this.#matcher.path;
     if (path.length === 0) return -1;
     return path[path.length - 1]?.counter ?? 0;
   }
@@ -240,7 +240,7 @@ export class MatcherView {
    * @description The current path depth, zero on an empty path.
    */
   getDepth(): number {
-    return this._matcher.path.length;
+    return this.#matcher.path.length;
   }
 
   /**
@@ -252,7 +252,7 @@ export class MatcherView {
    * @returns The joined path.
    */
   toString(separator?: string, includeNamespace = true): string {
-    return this._matcher.toString(separator, includeNamespace);
+    return this.#matcher.toString(separator, includeNamespace);
   }
 
   /**
@@ -261,7 +261,7 @@ export class MatcherView {
    * @returns One entry per level, root first.
    */
   toArray(): string[] {
-    return this._matcher.path.map(n => n.tag);
+    return this.#matcher.path.map(n => n.tag);
   }
 
   /**
@@ -272,7 +272,7 @@ export class MatcherView {
    * @returns Whether the current path matches.
    */
   matches(expression: Expression): boolean {
-    return this._matcher.matches(expression);
+    return this.#matcher.matches(expression);
   }
 
   /**
@@ -283,7 +283,7 @@ export class MatcherView {
    * @returns Whether any expression in the set matches.
    */
   matchesAny(exprSet: ExpressionSet): boolean {
-    return exprSet.matchesAny(this._matcher);
+    return exprSet.matchesAny(this.#matcher);
   }
 }
 
@@ -323,15 +323,15 @@ export default class Matcher {
   /**
    * @description Memoised result of the default-form {@link Matcher.toString}, dropped on every mutation.
    */
-  private _pathStringCache: string | null;
+  #pathStringCache: string | null;
   /**
    * @description The single reusable view handed out by {@link Matcher.readOnly}.
    */
-  private readonly _view: MatcherView;
+  readonly #view: MatcherView;
   /**
    * @description Depth-ordered stack of attributes retained via {@link PushOptions.keep}.
    */
-  private _keptAttrs: KeptAttrEntry[];
+  #keptAttrs: KeptAttrEntry[];
 
   /**
    * @description Create an empty matcher at the root.
@@ -342,15 +342,15 @@ export default class Matcher {
     this.separator = options.separator || '.';
     this.path = [];
     this.siblingStacks = [];
-    this._pathStringCache = null;
-    this._view = new MatcherView(this);
-    this._keptAttrs = [];
+    this.#pathStringCache = null;
+    this.#view = new MatcherView(this);
+    this.#keptAttrs = [];
   }
 
   /**
    * @description The top-of-stack node, or `undefined` on an empty path.
    */
-  private get _current(): PathNode | undefined {
+  get #current(): PathNode | undefined {
     return this.path[this.path.length - 1];
   }
 
@@ -368,10 +368,10 @@ export default class Matcher {
     namespace: string | null = null,
     options: PushOptions | null = null
   ): void {
-    this._pathStringCache = null;
+    this.#pathStringCache = null;
 
     // Remove values from previous current node (now becoming ancestor)
-    const previous = this._current;
+    const previous = this.#current;
     if (previous) {
       previous.values = undefined;
     }
@@ -423,7 +423,7 @@ export default class Matcher {
       for (let i = 0; i < keep.length; i++) {
         const name = keep[i];
         if (name !== undefined && attrValues[name] !== undefined) {
-          this._keptAttrs.push({ depth, name, value: attrValues[name] });
+          this.#keptAttrs.push({ depth, name, value: attrValues[name] });
         }
       }
     }
@@ -436,7 +436,7 @@ export default class Matcher {
    */
   pop(): PathNode | undefined {
     if (this.path.length === 0) return undefined;
-    this._pathStringCache = null;
+    this.#pathStringCache = null;
 
     const node = this.path.pop();
 
@@ -445,14 +445,14 @@ export default class Matcher {
     }
 
     // Drop any kept attributes that belonged to the popped node (or deeper).
-    // _keptAttrs is depth-ordered (push only ever appends increasing depths),
+    // #keptAttrs is depth-ordered (push only ever appends increasing depths),
     // so this is a backward scan that stops at the first surviving entry —
     // typically O(1) since kept attrs are rare by design.
     const poppedDepth = this.path.length + 1;
-    while (this._keptAttrs.length > 0) {
-      const last = this._keptAttrs[this._keptAttrs.length - 1];
+    while (this.#keptAttrs.length > 0) {
+      const last = this.#keptAttrs[this.#keptAttrs.length - 1];
       if (last === undefined || last.depth < poppedDepth) break;
-      this._keptAttrs.pop();
+      this.#keptAttrs.pop();
     }
 
     return node;
@@ -464,7 +464,7 @@ export default class Matcher {
    * @param attrValues - The attribute values.
    */
   updateCurrent(attrValues: Record<string, unknown>): void {
-    const current = this._current;
+    const current = this.#current;
     if (current !== undefined && attrValues !== null && attrValues !== undefined) {
       current.values = attrValues;
     }
@@ -474,14 +474,14 @@ export default class Matcher {
    * @description The current tag name, or `undefined` on an empty path.
    */
   getCurrentTag(): string | undefined {
-    return this._current?.tag;
+    return this.#current?.tag;
   }
 
   /**
    * @description The current tag's namespace, or `undefined` if it has none or the path is empty.
    */
   getCurrentNamespace(): string | undefined {
-    return this._current?.namespace;
+    return this.#current?.namespace;
   }
 
   /**
@@ -492,7 +492,7 @@ export default class Matcher {
    * @returns The attribute value, or `undefined`.
    */
   getAttrValue(attrName: string): unknown {
-    return this._current?.values?.[attrName];
+    return this.#current?.values?.[attrName];
   }
 
   /**
@@ -503,7 +503,7 @@ export default class Matcher {
    * @returns Whether the attribute is present on the current node.
    */
   hasAttr(attrName: string): boolean {
-    const current = this._current;
+    const current = this.#current;
     return current !== undefined && current.values !== undefined && attrName in current.values;
   }
 
@@ -517,7 +517,7 @@ export default class Matcher {
    * @returns The value, or `undefined` if no ancestor kept this attribute.
    */
   getAnyParentAttr(attrName: string): unknown {
-    const kept = this._keptAttrs;
+    const kept = this.#keptAttrs;
     for (let i = kept.length - 1; i >= 0; i--) {
       if (kept[i]?.name === attrName) return kept[i]?.value;
     }
@@ -532,7 +532,7 @@ export default class Matcher {
    * @returns Whether a kept entry with that name exists.
    */
   hasAnyParentAttr(attrName: string): boolean {
-    const kept = this._keptAttrs;
+    const kept = this.#keptAttrs;
     for (let i = kept.length - 1; i >= 0; i--) {
       if (kept[i]?.name === attrName) return true;
     }
@@ -543,7 +543,7 @@ export default class Matcher {
    * @description The current node's index among its siblings, or `-1` on an empty path.
    */
   getPosition(): number {
-    const current = this._current;
+    const current = this.#current;
     if (current === undefined) return -1;
     return current.position ?? 0;
   }
@@ -552,7 +552,7 @@ export default class Matcher {
    * @description The current node's occurrence count among same-named siblings, or `-1` on an empty path.
    */
   getCounter(): number {
-    const current = this._current;
+    const current = this.#current;
     if (current === undefined) return -1;
     return current.counter ?? 0;
   }
@@ -589,11 +589,11 @@ export default class Matcher {
     const isDefault = sep === this.separator && includeNamespace === true;
 
     if (isDefault) {
-      if (this._pathStringCache !== null) {
-        return this._pathStringCache;
+      if (this.#pathStringCache !== null) {
+        return this.#pathStringCache;
       }
       const result = this.path.map(n => (n.namespace ? `${n.namespace}:${n.tag}` : n.tag)).join(sep);
-      this._pathStringCache = result;
+      this.#pathStringCache = result;
       return result;
     }
 
@@ -613,10 +613,10 @@ export default class Matcher {
    * @description Return to the empty path, dropping the path, the sibling bookkeeping and every kept attribute.
    */
   reset(): void {
-    this._pathStringCache = null;
+    this.#pathStringCache = null;
     this.path = [];
     this.siblingStacks = [];
-    this._keptAttrs = [];
+    this.#keptAttrs = [];
   }
 
   /**
@@ -634,10 +634,10 @@ export default class Matcher {
     }
 
     if (expression.hasDeepWildcard()) {
-      return this._matchWithDeepWildcard(segments);
+      return this.#matchWithDeepWildcard(segments);
     }
 
-    return this._matchSimple(segments);
+    return this.#matchSimple(segments);
   }
 
   /**
@@ -647,7 +647,7 @@ export default class Matcher {
    *
    * @returns Whether every segment matches.
    */
-  private _matchSimple(segments: readonly Segment[]): boolean {
+  #matchSimple(segments: readonly Segment[]): boolean {
     if (this.path.length !== segments.length) {
       return false;
     }
@@ -656,7 +656,7 @@ export default class Matcher {
       const segment = segments[i];
       const node = this.path[i];
       if (segment === undefined || node === undefined) return false;
-      if (!this._matchSegment(segment, node, i === this.path.length - 1)) {
+      if (!this.#matchSegment(segment, node, i === this.path.length - 1)) {
         return false;
       }
     }
@@ -673,7 +673,7 @@ export default class Matcher {
    *
    * @returns Whether the pattern is exhausted against the path.
    */
-  private _matchWithDeepWildcard(segments: readonly Segment[]): boolean {
+  #matchWithDeepWildcard(segments: readonly Segment[]): boolean {
     let pathIdx = this.path.length - 1;
     let segIdx = segments.length - 1;
 
@@ -694,7 +694,7 @@ export default class Matcher {
 
         for (let i = pathIdx; i >= 0; i--) {
           const node = this.path[i];
-          if (node !== undefined && this._matchSegment(nextSeg, node, i === this.path.length - 1)) {
+          if (node !== undefined && this.#matchSegment(nextSeg, node, i === this.path.length - 1)) {
             pathIdx = i - 1;
             segIdx--;
             found = true;
@@ -707,7 +707,7 @@ export default class Matcher {
         }
       } else {
         const node = this.path[pathIdx];
-        if (node === undefined || !this._matchSegment(segment, node, pathIdx === this.path.length - 1)) {
+        if (node === undefined || !this.#matchSegment(segment, node, pathIdx === this.path.length - 1)) {
           return false;
         }
         pathIdx--;
@@ -728,7 +728,7 @@ export default class Matcher {
    *
    * @returns Whether the segment matches the node.
    */
-  private _matchSegment(segment: Segment, node: PathNode, isCurrentNode: boolean): boolean {
+  #matchSegment(segment: Segment, node: PathNode, isCurrentNode: boolean): boolean {
     if (segment.tag !== '*' && segment.tag !== node.tag) {
       return false;
     }
@@ -796,7 +796,7 @@ export default class Matcher {
     return {
       path: this.path.map(node => ({ ...node })),
       siblingStacks: this.siblingStacks.map(level => (level ? { counts: new Map(level.counts), total: level.total } : level)),
-      keptAttrs: this._keptAttrs.map(entry => ({ ...entry })),
+      keptAttrs: this.#keptAttrs.map(entry => ({ ...entry })),
     };
   }
 
@@ -806,12 +806,12 @@ export default class Matcher {
    * @param snapshot - A snapshot from a previous {@link Matcher.snapshot} call.
    */
   restore(snapshot: MatcherSnapshot): void {
-    this._pathStringCache = null;
+    this.#pathStringCache = null;
     this.path = snapshot.path.map(node => ({ ...node }));
     this.siblingStacks = snapshot.siblingStacks.map(level => (level ? { counts: new Map(level.counts), total: level.total } : level));
     // Tolerates a hand-built snapshot that predates kept attributes, which
     // `keptAttrs` being optional in the type would otherwise invite.
-    this._keptAttrs = (snapshot.keptAttrs ?? []).map(entry => ({ ...entry }));
+    this.#keptAttrs = (snapshot.keptAttrs ?? []).map(entry => ({ ...entry }));
   }
 
   /**
@@ -827,7 +827,7 @@ export default class Matcher {
    * @returns The reusable view.
    */
   readOnly(): MatcherView {
-    return this._view;
+    return this.#view;
   }
 }
 

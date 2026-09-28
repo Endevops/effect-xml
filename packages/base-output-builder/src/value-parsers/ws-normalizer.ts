@@ -36,7 +36,7 @@ export default class WSNormalizer extends BaseValueParser {
   /**
    * @description The compiled exclusion patterns, sealed at construction so nothing can add to them mid-parse.
    */
-  private readonly _excludeSet: ExpressionSet;
+  readonly #excludeSet: ExpressionSet;
 
   /**
    * @description Create the parser.
@@ -54,7 +54,7 @@ export default class WSNormalizer extends BaseValueParser {
     }
     set.seal();
 
-    this._excludeSet = set;
+    this.#excludeSet = set;
   }
 
   /**
@@ -77,7 +77,7 @@ export default class WSNormalizer extends BaseValueParser {
         if (ctx.matcher.getAnyParentAttr('xml:space') === 'preserve') return val;
 
         // Respect user-configured exclusion paths
-        if (this._excludeSet.size > 0 && this._excludeSet.matchesAny(ctx.matcher)) return val;
+        if (this.#excludeSet.size > 0 && this.#excludeSet.matchesAny(ctx.matcher)) return val;
       }
     }
 

@@ -20,7 +20,8 @@ const SNIFF_CAP = 200;
  */
 export interface FeedableSourceOptions extends FeedableOptions {
   /**
-   * @description Encoding name to resolve through {@link _decodingOptions.registry}, or `'auto'` to sniff once enough bytes have arrived. Omit for plain utf8.
+   * @description Encoding name to resolve through the `registry` of the {@link FeedableSourceOptions.decoding} object, or `'auto'` to sniff once enough bytes have
+   * arrived. Omit for plain utf8.
    */
   decoding?: {
     /**
@@ -119,8 +120,8 @@ export default class FeedableSource implements InputSourceLike {
    */
   _quotePairsLen: number;
 
-  private _decodingOptions: FeedableSourceOptions['decoding'] | null;
-  private _detecting: boolean;
+  #decodingOptions: FeedableSourceOptions['decoding'] | null;
+  #detecting: boolean;
   /**
    * @description Lazily-created and persistent for the whole `feed()` session. Buffer chunks must go through this rather than `Buffer#toString()` per chunk —
    * `toString()` decodes each chunk in isolation, so a multi-byte UTF-8 character whose bytes straddle a chunk boundary gets corrupted (each half
@@ -128,7 +129,7 @@ export default class FeedableSource implements InputSourceLike {
    * a split character decodes correctly once the rest of its bytes arrive. Only created if Buffer input is ever fed — string-only callers never pay
    * for it.
    */
-  private _decoder: EncodingDecoder | null;
+  #decoder: EncodingDecoder | null;
 
   constructor(options: FeedableSourceOptions = {}) {
     this.buffer = '';
@@ -149,18 +150,18 @@ export default class FeedableSource implements InputSourceLike {
     //   - 'auto': can't build a decoder yet — not enough bytes seen. Buffer
     //     raw (undecoded) bytes in `_sniffBuffer` until either a BOM+enough
     //     bytes, a complete `<?xml ... ?>` declaration, or SNIFF_CAP bytes
-    //     have accumulated, then resolve once via _resolveDetection() and
+    //     have accumulated, then resolve once via #resolveDetection() and
     //     replay the held bytes through the real decoder. See feed() below.
     //   - neither supplied (direct FeedableSource construction, bypassing
     //     XMLParser): falls back to a caller-supplied `options.createDecoder`
     //     if given, else plain utf8 — identical to this class's behavior
     //     before this feature existed.
-    this._decodingOptions = options.decoding || null;
-    const decodingOptions = this._decodingOptions;
+    this.#decodingOptions = options.decoding || null;
+    const decodingOptions = this.#decodingOptions;
     const requestedEncoding = decodingOptions?.encoding;
-    this._detecting = requestedEncoding === 'auto';
-    this._sniffBuffer = this._detecting ? Buffer.alloc(0) : null;
-    if (!this._detecting && requestedEncoding && decodingOptions?.registry) {
+    this.#detecting = requestedEncoding === 'auto';
+    this._sniffBuffer = this.#detecting ? Buffer.alloc(0) : null;
+    if (!this.#detecting && requestedEncoding && decodingOptions?.registry) {
       const registry = decodingOptions.registry;
       this._createDecoder = () => registry.resolve(requestedEncoding).createDecoder();
     } else {
@@ -181,7 +182,7 @@ export default class FeedableSource implements InputSourceLike {
      * a split character decodes correctly once the rest of its bytes arrive. Only created if Buffer input is ever fed — string-only callers never pay
      * for it.
      */
-    this._decoder = null;
+    this.#decoder = null;
 
     // Reused across every scanTagExpEnd() call, never reallocated. See
     // string-source.js's copy of this field for the full doc (fixed-capacity
@@ -205,14 +206,14 @@ export default class FeedableSource implements InputSourceLike {
    * @throws {ParseError} `INVALID_INPUT` when the buffer limit is exceeded, `DATA_MUST_BE_STRING` for an unsupported chunk type.
    */
   feed(data: string | Buffer): number {
-    if (this._detecting) {
+    if (this.#detecting) {
       if (typeof data === 'string') {
         // Already decoded upstream (e.g. stream.setEncoding() was called by
         // the caller) — detection is moot, nothing left to sniff.
-        this._detecting = false;
+        this.#detecting = false;
       } else {
         const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
-        // `_detecting` is only true while `// `_detecting` is only true while `_sniffBuffer` is a Buffer — the
+        // `#detecting` is only true while `_sniffBuffer` is a Buffer — the
         // constructor sets them together, so the assertion is an invariant,
         // not a runtime check.
         const held = this._sniffBuffer as Buffer;
@@ -222,11 +223,11 @@ export default class FeedableSource implements InputSourceLike {
           // Not enough to decide yet — hold everything, decode nothing.
           return 0;
         }
-        data = this._resolveDetection();
+        data = this.#resolveDetection();
       }
     }
 
-    const newData = this._decodeNow(data);
+    const newData = this.#decodeNow(data);
 
     const liveBytes = this.buffer.length - this.startIndex;
 
@@ -242,17 +243,14 @@ export default class FeedableSource implements InputSourceLike {
     return newData.length;
   }
 
-  /**
-   * @private
-   */
-  private _decodeNow(data: string | Buffer): string {
+  #decodeNow(data: string | Buffer): string {
     if (typeof data === 'string') return data;
     if (Buffer.isBuffer(data)) {
       // Stateful decode: bytes of a multi-byte char split across two feed()
       // calls are buffered internally by the decoder and correctly stitched
       // together, instead of each chunk being decoded in isolation.
-      if (!this._decoder) this._decoder = this._createDecoder ? this._createDecoder() : createTextDecoderAdapter('utf-8');
-      return this._decoder.write(data);
+      if (!this.#decoder) this.#decoder = this._createDecoder ? this._createDecoder() : createTextDecoderAdapter('utf-8');
+      return this.#decoder.write(data);
     }
     // Defensive tail: `feed()`'s contract is `string | Buffer` and both are
     // handled above, but anything else carrying a usable toString() is coerced
@@ -267,16 +265,14 @@ export default class FeedableSource implements InputSourceLike {
    * build the real decoder, strip any BOM, and return the held bytes ready to be decoded normally by the caller in `feed()`. Runs exactly once per
    * session.
    *
-   * @private
-   *
    * @returns The held bytes, minus any BOM.
    */
-  private _resolveDetection(): Buffer {
-    const registry = (this._decodingOptions as NonNullable<FeedableSourceOptions['decoding']>).registry;
+  #resolveDetection(): Buffer {
+    const registry = (this.#decodingOptions as NonNullable<FeedableSourceOptions['decoding']>).registry;
     const { encoding, bomLength } = sniff(this._sniffBuffer as Buffer, registry);
     const descriptor = registry.resolve(encoding);
     this._createDecoder = () => descriptor.createDecoder();
-    this._detecting = false;
+    this.#detecting = false;
     const held = bomLength ? (this._sniffBuffer as Buffer).subarray(bomLength) : (this._sniffBuffer as Buffer);
     this._sniffBuffer = null;
     return held;
@@ -286,20 +282,20 @@ export default class FeedableSource implements InputSourceLike {
    * @description Signal that no more data will be fed. Flushes the decoder's held-back bytes and marks the source complete.
    */
   end() {
-    if (this._detecting) {
+    if (this.#detecting) {
       // Whole document arrived without ever reaching SNIFF_CAP or a
       // complete declaration (a short, unadorned document like <root/>) —
       // resolve now, on whatever bytes we have.
-      const held = this._resolveDetection();
-      this.buffer += this._decodeNow(held);
+      const held = this.#resolveDetection();
+      this.buffer += this.#decodeNow(held);
     }
-    if (this._decoder) {
+    if (this.#decoder) {
       // Flush any final incomplete byte sequence held by the decoder. For
       // well-formed UTF-8 input this is normally '' (nothing pending); a
       // non-empty result here means the input was genuinely truncated
       // mid-character, and the decoder's own U+FFFD substitution is the
       // correct, standard behavior for that case.
-      const tail = this._decoder.end();
+      const tail = this.#decoder.end();
       if (tail) this.buffer += tail;
     }
     this.isComplete = true;
