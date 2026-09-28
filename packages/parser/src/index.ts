@@ -1,9 +1,14 @@
 // Main exports
 export { default as XMLParser, default } from './xml-parser.ts';
 
-// Error handling
-export { ParseError, ErrorCode } from './parse-error.ts';
-export type { ErrorCodeValue } from './parse-error.ts';
+// Error handling. `ParseErrorReason` is exported as a value (it is the schema) and as a type (it is
+// `typeof ParseErrorReason.Type`), the same way `@endevops/common-xml` exports `XmlErrorReason` — a
+// caller narrowing a failure needs the tag, and a caller validating one at a boundary needs the
+// schema. The parser's own construction and running helpers — `parseError`, `runXml`, `runBuilder`,
+// `toParseError` — stay unexported, matching the builder's treatment of `compilePattern` and
+// `liftXml`: they are for this package's internals, not for a call site.
+export { ParseError, ParseErrorReason, ErrorCode } from './parse-error.ts';
+export type { ErrorCodeValue, ParseErrorReason as ParseErrorReasonType } from './parse-error.ts';
 
 // Stop-node utilities
 export { xmlEnclosures, quoteEnclosures } from './stop-node-processor.ts';

@@ -79,7 +79,7 @@ Effect.runSync(parser.parse('<book id="1"><title>1984</title></book>'));
 ## Handling failure
 
 A `ParseError` carries a machine-readable `code` and, where the failure has a position, an
-`index`. Match on the code rather than on the message.
+`index`. Match on `reason._tag` rather than on the message — and read the numbers out of `reason` rather than parsing them out of the text.
 
 ```typescript
 import { Effect, Result } from 'effect';
@@ -106,18 +106,19 @@ the individual `Fail` reason, not on the cause itself — so reaching for it tak
 `cause.error`.
 
 Recovering from one specific failure, rather than inspecting every one. `ParseError` is a plain
-`Error` subclass with no `_tag`, so `Effect.catchTag` does not apply to it — `Effect.catchIf`
-takes a guard instead:
+`Schema.TaggedError`, so it carries a real `_tag` and `Effect.catchTag` works — and its
+`reason` carries the numbers and names a handler needs. `Effect.catchReason` is the direct form:
 
 ```typescript
 import { Effect } from 'effect';
 import XMLParser, { ErrorCode, ParseError } from '@endevops/parser';
 
 // Treat a mismatched closing tag as end-of-document rather than a failure
-const lenient = Effect.catchIf(
+const lenient = Effect.catchReason(
   Effect.flatMap(XMLParser.make(), p => p.parse(xml)),
-  (e): e is ParseError => e.code === ErrorCode.MISMATCHED_CLOSE_TAG,
-  () => Effect.succeed({ truncated: true })
+  'ParseError',
+  ErrorCode.MISMATCHED_CLOSE_TAG,
+  reason => Effect.succeed({ truncated: true, got: reason.tag, wanted: reason.expected })
 );
 ```
 
@@ -130,7 +131,7 @@ const lenient = Effect.matchEffect(
   Effect.flatMap(XMLParser.make(), p => p.parse(xml)),
   {
     onFailure: (e): Effect.Effect<unknown, ParseError> =>
-      e.code === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
+      e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
     onSuccess: value => Effect.succeed(value),
   }
 );

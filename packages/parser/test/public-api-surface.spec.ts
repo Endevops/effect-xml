@@ -26,6 +26,7 @@ import XMLParser, {
   type TagOptions,
   type X2jOptions,
 } from '#/index.ts';
+import { parseError } from '#/parse-error.ts';
 import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
@@ -109,7 +110,7 @@ describe('Public API surface', function () {
 
   it('narrows ErrorCodeValue to real codes only', function () {
     const code: ErrorCodeValue = ErrorCode.MISMATCHED_CLOSE_TAG;
-    const err = new ParseError('boom', code, { index: 4 });
+    const err = parseError({ _tag: code, tag: 'a', expected: 'b' }, 'boom', 4);
 
     expect(err.code).toBe('MISMATCHED_CLOSE_TAG');
     expect(err.index).toBe(4);

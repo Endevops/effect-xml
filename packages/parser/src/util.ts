@@ -1,6 +1,6 @@
 import type { InputSourceLike } from './input-source/input-source.ts';
 
-import { ParseError, ErrorCode } from './parse-error.ts';
+import { ErrorCode, parseError } from './parse-error.ts';
 
 /**
  * @description Every capture group of every match of `regex` in `string`, flattened into one array per match, with the match's start offset attached as
@@ -148,10 +148,10 @@ export function sanitizeContent(str: string, source?: InputSourceLike): string {
   for (let i = 0; i < len; i++) {
     const c = str.charCodeAt(i);
     if (isIllegalControlCode(c)) {
-      throw new ParseError(
+      throw parseError(
+        { _tag: ErrorCode.ILLEGAL_CHARACTER, code: c, in: 'content' },
         `Illegal control character 0x${c.toString(16).padStart(2, '0')} in document content`,
-        ErrorCode.ILLEGAL_CHARACTER,
-        source ? errorPositionOf(source) : {}
+        source ? absolutePosition(source) : undefined
       );
     }
     if (c === 13) hasCR = true;
@@ -185,11 +185,11 @@ export function sanitizeContent(str: string, source?: InputSourceLike): string {
 export function expectMatch(source: InputSourceLike, expected: string, errorMsg: string, caseInsensitive: boolean = false): void {
   const len = expected.length;
   if (!source.canRead(len)) {
-    throw new ParseError(`Unexpected end of source reading ${errorMsg}`, ErrorCode.UNEXPECTED_END, errorPositionOf(source));
+    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: errorMsg }, `Unexpected end of source reading ${errorMsg}`, absolutePosition(source));
   }
   const matched = source.matchAhead(expected, caseInsensitive);
   if (matched !== true) {
-    throw new ParseError(`Invalid ${errorMsg}`, ErrorCode.INVALID_TAG, errorPositionOf(source));
+    throw parseError({ _tag: ErrorCode.INVALID_TAG }, `Invalid ${errorMsg}`, absolutePosition(source));
   }
   source.updateBufferBoundary(len);
 }
@@ -206,6 +206,6 @@ export function expectMatch(source: InputSourceLike, expected: string, errorMsg:
  */
 export function ensureCanRead(source: InputSourceLike, n: number, errorMsg: string): void {
   if (!source.canRead(n)) {
-    throw new ParseError(`Unexpected end of source reading ${errorMsg}`, ErrorCode.UNEXPECTED_END, errorPositionOf(source));
+    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: errorMsg }, `Unexpected end of source reading ${errorMsg}`, absolutePosition(source));
   }
 }

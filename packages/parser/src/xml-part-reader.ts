@@ -6,7 +6,7 @@ import type { ParsedAttribute } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 
 import { collectRawAttributes } from './attribute-processor.js';
-import { ParseError, ErrorCode } from './parse-error.js';
+import { ErrorCode, parseError } from './parse-error.js';
 import { isSpace, absolutePosition } from './util.js';
 
 // Re-export flushAttributes so Xml2JsParser and XmlSpecialTagsReader can
@@ -125,7 +125,10 @@ export function readClosingTagName(source: InputSourceLike): string {
     // recovery (which reads it back out of the message) can still report a
     // useful partial tag name.
     const partial = source.readStr(Number.MAX_SAFE_INTEGER, start);
-    throw new ParseError(`Unexpected end of source reading closing tag '</${partial}'`, ErrorCode.UNEXPECTED_END);
+    throw parseError(
+      { _tag: ErrorCode.UNEXPECTED_END, reading: `closing tag '</${partial}'` },
+      `Unexpected end of source reading closing tag '</${partial}'`
+    );
   }
 }
 
@@ -163,7 +166,7 @@ export function readTagExp(parser: TagExpressionParser): TagExp {
     // the old UNCLOSED_QUOTE branch here was checking the same two flags
     // immediately after the only code path that requires them both false,
     // making it permanently unreachable.)
-    throw new ParseError("Unexpected closing of source waiting for '>'", ErrorCode.UNEXPECTED_END);
+    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'>'` }, "Unexpected closing of source waiting for '>'");
   }
 
   const exp = parser.source.readStr(relEnd);
@@ -223,10 +226,10 @@ export function readPiExp(parser: TagExpressionParser): TagExp {
 
   if (!EOE) {
     // Buffer exhausted before '?>' — chunk boundary mid-PI-tag.
-    throw new ParseError("Unexpected closing of source waiting for '?>'", ErrorCode.UNEXPECTED_END);
+    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'?>'` }, "Unexpected closing of source waiting for '?>'");
   } else if (inSingleQuotes || inDoubleQuotes) {
     // '?>' found but a quote was never closed — real syntax error.
-    throw new ParseError('Invalid attribute expression. Quote is not properly closed in PI tag expression', ErrorCode.UNCLOSED_QUOTE);
+    throw parseError({ _tag: ErrorCode.UNCLOSED_QUOTE }, 'Invalid attribute expression. Quote is not properly closed in PI tag expression');
   }
 
   // if (!parser.options.skip.attributes) {
@@ -296,7 +299,7 @@ function buildTagExpObj(
   tagExp._attrsExp = attrsExp;
 
   if (!parser.isValidQName(tagExp.tagName)) {
-    throw new ParseError('Invalid tag name', ErrorCode.INVALID_TAG_NAME);
+    throw parseError({ _tag: ErrorCode.INVALID_TAG_NAME, name: tagExp.tagName }, 'Invalid tag name');
   }
 
   // Pass 1: collect raw attribute values for matcher.updateCurrent().

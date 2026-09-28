@@ -87,16 +87,14 @@ import XMLParser, { ErrorCode } from '@endevops/parser';
 const parser = Effect.runSync(XMLParser.make({ limits: { maxNestedTags: 100 } }));
 
 const result = parser.parse(xml).pipe(
-  Effect.catchIf(
-    e => e.code === ErrorCode.LIMIT_MAX_NESTED_TAGS,
-    e => {
-      console.error('Document too deeply nested');
-      // e.index is a 0-based character offset, or undefined when the
-      // parser had no position to report for this error
-      console.error(e.code, e.message, `at index ${e.index ?? 'unknown'}`);
-      return Effect.succeed(null);
-    }
-  )
+  Effect.catchReason('ParseError', ErrorCode.LIMIT_MAX_NESTED_TAGS, reason => {
+    console.error('Document too deeply nested');
+    // The payload is the point: these are the two numbers, not a sentence to parse.
+    console.error(`depth ${reason.depth} exceeds the ceiling of ${reason.limit}`);
+    // reason.index is a 0-based character offset, or undefined when the
+    // parser had no position to report for this error
+    return Effect.succeed(null);
+  })
 );
 ```
 
@@ -110,14 +108,43 @@ const result = parser.parse(xml).pipe(
 `parseBytesArr`, `parseStream`, `feed`, `end`, and `make` itself. Configuring a parser validates
 options, refuses reserved property names and compiles every stop-node and skip-tag path expression,
 so construction can fail on the same channel as parsing. There is no second error type to branch
-on, and no `_tag`: `ParseError` is a plain `Error` subclass, so `Effect.catchTag` does not apply to
-it and a predicate on `code` is what you reach for instead.
+on: failures from `@endevops/common-xml` and `@endevops/builder` are mapped in rather than unioned
+with it.
 
-| Field     | Type                  | Meaning                                                                                      |
-| --------- | --------------------- | -------------------------------------------------------------------------------------------- |
-| `code`    | `ErrorCodeValue`      | One of the `ErrorCode` values — the discriminant to match on. `message` is not load-bearing. |
-| `index`   | `number \| undefined` | 0-based offset from document start. `undefined` when the parser had no position to report.   |
-| `message` | `string`              | Human-readable text.                                                                         |
+| Field     | Type                  | Meaning                                                                                    |
+| --------- | --------------------- | ------------------------------------------------------------------------------------------ |
+| `reason`  | `ParseErrorReason`    | The cause, as a tagged union. Its `_tag` is one of the `ErrorCode` values.                 |
+| `index`   | `number \| undefined` | 0-based offset from document start. `undefined` when the parser had no position to report. |
+| `message` | `string`              | Human-readable text. Kept, and kept verbatim — it is part of the contract.                 |
+| `code`    | `ErrorCodeValue`      | An alias for `reason._tag`. The two cannot disagree; the alias is for existing call sites. |
+
+### The reason carries the payload
+
+`reason` is not just a label. It carries the numbers and names a handler needs, which used to exist
+only inside the English sentence in `message` — so reading a ceiling or a mismatched tag name meant
+parsing prose.
+
+```typescript
+const error = ...; // a ParseError
+
+switch (error.reason._tag) {
+  case 'LIMIT_MAX_NESTED_TAGS':
+    return { depth: error.reason.depth, ceiling: error.reason.limit }; // both numbers, no parsing
+  case 'MISMATCHED_CLOSE_TAG':
+    return { got: error.reason.tag, wanted: error.reason.expected };
+  case 'ILLEGAL_CHARACTER':
+    return { code: error.reason.code, where: error.reason.in }; // 'content' | 'attribute'
+  default:
+    return { message: error.message };
+}
+```
+
+Causes that have nothing to carry — a truncated document, a stream that is not a stream — have an
+empty payload, which is itself information: there is nothing there to branch on.
+
+The tag is one of the `ErrorCode` values, one for one. Coarsening them into "malformed document" and
+"hostile document" would have been fewer cases, but each of these is a condition a caller may treat
+differently, and `code` has been the public discriminant for this package's whole life.
 
 ### Inspecting a failure
 
@@ -131,7 +158,7 @@ const result = Effect.runSync(Effect.result(parser.parse('<a><b></a></b>')));
 
 if (Result.isFailure(result)) {
   const error = result.failure; // ParseError
-  console.error(error.code, error.index, error.message);
+  console.error(error.reason._tag, error.index, error.message);
   // MISMATCHED_CLOSE_TAG 10 Unexpected closing tag 'a' expecting 'b'
 }
 ```
@@ -141,11 +168,26 @@ Note the asymmetry: `Effect.runSync` _throws_ a failed effect's error, while
 those two rather than wrapping `runSync` in a `try` — or `Effect.runPromise(...).catch(...)` in
 async code.
 
-### Recovering from one code
+### Recovering from one reason
 
-`Effect.catchIf` takes a refinement, which narrows `e` to `ParseError` for the recovery branch. A
-non-matching error re-fails with its original cause, so a catch is a genuine partial recovery
-rather than a catch-all.
+`Effect.catchReason` is the direct form: it names the cause, and the handler receives the payload
+already narrowed. A non-matching reason re-fails with its original cause, so a catch is a genuine
+partial recovery rather than a catch-all.
+
+```typescript
+import { Effect } from 'effect';
+import { ErrorCode } from '@endevops/parser';
+
+// Refuse an over-deep document without discarding the rest of the program's work
+const rejected = Effect.catchReason(parser.parse(xml), 'ParseError', ErrorCode.LIMIT_MAX_NESTED_TAGS, reason =>
+  Effect.succeed({ rejected: true, atDepth: reason.depth, ceiling: reason.limit })
+);
+```
+
+`Effect.catchIf` takes a refinement instead, which is the form to reach for when the test is a
+predicate rather than an equality — "recover from any security failure", say, rather than from one
+named reason. `ParseError` carries a real `_tag` (`"ParseError"`), so `Effect.catchTag` works here
+too; the `catchReason` above is preferred because it hands the handler the payload.
 
 ```typescript
 import { Effect } from 'effect';
@@ -154,7 +196,7 @@ import { ErrorCode, type ParseError } from '@endevops/parser';
 // Treat a mismatched closing tag as end-of-document rather than a failure
 const lenient = Effect.catchIf(
   parser.parse(xml),
-  (e): e is ParseError => e.code === ErrorCode.MISMATCHED_CLOSE_TAG,
+  (e): e is ParseError => e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG,
   () => Effect.succeed({ truncated: true })
 );
 ```
@@ -165,21 +207,26 @@ takes `{ onFailure, onSuccess }`, and the `onFailure` branch re-fails anything i
 ```typescript
 const lenient = Effect.matchEffect(parser.parse(xml), {
   onFailure: (e): Effect.Effect<unknown, ParseError> =>
-    e.code === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
+    e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
   onSuccess: value => Effect.succeed(value),
 });
 ```
 
 ### Adding context without losing the code
 
-`Effect.mapError` keeps `code` and `index` while rewriting the message, which is what makes a
-failure report readable once it has crossed a service boundary:
+`Effect.mapError` keeps `reason` and `index` while rewriting the message, which is what makes a
+failure report readable once it has crossed a service boundary. A `ParseError` is constructed from
+its fields, and `reason` rides along unchanged — which is the point: the context is added for the
+reader, and the cause is not lost.
 
 ```typescript
 import { Effect } from 'effect';
 import { ParseError } from '@endevops/parser';
 
-const withContext = Effect.mapError(parser.parse(xml), e => new ParseError(`config.xml: ${e.message}`, e.code, { index: e.index }));
+const withContext = Effect.mapError(
+  parser.parse(xml),
+  e => new ParseError({ reason: e.reason, message: `config.xml: ${e.message}`, ...(e.index === undefined ? {} : { index: e.index }) })
+);
 ```
 
 `ParseError` is a value, not a type — importing it with `import type` and then constructing one is

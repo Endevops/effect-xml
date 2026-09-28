@@ -8,8 +8,9 @@ import { Effect } from 'effect';
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, X2jOptions } from './options.ts';
+import type { ParseError } from './parse-error.ts';
 
-import { ParseError, ErrorCode, fromUpstreamError, runBuilder } from './parse-error.js';
+import { ErrorCode, fromUpstreamError, parseError, runBuilder } from './parse-error.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
 
 /**
@@ -239,8 +240,9 @@ export { ALL_RESERVED as RESERVED_JS_NAMES };
 const validatePropertyName = (value: unknown, optionName: string): Effect.Effect<void, ParseError> => {
   if (typeof value !== 'string' || value === '') return Effect.void;
   if (ALL_RESERVED.has(value)) {
-    return Effect.fail(
-      new ParseError(`SECURITY: '${value}' is a reserved JavaScript keyword and cannot be used as ${optionName}`, ErrorCode.SECURITY_RESERVED_OPTION)
+    return parseError(
+      { _tag: ErrorCode.SECURITY_RESERVED_OPTION, option: optionName, value },
+      `SECURITY: '${value}' is a reserved JavaScript keyword and cannot be used as ${optionName}`
     );
   }
   return Effect.void;
@@ -272,7 +274,10 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
       // Validate limits option
       if (options.limits !== undefined && options.limits !== null) {
         if (typeof options.limits !== 'object') {
-          return yield* Effect.fail(new ParseError(`'limits' must be an object, got ${typeof options.limits}`, ErrorCode.INVALID_INPUT));
+          return yield* parseError(
+            { _tag: ErrorCode.INVALID_INPUT, option: 'limits', received: typeof options.limits },
+            `'limits' must be an object, got ${typeof options.limits}`
+          );
         }
         const { maxNestedTags, maxAttributesPerTag } = options.limits;
         if (
@@ -280,8 +285,9 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
           maxNestedTags !== null &&
           (typeof maxNestedTags !== 'number' || !Number.isInteger(maxNestedTags) || maxNestedTags < 1)
         ) {
-          return yield* Effect.fail(
-            new ParseError(`'limits.maxNestedTags' must be a positive integer, got ${maxNestedTags}`, ErrorCode.INVALID_INPUT)
+          return yield* parseError(
+            { _tag: ErrorCode.INVALID_INPUT, option: 'limits.maxNestedTags', received: `${maxNestedTags}` },
+            `'limits.maxNestedTags' must be a positive integer, got ${maxNestedTags}`
           );
         }
         if (
@@ -289,8 +295,9 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
           maxAttributesPerTag !== null &&
           (typeof maxAttributesPerTag !== 'number' || !Number.isInteger(maxAttributesPerTag) || maxAttributesPerTag < 0)
         ) {
-          return yield* Effect.fail(
-            new ParseError(`'limits.maxAttributesPerTag' must be a non-negative integer, got ${maxAttributesPerTag}`, ErrorCode.INVALID_INPUT)
+          return yield* parseError(
+            { _tag: ErrorCode.INVALID_INPUT, option: 'limits.maxAttributesPerTag', received: `${maxAttributesPerTag}` },
+            `'limits.maxAttributesPerTag' must be a non-negative integer, got ${maxAttributesPerTag}`
           );
         }
       }
@@ -366,7 +373,10 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
     // Validate exitIf
     if (finalOptions.exitIf !== null && finalOptions.exitIf !== undefined) {
       if (typeof finalOptions.exitIf !== 'function') {
-        return yield* Effect.fail(new ParseError(`'exitIf' must be a function, got ${typeof finalOptions.exitIf}`, ErrorCode.INVALID_INPUT));
+        return yield* parseError(
+          { _tag: ErrorCode.INVALID_INPUT, option: 'exitIf', received: typeof finalOptions.exitIf },
+          `'exitIf' must be a function, got ${typeof finalOptions.exitIf}`
+        );
       }
     }
 
@@ -438,7 +448,8 @@ const normalizeTagEntry = (
     let skipEnclosures: TagExpressionConfig['skipEnclosures'];
 
     if (typeof entry === 'string') {
-      if (entry.length === 0) return yield* Effect.fail(new ParseError(`${optionName} expression cannot be empty`, ErrorCode.INVALID_INPUT));
+      if (entry.length === 0)
+        return yield* parseError({ _tag: ErrorCode.INVALID_INPUT, option: optionName }, `${optionName} expression cannot be empty`);
       pattern = entry;
       nested = false;
       skipEnclosures = [];
@@ -455,21 +466,23 @@ const normalizeTagEntry = (
     } else if (entry && typeof entry === 'object' && entry.expression !== undefined) {
       const raw = entry.expression;
       if (typeof raw === 'string') {
-        if (raw.length === 0) return yield* Effect.fail(new ParseError(`${optionName} expression cannot be empty`, ErrorCode.INVALID_INPUT));
+        if (raw.length === 0)
+          return yield* parseError({ _tag: ErrorCode.INVALID_INPUT, option: optionName }, `${optionName} expression cannot be empty`);
         pattern = raw;
       } else if (raw instanceof Expression) {
         pattern = raw.pattern;
       } else {
-        return yield* Effect.fail(new ParseError(`${optionName} expression must be a string or Expression instance`, ErrorCode.INVALID_INPUT));
+        return yield* parseError(
+          { _tag: ErrorCode.INVALID_INPUT, option: optionName, received: typeof raw },
+          `${optionName} expression must be a string or Expression instance`
+        );
       }
       nested = entry.nested === true;
       skipEnclosures = Array.isArray(entry.skipEnclosures) ? entry.skipEnclosures : [];
     } else {
-      return yield* Effect.fail(
-        new ParseError(
-          `Invalid ${optionName} entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.`,
-          ErrorCode.INVALID_INPUT
-        )
+      return yield* parseError(
+        { _tag: ErrorCode.INVALID_INPUT, option: optionName, received: typeof entry },
+        `Invalid ${optionName} entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.`
       );
     }
 

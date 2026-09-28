@@ -26,7 +26,7 @@ import { readDocType } from './doc-type-reader.ts';
 import { buildProfileForBuffer } from './encoding/encoding-profile.ts';
 import BufferSource from './input-source/buffer-source.ts';
 import StringSource from './input-source/string-source.ts';
-import { ErrorCode, ParseError, runBuilder, runXml } from './parse-error.ts';
+import { ErrorCode, ParseError, parseError, runBuilder, runXml } from './parse-error.ts';
 import { StopNodeProcessor } from './stop-node-processor.ts';
 import { DANGEROUS_PROPERTY_NAMES, absolutePosition, criticalProperties, errorPositionOf, sanitizeContent } from './util.ts';
 import { flushAttributes, readClosingTagName, readTagExp, tryMatchClosingTagName } from './xml-part-reader.ts';
@@ -387,7 +387,11 @@ export default class Xml2JsParser implements TagExpressionParser {
 
         const nextChar = this.source.readChAt(0);
         if (nextChar === '' || nextChar === undefined)
-          throw new ParseError("Unexpected end of source after '<'", ErrorCode.UNEXPECTED_END, errorPositionOf(this.source));
+          throw parseError(
+            { _tag: ErrorCode.UNEXPECTED_END, reading: `after '<'` },
+            "Unexpected end of source after '<'",
+            errorPositionOf(this.source).index
+          );
 
         //sorted frequency wise
         if (nextChar === '/') {
@@ -446,7 +450,7 @@ export default class Xml2JsParser implements TagExpressionParser {
       if (this.autoCloseHandler && hasOpenTags && !hasTrailingText) {
         this.autoCloseHandler.handleEof(this._parserState());
       } else {
-        throw new ParseError('Unexpected data in the end of document', ErrorCode.UNEXPECTED_TRAILING_DATA, errorPositionOf(this.source));
+        throw parseError({ _tag: ErrorCode.UNEXPECTED_TRAILING_DATA }, 'Unexpected data in the end of document', errorPositionOf(this.source).index);
       }
     }
   }
@@ -521,15 +525,19 @@ export default class Xml2JsParser implements TagExpressionParser {
     const closeMeta: CloseMeta = { name: tagName, index: tagStart.index, closeEnd: absolutePosition(this.source) };
 
     if (this.isUnpaired(tagName) || this.isStopNode()) {
-      throw new ParseError(`Unexpected closing tag '${tagName}'`, ErrorCode.UNEXPECTED_CLOSE_TAG, errorPositionOf(this.source));
+      throw parseError(
+        { _tag: ErrorCode.UNEXPECTED_CLOSE_TAG, tag: tagName },
+        `Unexpected closing tag '${tagName}'`,
+        errorPositionOf(this.source).index
+      );
     }
 
     if (tagName !== this.currentTagDetail?.name) {
       if (!this.autoCloseHandler) {
-        throw new ParseError(
+        throw parseError(
+          { _tag: ErrorCode.MISMATCHED_CLOSE_TAG, tag: tagName, expected: this.currentTagDetail?.name },
           `Unexpected closing tag '${tagName}' expecting '${this.currentTagDetail?.name}'`,
-          ErrorCode.MISMATCHED_CLOSE_TAG,
-          errorPositionOf(this.source)
+          errorPositionOf(this.source).index
         );
       }
 
@@ -604,9 +612,11 @@ export default class Xml2JsParser implements TagExpressionParser {
     if (maxNested !== undefined && maxNested !== null) {
       const depth = this.tagsStack.length + 1;
       if (depth > maxNested) {
-        throw new ParseError(`Nesting depth ${depth} exceeds limit of ${maxNested} (tag: '${processedTagName}')`, ErrorCode.LIMIT_MAX_NESTED_TAGS, {
-          index: tagDetail.index,
-        });
+        throw parseError(
+          { _tag: ErrorCode.LIMIT_MAX_NESTED_TAGS, limit: maxNested, depth },
+          `Nesting depth ${depth} exceeds limit of ${maxNested} (tag: '${processedTagName}')`,
+          tagDetail.index
+        );
       }
     }
 
@@ -625,7 +635,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     const skipTagConfig = stopNodeConfig ? null : this.isSkipTag();
 
     if (!options.skip.attributes && !skipTagConfig) {
-      flushAttributes(tagExp._parsedAttrs, this, tagExp._attrsExpStart, tagExp._rawAttrMatchCount);
+      flushAttributes(tagExp._parsedAttrs, this, tagExp._attrsExpStart, tagExp._rawAttrMatchCount, processedTagName);
     }
 
     // Stop-node and skip-tag checks AFTER attributes are set so attribute conditions work.
@@ -753,7 +763,11 @@ export default class Xml2JsParser implements TagExpressionParser {
     if (startCh === '!') {
       const nextChar = this.source.readCh();
       if (nextChar === null || nextChar === undefined)
-        throw new ParseError("Unexpected end of source after '<!'", ErrorCode.UNEXPECTED_END, errorPositionOf(this.source));
+        throw parseError(
+          { _tag: ErrorCode.UNEXPECTED_END, reading: `after '<!'` },
+          "Unexpected end of source after '<!'",
+          errorPositionOf(this.source).index
+        );
 
       if (nextChar === '-') {
         readComment(this);
@@ -764,7 +778,11 @@ export default class Xml2JsParser implements TagExpressionParser {
         // Entities are forwarded to the output builder only when doctypeOptions.enabled is true.
         const docTypeEntities = readDocType(this);
         if (this.doctypeFound) {
-          throw new ParseError('Multiple DOCTYPE declarations found.', ErrorCode.INVALID_INPUT, errorPositionOf(this.source));
+          throw parseError(
+            { _tag: ErrorCode.INVALID_INPUT, option: 'doctypeOptions' },
+            'Multiple DOCTYPE declarations found.',
+            errorPositionOf(this.source).index
+          );
         }
         this.doctypeFound = true;
         if (this.options.doctypeOptions.enabled && docTypeEntities && Object.keys(docTypeEntities).length > 0) {
@@ -772,7 +790,7 @@ export default class Xml2JsParser implements TagExpressionParser {
         }
       }
     } else {
-      throw new ParseError(`Invalid tag '<${startCh}'`, ErrorCode.INVALID_TAG, errorPositionOf(this.source));
+      throw parseError({ _tag: ErrorCode.INVALID_TAG, tag: `<${startCh}` }, `Invalid tag '<${startCh}'`, errorPositionOf(this.source).index);
     }
   }
 
@@ -846,11 +864,19 @@ export default class Xml2JsParser implements TagExpressionParser {
       if (attrName === false) return false;
       if (!runXml(this.getNameValidator('qName')(attrName))) {
         //TODO: make it optional
-        throw new ParseError(`Invalid attribute name: ${attrName}`, ErrorCode.INVALID_ATTRIBUTE_NAME, errorPositionOf(this.source));
+        throw parseError(
+          { _tag: ErrorCode.INVALID_ATTRIBUTE_NAME, name: attrName },
+          `Invalid attribute name: ${attrName}`,
+          errorPositionOf(this.source).index
+        );
       }
       attrName = sanitizeName(attrName, options.onDangerousProperty, options.sanitizeNames, this.source);
       if (options.strictReservedNames && attrName === options.attributes.groupBy) {
-        throw new ParseError(`Restricted attribute name: ${attrName}`, ErrorCode.SECURITY_RESTRICTED_NAME, errorPositionOf(this.source));
+        throw parseError(
+          { _tag: ErrorCode.SECURITY_RESTRICTED_NAME, name: attrName, kind: 'attribute' },
+          `Restricted attribute name: ${attrName}`,
+          errorPositionOf(this.source).index
+        );
       }
       return attrName;
     });
@@ -869,7 +895,11 @@ export default class Xml2JsParser implements TagExpressionParser {
       if (tagName === false) tagName = rawTagName;
       tagName = sanitizeName(tagName, options.onDangerousProperty, options.sanitizeNames, this.source);
       if (options.strictReservedNames && (tagName === nameFor.comment || tagName === nameFor.cdata || tagName === nameFor.text)) {
-        throw new ParseError(`Restricted tag name: ${tagName}`, ErrorCode.SECURITY_RESTRICTED_NAME, errorPositionOf(this.source));
+        throw parseError(
+          { _tag: ErrorCode.SECURITY_RESTRICTED_NAME, name: tagName, kind: 'tag' },
+          `Restricted tag name: ${tagName}`,
+          errorPositionOf(this.source).index
+        );
       }
       return tagName;
     });
@@ -949,7 +979,7 @@ function resolveNsPrefix(name: string, skipNsPrefix: boolean | undefined, source
       if (parts[0] === 'xmlns') return false; // drop xmlns declarations
       return parts[1] as string;
     } else if (parts.length > 2) {
-      throw new ParseError(`Multiple namespaces in name: ${name}`, ErrorCode.MULTIPLE_NAMESPACES, errorPositionOf(source));
+      throw parseError({ _tag: ErrorCode.MULTIPLE_NAMESPACES, name }, `Multiple namespaces in name: ${name}`, errorPositionOf(source).index);
     }
   }
   return name;
@@ -964,10 +994,10 @@ function resolveNsPrefix(name: string, skipNsPrefix: boolean | undefined, source
  */
 function sanitizeName(name: string, onDangerousProperty: (n: string) => string, sanitizeNames: boolean | undefined, source: InputSourceLike): string {
   if (criticalProperties.includes(name)) {
-    throw new ParseError(
+    throw parseError(
+      { _tag: ErrorCode.SECURITY_PROTOTYPE_POLLUTION, name },
       `[SECURITY] Invalid name: "${name}" is a reserved JavaScript keyword that could cause prototype pollution`,
-      ErrorCode.SECURITY_PROTOTYPE_POLLUTION,
-      errorPositionOf(source)
+      errorPositionOf(source).index
     );
   }
   if (sanitizeNames === false) return name;

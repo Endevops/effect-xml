@@ -1,6 +1,6 @@
 import type { AttributeMeta, ParsedAttribute, RawAttributeMatch, TagExpressionParser } from './internal/parser-types.ts';
 
-import { ParseError, ErrorCode, runBuilder } from './parse-error.js';
+import { ErrorCode, parseError, runBuilder } from './parse-error.js';
 import { isSpaceCode, errorPositionOf } from './util.js';
 
 /**
@@ -57,10 +57,10 @@ function scanAttrValue(attrStr: string, i: number, end: number, parser: TagExpre
       value += attrStr.substring(segStart, i) + ' ';
       segStart = i + 1;
     } else if (isIllegalAttrCode(c)) {
-      throw new ParseError(
+      throw parseError(
+        { _tag: ErrorCode.ILLEGAL_CHARACTER, code: c, in: 'attribute' },
         `Illegal control character 0x${c.toString(16).padStart(2, '0')} in attribute value`,
-        ErrorCode.ILLEGAL_CHARACTER,
-        parser ? errorPositionOf(parser.source) : {}
+        parser ? errorPositionOf(parser.source).index : undefined
       );
     }
   }
@@ -137,10 +137,10 @@ function parseAttributes(
     const quote = attrStr.charCodeAt(i); // NaN when i >= len — also fails both checks below
     if (quote !== 34 && quote !== 39) {
       // not " or '
-      throw new ParseError(
+      throw parseError(
+        { _tag: ErrorCode.UNQUOTED_ATTRIBUTE_VALUE, name },
         `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
-        ErrorCode.UNQUOTED_ATTRIBUTE_VALUE,
-        parser ? errorPositionOf(parser.source) : {}
+        parser ? errorPositionOf(parser.source).index : undefined
       );
     }
 
@@ -241,7 +241,11 @@ export function collectRawAttributes(
     if (seen) {
       if (seen.has(m.name)) {
         if (dupMode === 'throw') {
-          throw new ParseError(`Duplicate attribute '${m.name}'`, ErrorCode.DUPLICATE_ATTRIBUTE, errorPositionOf(parser.source));
+          throw parseError(
+            { _tag: ErrorCode.DUPLICATE_ATTRIBUTE, name: m.name },
+            `Duplicate attribute '${m.name}'`,
+            errorPositionOf(parser.source).index
+          );
         }
         continue; // 'ignore' — first occurrence wins, later ones dropped entirely
       }
@@ -251,7 +255,11 @@ export function collectRawAttributes(
     const rawVal = m.value;
     if (rawVal === undefined) {
       if (boolMode === 'throw') {
-        throw new ParseError(`Valueless attribute '${m.name}' is not allowed`, ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED, errorPositionOf(parser.source));
+        throw parseError(
+          { _tag: ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED, name: m.name },
+          `Valueless attribute '${m.name}' is not allowed`,
+          errorPositionOf(parser.source).index
+        );
       }
       if (boolMode === 'ignore') continue; // drop silently, rest of tag unaffected
     }
@@ -279,6 +287,10 @@ export function collectRawAttributes(
  *   from `index` plus the document text.
  * @param rawAttrMatchCount - `TagExp._rawAttrMatchCount`, used for the `maxAttributesPerTag` limit check (counts all parsed attributes, including any
  *   dropped by `processAttrName`, matching the limit's pre-existing semantics).
+ * @param tagName - The name of the tag these attributes belong to, for the limit's error. Passed in rather than read from `parser.currentTagDetail`,
+ *   because pass 2 runs from `readOpeningTag()` _before_ the tag is pushed — so `currentTagDetail` is still the parent, or the synthetic root, and
+ *   the error named the wrong tag. It read as `Tag '' has 3 attributes` for a limit that is otherwise perfectly clear, and a caller had no way to
+ *   tell which tag was refused.
  *
  * @throws {ParseError} `LIMIT_MAX_ATTRIBUTES` when the tag carries more attributes than the limit allows.
  */
@@ -286,17 +298,17 @@ export function flushAttributes(
   parsedAttrs: ParsedAttribute[] | undefined,
   parser: TagExpressionParser,
   attrsExpStart: number | undefined,
-  rawAttrMatchCount: number
+  rawAttrMatchCount: number,
+  tagName: string
 ): void {
   if (!parsedAttrs || parsedAttrs.length === 0) return;
 
   const maxAttrs = parser.options.limits?.maxAttributesPerTag;
   if (maxAttrs !== undefined && maxAttrs !== null && rawAttrMatchCount > maxAttrs) {
-    const tagName = parser.currentTagDetail?.name ?? '(unknown)';
-    throw new ParseError(
+    throw parseError(
+      { _tag: ErrorCode.LIMIT_MAX_ATTRIBUTES, limit: maxAttrs, count: rawAttrMatchCount, tag: tagName },
       `Tag '${tagName}' has ${rawAttrMatchCount} attributes, exceeding limit of ${maxAttrs}`,
-      ErrorCode.LIMIT_MAX_ATTRIBUTES,
-      errorPositionOf(parser.source)
+      errorPositionOf(parser.source).index
     );
   }
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue, LimitsOptions } from '#/options.ts';
 
-import { ParseError, ErrorCode } from '#/parse-error.ts';
+import { ErrorCode, ParseError, parseError } from '#/parse-error.ts';
 import { makeParser, makeParserOrThrow, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -285,7 +285,7 @@ describe('ParseError — general error contract', function () {
   });
 
   it('ParseError should have a meaningful toString()', function () {
-    const e = new ParseError('bad tag', ErrorCode.UNEXPECTED_CLOSE_TAG, { index: 50 });
+    const e = parseError({ _tag: ErrorCode.UNEXPECTED_CLOSE_TAG, tag: 'b' }, 'bad tag', 50);
     const str = e.toString();
     expect(str).toContain('ParseError');
     expect(str).toContain('UNEXPECTED_CLOSE_TAG');
@@ -294,7 +294,7 @@ describe('ParseError — general error contract', function () {
   });
 
   it('ParseError without position still has a useful toString()', function () {
-    const e = new ParseError('bad input', ErrorCode.INVALID_INPUT);
+    const e = parseError({ _tag: ErrorCode.INVALID_INPUT, option: 'limits' }, 'bad input');
     expect(e.index).toBeUndefined();
     expect(e.toString()).toContain('[INVALID_INPUT]');
     expect(e.toString()).toContain('bad input');

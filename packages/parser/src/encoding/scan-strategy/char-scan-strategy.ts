@@ -1,7 +1,7 @@
 import type { CharScanContext, ScanStrategy } from '../../input-source/input-source.ts';
 
 import { scanTagExpEnd, scanTagExpEndFast } from '../../input-source/scan-tag-exp-end.js';
-import { ParseError, ErrorCode } from '../../parse-error.js';
+import { ErrorCode, parseError } from '../../parse-error.js';
 import { isSpace } from '../../util.js';
 
 /**
@@ -71,13 +71,13 @@ export function createCharScanStrategy(): ScanStrategy {
           return result;
         }
       }
-      throw new ParseError(`Unexpected end of source reading '${stopStr}'`, ErrorCode.UNEXPECTED_END);
+      throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
     },
 
     readUptoChar(this: CharScanContext, stopChar: string) {
       const i = this.buffer.indexOf(stopChar, this.startIndex);
       if (i === -1) {
-        throw new ParseError(`Unexpected end of source reading '${stopChar}'`, ErrorCode.UNEXPECTED_END);
+        throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopChar}'` }, `Unexpected end of source reading '${stopChar}'`);
       }
       const result = this.buffer.substring(this.startIndex, i);
       this.startIndex = i + 1;
@@ -126,7 +126,7 @@ export function createCharScanStrategy(): ScanStrategy {
         }
       }
 
-      throw new ParseError(`Unexpected end of source reading '${stopStr}'`, ErrorCode.UNEXPECTED_END);
+      throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` }, `Unexpected end of source reading '${stopStr}'`);
     },
 
     readFromBuffer(this: CharScanContext, n: number, shouldUpdate?: boolean) {

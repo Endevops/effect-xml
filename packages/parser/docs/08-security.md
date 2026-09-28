@@ -8,7 +8,7 @@
 
 `ParseError` is the one type in the error channel of every effect this package returns, so you can
 distinguish parser errors from unexpected runtime bugs with a single `instanceof` check. It is a plain
-`Error` subclass with no `_tag`, which is why `Effect.catchTag` does not apply to it — match on
+`Schema.TaggedError`, so `Effect.catchTag` and `Effect.catchReason` both apply — match on
 `code`.
 
 Inspect a failure without catching a throw, using `Effect.runSyncExit` (which hands the failure back,
@@ -36,18 +36,18 @@ import { ErrorCode, ParseError } from '@endevops/parser';
 
 const rejected = Effect.catchIf(
   parser.parse(xmlInput),
-  (e): e is ParseError => e.code === ErrorCode.SECURITY_PROTOTYPE_POLLUTION,
+  (e): e is ParseError => e.reason._tag === ErrorCode.SECURITY_PROTOTYPE_POLLUTION,
   () => Effect.succeed(null) // anything not matched is re-failed
 );
 ```
 
 ### ParseError properties
 
-| Property  | Type                  | Description                                      |
-| --------- | --------------------- | ------------------------------------------------ |
-| `message` | `string`              | Human-readable description                       |
-| `code`    | `ErrorCodeValue`      | Machine-readable code                            |
-| `index`   | `number \| undefined` | 0-based character offset from the document start |
+| Property  | Type                  | Description                                       |
+| --------- | --------------------- | ------------------------------------------------- |
+| `message` | `string`              | Human-readable description                        |
+| `code`    | `ErrorCodeValue`      | Machine-readable code; an alias for `reason._tag` |
+| `index`   | `number \| undefined` | 0-based character offset from the document start  |
 
 There is no `line` and no `col`. This parser does no line or column tracking, so a position is an
 offset into the source document or nothing at all. See [05-output-builders.md](./05-output-builders.md#position-meta-data).

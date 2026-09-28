@@ -97,7 +97,7 @@ These are records, not `ParseError`s. They report what recovery did; they do not
 ## Recovering at the Effect Level
 
 `autoClose` is one recovery strategy — a policy the parser applies to itself. The other is to let
-the parse fail and handle the code at the call site, which is what `Effect.catchIf` is for:
+the parse fail and handle the reason at the call site, which is what `Effect.catchReason` is for:
 
 ```typescript
 import { Effect } from 'effect';
@@ -110,24 +110,24 @@ const program = Effect.gen(function* () {
 
 const lenient = Effect.catchIf(
   program,
-  (e): e is ParseError => e.code === ErrorCode.MISMATCHED_CLOSE_TAG,
+  (e): e is ParseError => e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG,
   () => Effect.succeed({ truncated: true })
 );
 ```
 
-`catchIf` matches one code and re-fails everything else, so the fallback cannot quietly swallow a
+`catchReason` matches one reason and re-fails everything else, so the fallback cannot quietly swallow a
 security failure. When the recovery is itself more than one step, `Effect.matchEffect` takes the
 same shape with an `onFailure` branch that re-fails whatever it does not handle:
 
 ```typescript
 const lenient = Effect.matchEffect(parser.parse(html), {
   onFailure: (e): Effect.Effect<unknown, ParseError> =>
-    e.code === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
+    e.reason._tag === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
   onSuccess: value => Effect.succeed(value),
 });
 ```
 
-`ParseError` is a plain `Error` subclass with no `_tag`, so `Effect.catchTag` does not apply to it —
+`ParseError` is a `Schema.TaggedError`, so `Effect.catchTag` applies to it and `Effect.catchReason` gives the handler the payload —
 match on `code`. And note the asymmetry: `Effect.runSync` **throws** a failed effect's error while
 `Effect.runSyncExit` hands it back, so a parse expected to fail wants the latter rather than a
 `try` around the former:

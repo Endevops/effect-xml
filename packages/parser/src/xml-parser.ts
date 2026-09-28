@@ -10,7 +10,7 @@ import EncodingRegistry, { defaultEncodingRegistry } from './encoding/encoding-r
 import FeedableSource from './input-source/feedable-source.js';
 import StreamSource from './input-source/stream-source.js';
 import { buildOptions } from './options-builder.js';
-import { ParseError, ErrorCode, toParseError } from './parse-error.js';
+import { ErrorCode, ParseError, parseError, toParseError } from './parse-error.js';
 import { absolutePosition } from './util.js';
 import Xml2JsParser from './xml2-js-parser.js';
 
@@ -148,7 +148,7 @@ export default class XMLParser {
       if (xmlData && typeof xmlData.toString === 'function') {
         xmlData = xmlData.toString();
       } else {
-        return Effect.fail(new ParseError('XML data must be a string or Buffer.', ErrorCode.INVALID_INPUT));
+        return parseError({ _tag: ErrorCode.INVALID_INPUT, option: 'xmlData', received: typeof xmlData }, 'XML data must be a string or Buffer.');
       }
     }
 
@@ -173,7 +173,10 @@ export default class XMLParser {
    */
   parseBytesArr(xmlData: Uint8Array | ArrayBufferView): Effect.Effect<unknown, ParseError> {
     if (!ArrayBuffer.isView(xmlData)) {
-      return Effect.fail(new ParseError('XML data must be a Uint8Array or ArrayBufferView.', ErrorCode.INVALID_INPUT));
+      return parseError(
+        { _tag: ErrorCode.INVALID_INPUT, option: 'xmlData', received: typeof xmlData },
+        'XML data must be a Uint8Array or ArrayBufferView.'
+      );
     }
     const bytes = Buffer.from(xmlData.buffer, xmlData.byteOffset, xmlData.byteLength);
 
@@ -203,7 +206,7 @@ export default class XMLParser {
    */
   parseStream(readable: NodeJS.ReadableStream): Effect.Effect<unknown, ParseError> {
     if (!isReadableStream(readable)) {
-      return Effect.fail(new ParseError('parseStream() requires a Node.js Readable stream.', ErrorCode.INVALID_STREAM));
+      return parseError({ _tag: ErrorCode.INVALID_STREAM }, 'parseStream() requires a Node.js Readable stream.');
     }
 
     const source = new StreamSource({
@@ -357,7 +360,7 @@ export default class XMLParser {
    */
   end(): Effect.Effect<unknown, ParseError> {
     if (!this.#isFeeding) {
-      return Effect.fail(new ParseError('No data fed. Call feed() before end().', ErrorCode.NOT_STREAMING));
+      return parseError({ _tag: ErrorCode.NOT_STREAMING }, 'No data fed. Call feed() before end().');
     }
     const parser = this.#feedParser as Xml2JsParser;
     const source = this.#feedSource as FeedableSource;

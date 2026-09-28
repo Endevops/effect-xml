@@ -2,7 +2,7 @@ import type { InputSourceLike } from './input-source/input-source.ts';
 import type { StopNodeResult } from './internal/parser-types.ts';
 import type { Enclosure } from './internal/tag-expression.ts';
 
-import { ParseError, ErrorCode } from './parse-error.js';
+import { ErrorCode, type ParseError, parseError } from './parse-error.js';
 import { isSpace, ensureCanRead, absolutePosition } from './util.js';
 
 /**
@@ -369,7 +369,10 @@ export class StopNodeProcessor {
    * @description The "ran out of input before the stop node closed" error, identical across all four collection strategies.
    */
   #unclosedError(): ParseError {
-    return new ParseError(`Unclosed stop node <${this.#tagName}> — unexpected end of input`, ErrorCode.UNEXPECTED_END);
+    return parseError(
+      { _tag: ErrorCode.UNEXPECTED_END, reading: `stop node <${this.#tagName}> content` },
+      `Unclosed stop node <${this.#tagName}> — unexpected end of input`
+    );
   }
 
   /**
@@ -405,7 +408,10 @@ export class StopNodeProcessor {
       len++;
     }
 
-    throw new ParseError(`Unclosed stop node <${this.#tagName}> — unexpected end looking for '${stopStr}'`, ErrorCode.UNEXPECTED_END);
+    throw parseError(
+      { _tag: ErrorCode.UNEXPECTED_END, reading: `'${stopStr}'` },
+      `Unclosed stop node <${this.#tagName}> — unexpected end looking for '${stopStr}'`
+    );
   }
 
   /**
@@ -472,7 +478,10 @@ export class StopNodeProcessor {
       }
     }
 
-    throw new ParseError(`Unclosed stop node <${this.#tagName}> — unexpected end inside tag`, ErrorCode.UNEXPECTED_END);
+    throw parseError(
+      { _tag: ErrorCode.UNEXPECTED_END, reading: `stop node <${this.#tagName}> tag` },
+      `Unclosed stop node <${this.#tagName}> — unexpected end inside tag`
+    );
   }
 
   /**
@@ -489,9 +498,12 @@ export class StopNodeProcessor {
       len++;
       if (ch === '>') return source.readStr(len, start);
       if (!isSpace(ch)) {
-        throw new ParseError(`Malformed closing tag for </${this.#tagName}>`, ErrorCode.UNEXPECTED_END);
+        throw parseError(
+          { _tag: ErrorCode.UNEXPECTED_END, reading: `malformed </${this.#tagName}>` },
+          `Malformed closing tag for </${this.#tagName}>`
+        );
       }
     }
-    throw new ParseError(`Unclosed stop node <${this.#tagName}> — unexpected end looking for '>'`, ErrorCode.UNEXPECTED_END);
+    throw parseError({ _tag: ErrorCode.UNEXPECTED_END, reading: `'>'` }, `Unclosed stop node <${this.#tagName}> — unexpected end looking for '>'`);
   }
 }
