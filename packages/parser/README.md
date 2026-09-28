@@ -1,4 +1,4 @@
-# @endevops/flexible-xml-parser-effect
+# @endevops/parser
 
 A fork of [`@nodable/flexible-xml-parser`](https://github.com/nodable/flexible-xml-parser), a high-performance XML parser in pure JavaScript with pluggable output builders, composable value parsers, and string, buffer, stream, and incremental feed input modes.
 
@@ -21,7 +21,7 @@ The parser behaviour is the same. The changes are in how the code is written and
 | Latent bugs fixed in specs and entity handling       | Found while typing, listed in the commit history                       |
 | Path matching and name validation are workspace pkgs | The `path-expression-matcher` type augmentations are gone; see below   |
 
-Two known differences worth calling out: `test/compact-builder-force.spec.ts` and the `@nodable/entities` augmentation in `src/nodable-entities.d.ts` are fork-local.
+Two known differences worth calling out: `test/compact-builder-force.spec.ts` is fork-local.
 
 `bench/parse.bench.ts` is a [Vitest benchmark](https://vitest.dev/guide/benchmarking.html) comparing whole-shot `parse()` against chunked `feed()`/`end()`. Run it with `vp run bench` from the workspace root, or `vp test bench packages/parser` for this package alone. `vp test` skips it.
 
@@ -29,9 +29,9 @@ Two known differences worth calling out: `test/compact-builder-force.spec.ts` an
 
 The parser used to carry `src/path-expression-matcher.d.ts`, a module augmentation patching three things the published `index.d.ts` got wrong: the third `data` constructor argument it never declared, `findMatch()`'s non-nullable return, and the stale doc comments. It also exported a `ConfigurableExpressionCtor` alias, because the two-argument declaration made the parser's three-argument construction a `TS2554` at every call site.
 
-All four are now real. `@endevops/path-expression-matcher` is generic over the expression payload, so `ExpressionSet<TagExpressionConfig>` carries the config type from construction through to `findMatch().data` with no cast and no augmentation — which is what let the file be deleted rather than trimmed.
+All four are now real. `Expression` and `ExpressionSet` — which ship in `@endevops/common-xml` — are generic over the expression payload, so `ExpressionSet<TagExpressionConfig>` carries the config type from construction through to `findMatch().data` with no cast and no augmentation, which is what let the file be deleted rather than trimmed.
 
-`@nodable/base-output-builder` and `@nodable/compact-builder` still ship declarations that name the _upstream_ `path-expression-matcher` from npm. A pnpm `overrides` entry points that transitive dependency at the workspace package, so the tree holds one copy of the types rather than two structurally-identical-but-distinct ones; without it, every builder factory fails to satisfy the parser's structural contract. The remaining `src/nodable-builders.d.ts` augmentations are unrelated to this and still needed.
+The output builders are in the workspace too, as `@endevops/builder`. Upstream `@nodable/base-output-builder` and `@nodable/compact-builder` ship declarations that name the _upstream_ `path-expression-matcher` from npm, so a pnpm `overrides` entry used to point that transitive dependency at the workspace package — one copy of the types rather than two structurally-identical-but-distinct ones, without which every builder factory failed to satisfy the parser's structural contract. Merging the builders into this workspace removed the need for that override, and with it the remaining `src/nodable-builders.d.ts` augmentations.
 
 ## Installation
 
@@ -42,12 +42,12 @@ pnpm install
 pnpm build
 ```
 
-Its runtime dependencies are `@nodable/base-output-builder` and `@nodable/compact-builder` from npm, plus the two workspace packages `@endevops/path-expression-matcher` and `@endevops/xml-naming`.
+Its runtime dependencies are the two workspace packages `@endevops/common-xml` and `@endevops/builder`.
 
 ## Quick start
 
 ```javascript
-import XMLParser from '@endevops/flexible-xml-parser-effect';
+import XMLParser from '@endevops/parser';
 
 const parser = new XMLParser();
 parser.parse('<root><count>3</count><active>true</active></root>');

@@ -1,7 +1,7 @@
-import type { ValueParserRegistryLike } from '@endevops/base-output-builder';
-import type { MatcherView } from '@endevops/path-expression-matcher';
+import type { ValueParserRegistryLike } from '@endevops/builder';
+import type { MatcherView } from '@endevops/common-xml';
 
-import { CompactBuilder, CompactBuilderFactory } from '@endevops/compact-builder';
+import { CompactBuilder, CompactBuilderFactory } from '@endevops/builder';
 
 import type { AttributeMeta, CloseMeta, OutputBuilderLike, TagDetailLike, XmlDeclaration } from '#/internal/parser-types.ts';
 import type { X2jOptions } from '#/options.ts';

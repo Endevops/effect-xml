@@ -1,5 +1,5 @@
-import { CompactBuilderFactory } from '@endevops/compact-builder';
-import { Expression } from '@endevops/path-expression-matcher';
+import { CompactBuilderFactory } from '@endevops/builder';
+import { Expression } from '@endevops/common-xml';
 import { describe, it, expect } from 'vite-plus/test';
 
 import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';

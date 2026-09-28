@@ -1,4 +1,4 @@
-import { Expression } from '@endevops/path-expression-matcher';
+import { Expression } from '@endevops/common-xml';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { ExitIfPredicate } from '#/options.ts';

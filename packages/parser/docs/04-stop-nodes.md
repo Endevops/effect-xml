@@ -31,7 +31,7 @@ By default, stop-node collection ends at the **first matching close tag**, regar
 To control this, use the object form with `skipEnclosures`:
 
 ```javascript
-import { xmlEnclosures, quoteEnclosures } from '@endevops/flexible-xml-parser-effect';
+import { xmlEnclosures, quoteEnclosures } from '@endevops/parser';
 
 const parser = new XMLParser({
   tags: {
@@ -104,7 +104,7 @@ const parser = new XMLParser({
 Like stop nodes, entries can be plain strings or objects with `skipEnclosures`:
 
 ```javascript
-import { xmlEnclosures } from '@endevops/flexible-xml-parser-effect';
+import { xmlEnclosures } from '@endevops/parser';
 
 skip: {
   tags: [

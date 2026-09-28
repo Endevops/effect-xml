@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-npm install @endevops/flexible-xml-parser-effect @endevops/compact-builder
+npm install @endevops/parser @endevops/builder
 ```
 
 Install additional output builders only as needed:
@@ -16,7 +16,7 @@ npm install @nodable/sequential-builder
 ## Your First Parser
 
 ```javascript
-import XMLParser from '@endevops/flexible-xml-parser-effect';
+import XMLParser from '@endevops/parser';
 
 const parser = new XMLParser();
 const result = parser.parse(`
@@ -66,7 +66,7 @@ for (const item of feed.rss.channel.item) {
 ### Keep everything as raw strings
 
 ```javascript
-import { CompactBuilderFactory } from '@endevops/compact-builder';
+import { CompactBuilderFactory } from '@endevops/builder';
 
 const builder = new CompactBuilderFactory({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } });
 const parser = new XMLParser({ OutputBuilder: builder });
@@ -76,8 +76,8 @@ const parser = new XMLParser({ OutputBuilder: builder });
 ### Keep leading zeros (e.g. SKUs, zip codes)
 
 ```javascript
-import { CompactBuilderFactory } from '@endevops/compact-builder';
-import { NumberValueParser } from '@endevops/base-output-builder';
+import { CompactBuilderFactory } from '@endevops/builder';
+import { NumberValueParser } from '@endevops/builder';
 
 const builder = new CompactBuilderFactory({ tags: { valueParsers: ['entity', new NumberValueParser({ leadingZeros: false }), 'boolean'] } });
 const parser = new XMLParser({ OutputBuilder: builder });

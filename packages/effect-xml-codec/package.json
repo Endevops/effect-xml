@@ -46,12 +46,11 @@
     "prepublishOnly": "vp pack"
   },
   "dependencies": {
-    "@endevops/entities": "workspace:^",
-    "@endevops/xml-naming": "workspace:^"
+    "@endevops/common-xml": "workspace:^"
   },
   "devDependencies": {
-    "@endevops/flexible-xml-parser-effect": "workspace:^",
-    "@endevops/xml-builder": "workspace:^",
+    "@endevops/builder": "workspace:^",
+    "@endevops/parser": "workspace:^",
     "effect": "catalog:",
     "fast-xml-builder": "^1.3.1",
     "fast-xml-parser": "^5.11.1",

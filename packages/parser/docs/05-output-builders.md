@@ -10,11 +10,16 @@ Builders live in separate packages so you only install what you need.
 
 | Package                              | Builder                          | Output shape                                      |
 | ------------------------------------ | -------------------------------- | ------------------------------------------------- |
-| `@endevops/compact-builder`          | `CompactBuilderFactory`          | JS object (default, like fast-xml-parser)         |
+| `@endevops/builder`                  | `CompactBuilderFactory`          | JS object (default, like fast-xml-parser)         |
 | `@nodable/sequential-builder`        | `SequentialBuilderFactory`       | Ordered key-value array, preserves document order |
 | `@nodable/sequential-stream-builder` | `SequentialStreamBuilderFactory` | Same as sequential but streams output             |
 | `@nodable/node-tree-builder`         | `NodeTreeBuilderFactory`         | Uniform AST node tree                             |
-| `@endevops/base-output-builder`      | `BaseValueParser`                | Base class for custom value parsers               |
+| `@endevops/builder`                  | `BaseValueParser`                | Base class for custom value parsers               |
+
+`CompactBuilderFactory` and `BaseValueParser` are two parts of the same package
+now: the base class and the concrete compact builder moved into
+[`@endevops/builder`](../builder) together, because writing one output builder
+needs both.
 
 ---
 
@@ -23,7 +28,7 @@ Builders live in separate packages so you only install what you need.
 Produces a compact JS object. When a tag appears once it becomes a value; when it appears multiple times it becomes an array. This is the default when no `OutputBuilder` is specified.
 
 ```javascript
-import { CompactBuilderFactory } from '@endevops/compact-builder';
+import { CompactBuilderFactory } from '@endevops/builder';
 
 const builder = new CompactBuilderFactory({
   alwaysArray: ['..item', '..book'], // always wrap these tags in arrays
@@ -101,7 +106,7 @@ Attributes are always grouped under `:@` (the `attributes.groupBy` option is ign
 
 The `OutputBuilder` option takes a **factory**, not a builder. The parser calls `getInstance()` on it before every parse, which is what gives each run a fresh builder. The factory's `parserOptions` and `readonlyMatcher` arguments are optional in your signature: a function that takes fewer parameters is assignable to one that takes more.
 
-Do not extend `BaseOutputBuilder` from `@endevops/base-output-builder` for this. Its shipped declarations and its shipped implementation both fall short: it declares `addElement` with one parameter where the parser passes two, and at runtime the class implements none of the four methods the parser calls (`addElement`, `closeElement`, `addValue`, `getOutput`). A subclass that defines only `addElement` and `getOutput` throws `TypeError: this.outputBuilder.closeElement is not a function` on the first closing tag.
+Do not extend `BaseOutputBuilder` from `@endevops/builder` for this. Its shipped declarations and its shipped implementation both fall short: it declares `addElement` with one parameter where the parser passes two, and at runtime the class implements none of the four methods the parser calls (`addElement`, `closeElement`, `addValue`, `getOutput`). A subclass that defines only `addElement` and `getOutput` throws `TypeError: this.outputBuilder.closeElement is not a function` on the first closing tag.
 
 Implement the builder structurally instead. It needs no base class, no import and no cast:
 
@@ -147,7 +152,7 @@ A typed version of the same builder, and the full list of the ten methods, is in
 Subclass existing builders (e.g. `CompactBuilder`) to add behaviour while keeping normal object output. `CompactBuilder` does implement all four methods, so this path works where extending the base class does not:
 
 ```javascript
-import { CompactBuilder } from '@endevops/compact-builder';
+import { CompactBuilder } from '@endevops/builder';
 
 class LowerCaseTagBuilder extends CompactBuilder {
   addElement(tag, matcher) {

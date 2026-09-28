@@ -1,4 +1,4 @@
-import { CompactBuilderFactory } from '@endevops/compact-builder';
+import { CompactBuilderFactory } from '@endevops/builder';
 import { describe, expect } from 'vite-plus/test';
 
 import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';

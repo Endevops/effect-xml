@@ -1,7 +1,7 @@
-import type { Expression as PathExpression } from '@endevops/path-expression-matcher';
+import type { Expression as PathExpression } from '@endevops/common-xml';
 
-import { CompactBuilderFactory } from '@endevops/compact-builder';
-import { Expression, ExpressionSet } from '@endevops/path-expression-matcher';
+import { CompactBuilderFactory } from '@endevops/builder';
+import { Expression, ExpressionSet } from '@endevops/common-xml';
 
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
@@ -11,9 +11,9 @@ import { ParseError, ErrorCode } from './parse-error.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
 
 /**
- * @description A path expression carrying this parser's per-entry stop-node/skip-tag config. `@endevops/path-expression-matcher` is generic over the payload, so
- * the type argument is all that is needed to keep `.data` typed from construction through to `findMatch()`. The alias exists because the type appears
- * on both sides of this file and the full instantiation is noisy.
+ * @description A path expression carrying this parser's per-entry stop-node/skip-tag config. `@endevops/common-xml` is generic over the payload, so the type
+ * argument is all that is needed to keep `.data` typed from construction through to `findMatch()`. The alias exists because the type appears on both
+ * sides of this file and the full instantiation is noisy.
  */
 type ConfigExpression = PathExpression<TagExpressionConfig>;
 

@@ -1,8 +1,8 @@
-import type { MatcherView, PushOptions } from '@endevops/path-expression-matcher';
-import type { Production } from '@endevops/xml-naming';
+import type { MatcherView, PushOptions } from '@endevops/common-xml';
+import type { Production } from '@endevops/common-xml';
 
-import { ExpressionSet, Matcher } from '@endevops/path-expression-matcher';
-import { createValidator } from '@endevops/xml-naming';
+import { ExpressionSet, Matcher } from '@endevops/common-xml';
+import { createValidator } from '@endevops/common-xml';
 
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type {

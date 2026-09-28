@@ -1,6 +1,6 @@
 # 09 — Path Expressions
 
-`@endevops/flexible-xml-parser-effect` uses [`path-expression-matcher`](https://github.com/NaturalIntelligence/path-expression-matcher) for all path-based features: `stopNodes`, `skip.tags`, `exitIf`, and value parser context.
+`@endevops/parser` uses the path matcher from [`@endevops/common-xml`](../common-xml) for all path-based features: `stopNodes`, `skip.tags`, `exitIf`, and value parser context.
 
 ---
 
@@ -99,7 +99,7 @@ const parser = new XMLParser({ tags: { valueParsers: [new CurrencyParser()] } })
 The `matcher` passed to `addElement`, `closeElement`, and `addValue` reflects the current position:
 
 ```javascript
-import { CompactBuilder } from '@endevops/compact-builder';
+import { CompactBuilder } from '@endevops/builder';
 import { Expression } from 'path-expression-matcher';
 
 const internalExpr = new Expression('..internal');

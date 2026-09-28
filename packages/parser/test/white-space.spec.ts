@@ -1,5 +1,5 @@
-import { WSNormalizer } from '@endevops/base-output-builder';
-import { CompactBuilderFactory } from '@endevops/compact-builder';
+import { WSNormalizer } from '@endevops/builder';
+import { CompactBuilderFactory } from '@endevops/builder';
 import { describe, it, expect } from 'vite-plus/test';
 
 import { parseDoc } from '#/test/helpers/test-runner.ts';

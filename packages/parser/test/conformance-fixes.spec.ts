@@ -1,4 +1,4 @@
-import { CompactBuilderFactory } from '@endevops/compact-builder';
+import { CompactBuilderFactory } from '@endevops/builder';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue } from '#/options.ts';

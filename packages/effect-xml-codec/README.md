@@ -70,7 +70,7 @@ decision rather than the parser's:
 | `parseXmlSync(text, options?)`            | The same, throwing instead.                              |
 | `parseXmlDocument(text, options?)`        | The same, keeping the root element's name.               |
 | `escapeText` / `escapeAttribute`          | The escaping the renderer applies.                       |
-| `resolveName`, `isValidName`              | Name validation and repair, from `@endevops/xml-naming`. |
+| `resolveName`, `isValidName`              | Name validation and repair, from `@endevops/common-xml`. |
 | `isXmlValue`, `isXmlRecord`, `isXmlArray` | Runtime guards for the value model.                      |
 | `XmlValueSchema`                          | A `Schema` for an `XmlValue`, for a value from outside.  |
 | `XmlParseError`, `XmlNameError`           | The two failures that are not schema mismatches.         |
@@ -103,23 +103,23 @@ application depends on should not be. `XmlCodec` is a plain interface instead,
 built entirely on public API, and every operation Effect itself exposes —
 `Schema.encodeSync`, `decodeUnknownEffect` and the rest — is available on it.
 
-**Escaping is XML's, not HTML's.** `@endevops/entities` is used with
-`encodeAllNamed: false`. Its named tables are HTML's, and an HTML name such as
-`&eacute;` is well-formed XML that no parser will resolve, so the only names this
-package writes are the five XML predefines. A character reference in an
-attribute value is still spelled as one where XML's whitespace normalization
-would otherwise eat it: a literal newline in an attribute comes back as a space
-unless it is written `&#10;`.
+**Escaping is XML's, not HTML's.** `EntityEncoder` from `@endevops/common-xml`
+is used with `encodeAllNamed: false`. Its named tables are HTML's, and an HTML
+name such as `&eacute;` is well-formed XML that no parser will resolve, so the
+only names this package writes are the five XML predefines. A character reference
+in an attribute value is still spelled as one where XML's whitespace
+normalization would otherwise eat it: a literal newline in an attribute comes
+back as a space unless it is written `&#10;`.
 
 **Comments and processing instructions are markup, not data.** The parser skips
-them, which is what `@endevops/xml-builder` does by default. CDATA becomes
-character data, since that is what it is.
+them, which is what `XMLBuilder` does by default. CDATA becomes character data,
+since that is what it is.
 
 ## Performance
 
 `bench/codec.bench.ts` measures this package alone, split by layer so the cost
 of Effect's derivation and the cost of this package's renderer are told apart.
-`bench/comparison.bench.ts` measures it against `@endevops/xml-builder` and the
+`bench/comparison.bench.ts` measures it against `@endevops/builder` and the
 two parsers. Run both with `vp test bench packages/effect-xml-codec`.
 
 | Benchmark                   | Throughput |
@@ -133,7 +133,7 @@ two parsers. Run both with `vp test bench packages/effect-xml-codec`.
 Two findings shaped the code, and both are measured rather than assumed:
 
 - **Escaping was the whole cost of a large document.**
-  `@endevops/entities` escapes by applying five sequential global replacements,
+  `EntityEncoder` escapes by applying five sequential global replacements,
   one per character, so a document with a single `&` in twenty thousand
   characters was scanned five times over to change one byte — 58µs for that one
   document. Escaping is now a single pattern scan to find the first character
@@ -165,11 +165,11 @@ fails the suite instead of quietly comparing different work.
 
 **Encoding** — one object to the same bytes:
 
-| Document            | This codec | `@endevops/xml-builder` | `fast-xml-builder` |
-| ------------------- | ---------- | ----------------------- | ------------------ |
-| a small order       | 152,234/s  | 135,661/s (0.89x)       | 139,345/s (0.92x)  |
-| 500 rows            | 1,402/s    | 922/s (0.66x)           | 841/s (0.60x)      |
-| one large text node | 415,192/s  | 158,970/s (0.38x)       | 153,710/s (0.37x)  |
+| Document            | This codec | `@endevops/builder` | `fast-xml-builder` |
+| ------------------- | ---------- | ------------------- | ------------------ |
+| a small order       | 152,234/s  | 135,661/s (0.89x)   | 139,345/s (0.92x)  |
+| 500 rows            | 1,402/s    | 922/s (0.66x)       | 841/s (0.60x)      |
+| one large text node | 415,192/s  | 158,970/s (0.38x)   | 153,710/s (0.37x)  |
 
 **Decoding** — one document to the same value:
 
@@ -189,7 +189,7 @@ ecosystem doing the same work with two libraries and hand-joining them:
 | `@endevops` builder, then its parser               | 38,779/s (0.55x) |
 | npm `fast-xml-builder`, then npm `fast-xml-parser` | 31,166/s (0.44x) |
 
-**The fork has not cost anything in speed.** `@endevops/xml-builder` and npm
+**The fork has not cost anything in speed.** `@endevops/builder` and npm
 `fast-xml-builder` are the same version of the same code, and every encode row is
 within noise of the other — the fork measures 0.97x, 1.10x and 1.03x of upstream
 across the three documents, which is the spread you get from measurement error

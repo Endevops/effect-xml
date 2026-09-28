@@ -8,7 +8,7 @@
 //
 // Escaping is the part that scales with the size of the document rather than
 // with its structure, and it is written out here rather than delegated, for a
-// measured reason. `@endevops/entities` escapes by applying five sequential
+// measured reason. `@endevops/common-xml` escapes by applying five sequential
 // global replacements, one per character, so a document with a single `&` in
 // twenty thousand characters is scanned five times over to change one byte --
 // which is what the `render 20k` rows in `bench/codec.bench.ts` measure. The
@@ -17,7 +17,7 @@
 // character for character, so the fast path is checked against the library
 // rather than trusted.
 
-import type { XmlVersion } from '@endevops/xml-naming';
+import type { XmlVersion } from '@endevops/common-xml';
 
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
@@ -26,7 +26,7 @@ import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, is
 import { isXmlArray } from './xml-value.ts';
 
 /**
- * @description The five characters XML predefines an entity for, and the names to write for them. Written out rather than referenced from `@endevops/entities`
+ * @description The five characters XML predefines an entity for, and the names to write for them. Written out rather than referenced from `@endevops/common-xml`
  * because the table is indexed by character code below; the spec asserts the two produce identical output.
  */
 const XML_PREDEFINED = { 34: '&quot;', 38: '&amp;', 39: '&apos;', 60: '&lt;', 62: '&gt;' } as const;
@@ -81,7 +81,7 @@ export interface XmlRenderOptions {
   readonly itemName?: string | undefined;
 
   /**
-   * @description Indent nested elements on their own lines. Defaults to `false`, matching `@endevops/xml-builder`.
+   * @description Indent nested elements on their own lines. Defaults to `false`, matching `@endevops/builder`.
    */
   readonly format?: boolean | undefined;
 

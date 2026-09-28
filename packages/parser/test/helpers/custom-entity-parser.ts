@@ -1,11 +1,11 @@
-import type { SharedContext } from '@endevops/base-output-builder';
-import type { EntityDecoderOptions } from '@endevops/entities';
+import type { SharedContext } from '@endevops/builder';
+import type { EntityDecoderOptions } from '@endevops/common-xml';
 
 // `EntityDecoder` is a NAMED export at runtime; `@nodable/entities`' index.d.ts
 // declares it as the default export instead. The named import is what actually
 // resolves (a default import gives `undefined` at runtime and
 // "default is not a constructor" on use).
-import { EntityDecoder } from '@endevops/entities';
+import { EntityDecoder } from '@endevops/common-xml';
 
 /**
  * @description A value parser that expands DOCTYPE entities. `@nodable/entities`' `EntityDecoder` is a standalone decoder, not a `BaseValueParser`, so this adapts

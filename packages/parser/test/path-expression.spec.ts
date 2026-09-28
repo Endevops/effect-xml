@@ -7,11 +7,11 @@
  * 4. ReadOnlyMatcher — guards against mutation
  */
 
-import type { Context, ValueParser } from '@endevops/base-output-builder';
-import type { MatcherView } from '@endevops/path-expression-matcher';
+import type { Context, ValueParser } from '@endevops/builder';
+import type { MatcherView } from '@endevops/common-xml';
 
-import { CompactBuilderFactory, CompactBuilder } from '@endevops/compact-builder';
-import { Expression } from '@endevops/path-expression-matcher';
+import { CompactBuilderFactory, CompactBuilder } from '@endevops/builder';
+import { Expression } from '@endevops/common-xml';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, TagDetailLike } from '#/internal/parser-types.ts';

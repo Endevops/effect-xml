@@ -12,15 +12,15 @@
 //     rejected, and is escaped on the way out. Refusing to read a document
 //     because of one unescaped ampersand is not a useful default.
 //   - Comments and processing instructions are skipped: they are markup, not
-//     data, and `@endevops/xml-builder` drops them by default too.
+//     data, and `@endevops/builder` drops them by default too.
 //   - CDATA becomes character data, since that is what it is.
 //   - A mismatched or unclosed tag, a malformed attribute, or content after the
 //     root element *is* an error, because silently accepting those produces a
 //     document that means something different from the one that was written.
 
-import type { XmlVersion } from '@endevops/xml-naming';
+import type { XmlVersion } from '@endevops/common-xml';
 
-import { EntityDecoder } from '@endevops/entities';
+import { EntityDecoder } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
 import type { NameMode } from './conventions.ts';
@@ -411,7 +411,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
 
     if (!hasAttributes && !hasChildren) {
       // A leaf is character data on its own. Returning the string rather than a `{ '#text': … }` record is what lets
-      // `Schema.Struct({ name: Schema.String })` round-trip, and it is the shape `@endevops/compact-builder` produces for a text-only element too.
+      // `Schema.Struct({ name: Schema.String })` round-trip, and it is the shape `@endevops/builder` produces for a text-only element too.
       return content;
     }
 

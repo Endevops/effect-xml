@@ -1,4 +1,4 @@
-import type { Expression, ExpressionSet, MatcherView } from '@endevops/path-expression-matcher';
+import type { Expression, ExpressionSet, MatcherView } from '@endevops/common-xml';
 
 import type EncodingRegistry from './encoding/encoding-registry.ts';
 import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
@@ -15,7 +15,7 @@ export type { Enclosure } from './internal/tag-expression.ts';
  * @description Object form of a skip-tag entry — allows per-node control of nested depth tracking and enclosure skipping when scanning for the closing tag.
  *
  * ```ts
- * import { xmlEnclosures } from '@endevops/flexible-xml-parser-effect';
+ * import { xmlEnclosures } from '@endevops/parser';
  * const parser = new XMLParser({
  *   skip: { tags: ['..secret', { expression: 'root.internal', nested: true, skipEnclosures: [...xmlEnclosures] }] },
  * });
@@ -70,7 +70,7 @@ export interface SkipOptions {
    * - A `SkipTagEntry` object with optional `nested` and `skipEnclosures`. Supports path-expression-matcher syntax. Default: []
    *
    * @example
-   *   import { xmlEnclosures } from '@endevops/flexible-xml-parser-effect';
+   *   import { xmlEnclosures } from '@endevops/parser';
    *
    *   skip: {
    *     tags: ['..secret', { expression: 'root.internal', nested: true, skipEnclosures: [...xmlEnclosures] }];
@@ -133,7 +133,7 @@ export interface AttributeOptions {
  * @description Object form of a stop-node entry — allows per-node control of which enclosures the processor should skip when scanning for the closing tag.
  *
  * ```ts
- * import { xmlEnclosures, quoteEnclosures } from '@endevops/flexible-xml-parser-effect';
+ * import { xmlEnclosures, quoteEnclosures } from '@endevops/parser';
  * const parser = new XMLParser({
  *   tags: {
  *     stopNodes: [
@@ -176,7 +176,7 @@ export interface TagOptions {
    *   Supports path-expression-matcher syntax. Default: []
    *
    * @example
-   *   import { xmlEnclosures, quoteEnclosures } from '@endevops/flexible-xml-parser-effect';
+   *   import { xmlEnclosures, quoteEnclosures } from '@endevops/parser';
    *
    *   stopNodes: [
    *     '..script', // plain

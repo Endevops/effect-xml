@@ -1,5 +1,5 @@
 {
-  "name": "@endevops/flexible-xml-parser-effect",
+  "name": "@endevops/parser",
   "version": "0.1.0",
   "description": "XML parser in pure JavaScript with pluggable output builders and composable value parsers. Fork of @nodable/flexible-xml-parser, with static types across the source tree and a fully typed test suite.",
   "keywords": [
@@ -10,11 +10,9 @@
     "flexible",
     "html",
     "parser",
-    "path-expression-matcher",
     "sax",
     "stream",
     "xml",
-    "xml-naming",
     "xml-parser",
     "xml2js",
     "xml2json",
@@ -55,13 +53,10 @@
     "prepublishOnly": "vp pack"
   },
   "dependencies": {
-    "@endevops/base-output-builder": "workspace:^",
-    "@endevops/compact-builder": "workspace:^",
-    "@endevops/path-expression-matcher": "workspace:^",
-    "@endevops/xml-naming": "workspace:^"
+    "@endevops/builder": "workspace:^",
+    "@endevops/common-xml": "workspace:^"
   },
   "devDependencies": {
-    "@endevops/entities": "workspace:^",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

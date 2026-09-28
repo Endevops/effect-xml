@@ -1,6 +1,6 @@
-import { NumberValueParser, type Context, type ValueParser } from '@endevops/base-output-builder';
-import { CompactBuilderFactory } from '@endevops/compact-builder';
-import { COMMON_HTML, CURRENCY } from '@endevops/entities';
+import { NumberValueParser, type Context, type ValueParser } from '@endevops/builder';
+import { CompactBuilderFactory } from '@endevops/builder';
+import { COMMON_HTML, CURRENCY } from '@endevops/common-xml';
 import { describe, it, expect } from 'vite-plus/test';
 
 import EntityParser from '#/test/helpers/custom-entity-parser.ts';

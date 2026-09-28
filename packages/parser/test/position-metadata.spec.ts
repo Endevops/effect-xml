@@ -11,9 +11,9 @@
  *   parser._events which is the array created in _that_ factory call).
  */
 
-import type { MatcherView } from '@endevops/path-expression-matcher';
+import type { MatcherView } from '@endevops/common-xml';
 
-import { CompactBuilder, CompactBuilderFactory } from '@endevops/compact-builder';
+import { CompactBuilder, CompactBuilderFactory } from '@endevops/builder';
 import { describe, expect } from 'vite-plus/test';
 
 import { asOutputBuilder, makeRecordingParser } from '#/test/helpers/recording-builder.ts';

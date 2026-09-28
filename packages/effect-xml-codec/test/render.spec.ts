@@ -3,7 +3,7 @@
  * output that can be read back.
  */
 
-import { EntityEncoder } from '@endevops/entities';
+import { EntityEncoder } from '@endevops/common-xml';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlValue } from '#/index.ts';
@@ -231,7 +231,7 @@ describe('the escaping helpers', () => {
   });
 });
 
-describe('the escaping helpers agree with @endevops/entities', () => {
+describe('the escaping helpers agree with @endevops/common-xml', () => {
   // The renderer escapes in one pass rather than delegating, because
   // `EntityEncoder` applies five sequential replacements and a document with one
   // `&` in twenty thousand characters would be scanned five times to change one

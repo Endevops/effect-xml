@@ -1,6 +1,6 @@
 # 08 — Security
 
-`@endevops/flexible-xml-parser-effect` includes multiple layers of defence against malicious or pathological input.
+`@endevops/parser` includes multiple layers of defence against malicious or pathological input.
 
 ---
 
@@ -9,7 +9,7 @@
 Every error thrown by the parser is a `ParseError` (subclass of `Error`), so you can distinguish parser errors from unexpected runtime bugs with a single `instanceof` check:
 
 ```javascript
-import XMLParser, { ParseError, ErrorCode } from '@endevops/flexible-xml-parser-effect';
+import XMLParser, { ParseError, ErrorCode } from '@endevops/parser';
 
 try {
   parser.parse(xmlInput);
@@ -62,7 +62,7 @@ The Billion Laughs attack uses recursive entity references to produce exponentia
 | `maxEntityCount` | `100`   | Max entities declared in a single DOCTYPE |
 | `maxEntitySize`  | `10000` | Max bytes per entity definition value     |
 
-**Layer 2 — `EntitiesValueParser`** from `@endevops/base-output-builder` (enforced at replacement time):
+**Layer 2 — `EntitiesValueParser`** from `@endevops/builder` (enforced at replacement time):
 
 | Option               | Default         | Description                                       |
 | -------------------- | --------------- | ------------------------------------------------- |
@@ -72,8 +72,8 @@ The Billion Laughs attack uses recursive entity references to produce exponentia
 DOCTYPE entity expansion is **disabled by default** (`doctypeOptions.enabled: false`). If you need it, enable it only for trusted input and tighten both layers:
 
 ```javascript
-import { EntitiesValueParser } from '@endevops/base-output-builder';
-import { CompactBuilderFactory } from '@endevops/compact-builder';
+import { EntitiesValueParser } from '@endevops/builder';
+import { CompactBuilderFactory } from '@endevops/builder';
 
 const evp = new EntitiesValueParser({ default: true, maxTotalExpansions: 200, maxExpandedLength: 10000 });
 const builder = new CompactBuilderFactory();
@@ -99,9 +99,9 @@ When `strictReservedNames: true`, tag or attribute names that collide with any c
 ## Recommended Configuration for Untrusted Input
 
 ```javascript
-import XMLParser, { ParseError } from '@endevops/flexible-xml-parser-effect';
-import { EntitiesValueParser } from '@endevops/base-output-builder';
-import { CompactBuilderFactory } from '@endevops/compact-builder';
+import XMLParser, { ParseError } from '@endevops/parser';
+import { EntitiesValueParser } from '@endevops/builder';
+import { CompactBuilderFactory } from '@endevops/builder';
 
 const evp = new EntitiesValueParser({ default: true, maxTotalExpansions: 500, maxExpandedLength: 50000 });
 const builder = new CompactBuilderFactory();

@@ -3,16 +3,17 @@
 A pnpm workspace for the Endevops XML packages, built on
 [Vite+](https://viteplus.dev/guide/) for the toolchain.
 
-| Package                                                                   | Description                                             |
-| ------------------------------------------------------------------------- | ------------------------------------------------------- |
-| [`@endevops/flexible-xml-parser-effect`](./packages/parser)               | XML parser with pluggable output builders               |
-| [`@endevops/path-expression-matcher`](./packages/path-expression-matcher) | Path tracking and pattern matching for XML/JSON parsers |
-| [`@endevops/xml-naming`](./packages/xml-naming)                           | Validates XML name productions                          |
-| [`@endevops/xml-builder`](./packages/builder)                             | Builds XML from a JavaScript object                     |
-| [`@endevops/base-output-builder`](./packages/base-output-builder)         | Base classes and value-parser primitives for builders   |
-| [`@endevops/entities`](./packages/entities)                               | XML and HTML entity encoding and decoding               |
-| [`@endevops/compact-builder`](./packages/compact-builder)                 | Builds a compact JS object from XML                     |
-| [`@endevops/effect-xml-codec`](./packages/effect-xml-codec)               | Round-trip Effect Schema codec for XML                  |
+| Package                                                     | Description                                               |
+| ----------------------------------------------------------- | --------------------------------------------------------- |
+| [`@endevops/parser`](./packages/parser)                     | XML parser with pluggable output builders                 |
+| [`@endevops/builder`](./packages/builder)                   | XML builders, the output-builder base and the compact one |
+| [`@endevops/common-xml`](./packages/common-xml)             | Entity coding, path matching, XML name validation         |
+| [`@endevops/effect-xml-codec`](./packages/effect-xml-codec) | Round-trip Effect Schema codec for XML                    |
+
+Four packages, in a strict chain: `common-xml` has no workspace dependencies,
+`builder` depends on `common-xml`, `parser` depends on both, and
+`effect-xml-codec` depends on `common-xml` with the other two for tests and
+benchmarks. There is no cycle in that graph.
 
 ## Layout
 
@@ -22,6 +23,14 @@ vite.config.ts       Oxlint, Oxfmt, staged checks — one config for the whole r
 tsconfig.shared.json compilerOptions every package extends
 pnpm-workspace.yaml  package globs, version catalog, overrides
 ```
+
+A package that absorbed several of the earlier ones keeps a subdirectory per
+absorbed package, each with its own barrel, and re-exports all of them flat from
+`src/index.ts`. `common-xml` is `src/entities/`, `src/naming/` and
+`src/path-matcher/`; `builder` is `src/xml-builder/`, `src/output-builder/` and
+`src/compact-builder/`. Specs sit under the matching `test/` subdirectory and
+import from `#/index.ts` like any other module in the package. Nothing is exposed
+per-area at the package boundary — one package, one entry point.
 
 `vp lint`, `vp fmt`, and `vp check` read the `lint` and `fmt` blocks in the root
 `vite.config.ts` even when you run them from inside a package, and Oxlint and

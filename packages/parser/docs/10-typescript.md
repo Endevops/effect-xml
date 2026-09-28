@@ -1,13 +1,13 @@
 # 10 — TypeScript
 
-`@endevops/flexible-xml-parser-effect` ships its own TypeScript definitions, emitted as `dist/index.d.mts` alongside the ESM build. No `@types` package is needed. The package is ESM only: there is no CommonJS build and no `.d.cts`.
+`@endevops/parser` ships its own TypeScript definitions, emitted as `dist/index.d.mts` alongside the ESM build. No `@types` package is needed. The package is ESM only: there is no CommonJS build and no `.d.cts`.
 
 ---
 
 ## Basic Usage
 
 ```typescript
-import XMLParser, { X2jOptions } from '@endevops/flexible-xml-parser-effect';
+import XMLParser, { X2jOptions } from '@endevops/parser';
 
 const options: X2jOptions = { skip: { attributes: false, nsPrefix: true }, nameFor: { cdata: '#cdata' }, limits: { maxNestedTags: 100 } };
 
@@ -51,7 +51,7 @@ const result = parser.parse('<root><tag>42</tag></root>');
 ## Error Handling
 
 ```typescript
-import XMLParser, { ParseError, ErrorCode } from '@endevops/flexible-xml-parser-effect';
+import XMLParser, { ParseError, ErrorCode } from '@endevops/parser';
 
 const parser = new XMLParser({ limits: { maxNestedTags: 100 } });
 
@@ -82,7 +82,7 @@ try {
 The `OutputBuilder` option is typed structurally, not as `BaseOutputBuilderFactory`. A builder is anything with a `getInstance()` returning an object carrying the ten methods below. Do not extend the published `BaseOutputBuilder`: it fails to compile with `TS2416` (its `addElement` is declared with one parameter while the parser calls it with two), and it fails at runtime too, because the shipped class implements none of `addElement`, `closeElement`, `addValue` or `getOutput`. Subclass `CompactBuilder` when you want the bundled object output, or implement the interface structurally when you do not.
 
 ```typescript
-import XMLParser from '@endevops/flexible-xml-parser-effect';
+import XMLParser from '@endevops/parser';
 
 class TagListBuilder {
   private tags: string[] = [];
@@ -124,10 +124,10 @@ To reuse the bundled value-parser pipeline, extend `BaseValueParser` for your pa
 
 ## Custom Value Parser
 
-`BaseValueParser` and the `Context` class come from `@endevops/base-output-builder`. There is no `ElementType` enum and no `ValueParserContext` type: whether a value came from an attribute is a boolean on the context.
+`BaseValueParser` and the `Context` class come from `@endevops/builder`. There is no `ElementType` enum and no `ValueParserContext` type: whether a value came from an attribute is a boolean on the context.
 
 ```typescript
-import { BaseValueParser, type Context } from '@endevops/base-output-builder';
+import { BaseValueParser, type Context } from '@endevops/builder';
 
 class UpperCaseParser extends BaseValueParser {
   override parse(val: unknown, context?: Context): unknown {

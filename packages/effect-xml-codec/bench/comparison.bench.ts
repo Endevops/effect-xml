@@ -1,11 +1,11 @@
 /**
- * @description Throughput benchmarks for this package against the libraries it is compared with: `@endevops/xml-builder` (a fork of `fast-xml-builder`) and
- * upstream `fast-xml-builder` for encoding, and `@endevops/flexible-xml-parser-effect` (a fork of `fast-xml-parser`) plus upstream `fast-xml-parser`
- * for decoding. Both halves of the comparison are present in both versions, so there are two ecosystems rather than one. The fork and the upstream
- * package are the same version of the same code -- `@endevops/xml-builder` is 1.3.1 and `fast-xml-builder` is 1.3.1 -- which makes the fork's rows a
- * check that maintaining it in this workspace has cost nothing in speed. That is a question worth answering rather than assuming, and it only shows
- * up if both are measured. The comparison is only worth anything if every implementation is handed the same object and asked for the same thing, so
- * that is established rather than assumed:
+ * @description Throughput benchmarks for this package against the libraries it is compared with: `@endevops/builder` (a fork of `fast-xml-builder`) and upstream
+ * `fast-xml-builder` for encoding, and `@endevops/parser` (a fork of `fast-xml-parser`) plus upstream `fast-xml-parser` for decoding. Both halves of
+ * the comparison are present in both versions, so there are two ecosystems rather than one. The fork and the upstream package are the same version of
+ * the same code -- `@endevops/builder` is 1.3.1 and `fast-xml-builder` is 1.3.1 -- which makes the fork's rows a check that maintaining it in this
+ * workspace has cost nothing in speed. That is a question worth answering rather than assuming, and it only shows up if both are measured. The
+ * comparison is only worth anything if every implementation is handed the same object and asked for the same thing, so that is established rather
+ * than assumed:
  *
  * - All three encode the same value and, with `attributeNamePrefix: '@'`, every builder produces **byte-identical** output to this codec. The
  *   assertions at the bottom of this file check it, so a change that breaks the equivalence fails the benchmark rather than quietly reporting a
@@ -20,8 +20,8 @@
  *   is a result the JIT is free to delete.
  */
 
-import { XMLParser } from '@endevops/flexible-xml-parser-effect';
-import XMLBuilder from '@endevops/xml-builder';
+import XMLBuilder from '@endevops/builder';
+import { XMLParser } from '@endevops/parser';
 import { Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
@@ -143,7 +143,7 @@ const noteCodec = toCodecXml(Note, { rootName: NOTE_ROOT });
 const BUILDER_OPTIONS = { attributeNamePrefix: '@', ignoreAttributes: false, suppressEmptyNode: true, format: false } as const;
 
 /**
- * @description `@endevops/xml-builder`, the fork maintained in this workspace.
+ * @description `@endevops/builder`, the fork maintained in this workspace.
  */
 const builder = new XMLBuilder({ ...BUILDER_OPTIONS });
 
@@ -153,7 +153,7 @@ const builder = new XMLBuilder({ ...BUILDER_OPTIONS });
 const upstreamBuilder = new UpstreamXMLBuilder({ ...BUILDER_OPTIONS });
 
 /**
- * @description `@endevops/flexible-xml-parser-effect`. Attributes are skipped by default, and the `@` prefix has to be set separately, so both are given.
+ * @description `@endevops/parser`. Attributes are skipped by default, and the `@` prefix has to be set separately, so both are given.
  */
 const parser = new XMLParser({ skip: { attributes: false }, attributes: { prefix: '@' } });
 
@@ -229,7 +229,7 @@ describe('encoding — a small document', () => {
     BUDGET
   );
   bench(
-    '@endevops/xml-builder',
+    '@endevops/builder',
     measure(() => builder.build({ [ROOT]: order }).length),
     BUDGET
   );
@@ -247,7 +247,7 @@ describe('encoding — a 500-row document', () => {
     BUDGET
   );
   bench(
-    '@endevops/xml-builder',
+    '@endevops/builder',
     measure(() => builder.build({ [REPORT_ROOT]: report }).length),
     BUDGET
   );
@@ -265,7 +265,7 @@ describe('encoding — one large text node', () => {
     BUDGET
   );
   bench(
-    '@endevops/xml-builder',
+    '@endevops/builder',
     measure(() => builder.build({ [NOTE_ROOT]: note }).length),
     BUDGET
   );
