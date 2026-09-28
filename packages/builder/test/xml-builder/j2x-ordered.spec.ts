@@ -6,6 +6,12 @@
 
 import type { X2jOptions } from 'fast-xml-parser';
 
+/**
+ * @description `XMLParser` here is the **upstream** `fast-xml-parser` from npm, not `@endevops/parser`. It is used to produce input documents for the builder — a
+ * real parse result rather than a hand-written object — and it is synchronous, so its `parse` returns a value and must not be passed to {@link run},
+ * which only accepts an `Effect`. Only this package's own builder calls are effects. (`@endevops/parser` has since been converted to the same typed
+ * channel, so the two now differ; that difference is exactly what the wrap here got wrong.)
+ */
 import { XMLParser } from 'fast-xml-parser';
 import { describe, expect, it } from 'vite-plus/test';
 
@@ -37,7 +43,7 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true, indentBy: ' ' };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     const builder = makeBuilder(options);
     result = run(builder.build(result));
@@ -73,7 +79,7 @@ describe('XMLBuilder', function () {
       //   format: true,
     };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     // `allowBooleanAttributes` is a parser option. The builder ignores keys it does not know, so its copy carries the other three.
     const builder = makeBuilder({ ignoreAttributes: false, preserveOrder: true, cdataPropName: '#CDATA' });
@@ -102,7 +108,7 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     // The original read `parser.options` here. Every parser default the builder also knows matches the builder's own default, so the
     // literal above resolves to the same configuration.
@@ -120,7 +126,7 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     // The original read `parser.options` here, with the same equivalence.
     const builder = makeBuilder(options);
@@ -137,7 +143,7 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true, suppressEmptyNode: true };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     const builder = makeBuilder(options);
     result = run(builder.build(result));
@@ -182,7 +188,7 @@ describe('XMLBuilder', function () {
       // cdataPropName: "#CDATA"
     };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     const builder = makeBuilder(options);
     result = run(builder.build(result));
@@ -223,7 +229,7 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true, format: true, cdataPropName: '#CDATA' };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     const builder = makeBuilder(options);
     result = run(builder.build(result));
@@ -293,7 +299,7 @@ describe('XMLBuilder', function () {
       preserveOrder: true,
     };
     const parser = new XMLParser(options);
-    let result: unknown = run(parser.parse(XMLdata));
+    let result: unknown = parser.parse(XMLdata);
 
     const builder = makeBuilder({ attributeNamePrefix: '@_', ignoreAttributes: false, format: true, preserveOrder: true });
     result = run(builder.build(result));

@@ -5,6 +5,12 @@
 
 import type { X2jOptions } from 'fast-xml-parser';
 
+/**
+ * @description `XMLParser` here is the **upstream** `fast-xml-parser` from npm, not `@endevops/parser`. It is used to produce input documents for the builder — a
+ * real parse result rather than a hand-written object — and it is synchronous, so its `parse` returns a value and must not be passed to {@link run},
+ * which only accepts an `Effect`. Only this package's own builder calls are effects. (`@endevops/parser` has since been converted to the same typed
+ * channel, so the two now differ; that difference is exactly what the wrap here got wrong.)
+ */
 import { XMLParser } from 'fast-xml-parser';
 import { describe, expect, it } from 'vite-plus/test';
 
@@ -72,7 +78,7 @@ describe('Builder', function () {
       htmlEntities: true,
     };
     const parser = new XMLParser(parsingOptions);
-    const result: unknown = run(parser.parse(html));
+    const result: unknown = parser.parse(html);
 
     const builderOptions: XmlBuilderOptions = {
       ignoreAttributes: false,
