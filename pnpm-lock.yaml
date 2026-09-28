@@ -220,6 +220,10 @@ importers:
         version: 1.0.0(@types/node@26.6.3)(@vitest/ui@5.0.1)(typescript@7.0.2)
 
   packages/common-xml:
+    dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
     devDependencies:
       vite:
         specifier: 'catalog:'

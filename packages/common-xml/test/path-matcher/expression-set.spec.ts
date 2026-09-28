@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { Expression, ExpressionSet, Matcher } from '#/index.ts';
+import { ExpressionSet, Matcher } from '#/index.ts';
+import { run, failed, expr } from '#/test/helpers/effect.ts';
 
 /**
  * @description Build a matcher positioned at the given path.
@@ -46,47 +47,46 @@ describe('ExpressionSet', () => {
 
     it('adds an expression, growing the size and reporting it through has()', () => {
       const set = new ExpressionSet();
-      const expr = new Expression('root.users.user');
+      const userExpr = expr('root.users.user');
 
-      set.add(expr);
+      run(set.add(userExpr));
       expect(set.size).toBe(1);
-      expect(set.has(expr)).toBe(true);
-      expect(set.has(new Expression('root.other'))).toBe(false);
+      expect(set.has(userExpr)).toBe(true);
+      expect(set.has(expr('root.other'))).toBe(false);
     });
 
     it('ignores a second expression carrying an already-known pattern', () => {
       // Deduplication
       const set = new ExpressionSet();
-      const e1 = new Expression('root.users.user');
-      const e2 = new Expression('root.users.user'); // same pattern, different object
+      const e1 = expr('root.users.user');
+      const e2 = expr('root.users.user'); // same pattern, different object
 
-      set.add(e1).add(e2);
+      run(set.addAll([e1, e2]));
       expect(set.size).toBe(1);
     });
 
-    it('returns itself from add() so calls can be chained', () => {
-      // Chaining
+    it('produces the set itself, so a caller can keep a reference to it', () => {
       const set = new ExpressionSet();
-      const result = set.add(new Expression('a.b'));
+      const result = run(set.add(expr('a.b')));
       expect(result === set).toBe(true);
     });
 
-    it('addAll() registers every expression and returns itself for chaining', () => {
+    it('addAll() registers every expression and produces the set', () => {
       const set = new ExpressionSet();
-      set.addAll([new Expression('root.a'), new Expression('root.b'), new Expression('root.c')]);
+      run(set.addAll([expr('root.a'), expr('root.b'), expr('root.c')]));
       expect(set.size).toBe(3);
-      const result = new ExpressionSet().addAll([new Expression('x.y')]);
+      const result = run(new ExpressionSet().addAll([expr('x.y')]));
       expect(result instanceof ExpressionSet).toBe(true);
     });
 
     it('seal() blocks further additions and leaves the size untouched', () => {
       const set = new ExpressionSet();
-      set.add(new Expression('root.a'));
+      run(set.add(expr('root.a')));
       set.seal();
 
       expect(set.isSealed).toBe(true);
-      expect(() => set.add(new Expression('root.b'))).toThrow('sealed');
-      expect(() => set.addAll([new Expression('root.c')])).toThrow('sealed');
+      expect(failed(set.add(expr('root.b'))).message).toContain('sealed');
+      expect(failed(set.addAll([expr('root.c')])).message).toContain('sealed');
       expect(set.size).toBe(1);
     });
   });
@@ -94,7 +94,7 @@ describe('ExpressionSet', () => {
   describe('matchesAny()', () => {
     it('matches exact paths and rejects partial, retagged and re-rooted ones', () => {
       const set = new ExpressionSet();
-      set.addAll([new Expression('root.users.user'), new Expression('root.config.setting'), new Expression('root.orders.order')]);
+      run(set.addAll([expr('root.users.user'), expr('root.config.setting'), expr('root.orders.order')]));
 
       expect(set.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
       expect(set.matchesAny(matcherAt('root', 'config', 'setting'))).toBe(true);
@@ -106,7 +106,7 @@ describe('ExpressionSet', () => {
 
     it('reads a * segment as any one tag, never as a shorter path', () => {
       const set = new ExpressionSet();
-      set.add(new Expression('root.users.*'));
+      run(set.add(expr('root.users.*')));
 
       expect(set.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
       expect(set.matchesAny(matcherAt('root', 'users', 'admin'))).toBe(true);
@@ -116,7 +116,7 @@ describe('ExpressionSet', () => {
 
     it('matches ..user at depth 2 and deeper but never at depth 1', () => {
       const set = new ExpressionSet();
-      set.add(new Expression('..user'));
+      run(set.add(expr('..user')));
 
       // ..user requires at least one ancestor (the '..' consumes ≥1 levels before the tag)
       expect(set.matchesAny(matcherAt('root', 'user'))).toBe(true);
@@ -128,7 +128,7 @@ describe('ExpressionSet', () => {
 
     it('matches an attribute condition only when the current node carries that value', () => {
       const set = new ExpressionSet();
-      set.add(new Expression('root.users.user[type=admin]'));
+      run(set.add(expr('root.users.user[type=admin]')));
 
       expect(set.matchesAny(matcherAtWithAttrs({ type: 'admin' }, 'root', 'users', 'user'))).toBe(true);
       expect(!set.matchesAny(matcherAtWithAttrs({ type: 'guest' }, 'root', 'users', 'user'))).toBe(true);
@@ -137,7 +137,7 @@ describe('ExpressionSet', () => {
 
     it('matches a :first selector only against the first sibling of that name', () => {
       const set = new ExpressionSet();
-      set.add(new Expression('root.items.item:first'));
+      run(set.add(expr('root.items.item:first')));
 
       const m = new Matcher();
       m.push('root');
@@ -152,12 +152,14 @@ describe('ExpressionSet', () => {
 
     it('resolves a realistic config mixing exact, wildcard, deep and attribute expressions', () => {
       const stopNodes = new ExpressionSet();
-      stopNodes.addAll([
-        new Expression('root.users.user'), // exact
-        new Expression('root.config.*'), // depth + wildcard tag
-        new Expression('..script'), // deep wildcard
-        new Expression('root.data.item[id=42]'), // attribute condition
-      ]);
+      run(
+        stopNodes.addAll([
+          expr('root.users.user'), // exact
+          expr('root.config.*'), // depth + wildcard tag
+          expr('..script'), // deep wildcard
+          expr('root.data.item[id=42]'), // attribute condition
+        ])
+      );
 
       expect(stopNodes.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
       expect(stopNodes.matchesAny(matcherAt('root', 'config', 'setting'))).toBe(true);
@@ -176,7 +178,7 @@ describe('ExpressionSet', () => {
 
     it('matches through a read-only matcher view', () => {
       const set = new ExpressionSet();
-      set.add(new Expression('root.users.user'));
+      run(set.add(expr('root.users.user')));
 
       const m = new Matcher();
       m.push('root');
@@ -188,7 +190,7 @@ describe('ExpressionSet', () => {
 
     it('matches a namespaced tag only inside its own namespace', () => {
       const set = new ExpressionSet();
-      set.add(new Expression('root.ns::user'));
+      run(set.add(expr('root.ns::user')));
 
       const m = new Matcher();
       m.push('root');
@@ -207,12 +209,8 @@ describe('ExpressionSet', () => {
   describe('findMatch()', () => {
     it('returns the matched expression so its data payload comes back with it', () => {
       const set = new ExpressionSet();
-      const expressions = [
-        new Expression('root.users.user', {}, { extra: 'property' }),
-        new Expression('root.config.setting'),
-        new Expression('root.orders.order'),
-      ];
-      set.addAll(expressions);
+      const expressions = [expr('root.users.user', {}, { extra: 'property' }), expr('root.config.setting'), expr('root.orders.order')];
+      run(set.addAll(expressions));
 
       const match1 = set.findMatch(matcherAt('root', 'users', 'user'));
       expect(match1?.data).toBe(expressions[0].data);
@@ -229,7 +227,7 @@ describe('ExpressionSet', () => {
     it('routes ..title through its terminal tag at depths 2, 3 and 5', () => {
       // ..tag should be indexed by terminal tag and match at various depths
       const set = new ExpressionSet();
-      set.add(new Expression('..title'));
+      run(set.add(expr('..title')));
 
       expect(set.matchesAny(matcherAt('root', 'title'))).toBe(true);
       expect(set.matchesAny(matcherAt('root', 'channel', 'title'))).toBe(true);
@@ -241,7 +239,7 @@ describe('ExpressionSet', () => {
     it('leaves ..* unindexed, matching any tag at any depth above 1', () => {
       // ..* should be unindexed and match any tag at any depth > 1
       const set = new ExpressionSet();
-      set.add(new Expression('..*'));
+      run(set.add(expr('..*')));
 
       expect(set.matchesAny(matcherAt('root', 'anything'))).toBe(true);
       expect(set.matchesAny(matcherAt('a', 'b', 'c'))).toBe(true);
@@ -251,7 +249,7 @@ describe('ExpressionSet', () => {
     it('leaves a trailing .. unindexed, so root.. covers every descendant of root', () => {
       // root.. — terminal segment is a deep-wildcard itself, should go to unindexed
       const set = new ExpressionSet();
-      set.add(new Expression('root..'));
+      run(set.add(expr('root..')));
 
       expect(set.matchesAny(matcherAt('root', 'anything'))).toBe(true);
       expect(set.matchesAny(matcherAt('root', 'a', 'b'))).toBe(true);
@@ -261,7 +259,7 @@ describe('ExpressionSet', () => {
     it('indexes ..ns::user by its tag and checks the namespace during the full match', () => {
       // ..ns::tag — indexed by "tag", namespace checked during full match
       const set = new ExpressionSet();
-      set.add(new Expression('..ns::user'));
+      run(set.add(expr('..ns::user')));
 
       const m1 = new Matcher();
       m1.push('root');
@@ -279,7 +277,7 @@ describe('ExpressionSet', () => {
     it('matches multiple deep wildcards against their literal segments', () => {
       // root..b..d — multiple deep wildcards, indexed by terminal "d"
       const set = new ExpressionSet();
-      set.add(new Expression('root..b..d'));
+      run(set.add(expr('root..b..d')));
 
       expect(set.matchesAny(matcherAt('root', 'b', 'd'))).toBe(true);
       expect(set.matchesAny(matcherAt('root', 'x', 'b', 'y', 'd'))).toBe(true);
@@ -290,9 +288,9 @@ describe('ExpressionSet', () => {
     it('resolves a mix of indexed and unindexed deep wildcards together', () => {
       // Mix of indexed and unindexed deep wildcards should all work together
       const set = new ExpressionSet();
-      set.add(new Expression('..script')); // indexed by "script"
-      set.add(new Expression('..*')); // unindexed (terminal *)
-      set.add(new Expression('root..')); // unindexed (terminal ..)
+      run(set.add(expr('..script'))); // indexed by "script"
+      run(set.add(expr('..*'))); // unindexed (terminal *)
+      run(set.add(expr('root..'))); // unindexed (terminal ..)
 
       expect(set.matchesAny(matcherAt('root', 'script'))).toBe(true);
       expect(set.matchesAny(matcherAt('root', 'anything'))).toBe(true);
@@ -305,16 +303,16 @@ describe('ExpressionSet', () => {
       const tags = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota', 'kappa'];
 
       // 10 exact two-level paths
-      for (const t of tags) set.add(new Expression(`root.${t}`));
+      for (const t of tags) run(set.add(expr(`root.${t}`)));
 
       // 10 exact three-level paths
-      for (const t of tags) set.add(new Expression(`root.items.${t}`));
+      for (const t of tags) run(set.add(expr(`root.items.${t}`)));
 
       // 5 deep wildcards
-      for (const t of tags.slice(0, 5)) set.add(new Expression(`..${t}`));
+      for (const t of tags.slice(0, 5)) run(set.add(expr(`..${t}`)));
 
       // 5 wildcard-tag
-      for (let i = 1; i <= 5; i++) set.add(new Expression(`root.level${i}.*`));
+      for (let i = 1; i <= 5; i++) run(set.add(expr(`root.level${i}.*`)));
 
       expect(set.size).toBe(30);
 
@@ -331,7 +329,7 @@ describe('ExpressionSet', () => {
       // Large set — 300 deep wildcards, correctness spot checks
       const set = new ExpressionSet();
       for (let i = 0; i < 300; i++) {
-        set.add(new Expression(`..tag${i}`));
+        run(set.add(expr(`..tag${i}`)));
       }
       expect(set.size).toBe(300);
 

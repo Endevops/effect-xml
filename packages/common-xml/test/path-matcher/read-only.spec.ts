@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { PathNode } from '#/index.ts';
 
-import { Expression, Matcher } from '#/index.ts';
+import { Matcher } from '#/index.ts';
+import { expr } from '#/test/helpers/effect.ts';
 
 describe('readOnly() hands back a view rather than the matcher itself', () => {
   it('returns an object', () => {
@@ -168,11 +169,11 @@ describe('the view serves every read and match method the matcher does', () => {
 
     const ro = matcher.readOnly();
 
-    expect(ro.matches(new Expression('root.users.user'))).toBe(true);
-    expect(ro.matches(new Expression('..user'))).toBe(true);
-    expect(ro.matches(new Expression('root.users.user[id]'))).toBe(true);
-    expect(ro.matches(new Expression('root.users.user[id=5]'))).toBe(true);
-    expect(!ro.matches(new Expression('root.users.admin'))).toBe(true);
+    expect(ro.matches(expr('root.users.user'))).toBe(true);
+    expect(ro.matches(expr('..user'))).toBe(true);
+    expect(ro.matches(expr('root.users.user[id]'))).toBe(true);
+    expect(ro.matches(expr('root.users.user[id=5]'))).toBe(true);
+    expect(!ro.matches(expr('root.users.admin'))).toBe(true);
   });
 
   it('carries no snapshot of its own, so nothing can be rewound through the view', () => {
@@ -461,7 +462,7 @@ describe('the view handles an empty matcher, namespaces and deep wildcards', () 
 
     const ro = matcher.readOnly();
 
-    expect(!ro.matches(new Expression('..user'))).toBe(true);
-    expect(ro.matches(new Expression('..users'))).toBe(true);
+    expect(!ro.matches(expr('..user'))).toBe(true);
+    expect(ro.matches(expr('..users'))).toBe(true);
   });
 });

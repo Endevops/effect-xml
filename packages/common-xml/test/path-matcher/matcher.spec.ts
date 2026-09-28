@@ -7,7 +7,8 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { Expression, Matcher } from '#/index.ts';
+import { Matcher } from '#/index.ts';
+import { expr } from '#/test/helpers/effect.ts';
 
 describe('Basic path tracking', () => {
   it('tracks depth, current tag and path string across a push and pop', () => {
@@ -107,11 +108,11 @@ describe('Pattern matching', () => {
     matcher.push('users');
     matcher.push('user');
 
-    const expr = new Expression('root.users.user');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('root.users.user');
+    expect(matcher.matches(e)).toBe(true);
 
-    const expr2 = new Expression('root.users.admin');
-    expect(matcher.matches(expr2)).toBe(false);
+    const e2 = expr('root.users.admin');
+    expect(matcher.matches(e2)).toBe(false);
   });
 
   it('matches a single wildcard at the start, middle or end', () => {
@@ -120,17 +121,17 @@ describe('Pattern matching', () => {
     matcher.push('users');
     matcher.push('user');
 
-    const expr1 = new Expression('*.users.user');
-    expect(matcher.matches(expr1)).toBe(true);
+    const e1 = expr('*.users.user');
+    expect(matcher.matches(e1)).toBe(true);
 
-    const expr2 = new Expression('root.*.user');
-    expect(matcher.matches(expr2)).toBe(true);
+    const e2 = expr('root.*.user');
+    expect(matcher.matches(e2)).toBe(true);
 
-    const expr3 = new Expression('root.users.*');
-    expect(matcher.matches(expr3)).toBe(true);
+    const e3 = expr('root.users.*');
+    expect(matcher.matches(e3)).toBe(true);
 
-    const expr4 = new Expression('*.users');
-    expect(matcher.matches(expr4)).toBe(false);
+    const e4 = expr('*.users');
+    expect(matcher.matches(e4)).toBe(false);
   });
 
   it('matches a deep wildcard at any depth', () => {
@@ -140,14 +141,14 @@ describe('Pattern matching', () => {
     matcher.push('level2');
     matcher.push('user');
 
-    const expr1 = new Expression('..user');
-    expect(matcher.matches(expr1)).toBe(true);
+    const e1 = expr('..user');
+    expect(matcher.matches(e1)).toBe(true);
 
-    const expr2 = new Expression('root..user');
-    expect(matcher.matches(expr2)).toBe(true);
+    const e2 = expr('root..user');
+    expect(matcher.matches(e2)).toBe(true);
 
-    const expr3 = new Expression('..level2.user');
-    expect(matcher.matches(expr3)).toBe(true);
+    const e3 = expr('..level2.user');
+    expect(matcher.matches(e3)).toBe(true);
   });
 
   it('matches multiple deep wildcards', () => {
@@ -158,8 +159,8 @@ describe('Pattern matching', () => {
     matcher.push('c');
     matcher.push('d');
 
-    const expr = new Expression('root..b..d');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('root..b..d');
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('matches an attribute condition on the current node only', () => {
@@ -167,11 +168,11 @@ describe('Pattern matching', () => {
     matcher.push('root');
     matcher.push('user', { id: '123', type: 'admin' });
 
-    const expr1 = new Expression('root.user[id]');
-    expect(matcher.matches(expr1)).toBe(true);
+    const e1 = expr('root.user[id]');
+    expect(matcher.matches(e1)).toBe(true);
 
-    const expr2 = new Expression('root.user[name]');
-    expect(matcher.matches(expr2)).toBe(false);
+    const e2 = expr('root.user[name]');
+    expect(matcher.matches(e2)).toBe(false);
   });
 
   it('matches an attribute value condition on the current node only', () => {
@@ -179,11 +180,11 @@ describe('Pattern matching', () => {
     matcher.push('root');
     matcher.push('user', { type: 'admin' });
 
-    const expr1 = new Expression('root.user[type=admin]');
-    expect(matcher.matches(expr1)).toBe(true);
+    const e1 = expr('root.user[type=admin]');
+    expect(matcher.matches(e1)).toBe(true);
 
-    const expr2 = new Expression('root.user[type=guest]');
-    expect(matcher.matches(expr2)).toBe(false);
+    const e2 = expr('root.user[type=guest]');
+    expect(matcher.matches(e2)).toBe(false);
   });
 
   it('cannot match an attribute condition on an ancestor', () => {
@@ -193,8 +194,8 @@ describe('Pattern matching', () => {
     matcher.push('user');
 
     // Ancestor attributes are dropped on push, so there is nothing to match against
-    const expr = new Expression('root[lang].users.user');
-    expect(matcher.matches(expr)).toBe(false);
+    const e = expr('root[lang].users.user');
+    expect(matcher.matches(e)).toBe(false);
   });
 });
 
@@ -204,12 +205,12 @@ describe('Position selectors', () => {
     matcher.push('root');
     matcher.push('item'); // counter = 0
 
-    const expr = new Expression('root.item:first');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('root.item:first');
+    expect(matcher.matches(e)).toBe(true);
 
     matcher.pop();
     matcher.push('item'); // counter = 1
-    expect(matcher.matches(expr)).toBe(false);
+    expect(matcher.matches(e)).toBe(false);
   });
 
   it('matches :nth(n) only at that counter', () => {
@@ -220,16 +221,16 @@ describe('Position selectors', () => {
     matcher.pop();
 
     matcher.push('item'); // counter = 1
-    const expr1 = new Expression('root.item:nth(1)');
-    expect(matcher.matches(expr1)).toBe(true);
+    const e1 = expr('root.item:nth(1)');
+    expect(matcher.matches(e1)).toBe(true);
 
-    const expr0 = new Expression('root.item:nth(0)');
-    expect(matcher.matches(expr0)).toBe(false);
+    const e0 = expr('root.item:nth(0)');
+    expect(matcher.matches(e0)).toBe(false);
     matcher.pop();
 
     matcher.push('item'); // counter = 2
-    const expr2 = new Expression('root.item:nth(2)');
-    expect(matcher.matches(expr2)).toBe(true);
+    const e2 = expr('root.item:nth(2)');
+    expect(matcher.matches(e2)).toBe(true);
   });
 
   it('matches :odd on odd counters only', () => {
@@ -237,7 +238,7 @@ describe('Position selectors', () => {
     matcher.push('root');
 
     matcher.push('item'); // counter = 0 (even)
-    const oddExpr = new Expression('root.item:odd');
+    const oddExpr = expr('root.item:odd');
     expect(matcher.matches(oddExpr)).toBe(false);
     matcher.pop();
 
@@ -258,7 +259,7 @@ describe('Position selectors', () => {
     matcher.push('root');
 
     matcher.push('item'); // counter = 0 (even)
-    const evenExpr = new Expression('root.item:even');
+    const evenExpr = expr('root.item:even');
     expect(matcher.matches(evenExpr)).toBe(true);
     matcher.pop();
 
@@ -280,8 +281,8 @@ describe('Position selectors', () => {
     matcher.pop();
     matcher.push('item'); // counter = 1
 
-    const expr = new Expression('..item:nth(1)');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('..item:nth(1)');
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('combines an attribute condition with a position selector', () => {
@@ -289,12 +290,12 @@ describe('Position selectors', () => {
     matcher.push('root');
 
     matcher.push('user', { type: 'admin' }); // counter = 0
-    const expr = new Expression('root.user[type=admin]:first');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('root.user[type=admin]:first');
+    expect(matcher.matches(e)).toBe(true);
     matcher.pop();
 
     matcher.push('user', { type: 'admin' }); // counter = 1
-    expect(matcher.matches(expr)).toBe(false);
+    expect(matcher.matches(e)).toBe(false);
   });
 });
 
@@ -303,8 +304,8 @@ describe('Edge cases', () => {
     const matcher = new Matcher();
     matcher.push('root');
 
-    const expr = new Expression('');
-    expect(matcher.matches(expr)).toBe(false);
+    const e = expr('');
+    expect(matcher.matches(e)).toBe(false);
   });
 
   it('does not match when the path and the pattern differ in length', () => {
@@ -312,11 +313,11 @@ describe('Edge cases', () => {
     matcher.push('root');
     matcher.push('user');
 
-    const expr1 = new Expression('root.users.user');
-    expect(matcher.matches(expr1)).toBe(false);
+    const e1 = expr('root.users.user');
+    expect(matcher.matches(e1)).toBe(false);
 
-    const expr2 = new Expression('root');
-    expect(matcher.matches(expr2)).toBe(false);
+    const e2 = expr('root');
+    expect(matcher.matches(e2)).toBe(false);
   });
 
   it('uses the counter rather than the position for :first', () => {
@@ -334,8 +335,8 @@ describe('Edge cases', () => {
     expect(matcher.getCounter()).toBe(1);
 
     // :first checks counter, not position
-    const expr = new Expression('root.a:first');
-    expect(matcher.matches(expr)).toBe(false);
+    const e = expr('root.a:first');
+    expect(matcher.matches(e)).toBe(false);
   });
 
   it('restores the path and the sibling counts from a snapshot', () => {
@@ -365,8 +366,8 @@ describe('Edge cases', () => {
     expect(matcher.toString()).toBe('root/users');
     expect(matcher.toString('.')).toBe('root.users');
 
-    const expr = new Expression('root/users', { separator: '/' });
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('root/users', { separator: '/' });
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('treats null, undefined and empty attribute objects as no attributes', () => {
@@ -387,11 +388,11 @@ describe('Edge cases', () => {
     const matcher = new Matcher();
     matcher.push('user', { id: '123', type: 'admin' });
 
-    const expr = new Expression('user[ id ]');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('user[ id ]');
+    expect(matcher.matches(e)).toBe(true);
 
-    const expr2 = new Expression('user[ type = admin ]');
-    expect(matcher.matches(expr2)).toBe(true);
+    const e2 = expr('user[ type = admin ]');
+    expect(matcher.matches(e2)).toBe(true);
   });
 
   it('coerces a numeric attribute value to a string for comparison', () => {
@@ -399,30 +400,30 @@ describe('Edge cases', () => {
     matcher.push('user', { id: '123', count: 5 });
 
     // Even though count is number 5, pattern expects string "5"
-    const expr = new Expression('user[count=5]');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('user[count=5]');
+    expect(matcher.matches(e)).toBe(true);
   });
 });
 
 describe('Performance and caching', () => {
   it('caches the expression analysis flags', () => {
-    const expr = new Expression('root..user[id]:first');
+    const e = expr('root..user[id]:first');
 
     // These should return cached values (not recalculate)
-    expect(expr.hasDeepWildcard()).toBe(true);
-    expect(expr.hasAttributeCondition()).toBe(true);
-    expect(expr.hasPositionSelector()).toBe(true);
+    expect(e.hasDeepWildcard()).toBe(true);
+    expect(e.hasAttributeCondition()).toBe(true);
+    expect(e.hasPositionSelector()).toBe(true);
 
     // The memoised flags are ECMAScript `#`-private, so there is no longer any way to reach in and read them back — the claim under test is
     // therefore stated against the public surface: each accessor agrees with the public `segments` it was derived from, and holds that answer
     // across repeated calls rather than rescanning.
-    expect(expr.hasDeepWildcard()).toBe(expr.segments.some(seg => seg.type === 'deep-wildcard'));
-    expect(expr.hasAttributeCondition()).toBe(expr.segments.some(seg => seg.attrName !== undefined));
-    expect(expr.hasPositionSelector()).toBe(expr.segments.some(seg => seg.position !== undefined));
+    expect(e.hasDeepWildcard()).toBe(e.segments.some(seg => seg.type === 'deep-wildcard'));
+    expect(e.hasAttributeCondition()).toBe(e.segments.some(seg => seg.attrName !== undefined));
+    expect(e.hasPositionSelector()).toBe(e.segments.some(seg => seg.position !== undefined));
 
-    expect(expr.hasDeepWildcard()).toBe(true);
-    expect(expr.hasAttributeCondition()).toBe(true);
-    expect(expr.hasPositionSelector()).toBe(true);
+    expect(e.hasDeepWildcard()).toBe(true);
+    expect(e.hasAttributeCondition()).toBe(true);
+    expect(e.hasPositionSelector()).toBe(true);
   });
 });
 
@@ -455,8 +456,8 @@ describe('Complex real-world scenarios', () => {
     matcher.push('p');
     expect(matcher.getCounter()).toBe(1);
 
-    const expr = new Expression('..p:nth(1)');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('..p:nth(1)');
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('handles nested same-named tags', () => {
@@ -472,8 +473,8 @@ describe('Complex real-world scenarios', () => {
     expect(matcher.getDepth()).toBe(5);
     expect(matcher.getCounter()).toBe(0);
 
-    const expr = new Expression('..item.item.item:first');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('..item.item.item:first');
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('tracks position across different tags and counter per tag name', () => {
@@ -491,7 +492,7 @@ describe('Complex real-world scenarios', () => {
     expect(matcher.getPosition()).toBe(2);
     expect(matcher.getCounter()).toBe(1);
 
-    const expr = new Expression('data.user:nth(1)');
-    expect(matcher.matches(expr)).toBe(true);
+    const e = expr('data.user:nth(1)');
+    expect(matcher.matches(e)).toBe(true);
   });
 });

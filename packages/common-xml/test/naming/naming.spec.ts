@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import type { Production, ValidationResult } from '#/index.ts';
 
 import { createValidator, name, ncName, nmToken, nmTokens, qName, sanitize, validate, validateAll } from '#/index.ts';
+import { run, failedWith } from '#/test/helpers/effect.ts';
 
 /**
  * @description Narrows a validation result to its diagnostics. Throws if the result was valid, so a spec that expected a failure cannot pass on a success.
@@ -261,46 +262,46 @@ describe('nmTokens()', () => {
 
 describe('validate()', () => {
   it('returns { valid: true } for valid input', () => {
-    expect(validate('foo', 'name')).toEqual({ valid: true, production: 'name', input: 'foo' });
-    expect(validate('svg:circle', 'qName')).toEqual({ valid: true, production: 'qName', input: 'svg:circle' });
+    expect(run(validate('foo', 'name'))).toEqual({ valid: true, production: 'name', input: 'foo' });
+    expect(run(validate('svg:circle', 'qName'))).toEqual({ valid: true, production: 'qName', input: 'svg:circle' });
   });
 
   it('returns valid: false with reason for invalid start char', () => {
-    const result = validate('1foo', 'ncName');
+    const result = run(validate('1foo', 'ncName'));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).position).toBe(0);
     expect(diagnosticsOf(result).reason).toMatch(/NameStartChar/i);
   });
 
   it('reports colon in NCName', () => {
-    const result = validate('foo:bar', 'ncName');
+    const result = run(validate('foo:bar', 'ncName'));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toMatch(/colon/i);
     expect(diagnosticsOf(result).position).toBe(3);
   });
 
   it('reports leading colon in QName', () => {
-    const result = validate(':foo', 'qName');
+    const result = run(validate(':foo', 'qName'));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toMatch(/cannot start/i);
     expect(diagnosticsOf(result).position).toBe(0);
   });
 
   it('reports trailing colon in QName', () => {
-    const result = validate('foo:', 'qName');
+    const result = run(validate('foo:', 'qName'));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toMatch(/cannot end/i);
     expect(diagnosticsOf(result).position).toBe(3);
   });
 
   it('reports multiple colons in QName', () => {
-    const result = validate('a:b:c', 'qName');
+    const result = run(validate('a:b:c', 'qName'));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toMatch(/at most one colon/i);
   });
 
   it('reports empty string', () => {
-    const result = validate('', 'name');
+    const result = run(validate('', 'name'));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toMatch(/empty/i);
   });
@@ -308,23 +309,26 @@ describe('validate()', () => {
   it('narrows to reason and position on the invalid branch', () => {
     // The discriminated return type is the point of the port: no cast and no
     // optional chaining needed to read the diagnostics off a failed validation.
-    const diagnostics = diagnosticsOf(validate('foo!bar', 'name'));
+    const diagnostics = diagnosticsOf(run(validate('foo!bar', 'name')));
     expect(diagnostics.reason).toContain('NameChar');
     expect(diagnostics.position).toBe(3);
   });
 
-  it('throws TypeError for unknown production', () => {
-    expect(() => validate('foo', 'unknown' as Production)).toThrowError(TypeError);
+  it('fails with InvalidProduction for unknown production', () => {
+    // Unreachable from TypeScript, where `Production` is a closed union. It is
+    // the guard for an untyped caller, and it reports through the error channel
+    // rather than by throwing.
+    failedWith(validate('foo', 'unknown' as Production), 'InvalidProduction');
   });
 
   it('respects xmlVersion — \\u0487 valid only in 1.1', () => {
-    expect(validate('foo\u0487', 'name', { xmlVersion: '1.0' }).valid).toBe(false);
-    expect(validate('foo\u0487', 'name', { xmlVersion: '1.1' }).valid).toBe(true);
+    expect(run(validate('foo\u0487', 'name', { xmlVersion: '1.0' })).valid).toBe(false);
+    expect(run(validate('foo\u0487', 'name', { xmlVersion: '1.1' })).valid).toBe(true);
   });
 
   it('respects xmlVersion — supplementary plane valid only in 1.1', () => {
-    expect(validate('\u{10000}foo', 'name', { xmlVersion: '1.0' }).valid).toBe(false);
-    expect(validate('\u{10000}foo', 'name', { xmlVersion: '1.1' }).valid).toBe(true);
+    expect(run(validate('\u{10000}foo', 'name', { xmlVersion: '1.0' })).valid).toBe(false);
+    expect(run(validate('\u{10000}foo', 'name', { xmlVersion: '1.1' })).valid).toBe(true);
   });
 });
 
@@ -334,7 +338,7 @@ describe('validate()', () => {
 
 describe('validateAll()', () => {
   it('returns a result per input string', () => {
-    const results = validateAll(['svg', 'circle', '123bad', 'xlink:href'], 'ncName');
+    const results = run(validateAll(['svg', 'circle', '123bad', 'xlink:href'], 'ncName'));
     expect(results.length).toBe(4);
     expect(results[0].valid).toBe(true);
     expect(results[1].valid).toBe(true);
@@ -343,12 +347,12 @@ describe('validateAll()', () => {
   });
 
   it('returns all valid for clean input', () => {
-    const results = validateAll(['foo', 'bar', 'baz'], 'name');
+    const results = run(validateAll(['foo', 'bar', 'baz'], 'name'));
     expect(results.every(r => r.valid)).toBe(true);
   });
 
   it('returns all invalid for bad input', () => {
-    const results = validateAll(['1bad', '!bad', ''], 'qName');
+    const results = run(validateAll(['1bad', '!bad', ''], 'qName'));
     expect(results.every(r => !r.valid)).toBe(true);
   });
 });
@@ -462,21 +466,21 @@ describe('asciiOnly option', () => {
   });
 
   it('keeps validate() reason/position consistent with the ASCII-only result', () => {
-    const result = validate('éfoo', 'name', { asciiOnly: true });
+    const result = run(validate('éfoo', 'name', { asciiOnly: true }));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toContain('NameStartChar');
     expect(diagnosticsOf(result).position).toBe(0);
   });
 
   it('flags a non-ASCII NameChar (not just NameStartChar) under asciiOnly', () => {
-    const result = validate('fooé', 'name', { asciiOnly: true });
+    const result = run(validate('fooé', 'name', { asciiOnly: true }));
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toContain('NameChar');
     expect(diagnosticsOf(result).position).toBe(3);
   });
 
   it('is respected by validateAll via opts passthrough', () => {
-    const results = validateAll(['foo', 'café'], 'name', { asciiOnly: true });
+    const results = run(validateAll(['foo', 'café'], 'name', { asciiOnly: true }));
     expect(results[0].valid).toBe(true);
     expect(results[1].valid).toBe(false);
   });
@@ -487,12 +491,12 @@ describe('asciiOnly option', () => {
 // ---------------------------------------------------------------------------
 
 describe('createValidator()', () => {
-  it('throws on unknown production', () => {
-    expect(() => createValidator('bogus' as Production)).toThrowError(TypeError);
+  it('fails with InvalidProduction for unknown production', () => {
+    failedWith(createValidator('bogus' as Production), 'InvalidProduction');
   });
 
   it('returns a function that matches the uncached validator for the same production', () => {
-    const isName = createValidator('name');
+    const isName = run(createValidator('name'));
     const cases = ['foo', '1foo', 'a:b:c', '-bad', '', 'café', ':', 'a-b.c1'];
     for (const str of cases) {
       expect(isName(str)).toBe(name(str));
@@ -500,7 +504,7 @@ describe('createValidator()', () => {
   });
 
   it('matches the uncached validator for qName', () => {
-    const isQName = createValidator('qName');
+    const isQName = run(createValidator('qName'));
     const cases = ['svg:circle', 'foo', 'a:b:c', ':foo', 'foo:'];
     for (const str of cases) {
       expect(isQName(str)).toBe(qName(str));
@@ -508,7 +512,7 @@ describe('createValidator()', () => {
   });
 
   it('matches the uncached validator for ncName', () => {
-    const isNc = createValidator('ncName');
+    const isNc = run(createValidator('ncName'));
     const cases = ['my-id', 'xlink:href', 'foo'];
     for (const str of cases) {
       expect(isNc(str)).toBe(ncName(str));
@@ -516,16 +520,16 @@ describe('createValidator()', () => {
   });
 
   it('matches the uncached validator for nmToken and nmTokens', () => {
-    const isTok = createValidator('nmToken');
-    const isToks = createValidator('nmTokens');
+    const isTok = run(createValidator('nmToken'));
+    const isToks = run(createValidator('nmTokens'));
     expect(isTok('123')).toBe(nmToken('123'));
     expect(isTok('foo bar')).toBe(nmToken('foo bar'));
     expect(isToks('tok1 tok2 -foo 123')).toBe(nmTokens('tok1 tok2 -foo 123'));
   });
 
   it('respects xmlVersion fixed at creation time', () => {
-    const is10 = createValidator('name', { xmlVersion: '1.0' });
-    const is11 = createValidator('name', { xmlVersion: '1.1' });
+    const is10 = run(createValidator('name', { xmlVersion: '1.0' }));
+    const is11 = run(createValidator('name', { xmlVersion: '1.1' }));
     // Supplementary-plane char is only valid as a NameStartChar in XML 1.1
     const supplementaryChar = '\u{10000}';
     expect(is10(supplementaryChar)).toBe(false);
@@ -533,14 +537,14 @@ describe('createValidator()', () => {
   });
 
   it('respects asciiOnly fixed at creation time', () => {
-    const isAscii = createValidator('name', { asciiOnly: true });
-    const isUnicode = createValidator('name', { asciiOnly: false });
+    const isAscii = run(createValidator('name', { asciiOnly: true }));
+    const isUnicode = run(createValidator('name', { asciiOnly: false }));
     expect(isAscii('café')).toBe(false);
     expect(isUnicode('café')).toBe(true);
   });
 
   it('returns the same boolean result on repeated calls (cache hit path)', () => {
-    const isQName = createValidator('qName');
+    const isQName = run(createValidator('qName'));
     expect(isQName('sku')).toBe(true);
     expect(isQName('sku')).toBe(true);
     expect(isQName('1bad')).toBe(false);
@@ -548,7 +552,7 @@ describe('createValidator()', () => {
   });
 
   it('stops caching new entries once maxCacheSize is reached, but keeps validating correctly', () => {
-    const isName = createValidator('name', { maxCacheSize: 2 });
+    const isName = run(createValidator('name', { maxCacheSize: 2 }));
     expect(isName('a')).toBe(true);
     expect(isName('b')).toBe(true);
     // cache is now full (size 2) — further distinct inputs are still validated
@@ -562,7 +566,7 @@ describe('createValidator()', () => {
   });
 
   it('exposes a reset() method that clears the cache without breaking correctness', () => {
-    const isName = createValidator('name', { maxCacheSize: 1 });
+    const isName = run(createValidator('name', { maxCacheSize: 1 }));
     expect(isName('a')).toBe(true); // fills cache
     expect(isName('b')).toBe(true); // not cached (cache full)
     isName.reset();
@@ -571,8 +575,8 @@ describe('createValidator()', () => {
   });
 
   it('keeps caches independent across separate createValidator instances', () => {
-    const v1 = createValidator('name', { maxCacheSize: 1 });
-    const v2 = createValidator('name', { maxCacheSize: 1 });
+    const v1 = run(createValidator('name', { maxCacheSize: 1 }));
+    const v2 = run(createValidator('name', { maxCacheSize: 1 }));
     v1('x');
     v2('y');
     // Filling v1's single-entry cache with 'x' must not affect v2's ability

@@ -16,6 +16,7 @@
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { qName, sanitize, validate } from '@endevops/common-xml';
+import { Effect } from 'effect';
 
 /**
  * @description The key prefix that marks a field as an XML attribute. `@xmlns` is written as `xmlns="…"`.
@@ -119,12 +120,15 @@ export const resolveName = (name: string, { mode = 'repair', xmlVersion = '1.0' 
     case 'ignore':
       return name;
     case 'error': {
-      const result = validate(name, 'qName', { xmlVersion });
-      // `qName` above already rejected the name, so the result is the invalid
-      // branch. Narrowed rather than cast so a change in the naming package
-      // that made the two disagree would fail here instead of reading
+      // `validate` reports an unknown production through its error channel, but
+      // the production is the literal `'qName'` here, so that failure is
+      // unreachable — `orElseSucceed` says so rather than a cast. `qName` above
+      // has already rejected the name, so a successful result is the invalid
+      // branch; it is narrowed rather than cast, so a change in the naming
+      // package that made the two disagree would fail here instead of reading
       // `reason` off the valid branch.
-      const reason = result.valid ? 'is not a legal XML name' : result.reason;
+      const result = Effect.runSync(Effect.orElseSucceed(validate(name, 'qName', { xmlVersion }), () => undefined));
+      const reason = result !== undefined && !result.valid ? result.reason : 'is not a legal XML name';
       throw new TypeError(`Invalid XML name ${JSON.stringify(name)}: ${reason}`);
     }
     case 'repair':

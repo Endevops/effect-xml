@@ -5,6 +5,8 @@
 // non-ASCII goes through the integer-keyed tries in `entity-tries.ts`.
 // Splitting them is what keeps the ASCII path free of trie work.
 
+import { Effect } from 'effect';
+
 import { trie1, trie2, trie3 } from './entity-tries.ts';
 
 // Replacement strings indexed by char code — direct array access, no hashing.
@@ -125,16 +127,28 @@ export class EntityEncoder {
    * returned as-is, and so is any input once `maxReplacements` is spent. A non-string is returned unchanged rather than coerced, so a value that
    * reached the encoder from untyped code passes through instead of being stringified.
    *
+   * @example
+   *   ```typescript
+   *   import { Effect } from 'effect';
+   *   import { EntityEncoder } from '@endevops/common-xml';
+   *
+   *   const encoder = new EntityEncoder();
+   *   Effect.runSync(encoder.encode('<a href="x">& é')); // '&lt;a href=&QUOT;x&QUOT;&gt;&amp; &COPY; é'
+   *   ```;
+   *
    * @param str - The string to encode.
    *
-   * @returns The encoded string, which may be the identical string when there was nothing to replace or the budget was already spent.
+   * @returns The encoded string as an effect, which may be the identical string when there was nothing to replace or the budget was already spent.
+   *   The error channel is empty and stays empty: escaping a character has nothing to fail about, and the replacement budget is a budget rather than
+   *   a limit — running out stops the work instead of failing it. The effect is here so this composes with {@link EntityDecoder.decode}, which does
+   *   have a failure mode, without the caller having to branch on which half can fail.
    */
-  encode(str: string): string {
-    if (typeof str !== 'string' || str.length === 0) return str;
-    if (!NEEDS_PROCESSING.test(str)) return str;
+  encode(str: string): Effect.Effect<string> {
+    if (typeof str !== 'string' || str.length === 0) return Effect.succeed(str);
+    if (!NEEDS_PROCESSING.test(str)) return Effect.succeed(str);
 
     const maxRep = this.maxReplacements;
-    if (maxRep > 0 && this.replacementsCount >= maxRep) return str;
+    if (maxRep > 0 && this.replacementsCount >= maxRep) return Effect.succeed(str);
 
     // Hoist to locals — avoids `this` property lookup inside the hot loop
     const encodeXmlSafe = this.encodeXmlSafe;
@@ -298,7 +312,7 @@ export class EntityEncoder {
     // Flush any remaining literal suffix. This is also what copies the rest of
     // the input through when the budget ran out mid-string.
     if (last < len) result += str.substring(last);
-    return result;
+    return Effect.succeed(result);
   }
 
   /**

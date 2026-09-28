@@ -443,9 +443,9 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
  */
 const decodeEntities = (raw: string): string => {
   if (raw.indexOf('&') === -1) return raw; // nothing to expand: the common case, and no work
-  try {
-    return decoder.decode(raw);
-  } catch {
-    return raw;
-  }
+  // `orElseSucceed` rather than `try`/`catch`: the decoder reports a malformed
+  // reference by failing in its error channel, and a document containing a bare
+  // `&` is far more likely to be worth reading than to be rejected. The `&` is
+  // escaped on the way out, so the value still round-trips.
+  return Effect.runSync(Effect.orElseSucceed(decoder.decode(raw), () => raw));
 };

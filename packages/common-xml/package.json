@@ -53,6 +53,9 @@
     "dev": "vp pack --watch",
     "prepublishOnly": "vp pack"
   },
+  "dependencies": {
+    "effect": "catalog:"
+  },
   "devDependencies": {
     "vite": "catalog:",
     "vite-plus": "catalog:"

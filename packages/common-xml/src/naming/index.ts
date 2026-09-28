@@ -5,6 +5,23 @@
 // XML 1.0 spec: https://www.w3.org/TR/xml/#NT-Name
 // XML 1.1 spec: https://www.w3.org/TR/xml11/#NT-NameStartChar
 // XML NS spec:  https://www.w3.org/TR/xml-names/#NT-NCName
+//
+// Two error conventions run through this module, and the split is deliberate:
+//
+//   - The five boolean validators and `sanitize` are infallible. A regex test cannot fail and a
+//     character-substitution has nothing to fail about, so they stay plain synchronous functions and stay
+//     usable as predicates — which is how the builder and the codec call them, per name, inside their own
+//     hot loops.
+//   - `createValidator`, `validate` and `validateAll` can fail, on an unknown production, and so return an
+//     `Effect` with an {@link XmlError} rather than throwing. The failure is unreachable from TypeScript,
+//     where `Production` is a closed union; it is the guard for untyped JavaScript callers and for values
+//     that crossed a boundary as `unknown`.
+
+import { Effect } from 'effect';
+
+import type { XmlError } from '../errors.ts';
+
+import { XmlError as XmlErrorCtor } from '../errors.ts';
 
 /**
  * @description The XML specification version a production is validated against. The two differ only in their non-ASCII character ranges — see {@link getRegexes}.
@@ -337,40 +354,55 @@ export const nmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }:
  * @description Returns a memoized boolean validator for a single production, with options fixed at creation time. Repeated calls with the same string after the
  * first are served from a private cache instead of re-running the regex.
  *
+ * @example
+ *   ```typescript
+ *   import { Effect } from 'effect';
+ *   import { createValidator } from '@endevops/common-xml';
+ *
+ *   const isNCName = Effect.runSync(Effect.orElseSucceed(createValidator('ncName'), () => () => false));
+ *   isNCName('svg:circle'); // false — a colon is not an NCName
+ *   ```;
+ *
  * @param production - The production to validate against.
  * @param opts - `maxCacheSize` bounds the cache (default 2048). Once reached, new strings are validated but not cached; existing entries keep being
  *   served.
  *
- * @returns A validator function with a `reset` method that clears its cache.
- *
- * @throws {TypeError} When `production` is not one of the five known productions. Unreachable from TypeScript, kept as the guard for untyped
- *   JavaScript callers.
+ * @returns An effect producing a validator function with a `reset` method that clears its cache. Fails with {@link XmlError} and the
+ *   `InvalidProduction` reason when `production` is not one of the five known productions — unreachable from TypeScript, kept as the guard for
+ *   untyped JavaScript callers.
  */
 export const createValidator = (
   production: Production,
   { xmlVersion = '1.0', asciiOnly = false, maxCacheSize = 2048 }: CreateValidatorOptions = {}
-): MemoizedValidator => {
+): Effect.Effect<MemoizedValidator, XmlError> => {
   if (!PRODUCTIONS.includes(production)) {
-    throw new TypeError(`Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`);
+    return Effect.fail(
+      new XmlErrorCtor({
+        reason: { _tag: 'InvalidProduction', production, expected: PRODUCTIONS.join(', ') },
+        message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
+      })
+    );
   }
 
   const regex = getRegexes(xmlVersion, asciiOnly)[production];
   let cache = new Map<string, boolean>();
 
-  return Object.assign(
-    (str: string): boolean => {
-      const cached = cache.get(str);
-      if (cached !== undefined) return cached;
+  return Effect.succeed(
+    Object.assign(
+      (str: string): boolean => {
+        const cached = cache.get(str);
+        if (cached !== undefined) return cached;
 
-      const result = regex.test(str);
-      if (cache.size < maxCacheSize) cache.set(str, result);
-      return result;
-    },
-    {
-      reset: (): void => {
-        cache = new Map();
+        const result = regex.test(str);
+        if (cache.size < maxCacheSize) cache.set(str, result);
+        return result;
       },
-    }
+      {
+        reset: (): void => {
+          cache = new Map();
+        },
+      }
+    )
   );
 };
 
@@ -379,26 +411,35 @@ export const createValidator = (
 // ---------------------------------------------------------------------------
 
 /**
- * @description Validates a string against a named production and, on failure, reports why and where.
+ * @description The reason a name failed a production, as an effect. The single place the unknown-production guard lives, so `validate` and `validateAll` cannot
+ * drift into reporting it differently.
+ *
+ * @param production - The production to check.
+ *
+ * @returns `Effect.void` for a known production, or the `InvalidProduction` failure.
+ */
+const checkProduction = (production: Production): Effect.Effect<void, XmlError> =>
+  PRODUCTIONS.includes(production)
+    ? Effect.void
+    : Effect.fail(
+        new XmlErrorCtor({
+          reason: { _tag: 'InvalidProduction', production, expected: PRODUCTIONS.join(', ') },
+          message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
+        })
+      );
+
+/**
+ * @description The diagnostic body {@link validate} reports, with the production already known to be valid. Kept separate so the reason-finding logic carries no
+ * error channel and the batch path can map over it without re-entering the guard per element.
  *
  * @param str - The candidate name.
- * @param production - The production to validate against.
- * @param opts - Version and ASCII-only selection, as for the boolean validators.
+ * @param production - The production to validate against, already checked.
+ * @param xmlVersion - Which version's character classes to use.
+ * @param asciiOnly - Whether the ASCII-only fast path applied.
  *
- * @returns A discriminated result: the plain triple when valid, or the offending `reason` and `position` when not.
- *
- * @throws {TypeError} When `production` is not one of the five known productions. Unreachable from TypeScript, kept as the guard for untyped
- *   JavaScript callers.
+ * @returns The discriminated result.
  */
-export const validate = (
-  str: string,
-  production: Production,
-  { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
-): ValidationResult => {
-  if (!PRODUCTIONS.includes(production)) {
-    throw new TypeError(`Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`);
-  }
-
+const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, asciiOnly: boolean): ValidationResult => {
   const validators: Record<Production, (str: string, opts?: ValidationOptions) => boolean> = { name, ncName, qName, nmToken, nmTokens };
   const isValid = validators[production](str, { xmlVersion, asciiOnly });
 
@@ -447,6 +488,40 @@ export const validate = (
   return { valid: false, production, input: str, reason, position };
 };
 
+/**
+ * @description Validates a string against a named production and, on failure, reports why and where.
+ *
+ * @example
+ *   ```typescript
+ *   import { Effect } from 'effect';
+ *   import { validate } from '@endevops/common-xml';
+ *
+ *   Effect.runSync(Effect.orElseSucceed(validate('not a name', 'ncName'), () => null));
+ *   // { valid: false, production: 'ncName', input: 'not a name', reason: 'First character " " is not a valid NameStartChar', position: 0 }
+ *   ```;
+ *
+ * @param str - The candidate name.
+ * @param production - The production to validate against.
+ * @param opts - Version and ASCII-only selection, as for the boolean validators.
+ *
+ * @returns An effect producing a discriminated result: the plain triple when valid, or the offending `reason` and `position` when not. A name that
+ *   fails to validate is a successful call with `valid: false`, not a failed effect — a name being invalid is the question being answered, not a
+ *   failure of the function. Fails only with {@link XmlError} and the `InvalidProduction` reason, which is unreachable from TypeScript and is the
+ *   guard for untyped JavaScript callers.
+ */
+export const validate = (
+  str: string,
+  production: Production,
+  { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
+): Effect.Effect<ValidationResult, XmlError> =>
+  // A generator, not `Effect.as(diagnose(...))`: the argument to `as` is a
+  // value, so the diagnostic would run — and index an unknown production into
+  // the validator table — before the guard had a chance to fail.
+  Effect.gen(function* () {
+    yield* checkProduction(production);
+    return diagnose(str, production, xmlVersion, asciiOnly);
+  });
+
 // ---------------------------------------------------------------------------
 // Batch validator
 // ---------------------------------------------------------------------------
@@ -454,16 +529,32 @@ export const validate = (
 /**
  * @description Validates an array of strings against a named production.
  *
+ * @example
+ *   ```typescript
+ *   import { Effect } from 'effect';
+ *   import { validateAll } from '@endevops/common-xml';
+ *
+ *   const results = Effect.runSync(Effect.orElseSucceed(validateAll(['a', '1b'], 'ncName'), () => []));
+ *   results.filter(r => !r.valid).length; // 1 — '1b' cannot start with a digit
+ *   ```;
+ *
  * @param strings - The candidate names, in input order.
  * @param production - The production to validate against.
  * @param opts - Version and ASCII-only selection, as for the boolean validators.
  *
- * @returns One result per input, in the same order.
- *
- * @throws {TypeError} When `production` is not one of the five known productions, re-thrown from the first failing {@link validate} call.
+ * @returns An effect producing one result per input, in the same order. Fails with {@link XmlError} and the `InvalidProduction` reason, checked once
+ *   up front rather than once per string — an unknown production would otherwise fail on the first element, and an empty input would silently
+ *   succeed.
  */
-export const validateAll = (strings: string[], production: Production, opts: ValidationOptions = {}): ValidationResult[] =>
-  strings.map(str => validate(str, production, opts));
+export const validateAll = (
+  strings: string[],
+  production: Production,
+  { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
+): Effect.Effect<ValidationResult[], XmlError> =>
+  Effect.gen(function* () {
+    yield* checkProduction(production);
+    return strings.map(str => diagnose(str, production, xmlVersion, asciiOnly));
+  });
 
 // ---------------------------------------------------------------------------
 // Sanitizer

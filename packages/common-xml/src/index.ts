@@ -9,21 +9,28 @@
  *
  * @example
  *   ```typescript
- *   import { EntityDecoder, Matcher, Expression, COMMON_HTML, createValidator, sanitize } from '@endevops/common-xml';
+ *   import { Effect } from 'effect';
+ *   import { COMMON_HTML, EntityDecoder, Expression, Matcher, createValidator, sanitize } from '@endevops/common-xml';
  *
- *   new EntityDecoder({ namedEntities: COMMON_HTML }).decode('caf&eacute; &#233;'); // 'café é'
- *
- *   const isQName = createValidator('qName');
+ *   // Infallible operations stay synchronous — a regex test cannot fail.
+ *   const isQName = Effect.runSync(Effect.orElseSucceed(createValidator('qName'), () => () => false));
  *   isQName('svg:circle'); // true
  *   sanitize('not a name', 'ncName'); // 'not_a_name'
  *
+ *   // Anything that can fail returns an Effect with an XmlError channel.
+ *   const decoder = new EntityDecoder({ namedEntities: COMMON_HTML });
+ *   Effect.runSync(Effect.orElseSucceed(decoder.decode('caf&eacute; &#233;'), () => '')); // decoded text
+ *
+ *   // Compile patterns once at config time; construction is Expression.make, not `new`.
+ *   const script = Effect.runSync(Expression.make('..script'));
  *   const matcher = new Matcher();
  *   matcher.push('root', {});
  *   matcher.push('user', { type: 'admin' });
- *   matcher.matches(new Expression('root.user')); // true
- *   ```;
+ *   matcher.matches(script); // false — `user` is not a `script`
+ *   ```
  *
- * @see {@link EntityDecoder} for the entity half, {@link Matcher} for the path half and {@link createValidator} for the naming half.
+ * @see {@link EntityDecoder} for the entity half, {@link Matcher} for the path half, {@link createValidator} for the naming half, and
+ *   {@link XmlError} for the single error every fallible operation here reports.
  */
 
 import type {
@@ -37,6 +44,9 @@ import type {
   EntityTable,
   EntityValFn,
 } from './entities/index.ts';
+// The single error every fallible operation in this package reports, and the tagged union of causes it carries. Exported from the root because a caller
+// that handles a failure has to name the type, and because `Effect.catchReason` needs the reason's `_tag` values to be reachable from the import.
+import type { XmlErrorReason as XmlErrorReasonType } from './errors.ts';
 import type {
   CreateValidatorOptions,
   MemoizedValidator,
@@ -78,6 +88,7 @@ import {
   SHAPES,
   XML,
 } from './entities/index.ts';
+import { XmlError, XmlErrorReason } from './errors.ts';
 import { createValidator, name, ncName, nmToken, nmTokens, qName, sanitize, validate, validateAll } from './naming/index.ts';
 import { Expression, ExpressionSet, Matcher, MatcherView } from './path-matcher/index.ts';
 
@@ -102,6 +113,8 @@ export {
 };
 export { createValidator, name, ncName, nmToken, nmTokens, qName, sanitize, validate, validateAll };
 export { Expression, ExpressionSet, Matcher, MatcherView };
+export { XmlError, XmlErrorReason };
+export type { XmlErrorReasonType };
 export type {
   ApplyLimitsTo,
   EntityDecoderLimitOptions,

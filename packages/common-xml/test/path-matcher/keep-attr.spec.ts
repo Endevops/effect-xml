@@ -7,7 +7,8 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { Expression, Matcher } from '#/index.ts';
+import { Matcher } from '#/index.ts';
+import { expr } from '#/test/helpers/effect.ts';
 
 describe('kept-attribute lookup', () => {
   it('is readable from the node that declared the attribute and from deeper descendants', () => {
@@ -168,16 +169,16 @@ describe('compatibility', () => {
     m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
     m.push('UserId');
 
-    const expr = new Expression('soap::Envelope.soap::Body.UserId');
-    expect(m.matches(expr)).toBe(true);
+    const userExpr = expr('soap::Envelope.soap::Body.UserId');
+    expect(m.matches(userExpr)).toBe(true);
 
-    const deepExpr = new Expression('..UserId');
+    const deepExpr = expr('..UserId');
     expect(m.matches(deepExpr)).toBe(true);
 
     // "[^version]" is NOT special syntax here - parsed as a literal attribute
     // name "^version" on the current node, which won't exist, so this
     // correctly does not match. Confirms no new syntax leaked in.
-    const literalCaret = new Expression('UserId[^version]');
+    const literalCaret = expr('UserId[^version]');
     expect(m.matches(literalCaret)).toBe(false);
   });
 });

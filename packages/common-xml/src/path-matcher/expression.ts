@@ -1,3 +1,9 @@
+import { Effect } from 'effect';
+
+import type { XmlError } from '../errors.ts';
+
+import { XmlError as XmlErrorCtor } from '../errors.ts';
+
 /**
  * @description Options for {@link Expression}.
  */
@@ -125,88 +131,110 @@ export default class Expression<T = unknown> {
   readonly #hasPositionSelector: boolean;
 
   /**
-   * @description Parse a pattern string into a matcher-ready expression.
+   * @description Build an expression from a pattern string. The parsing happens here rather than in a constructor, because a pattern that cannot be parsed is a
+   * typed failure and a constructor has nowhere to put an error channel.
+   *
+   * @example
+   *   ```typescript
+   *   import { Effect } from 'effect';
+   *   import { Expression } from '@endevops/common-xml';
+   *
+   *   const user = Effect.runSync(Effect.orElseSucceed(Expression.make('root.users.user'), () => null));
+   *   user?.length; // 3
+   *   ```;
    *
    * @param pattern - Pattern string, e.g. `"root.users.user"` or `"..user[id]"`.
    * @param options - Configuration options.
    * @param data - Opaque payload to carry on {@link Expression.data}.
    *
-   * @throws {Error} `Invalid namespace in pattern: …` for an empty namespace, `Invalid segment pattern: …` for a segment with no tag.
+   * @returns An effect producing the expression. Fails with {@link XmlError} and the `InvalidPattern` reason for an empty namespace
+   *   (`EmptyNamespace`) or a segment with no tag (`MissingTag`).
    */
-  constructor(pattern: string, options: ExpressionOptions = {}, data?: T) {
+  static make = <T = unknown>(pattern: string, options: ExpressionOptions = {}, data?: T): Effect.Effect<Expression<T>, XmlError> => {
+    const separator = options.separator || '.';
+    return parsePattern(pattern, separator).pipe(
+      Effect.map((segments): Expression<T> => {
+        const expression = new Expression<T>(pattern, separator, segments, data);
+        return expression;
+      })
+    );
+  };
+
+  /**
+   * @description Assemble an expression from an already-parsed pattern. Private because {@link Expression.make} is the supported way in, and because the cached
+   * flags below assume the segments came from {@link parsePattern} rather than from a caller.
+   *
+   * @param pattern - The pattern string, kept verbatim for {@link Expression.pattern} and {@link Expression.toString}.
+   * @param separator - The resolved separator, kept for the same reason.
+   * @param segments - The parsed segments, in path order.
+   * @param data - The opaque payload to carry.
+   */
+  private constructor(pattern: string, separator: string, segments: readonly Segment[], data?: T) {
     this.pattern = pattern;
-    this.separator = options.separator || '.';
-    this.segments = this.#parse(pattern);
+    this.separator = separator;
+    this.segments = segments;
     this.data = data;
     // Cache expensive checks for performance (O(1) instead of O(n))
-    this.#hasDeepWildcard = this.segments.some(seg => seg.type === 'deep-wildcard');
-    this.#hasAttributeCondition = this.segments.some(seg => seg.attrName !== undefined);
-    this.#hasPositionSelector = this.segments.some(seg => seg.position !== undefined);
+    this.#hasDeepWildcard = segments.some(seg => seg.type === 'deep-wildcard');
+    this.#hasAttributeCondition = segments.some(seg => seg.attrName !== undefined);
+    this.#hasPositionSelector = segments.some(seg => seg.position !== undefined);
   }
 
   /**
-   * @description Split a pattern into segments, treating a doubled separator as a `deep-wildcard`.
-   *
-   * @param pattern - The pattern to split.
-   *
-   * @returns The segments, in path order.
+   * @description How many segments the pattern parsed into.
    */
-  #parse(pattern: string): Segment[] {
-    const segments: Segment[] = [];
-
-    // Split by separator but handle ".." specially.
-    // `charAt` rather than `pattern[i]`: both read one UTF-16 code unit, but
-    // charAt is typed `string` instead of `string | undefined`, and the loop
-    // bound already guarantees the index is in range.
-    let i = 0;
-    let currentPart = '';
-
-    while (i < pattern.length) {
-      const ch = pattern.charAt(i);
-
-      if (ch === this.separator) {
-        // Check if next char is also separator (deep wildcard)
-        if (i + 1 < pattern.length && pattern.charAt(i + 1) === this.separator) {
-          // Flush current part if any
-          if (currentPart.trim()) {
-            segments.push(this.#parseSegment(currentPart.trim()));
-            currentPart = '';
-          }
-          // Add deep wildcard
-          segments.push({ type: 'deep-wildcard' });
-          i += 2; // Skip both separators
-        } else {
-          // Regular separator
-          if (currentPart.trim()) {
-            segments.push(this.#parseSegment(currentPart.trim()));
-          }
-          currentPart = '';
-          i++;
-        }
-      } else {
-        currentPart += ch;
-        i++;
-      }
-    }
-
-    // Flush remaining part
-    if (currentPart.trim()) {
-      segments.push(this.#parseSegment(currentPart.trim()));
-    }
-
-    return segments;
+  get length(): number {
+    return this.segments.length;
   }
 
   /**
-   * @description Parse one segment, in the order the syntax nests: brackets, then namespace, then tag and position, then attribute, then position value.
-   *
-   * @param part - The segment text, e.g. `"user"`, `"ns::user"`, `"user[id]"`, `"ns::user[id]:first"`.
-   *
-   * @returns The parsed segment.
-   *
-   * @throws {Error} `Invalid namespace in pattern: …` or `Invalid segment pattern: …`.
+   * @description Whether the pattern contains a `..` deep wildcard, and so cannot be matched by depth.
    */
-  #parseSegment(part: string): Segment {
+  hasDeepWildcard(): boolean {
+    return this.#hasDeepWildcard;
+  }
+
+  /**
+   * @description Whether any segment carries an attribute condition.
+   */
+  hasAttributeCondition(): boolean {
+    return this.#hasAttributeCondition;
+  }
+
+  /**
+   * @description Whether any segment carries a position selector.
+   */
+  hasPositionSelector(): boolean {
+    return this.#hasPositionSelector;
+  }
+
+  /**
+   * @description The original pattern string, so a log line or error message can echo what was configured.
+   */
+  toString(): string {
+    return this.pattern;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pattern parsing
+//
+// Module-level rather than private methods: neither needs an instance, and
+// keeping them out here means the failure channel is visible in the signature
+// of the only thing that calls them, `Expression.make`.
+// ---------------------------------------------------------------------------
+
+/**
+ * @description Parse one segment, in the order the syntax nests: brackets, then namespace, then tag and position, then attribute, then position value.
+ *
+ * @param part - The segment text, e.g. `"user"`, `"ns::user"`, `"user[id]"`, `"ns::user[id]:first"`.
+ * @param pattern - The whole pattern, reported alongside the segment when parsing fails.
+ *
+ * @returns An effect producing the parsed segment. Fails with {@link XmlError} and the `InvalidPattern` reason — `EmptyNamespace` for a namespace
+ *   separator with nothing before it, `MissingTag` for a segment that resolves to no tag at all.
+ */
+const parseSegment = (part: string, pattern: string): Effect.Effect<Segment, XmlError> =>
+  Effect.gen(function* () {
     const segment: Segment = { type: 'tag' };
 
     // NAMESPACE AND POSITION SYNTAX (v2.0):
@@ -255,7 +283,10 @@ export default class Expression<T = unknown> {
       tagAndPosition = withoutBrackets.substring(nsIndex + 2).trim(); // Skip ::
 
       if (!namespace) {
-        throw new Error(`Invalid namespace in pattern: ${part}`);
+        return yield* new XmlErrorCtor({
+          reason: { _tag: 'InvalidPattern', pattern, segment: part, detail: 'EmptyNamespace' },
+          message: `Invalid namespace in pattern: ${part}`,
+        });
       }
     }
 
@@ -283,7 +314,10 @@ export default class Expression<T = unknown> {
     }
 
     if (!tag) {
-      throw new Error(`Invalid segment pattern: ${part}`);
+      return yield* new XmlErrorCtor({
+        reason: { _tag: 'InvalidPattern', pattern, segment: part, detail: 'MissingTag' },
+        message: `Invalid segment pattern: ${part}`,
+      });
     }
 
     segment.tag = tag;
@@ -315,40 +349,60 @@ export default class Expression<T = unknown> {
     }
 
     return segment;
-  }
+  });
 
-  /**
-   * @description How many segments the pattern parsed into.
-   */
-  get length(): number {
-    return this.segments.length;
-  }
+/**
+ * @description Split a pattern into segments, treating a doubled separator as a `deep-wildcard`.
+ *
+ * @param pattern - The pattern to split.
+ * @param separator - The resolved separator, so a caller-chosen one is honoured rather than re-read from an instance.
+ *
+ * @returns An effect producing the segments, in path order. Fails with {@link XmlError} and the `InvalidPattern` reason on the first segment that
+ *   will not parse, carrying the whole pattern and the offending segment.
+ */
+const parsePattern = (pattern: string, separator: string): Effect.Effect<Segment[], XmlError> =>
+  Effect.gen(function* () {
+    const segments: Segment[] = [];
 
-  /**
-   * @description Whether the pattern contains a `..` deep wildcard, and so cannot be matched by depth.
-   */
-  hasDeepWildcard(): boolean {
-    return this.#hasDeepWildcard;
-  }
+    // Split by separator but handle ".." specially.
+    // `charAt` rather than `pattern[i]`: both read one UTF-16 code unit, but
+    // charAt is typed `string` instead of `string | undefined`, and the loop
+    // bound already guarantees the index is in range.
+    let i = 0;
+    let currentPart = '';
 
-  /**
-   * @description Whether any segment carries an attribute condition.
-   */
-  hasAttributeCondition(): boolean {
-    return this.#hasAttributeCondition;
-  }
+    while (i < pattern.length) {
+      const ch = pattern.charAt(i);
 
-  /**
-   * @description Whether any segment carries a position selector.
-   */
-  hasPositionSelector(): boolean {
-    return this.#hasPositionSelector;
-  }
+      if (ch === separator) {
+        // Check if next char is also separator (deep wildcard)
+        if (i + 1 < pattern.length && pattern.charAt(i + 1) === separator) {
+          // Flush current part if any
+          if (currentPart.trim()) {
+            segments.push(yield* parseSegment(currentPart.trim(), pattern));
+            currentPart = '';
+          }
+          // Add deep wildcard
+          segments.push({ type: 'deep-wildcard' });
+          i += 2; // Skip both separators
+        } else {
+          // Regular separator
+          if (currentPart.trim()) {
+            segments.push(yield* parseSegment(currentPart.trim(), pattern));
+          }
+          currentPart = '';
+          i++;
+        }
+      } else {
+        currentPart += ch;
+        i++;
+      }
+    }
 
-  /**
-   * @description The original pattern string, so a log line or error message can echo what was configured.
-   */
-  toString(): string {
-    return this.pattern;
-  }
-}
+    // Flush remaining part
+    if (currentPart.trim()) {
+      segments.push(yield* parseSegment(currentPart.trim(), pattern));
+    }
+
+    return segments;
+  });

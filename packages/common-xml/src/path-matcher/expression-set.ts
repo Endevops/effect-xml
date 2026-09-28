@@ -1,6 +1,11 @@
+import { Effect } from 'effect';
+
+import type { XmlError } from '../errors.ts';
 import type Expression from './expression.ts';
 import type Matcher from './matcher.ts';
 import type { MatcherView } from './matcher.ts';
+
+import { XmlError as XmlErrorCtor } from '../errors.ts';
 
 /**
  * @description An indexed collection of {@link Expression}s for efficient bulk matching. Instead of iterating every expression on every tag, an `ExpressionSet`
@@ -63,17 +68,21 @@ export default class ExpressionSet<T = unknown> {
    *
    * @param expression - A pre-constructed expression.
    *
-   * @returns `this`, for chaining.
-   *
-   * @throws {TypeError} If the set has been sealed.
+   * @returns An effect producing `this`, for chaining. Fails with {@link XmlError} and the `SealedExpressionSet` reason if the set has been sealed —
+   *   a sealed set is the compiled snapshot a parser consults per tag, so mutating it after sealing would change what the hot path reads.
    */
-  add(expression: Expression<T>): this {
+  add(expression: Expression<T>): Effect.Effect<this, XmlError> {
     if (this.#sealed) {
-      throw new TypeError('ExpressionSet is sealed. Create a new ExpressionSet to add more expressions.');
+      return Effect.fail(
+        new XmlErrorCtor({
+          reason: { _tag: 'SealedExpressionSet', size: this.#patterns.size },
+          message: 'ExpressionSet is sealed. Create a new ExpressionSet to add more expressions.',
+        })
+      );
     }
 
     // Deduplicate by pattern string
-    if (this.#patterns.has(expression.pattern)) return this;
+    if (this.#patterns.has(expression.pattern)) return Effect.succeed(this);
     this.#patterns.add(expression.pattern);
 
     if (expression.hasDeepWildcard()) {
@@ -92,7 +101,7 @@ export default class ExpressionSet<T = unknown> {
       } else {
         this.#deepWildcards.push(expression);
       }
-      return this;
+      return Effect.succeed(this);
     }
 
     const depth = expression.length;
@@ -118,7 +127,7 @@ export default class ExpressionSet<T = unknown> {
       }
     }
 
-    return this;
+    return Effect.succeed(this);
   }
 
   /**
@@ -126,14 +135,15 @@ export default class ExpressionSet<T = unknown> {
    *
    * @param expressions - The expressions to register.
    *
-   * @returns `this`, for chaining.
-   *
-   * @throws {TypeError} If the set has been sealed. Note that the expressions added before the throw are kept — the set is not rolled back.
+   * @returns An effect producing `this`, for chaining. Fails with {@link XmlError} and the `SealedExpressionSet` reason if the set has been sealed.
+   *   The expressions added before the failure are kept — the set is not rolled back, matching the original behaviour of a throw mid-loop.
    */
-  addAll(expressions: Expression<T>[]): this {
-    for (const expr of expressions) this.add(expr);
+  addAll = Effect.fnUntraced(function* (this: ExpressionSet<T>, expressions: readonly Expression<T>[]) {
+    for (const expr of expressions) {
+      yield* this.add(expr);
+    }
     return this;
-  }
+  });
 
   /**
    * @description Whether an expression with the same pattern string is already in the set.

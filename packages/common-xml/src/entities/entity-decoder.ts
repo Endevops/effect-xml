@@ -15,6 +15,11 @@
 // Each is called out where it appears, and none of them is repaired, because this class sits in front of XXE
 // and entity-expansion handling where a silent fix is a change to every consumer's output.
 
+import { Effect } from 'effect';
+
+import type { XmlError } from '../errors.ts';
+
+import { XmlError as XmlErrorCtor } from '../errors.ts';
 import { XML as DEFAULT_XML_ENTITIES } from './entity-tables.ts';
 
 // ---------------------------------------------------------------------------
@@ -349,22 +354,31 @@ type HookContext = 'external' | 'input';
  *
  * @param name - The name to check.
  *
- * @returns The name, unchanged, so the call can be inlined.
- *
- * @throws Error - When the name contains a character from {@link SPECIAL_CHARS}, or begins with `#`. Upstream prefixes this message `EntityReplacer`
- *   rather than `EntityDecoder`, the class it actually lives on; the prefix is load-bearing for anything matching on it.
+ * @returns An effect producing the name, unchanged, so the call can be inlined. Fails with {@link XmlError} and the `InvalidEntityName` reason,
+ *   carrying the offending character. The `[EntityReplacer]` prefix in the message is preserved verbatim from the original throw, despite naming a
+ *   class this decoder does not have — it is load-bearing for anything matching on it.
  */
-function validateEntityName(name: string): string {
+const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
   if (name.charCodeAt(0) === CODE_HASH) {
-    throw new Error(`[EntityReplacer] Invalid character '#' in entity name: "${name}"`);
+    return Effect.fail(
+      new XmlErrorCtor({
+        reason: { _tag: 'InvalidEntityName', name, character: '#' },
+        message: `[EntityReplacer] Invalid character '#' in entity name: "${name}"`,
+      })
+    );
   }
   for (const ch of name) {
     if (SPECIAL_CHARS.has(ch)) {
-      throw new Error(`[EntityReplacer] Invalid character '${ch}' in entity name: "${name}"`);
+      return Effect.fail(
+        new XmlErrorCtor({
+          reason: { _tag: 'InvalidEntityName', name, character: ch },
+          message: `[EntityReplacer] Invalid character '${ch}' in entity name: "${name}"`,
+        })
+      );
     }
   }
-  return name;
-}
+  return Effect.succeed(name);
+};
 
 /**
  * @description Flatten registration maps into one name to string map, later maps winning over earlier ones for the same name. The result is a null-prototype
@@ -617,37 +631,39 @@ export class EntityDecoder {
    *
    * @param options - Configuration. See {@link EntityDecoderOptions}.
    *
-   * @throws TypeError - If `options` is `null` rather than omitted or `undefined`. Upstream's `= {}` default only covers `undefined`, and the
-   *   property read fails on `null`; preserved because a caller's error path depends on where it fails.
+   *   A `null` is read as an empty options object rather than faulting on the first property read. The original threw a `TypeError` naming
+   *   `options.limit`, preserved because a caller's error path depended on where it failed; with a typed error channel that dependency is a cost with
+   *   no remaining benefit, and a decoder built from `null` is indistinguishable from one built from `{}`.
    */
   constructor(options: EntityDecoderOptions = {}) {
+    const resolved = options ?? {};
     // `options.limit` is read first, deliberately: with a `null` `options` the resulting TypeError names
     // this property, and a consumer matching on the message is entitled to the same one. The option stays
     // a local — every value the decode loop needs is flattened out of it below, so retaining it on the
     // instance would only be a way to observe the option back.
-    const limit = options.limit ?? {};
+    const limit = resolved.limit ?? {};
     this.#maxTotalExpansions = limit.maxTotalExpansions || 0;
     this.#maxExpandedLength = limit.maxExpandedLength || 0;
-    this.#postCheck = typeof options.postCheck === 'function' ? options.postCheck : resolved => resolved;
+    this.#postCheck = typeof resolved.postCheck === 'function' ? resolved.postCheck : r => r;
     this.#limitTiers = parseLimitTiers(limit.applyLimitsTo ?? LIMIT_TIER_EXTERNAL);
-    this.#numericAllowed = options.numericAllowed ?? true;
-    this.#baseMap = mergeEntityMaps(DEFAULT_XML_ENTITIES, options.namedEntities || null);
+    this.#numericAllowed = resolved.numericAllowed ?? true;
+    this.#baseMap = mergeEntityMaps(DEFAULT_XML_ENTITIES, resolved.namedEntities || null);
 
     this.#externalMap = Object.create(null);
     this.#inputMap = Object.create(null);
     this.#totalExpansions = 0;
     this.#expandedLength = 0;
 
-    this.#removeSet = new Set(Array.isArray(options.remove) ? options.remove : []);
-    this.#leaveSet = new Set(Array.isArray(options.leave) ? options.leave : []);
+    this.#removeSet = new Set(Array.isArray(resolved.remove) ? resolved.remove : []);
+    this.#leaveSet = new Set(Array.isArray(resolved.leave) ? resolved.leave : []);
 
-    const ncrConfig = parseNCRConfig(options.ncr);
+    const ncrConfig = parseNCRConfig(resolved.ncr);
     this.#ncrXmlVersion = ncrConfig.xmlVersion;
     this.#ncrOnLevel = ncrConfig.onLevel;
     this.#ncrNullLevel = ncrConfig.nullLevel;
 
-    this.#onExternalEntity = typeof options.onExternalEntity === 'function' ? options.onExternalEntity : null;
-    this.#onInputEntity = typeof options.onInputEntity === 'function' ? options.onInputEntity : null;
+    this.#onExternalEntity = typeof resolved.onExternalEntity === 'function' ? resolved.onExternalEntity : null;
+    this.#onInputEntity = typeof resolved.onInputEntity === 'function' ? resolved.onInputEntity : null;
   }
 
   /**
@@ -658,34 +674,41 @@ export class EntityDecoder {
    * @param value - The resolved value, after any `{ regex, val }` envelope was unwrapped.
    * @param context - Which registration is in progress, for the error message.
    *
-   * @returns `true` to register, `false` to skip silently.
-   *
-   * @throws Error - When the hook returns `throw`. The message quotes the entity, so it is the only record left that a document was rejected.
+   * @returns An effect producing `true` to register, `false` to skip silently. Fails with {@link XmlError} and the `EntityRejected` reason when the
+   *   hook returns `throw`. The message quotes the entity, so it is the only record left that a document was rejected.
    */
-  #applyRegistrationHook(hook: EntityRegistrationHook | null, name: string, value: string, context: HookContext): boolean {
-    if (!hook) return true; // no hook to ask
+  #applyRegistrationHook(hook: EntityRegistrationHook | null, name: string, value: string, context: HookContext): Effect.Effect<boolean, XmlError> {
+    if (!hook) return Effect.succeed(true); // no hook to ask
     const action = hook(name, value);
-    if (action === ENTITY_ACTION.BLOCK) return false;
+    if (action === ENTITY_ACTION.BLOCK) return Effect.succeed(false);
     if (action === ENTITY_ACTION.THROW) {
-      throw new Error(`[EntityDecoder] Registration of ${context} entity "&${name};" was rejected by hook`);
+      return Effect.fail(
+        new XmlErrorCtor({
+          reason: { _tag: 'EntityRejected', context, name },
+          message: `[EntityDecoder] Registration of ${context} entity "&${name};" was rejected by hook`,
+        })
+      );
     }
-    return true; // ALLOW, and anything unrecognised, accepts
+    return Effect.succeed(true); // ALLOW, and anything unrecognised, accepts
   }
 
   /**
-   * @description Replace the whole set of persistent external entities. Every key is validated _before_ any value is read, so an invalid name throws even when its
+   * @description Replace the whole set of persistent external entities. Every key is validated _before_ any value is read, so an invalid name fails even when its
    * value is a form the merge would have dropped. A non-object or `null` map clears the set without validating anything.
    *
    * @param map - The entities to register, or nothing to clear.
    *
-   * @throws Error - When a key contains a character from {@link SPECIAL_CHARS} or begins with `#`, or when
-   *   {@link EntityDecoderOptions.onExternalEntity} returns `throw`. A `throw` from the hook aborts before the assignment, so the previous map
-   *   survives.
+   * @returns An effect that registers the map. Fails with {@link XmlError} when a key contains a character from {@link SPECIAL_CHARS} or begins with
+   *   `#` (`InvalidEntityName`), or when {@link EntityDecoderOptions.onExternalEntity} returns `throw` (`EntityRejected`). A rejection from the hook
+   *   aborts before the assignment, so the previous map survives.
    */
-  setExternalEntities(map: Record<string, string | { regex: RegExp; val: string | EntityValFn }>): void {
+  setExternalEntities = Effect.fnUntraced(function* (
+    this: EntityDecoder,
+    map: Record<string, string | { regex: RegExp; val: string | EntityValFn }>
+  ): Effect.fn.Return<void, XmlError> {
     if (map) {
       for (const key of Object.keys(map)) {
-        validateEntityName(key);
+        yield* checkEntityName(key);
       }
     }
     if (!this.#onExternalEntity) {
@@ -696,12 +719,12 @@ export class EntityDecoder {
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(flat)) {
-      if (this.#applyRegistrationHook(this.#onExternalEntity, name, value, 'external')) {
+      if (yield* this.#applyRegistrationHook(this.#onExternalEntity, name, value, 'external')) {
         filtered[name] = value;
       }
     }
     this.#externalMap = filtered;
-  }
+  });
 
   /**
    * @description Add one persistent external entity, keeping whatever is already registered. This is the only registration path that refuses a value containing
@@ -711,19 +734,20 @@ export class EntityDecoder {
    * @param key - The entity name, without `&` or `;`.
    * @param value - The replacement text.
    *
-   * @throws Error - When `key` contains a character from {@link SPECIAL_CHARS} or begins with `#`, or when
-   *   {@link EntityDecoderOptions.onExternalEntity} returns `throw`.
+   * @returns An effect that adds the entity. Fails with {@link XmlError} and the `InvalidEntityName` reason when `key` contains a character from
+   *   {@link SPECIAL_CHARS} or begins with `#`, or with the `EntityRejected` reason when {@link EntityDecoderOptions.onExternalEntity} returns
+   *   `throw`.
    */
-  addExternalEntity(key: string, value: string): void {
-    validateEntityName(key);
+  addExternalEntity = Effect.fnUntraced(function* (this: EntityDecoder, key: string, value: string): Effect.fn.Return<void, XmlError> {
+    yield* checkEntityName(key);
     // The two guards are unreachable from typed code — `value` is a `string` — and are kept for
     // untyped callers, which is the only way to reach them.
     if (typeof value === 'string' && value.indexOf('&') === -1) {
-      if (this.#applyRegistrationHook(this.#onExternalEntity, key, value, 'external')) {
+      if (yield* this.#applyRegistrationHook(this.#onExternalEntity, key, value, 'external')) {
         this.#externalMap[key] = value;
       }
     }
-  }
+  });
 
   /**
    * @description Register the DOCTYPE entities for the document about to be decoded, replacing any previous set and clearing both counters. Unlike the external
@@ -732,9 +756,13 @@ export class EntityDecoder {
    *
    * @param map - The entities to register, or nothing to clear.
    *
-   * @throws Error - When {@link EntityDecoderOptions.onInputEntity} returns `throw`. The counters have already been cleared by then.
+   * @returns An effect that registers the map. Fails with {@link XmlError} and the `EntityRejected` reason when
+   *   {@link EntityDecoderOptions.onInputEntity} returns `throw`. The counters have already been cleared by then.
    */
-  addInputEntities(map: Record<string, string | { regx: RegExp; val: string | EntityValFn } | { regex: RegExp; val: string | EntityValFn }>): void {
+  addInputEntities = Effect.fnUntraced(function* (
+    this: EntityDecoder,
+    map: Record<string, string | { regx: RegExp; val: string | EntityValFn } | { regex: RegExp; val: string | EntityValFn }>
+  ): Effect.fn.Return<void, XmlError> {
     // Cleared first and unconditionally, so registering entities is itself the start of a new
     // document's budget — including when the call goes on to fail.
     this.#totalExpansions = 0;
@@ -746,12 +774,12 @@ export class EntityDecoder {
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(flat)) {
-      if (this.#applyRegistrationHook(this.#onInputEntity, name, value, 'input')) {
+      if (yield* this.#applyRegistrationHook(this.#onInputEntity, name, value, 'input')) {
         filtered[name] = value;
       }
     }
     this.#inputMap = filtered;
-  }
+  });
 
   /**
    * @description Start a new document: drop the input entities and both counters. The persistent external entities, the base map, the limits, the NCR policy and
@@ -782,16 +810,25 @@ export class EntityDecoder {
    * pass — how much one round of expansion can add. Three inputs return before the scan and therefore never reach
    * {@link EntityDecoderOptions.postCheck}: a non-string, the empty string, and any string with no `&` in it.
    *
+   * @example
+   *   ```typescript
+   *   import { Effect } from 'effect';
+   *   import { EntityDecoder } from '@endevops/common-xml';
+   *
+   *   const decoder = new EntityDecoder({ namedEntities: { copy: '©' } });
+   *   Effect.runSync(Effect.orElseSucceed(decoder.addExternalEntity('brand', 'Acme'), () => undefined));
+   *   Effect.runSync(decoder.decode('&brand; &copy;')); // 'Acme ©'
+   *   ```;
+   *
    * @param str - The string to decode.
    *
-   * @returns The decoded string. A non-string argument comes back as the same non-string, which the `string` return type does not describe but
-   *   callers passing untyped values depend on.
-   *
-   * @throws Error - When a numeric reference is prohibited under the configured policy, or when a tracked tier would exceed
-   *   {@link EntityDecoderLimitOptions.maxTotalExpansions} or {@link EntityDecoderLimitOptions.maxExpandedLength}. The two limit messages are
-   *   prefixed `EntityReplacer`, not `EntityDecoder`.
+   * @returns An effect producing the decoded string. A non-string argument comes back as the same non-string, which the `string` return type does not
+   *   describe but callers passing untyped values depend on. Fails with {@link XmlError} when a numeric reference is prohibited under the configured
+   *   policy (`ProhibitedCharacterReference`), or when a tracked tier would exceed {@link EntityDecoderLimitOptions.maxTotalExpansions}
+   *   (`ExpansionLimitExceeded`) or {@link EntityDecoderLimitOptions.maxExpandedLength} (`ExpandedLengthLimitExceeded`). The two limit messages keep
+   *   the `EntityReplacer` prefix from the original throw, which named a class this decoder does not have.
    */
-  decode(str: string): string {
+  decode = Effect.fnUntraced(function* (this: EntityDecoder, str: string): Effect.fn.Return<string, XmlError> {
     if (typeof str !== 'string' || str.length === 0) return str;
     if (str.indexOf('&') === -1) return str; // nothing here can be a reference
 
@@ -848,7 +885,7 @@ export class EntityDecoder {
       } else if (token.charCodeAt(0) === CODE_HASH) {
         // Classification runs before any decision about `numericAllowed`: the ranges that carry a
         // minimum have to be caught whichever way that option is set.
-        const ncrResult = this.#resolveNCR(token);
+        const ncrResult = yield* this.#resolveNCR(token);
         if (ncrResult === undefined) {
           i++;
           continue;
@@ -876,7 +913,13 @@ export class EntityDecoder {
         if (limitExpansions) {
           this.#totalExpansions++;
           if (this.#totalExpansions > this.#maxTotalExpansions) {
-            throw new Error(`[EntityReplacer] Entity expansion count limit exceeded: ${this.#totalExpansions} > ${this.#maxTotalExpansions}`);
+            // Deliberately not resetting the counter before failing: the
+            // over-limit total is what the error reports, and `reset` is the
+            // caller's way to start a new document.
+            return yield* new XmlErrorCtor({
+              reason: { _tag: 'ExpansionLimitExceeded', actual: this.#totalExpansions, limit: this.#maxTotalExpansions },
+              message: `[EntityReplacer] Entity expansion count limit exceeded: ${this.#totalExpansions} > ${this.#maxTotalExpansions}`,
+            });
           }
         }
         if (limitLength) {
@@ -886,7 +929,10 @@ export class EntityDecoder {
           if (delta > 0) {
             this.#expandedLength += delta;
             if (this.#expandedLength > this.#maxExpandedLength) {
-              throw new Error(`[EntityReplacer] Expanded content length limit exceeded: ${this.#expandedLength} > ${this.#maxExpandedLength}`);
+              return yield* new XmlErrorCtor({
+                reason: { _tag: 'ExpandedLengthLimitExceeded', actual: this.#expandedLength, limit: this.#maxExpandedLength },
+                message: `[EntityReplacer] Expanded content length limit exceeded: ${this.#expandedLength} > ${this.#maxExpandedLength}`,
+              });
             }
           }
         }
@@ -899,7 +945,7 @@ export class EntityDecoder {
     const result = chunks.length === 0 ? str : chunks.join('');
 
     return this.#postCheck(result, original);
-  }
+  });
 
   /**
    * @description Decide whether an entity of a given tier is charged against the limits.
@@ -970,24 +1016,27 @@ export class EntityDecoder {
    * @param token - The raw token, e.g. `#38`, for the error message.
    * @param cp - The codepoint, for the error message.
    *
-   * @returns The character for `allow`, `''` for `remove`, and `undefined` for `leave` — which the caller reads as "emit the original `&token;`".
-   *
-   * @throws Error - For `throw`, naming both the token and the codepoint.
+   * @returns An effect producing the character for `allow`, `''` for `remove`, and `undefined` for `leave` — which the caller reads as "emit the
+   *   original `&token;`". Fails with {@link XmlError} and the `ProhibitedCharacterReference` reason for `throw`, naming both the token and the
+   *   codepoint.
    */
-  #applyNCRAction(action: number, token: string, cp: number): string | undefined {
+  #applyNCRAction(action: number, token: string, cp: number): Effect.Effect<string | undefined, XmlError> {
     switch (action) {
       case NCR_LEVEL.allow:
-        return String.fromCodePoint(cp);
+        return Effect.succeed(String.fromCodePoint(cp));
       case NCR_LEVEL.remove:
-        return '';
+        return Effect.succeed('');
       case NCR_LEVEL.leave:
-        return undefined;
+        return Effect.succeed(undefined);
       case NCR_LEVEL.throw:
-        throw new Error(
-          `[EntityDecoder] Prohibited numeric character reference &${token}; ` + `(U+${cp.toString(16).toUpperCase().padStart(4, '0')})`
+        return Effect.fail(
+          new XmlErrorCtor({
+            reason: { _tag: 'ProhibitedCharacterReference', token, codepoint: cp },
+            message: `[EntityDecoder] Prohibited numeric character reference &${token}; ` + `(U+${cp.toString(16).toUpperCase().padStart(4, '0')})`,
+          })
         );
       default:
-        return String.fromCodePoint(cp);
+        return Effect.succeed(String.fromCodePoint(cp));
     }
   }
 
@@ -1006,11 +1055,10 @@ export class EntityDecoder {
    *
    * @param token - The raw token without `&` and `;`, e.g. `#38`, `#x26`, `#X26`.
    *
-   * @returns The replacement — the empty string meaning "delete" — or `undefined` to leave the reference as written.
-   *
-   * @throws Error - When the effective action is `throw`.
+   * @returns An effect producing the replacement — the empty string meaning "delete" — or `undefined` to leave the reference as written. Fails with
+   *   {@link XmlError} and the `ProhibitedCharacterReference` reason when the effective action is `throw`.
    */
-  #resolveNCR(token: string): string | undefined {
+  #resolveNCR(token: string): Effect.Effect<string | undefined, XmlError> {
     const second = token.charCodeAt(1);
     let cp: number;
     if (second === CODE_LOWER_X || second === CODE_UPPER_X) {
@@ -1021,11 +1069,11 @@ export class EntityDecoder {
 
     // Out of range is `leave` rather than `remove`: an unparseable reference is text, and
     // deleting a document's characters because one of them was malformed is not a safe default.
-    if (Number.isNaN(cp) || cp < 0 || cp > MAX_CODE_POINT) return undefined;
+    if (Number.isNaN(cp) || cp < 0 || cp > MAX_CODE_POINT) return Effect.succeed(undefined);
 
     const minimum = this.#classifyNCR(cp);
 
-    if (!this.#numericAllowed && minimum < NCR_LEVEL.remove) return undefined;
+    if (!this.#numericAllowed && minimum < NCR_LEVEL.remove) return Effect.succeed(undefined);
 
     const effective = minimum === NO_MINIMUM_LEVEL ? this.#ncrOnLevel : Math.max(this.#ncrOnLevel, minimum);
 

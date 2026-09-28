@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { Expression, Matcher } from '#/index.ts';
+import { Matcher } from '#/index.ts';
+import { expr } from '#/test/helpers/effect.ts';
 
 describe('basic namespace handling', () => {
   it('reports the pushed namespace and includes it in the path', () => {
@@ -51,70 +52,70 @@ describe('basic namespace handling', () => {
 
 describe('namespace pattern parsing', () => {
   it('parses the namespace and tag out of ns::user', () => {
-    const expr = new Expression('ns::user');
+    const e = expr('ns::user');
 
-    expect(expr.segments[0].namespace).toBe('ns');
-    expect(expr.segments[0].tag).toBe('user');
+    expect(e.segments[0].namespace).toBe('ns');
+    expect(e.segments[0].tag).toBe('user');
   });
 
   it('parses namespace, tag and attribute out of ns::user[id]', () => {
-    const expr = new Expression('ns::user[id]');
+    const e = expr('ns::user[id]');
 
-    expect(expr.segments[0].namespace).toBe('ns');
-    expect(expr.segments[0].tag).toBe('user');
-    expect(expr.segments[0].attrName).toBe('id');
+    expect(e.segments[0].namespace).toBe('ns');
+    expect(e.segments[0].tag).toBe('user');
+    expect(e.segments[0].attrName).toBe('id');
   });
 
   it('parses namespace, tag and position out of ns::user:first', () => {
-    const expr = new Expression('ns::user:first');
+    const e = expr('ns::user:first');
 
-    expect(expr.segments[0].namespace).toBe('ns');
-    expect(expr.segments[0].tag).toBe('user');
-    expect(expr.segments[0].position).toBe('first');
+    expect(e.segments[0].namespace).toBe('ns');
+    expect(e.segments[0].tag).toBe('user');
+    expect(e.segments[0].position).toBe('first');
   });
 
   it('parses namespace, tag, attribute value and position out of ns::user[type=admin]:first', () => {
-    const expr = new Expression('ns::user[type=admin]:first');
+    const e = expr('ns::user[type=admin]:first');
 
-    expect(expr.segments[0].namespace).toBe('ns');
-    expect(expr.segments[0].tag).toBe('user');
-    expect(expr.segments[0].attrName).toBe('type');
-    expect(expr.segments[0].attrValue).toBe('admin');
-    expect(expr.segments[0].position).toBe('first');
+    expect(e.segments[0].namespace).toBe('ns');
+    expect(e.segments[0].tag).toBe('user');
+    expect(e.segments[0].attrName).toBe('type');
+    expect(e.segments[0].attrValue).toBe('admin');
+    expect(e.segments[0].position).toBe('first');
   });
 
   it('parses a separate namespace onto each segment of a multi-namespace pattern', () => {
-    const expr = new Expression('ns1::root.ns2::items.ns3::item');
+    const e = expr('ns1::root.ns2::items.ns3::item');
 
-    expect(expr.segments[0].namespace).toBe('ns1');
-    expect(expr.segments[0].tag).toBe('root');
-    expect(expr.segments[1].namespace).toBe('ns2');
-    expect(expr.segments[1].tag).toBe('items');
-    expect(expr.segments[2].namespace).toBe('ns3');
-    expect(expr.segments[2].tag).toBe('item');
+    expect(e.segments[0].namespace).toBe('ns1');
+    expect(e.segments[0].tag).toBe('root');
+    expect(e.segments[1].namespace).toBe('ns2');
+    expect(e.segments[1].tag).toBe('items');
+    expect(e.segments[2].namespace).toBe('ns3');
+    expect(e.segments[2].tag).toBe('item');
   });
 
   it('leaves the namespace undefined on a pattern segment that specifies none', () => {
-    const expr = new Expression('user');
+    const e = expr('user');
 
-    expect(expr.segments[0].namespace).toBeUndefined();
-    expect(expr.segments[0].tag).toBe('user');
+    expect(e.segments[0].namespace).toBeUndefined();
+    expect(e.segments[0].tag).toBe('user');
   });
 
   it('leaves the namespace undefined on the segments around a namespaced one', () => {
-    const expr = new Expression('root.ns::items.item');
+    const e = expr('root.ns::items.item');
 
-    expect(expr.segments[0].namespace).toBeUndefined();
-    expect(expr.segments[1].namespace).toBe('ns');
-    expect(expr.segments[2].namespace).toBeUndefined();
+    expect(e.segments[0].namespace).toBeUndefined();
+    expect(e.segments[1].namespace).toBe('ns');
+    expect(e.segments[2].namespace).toBeUndefined();
   });
 
   it('reads ns::first as a namespace plus a tag named first, with no position selector', () => {
-    const expr = new Expression('ns::first');
+    const e = expr('ns::first');
 
-    expect(expr.segments[0].namespace).toBe('ns');
-    expect(expr.segments[0].tag).toBe('first');
-    expect(expr.segments[0].position).toBeUndefined();
+    expect(e.segments[0].namespace).toBe('ns');
+    expect(e.segments[0].tag).toBe('first');
+    expect(e.segments[0].position).toBeUndefined();
   });
 });
 
@@ -124,9 +125,9 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user', null, 'ns');
 
-    const expr = new Expression('root.ns::user');
+    const e = expr('root.ns::user');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('does not match a different namespace', () => {
@@ -134,9 +135,9 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user', null, 'ns1');
 
-    const expr = new Expression('root.ns2::user');
+    const e = expr('root.ns2::user');
 
-    expect(matcher.matches(expr)).toBe(false);
+    expect(matcher.matches(e)).toBe(false);
   });
 
   it('matches any namespace when the pattern specifies none', () => {
@@ -144,9 +145,9 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user', null, 'ns');
 
-    const expr = new Expression('root.user');
+    const e = expr('root.user');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('matches when neither the pattern nor the tag carries a namespace', () => {
@@ -154,9 +155,9 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user');
 
-    const expr = new Expression('root.user');
+    const e = expr('root.user');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('does not match a namespace-less tag against a namespaced pattern', () => {
@@ -164,9 +165,9 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user');
 
-    const expr = new Expression('root.ns::user');
+    const e = expr('root.ns::user');
 
-    expect(matcher.matches(expr)).toBe(false);
+    expect(matcher.matches(e)).toBe(false);
   });
 
   it('matches any namespace through a wildcard namespace', () => {
@@ -174,15 +175,15 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user', null, 'ns1');
 
-    const expr = new Expression('root.*::user');
+    const e = expr('root.*::user');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
 
     // Same tag, different namespace: the wildcard still matches.
     matcher.pop();
     matcher.push('user', null, 'ns2');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('matches a namespaced tag carrying the attribute the pattern requires', () => {
@@ -190,9 +191,9 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user', { id: '123' }, 'ns');
 
-    const expr = new Expression('root.ns::user[id]');
+    const e = expr('root.ns::user[id]');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
   });
 
   it('matches :first against a namespaced tag only on its first occurrence', () => {
@@ -200,15 +201,15 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('user', null, 'ns'); // counter = 0
 
-    const expr = new Expression('root.ns::user:first');
+    const e = expr('root.ns::user:first');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
 
     // Second ns::user sibling, so the counter is 1.
     matcher.pop();
     matcher.push('user', null, 'ns');
 
-    expect(matcher.matches(expr)).toBe(false);
+    expect(matcher.matches(e)).toBe(false);
   });
 
   it('matches a namespaced tag at any depth through a deep wildcard', () => {
@@ -218,13 +219,13 @@ describe('namespace matching', () => {
     matcher.push('level2');
     matcher.push('user', null, 'ns');
 
-    const expr1 = new Expression('..ns::user');
+    const e1 = expr('..ns::user');
 
-    expect(matcher.matches(expr1)).toBe(true);
+    expect(matcher.matches(e1)).toBe(true);
 
-    const expr2 = new Expression('root..ns::user');
+    const e2 = expr('root..ns::user');
 
-    expect(matcher.matches(expr2)).toBe(true);
+    expect(matcher.matches(e2)).toBe(true);
   });
 
   it('reads ns::first unambiguously as a namespaced tag named first', () => {
@@ -232,17 +233,17 @@ describe('namespace matching', () => {
     matcher.push('root');
     matcher.push('first', null, 'ns'); // tag "first" in namespace "ns", counter = 0
 
-    const expr = new Expression('root.ns::first');
+    const e = expr('root.ns::first');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
 
     // Second ns::first sibling, so :first no longer applies.
     matcher.pop();
     matcher.push('first', null, 'ns');
 
-    const expr2 = new Expression('root.ns::first:first');
+    const e2 = expr('root.ns::first:first');
 
-    expect(matcher.matches(expr2)).toBe(false);
+    expect(matcher.matches(e2)).toBe(false);
   });
 });
 
@@ -273,13 +274,13 @@ describe('counter and position with namespaces', () => {
     matcher.pop();
     matcher.push('item', null, 'ns2'); // first ns2::item
 
-    const expr = new Expression('root.ns2::item:first');
+    const e = expr('root.ns2::item:first');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
 
-    const expr2 = new Expression('root.ns1::item:first'); // ns1::item counter = 1
+    const e2 = expr('root.ns1::item:first'); // ns1::item counter = 1
 
-    expect(matcher.matches(expr2)).toBe(false);
+    expect(matcher.matches(e2)).toBe(false);
   });
 });
 
@@ -294,8 +295,8 @@ describe('SOAP real-world example', () => {
 
     expect(matcher.toString()).toBe('soap:Envelope.soap:Body.ns:GetUser.ns:UserId');
 
-    const expr = new Expression('soap::Envelope.soap::Body..ns::UserId');
+    const e = expr('soap::Envelope.soap::Body..ns::UserId');
 
-    expect(matcher.matches(expr)).toBe(true);
+    expect(matcher.matches(e)).toBe(true);
   });
 });

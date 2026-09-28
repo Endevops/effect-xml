@@ -20,6 +20,7 @@ npm install @endevops/common-xml
 ```
 
 ```typescript
+import { Effect } from 'effect';
 import { EntityDecoder, COMMON_HTML, Matcher, Expression, createValidator, sanitize } from '@endevops/common-xml';
 ```
 
@@ -35,6 +36,62 @@ The source is still split into `src/entities/`, `src/naming/` and
 `src/path-matcher/`, each with its own barrel, and the specs sit under the
 matching `test/` subdirectory. Nothing is exposed per-area at the package
 boundary — the three areas are one package, and a caller imports from one place.
+
+---
+
+## Errors
+
+Every fallible operation returns an `Effect` with one error type, `XmlError`,
+in its `E` channel. Nothing in this package throws, and a failure is a value you
+can branch on rather than a `catch` you have to string-match.
+
+`XmlError` carries a `reason` — a tagged union of the eight things that can go
+wrong — rather than a pile of separate classes, so recovering from a specific
+cause is a `catchReason` away and the `message` stays available for a log:
+
+```typescript
+import { Effect } from 'effect';
+import { EntityDecoder, Expression, XmlError } from '@endevops/common-xml';
+
+const program = Effect.gen(function* () {
+  const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 100 } });
+  return yield* decoder.decode('a &amp; b');
+});
+
+Effect.catchReason(program, 'XmlError', 'ExpansionLimitExceeded', reason => Effect.succeed(`gave up after ${reason.actual} expansions`));
+```
+
+The eight reasons, and what raises each:
+
+| Reason                         | Raised by                                                | Means                                          |
+| ------------------------------ | -------------------------------------------------------- | ---------------------------------------------- |
+| `InvalidProduction`            | `createValidator`, `validate`, `validateAll`             | A production outside the five known ones       |
+| `InvalidPattern`               | `Expression.make`                                        | A pattern segment that will not parse          |
+| `SealedExpressionSet`          | `ExpressionSet.add`, `ExpressionSet.addAll`              | An add after `seal()`                          |
+| `InvalidEntityName`            | `EntityDecoder.setExternalEntities`, `addExternalEntity` | A name that cannot be written as `&name;`      |
+| `EntityRejected`               | the same three registration methods                      | A hook returned `throw`                        |
+| `ExpansionLimitExceeded`       | `EntityDecoder.decode`                                   | A document expanded past `maxTotalExpansions`  |
+| `ExpandedLengthLimitExceeded`  | `EntityDecoder.decode`                                   | A document grew past `maxExpandedLength`       |
+| `ProhibitedCharacterReference` | `EntityDecoder.decode`                                   | A numeric reference the `ncr` policy prohibits |
+
+The messages are reproduced verbatim from what this package used to throw,
+including the `[EntityReplacer]` prefix on the two limit errors and the two
+name-validation errors. That prefix named a class this package does not have and
+never did, and it is documented as load-bearing for anything matching on it, so
+it is preserved rather than tidied.
+
+### What stayed synchronous, and why
+
+A regex test cannot fail and a character substitution has nothing to fail about,
+so the five boolean validators, `sanitize`, and every pure `Matcher` /
+`MatcherView` query stayed plain synchronous functions. Keeping them callable as
+predicates is what lets the builder and the codec use them per name, inside their
+own hot loops. `EntityEncoder.encode` does return an `Effect` even though it
+cannot fail — not so the caller has to handle a case that does not exist, but so
+it composes with `EntityDecoder.decode`, which does.
+
+The rule this drew: **anything that can fail is an `Effect`; anything that
+cannot stays a plain function.**
 
 ---
 
@@ -90,13 +147,20 @@ than once per occurrence.
 made to fail the parse.
 
 ```typescript
-new EntityDecoder({ ncr: { xmlVersion: 1.1, onNCR: 'throw', nullNCR: 'remove' } });
+const decoder = new EntityDecoder({ ncr: { xmlVersion: 1.1, onNCR: 'throw', nullNCR: 'remove' } });
+yield * decoder.decode('a &amp; b');
 ```
+
+The three registration methods — `setExternalEntities`, `addExternalEntity` and
+`addInputEntities` — return `Effect<void, XmlError>` for the same reason
+`decode` does, and fail with `InvalidEntityName` or `EntityRejected`. A `null`
+options object is read as `{}` rather than faulting on the first property read.
 
 ### The encoder
 
 ```typescript
-new EntityEncoder().encode('<a href="x">& é');
+const encoder = new EntityEncoder();
+yield * encoder.encode('<a href="x">& é');
 // '&lt;a href=&QUOT;x&QUOT;&gt;&amp; &COPY; é'
 ```
 
@@ -111,7 +175,8 @@ that fixes one is a visible act rather than a silent behaviour change. None is e
 The ones most likely to surprise:
 
 - **Four decoder error messages say `EntityReplacer`, not `EntityDecoder`.** The class has never been called that; the source's own block comment and
-  example do, referring to a method that does not exist.
+  example do, referring to a method that does not exist. Those four messages are now on `XmlError.message` rather than on a thrown error, reproduced
+  verbatim.
 - **`decode` returns a non-string argument unchanged**, against its own `string` return type.
 - **`postCheck` is skipped on both fast paths** — called once for `'&amp'`, zero times for `'plain'` and for `''`.
 - **The encoder's 3-character trie is always empty.** No HTML5 entity value is 3 UTF-16 code units, so the whole 3-character branch is dead and a
@@ -316,11 +381,19 @@ console.log(matcher.toString()); // "soap:Envelope.soap:Body.ns:UserId"
 
 #### Expression
 
-##### Constructor
+##### Construction
 
-```javascript
-new Expression(pattern, (options = {}), data);
+The constructor is private, because a pattern that will not parse is a typed
+failure and a constructor has nowhere to put an error channel. Use
+`Expression.make`, which returns an `Effect`:
+
+```typescript
+Expression.make(pattern, (options = {}), data); // Effect<Expression<T>, XmlError>
 ```
+
+Fails with the `InvalidPattern` reason for an empty namespace
+(`detail: 'EmptyNamespace'`) or a segment that resolves to no tag
+(`detail: 'MissingTag'`).
 
 **Parameters:**
 
@@ -1003,22 +1076,24 @@ bulk matching. Build it once from your config, then call `matchesAny()` on every
 const set = new ExpressionSet();
 ```
 
-#### `add(expression)` → `this`
+#### `add(expression)` → `Effect<this, XmlError>`
 
 Add a single `Expression`. Duplicate patterns (same pattern string) are silently ignored.
-Returns `this` for chaining. Throws `TypeError` if the set is sealed.
+Fails with the `SealedExpressionSet` reason if the set has been sealed.
 
-```javascript
-set.add(new Expression('root.users.user'));
-set.add(new Expression('..script'));
+```typescript
+yield * set.add(Expression.make('root.users.user'));
+yield * set.add(Expression.make('..script'));
 ```
 
-#### `addAll(expressions)` → `this`
+#### `addAll(expressions)` → `Effect<this, XmlError>`
 
-Add an array of `Expression` objects at once. Returns `this` for chaining.
+Add an array of `Expression` objects at once. Fails with the
+`SealedExpressionSet` reason; the expressions added before the failure are kept,
+matching the original behaviour of a throw mid-loop.
 
-```javascript
-set.addAll(config.stopNodes.map(p => new Expression(p)));
+```typescript
+yield * set.addAll(config.stopNodes.map(p => Expression.make(p)));
 ```
 
 #### `has(expression)` → `boolean`
@@ -1412,7 +1487,11 @@ sanitize('my element', 'name', { replacement: '-' }); // 'my-element'
 - `xmlVersion`: `'1.0'` (default) | `'1.1'`
 - `asciiOnly`: boolean (default `false`) — ASCII-only fast path, see above
 
-#### `createValidator(production, opts?)` → memoized `(str) => boolean`, with `.reset()`
+#### `createValidator(production, opts?)` → `Effect<(str) => boolean, XmlError>`
+
+The validator function itself is memoized and synchronous, with a `.reset()`.
+Fails with the `InvalidProduction` reason — unreachable from TypeScript, where
+`Production` is a closed union.
 
 `opts`:
 
@@ -1420,13 +1499,20 @@ sanitize('my element', 'name', { replacement: '-' }); // 'my-element'
 - `asciiOnly`: boolean (default `false`)
 - `maxCacheSize`: number (default `2048`) — cache stops accepting new entries once reached; existing entries keep serving hits
 
-#### `validate(str, production, opts?)` → `ValidationResult`
+#### `validate(str, production, opts?)` → `Effect<ValidationResult, XmlError>`
 
 `production`: `'name'` | `'ncName'` | `'qName'` | `'nmToken'` | `'nmTokens'`
 
+Fails only with the `InvalidProduction` reason. A name that fails to _validate_
+is a successful call carrying `valid: false` — being invalid is the question
+being answered, not a failure of the function.
+
 `opts`: same as boolean validators (`xmlVersion`, `asciiOnly`)
 
-#### `validateAll(strings[], production, opts?)` → `ValidationResult[]`
+#### `validateAll(strings[], production, opts?)` → `Effect<ValidationResult[], XmlError>`
+
+Fails with the `InvalidProduction` reason, checked once up front rather than per
+element, so an empty array fails the same way a populated one does.
 
 `opts`: same as `validate`
 
