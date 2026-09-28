@@ -1,8 +1,12 @@
 import type { MatcherView } from '@endevops/common-xml';
 
+import { Effect } from 'effect';
+
+import type { BuilderError } from '../errors.ts';
 import type { BuiltInValueParserOptions } from './options.ts';
 import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
 
+import { BuilderError as BuilderErrorCtor } from '../errors.ts';
 import BaseOutputBuilder from './base-output-builder.ts';
 import ValueParserRegistry from './value-parser-registry.ts';
 
@@ -36,9 +40,12 @@ export default class BaseOutputBuilderFactory {
    *
    * @param name - The name chains will reference.
    * @param parserInstance - The parser.
+   *
+   * @returns An effect that registers the parser. Fails with the `InvalidValueParser` reason — the same checks {@link ValueParserRegistry.register}
+   *   makes, run here so a caller configuring a factory sees the failure at configuration time rather than mid-parse.
    */
-  registerValueParser(name: string, parserInstance: ValueParser): void {
-    this.registry.register(name, parserInstance);
+  registerValueParser(name: string, parserInstance: ValueParser): Effect.Effect<void, BuilderError> {
+    return this.registry.register(name, parserInstance);
   }
 
   /**
@@ -47,13 +54,14 @@ export default class BaseOutputBuilderFactory {
    * @param parserOptions - The parser's options.
    * @param readonlyMatcher - The live path, or `null`.
    *
-   * @returns A builder for this document.
-   *
-   * @throws {Error} Always, in the base class.
+   * @returns An effect producing a builder for this document. Fails with {@link BuilderError} and the `NotImplemented` reason, always, in the base
+   *   class.
    */
-  getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): BaseOutputBuilder {
+  getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): Effect.Effect<BaseOutputBuilder, BuilderError> {
     void parserOptions;
     void readonlyMatcher;
-    throw new Error('getInstance is not implemented');
+    return Effect.fail(
+      new BuilderErrorCtor({ reason: { _tag: 'NotImplemented', member: 'getInstance' }, message: 'getInstance is not implemented' })
+    );
   }
 }

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('Comments', function () {
   it('should parse comment and build them back', function () {
@@ -43,8 +43,8 @@ describe('Comments', function () {
     ];
     const options: XmlBuilderOptions = { ignoreAttributes: false, format: true, commentPropName: '#comment', preserveOrder: true };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsonObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsonObj));
     expect(output.replace(/\s+/g, '')).toEqual(XMLdata.replace(/\s+/g, ''));
   });
 
@@ -76,8 +76,8 @@ describe('Comments', function () {
 
     const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, commentPropName: 'phone' };
 
-    const builder = new XMLBuilder(options);
-    const xmlOutput = builder.build(input);
+    const builder = makeBuilder(options);
+    const xmlOutput = run(builder.build(input));
     expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 });

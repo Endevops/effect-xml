@@ -15,16 +15,86 @@ npm install @endevops/builder
 ```
 
 ```typescript
-import XMLBuilder, { CompactBuilderFactory } from '@endevops/builder';
+import { Effect } from 'effect';
+import { CompactBuilderFactory, XMLBuilder } from '@endevops/builder';
 import XMLParser from '@endevops/parser';
 
 // object -> XML string
-new XMLBuilder({ ignoreAttributes: false }).build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
+Effect.runSync(
+  Effect.gen(function* () {
+    const builder = yield* XMLBuilder.make({ ignoreAttributes: false });
+    return yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } });
+  })
+); // '<a id="1">hello</a>'
 
 // XML -> minimal object, through the parser that drives the builder
-new XMLParser({ OutputBuilder: new CompactBuilderFactory() }).parse('<root><item>a</item></root>');
-// { root: { item: 'a' } }
+Effect.runSync(
+  Effect.gen(function* () {
+    const factory = yield* CompactBuilderFactory.make();
+    return yield* new XMLParser({ OutputBuilder: factory }).parse('<root><item>a</item></root>');
+  })
+); // { root: { item: 'a' } }
 ```
+
+## Errors
+
+Every fallible operation returns an `Effect`, and every failure this package reports is one
+`BuilderError` with a typed `reason` in it. There is no `try`/`catch` to write and no error message
+to match on.
+
+```typescript
+import { Effect } from 'effect';
+import { XMLBuilder } from '@endevops/builder';
+
+const program = Effect.gen(function* () {
+  const builder = yield* XMLBuilder.make({ maxNestedTags: 256 });
+  return yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } });
+});
+// '<a id="1">hello</a>'
+
+// Recover one specific cause, leaving the rest as failures.
+Effect.catchReason(program, 'BuilderError', 'MaxNestingExceeded', reason => Effect.succeed(`refused at depth ${reason.depth}`));
+```
+
+| `reason`                   | Raised when                                                                  | Carries                 |
+| -------------------------- | ---------------------------------------------------------------------------- | ----------------------- |
+| `InvalidValueParser`       | A parser is registered under an unusable name, or is missing `reset`/`parse` | `name`, `problem`       |
+| `ValueParserNotFound`      | A chain names a parser nothing is registered under                           | `name`                  |
+| `NotImplemented`           | A base-class member a subclass is meant to override was reached              | `member`                |
+| `InvalidArgument`          | One of the XML-safety predicates was handed a non-string                     | `function`, `received`  |
+| `InvalidOptionEntry`       | A compact-builder option entry is neither a pattern nor an `Expression`      | `option`, `problem`     |
+| `MaxNestingExceeded`       | A document nests deeper than `maxNestedTags`                                 | `limit`, `depth`        |
+| `NameResolutionFailed`     | A configured `sanitizeName` callback threw                                   | `name`, `cause`         |
+| `PatternCompilationFailed` | A `stopNodes`, `alwaysArray` or `exclude` pattern will not compile           | `pattern`, `cause`      |
+| `ValueProcessingFailed`    | A configured `tagValueProcessor` or `attributeValueProcessor` failed         | `hook`, `name`, `cause` |
+| `EntityDecodingFailed`     | The `'entity'` parser could not decode a value                               | `value`, `cause`        |
+
+### Why one error with a `reason`, and not one error per cause
+
+Ten causes, and they are not ten independent decisions a caller usually makes. Eight of them are
+"this configuration is wrong" — the base-class stubs, the registry's validations, the option check,
+the argument type check, a pattern that will not compile, a hook that failed — and two are about the
+document itself: too deep to build, or holding a reference the decoder refuses. The useful split a
+caller makes is coarse: fix the configuration, or reject the document. So there is one error and
+`reason` narrows to the cause, which is a `catchReason` away.
+
+The messages are reproduced verbatim from what the package used to throw. Several are asserted by
+name in the test suite and are the documented contract, so none is reworded.
+
+### Where the `Effect` stops
+
+Infallible operations stay plain functions, because wrapping them would cost a caller an effect it
+has nothing to do with:
+
+- `ValueParserRegistry.reset` and `resetAll`, `ValueParserPipeline.resetAll` — a no-op for an
+  unregistered name, and running between documents
+- `EntityDecoder`-style accessors, `Matcher` and `MatcherView` queries
+- `XMLBuilder.reset`, `setXmlVersion`, and every private string helper
+- `buildObjectNode`, `extractAttributes`, `valToStr` and the escaping helpers
+
+Construction is the one place a plain function would be wrong. A builder compiles caller-supplied
+patterns when it is built, so `new XMLBuilder(...)` became `XMLBuilder.make(...)`, and likewise
+`CompactBuilderFactory.make`, `WSNormalizer.make`, `buildOptions` and `ValueParserRegistry.register`.
 
 ## Why these three are one package
 
@@ -85,11 +155,19 @@ npm install @endevops/builder
 
 ### Usage
 
-```javascript
+```typescript
+import { Effect } from 'effect';
 import { XMLBuilder } from '@endevops/builder';
 
-const builder = new XMLBuilder();
-const xml = builder.build({ name: 'value' });
+const program = Effect.gen(function* () {
+  // `make` rather than `new`, because construction compiles the stop-node
+  // patterns and can fail.
+  const builder = yield* XMLBuilder.make();
+  return yield* builder.build({ name: 'value' });
+});
+
+Effect.runSync(program);
+// '<name>value</name>'
 ```
 
 It fully supports the response generated by fast-xml-parser, and by [`@endevops/parser`](../parser) with `preserveOrder`. You can use options like `preserveOrder`, `ignoreAttributes`, `attributeNamePrefix`, `textNodeName`, `cdataPropName`, `commentPropName`, `format`, `indentBy`, `suppressEmptyNode`, `suppressUnpairedNode`, `stopNodes`, `oneListGroup`, `maxNestedTags`, and many more.
@@ -229,17 +307,22 @@ They run left-to-right; each parser receives the output of the previous one.
 
 Chains are configured on the **builder factory**, not on `XMLParser` directly:
 
-```javascript
+```typescript
+import { Effect } from 'effect';
 import { CompactBuilderFactory } from '@endevops/builder';
 
-// Custom chain
-const builder = new CompactBuilderFactory({
-  tags: { valueParsers: ['ws', 'entity', 'boolean', 'number'] },
-  attributes: { valueParsers: ['entity', 'number'] },
-});
+const program = Effect.gen(function* () {
+  // Custom chain
+  const builder = yield* CompactBuilderFactory.make({
+    tags: { valueParsers: ['ws', 'entity', 'boolean', 'number'] },
+    attributes: { valueParsers: ['entity', 'number'] },
+  });
 
-// Disable all transformation — raw strings only
-const rawBuilder = new CompactBuilderFactory({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } });
+  // Disable all transformation — raw strings only
+  const rawBuilder = yield* CompactBuilderFactory.make({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } });
+
+  return { builder, rawBuilder };
+});
 ```
 
 Each entry is either a **registered name** (string) or a **parser instance** with a
@@ -277,13 +360,18 @@ Normalization is automatically skipped when:
 - Any ancestor element has `xml:space="preserve"`
 - The tag path matches a user-supplied exclusion list
 
-```javascript
+```typescript
+import { Effect } from 'effect';
 import { WSNormalizer } from '@endevops/builder';
 
-const ws = new WSNormalizer({
-  exclude: ['..pre', '..code', '..script'], // leave whitespace untouched in these
+const program = Effect.gen(function* () {
+  // Compiling the exclusions can fail, so the no-exclusion case is `WSNormalizer.builtin()`
+  // and this one is a factory.
+  const ws = yield* WSNormalizer.make({
+    exclude: ['..pre', '..code', '..script'], // leave whitespace untouched in these
+  });
+  yield* factory.registerValueParser('ws', ws);
 });
-factory.registerValueParser('ws', ws);
 ```
 
 > **Note:** `'trim'` remains registered as an alias for `WSNormalizer` for backward
@@ -294,11 +382,13 @@ factory.registerValueParser('ws', ws);
 
 Converts `"true"` and `"false"` (case-insensitive) to JavaScript `true`/`false`. All other values pass through unchanged. You can pass list of true and false values.
 
-```javascript
-import { BooleanParser } from '@endevops/builder';
+```typescript
+import { BooleanParser, CompactBuilderFactory } from '@endevops/builder';
 
-const builder = new CompactBuilderFactory();
-builder.registerValueParser('boolean', new BooleanParser({ trueList: ['yes', 'y'], falseList: ['no', 'n'] }));
+const program = Effect.gen(function* () {
+  const factory = yield* CompactBuilderFactory.make();
+  yield* factory.registerValueParser('boolean', new BooleanParser({ trueList: ['yes', 'y'], falseList: ['no', 'n'] }));
+});
 // "yes" becomes true, "no" becomes false, "true" and "false" stay as strings
 ```
 
@@ -337,11 +427,13 @@ toNumber('007', { leadingZeros: false }); // '007'
 
 Or configure the parser with options and register it:
 
-```javascript
-import { NumberValueParser } from '@endevops/builder';
+```typescript
+import { CompactBuilderFactory, NumberValueParser } from '@endevops/builder';
 
-const builder = new CompactBuilderFactory();
-builder.registerValueParser('number', new NumberValueParser({ leadingZeros: false }));
+const program = Effect.gen(function* () {
+  const factory = yield* CompactBuilderFactory.make();
+  yield* factory.registerValueParser('number', new NumberValueParser({ leadingZeros: false }));
+});
 // "007" stays as "007"; 9.99 converts normally
 ```
 
@@ -369,25 +461,30 @@ factory.registerValueParser('null', new NullParser());
 
 ### Custom Value Parsers
 
-Any object with a `parse(val, context?)` and `reset()` method works as a value parser:
+Any object with a `parse(val, context?)` and `reset()` method works as a value parser. `parse`
+returns an `Effect`, because a chain is a sequence of fallible transforms — which is the shape Effect
+exists for, and it lets one parser reject a single value without failing the whole document.
 
-```javascript
+```typescript
+import { Effect } from 'effect';
+
 class UpperCaseParser extends BaseValueParser {
   constructor(options, isfinal) {
     super(isfinal);
   }
   parse(val) {
-    return typeof val === 'string' ? val.toUpperCase() : val;
+    return Effect.succeed(typeof val === 'string' ? val.toUpperCase() : val);
   }
 }
 
-const builder = new CompactBuilderFactory({ tags: { valueParsers: ['entity', new UpperCaseParser(), 'boolean', 'number'] } });
+const factory = yield * CompactBuilderFactory.make({ tags: { valueParsers: ['entity', new UpperCaseParser(), 'boolean', 'number'] } });
 ```
 
-Register by name to reference in multiple chains:
+Register by name to reference in multiple chains. `registerValueParser` is an effect, so a parser
+that fails validation is refused where it was configured rather than mid-parse:
 
-```javascript
-factory.registerValueParser('upper', new UpperCaseParser());
+```typescript
+yield * factory.registerValueParser('upper', new UpperCaseParser());
 // now usable by name in any valueParsers array
 ```
 
@@ -420,12 +517,14 @@ class TagOnlyParser {
 
 Builder instances expose two pipelines for use in subclass implementations:
 
-```javascript
+Both `run` methods return an `Effect`, so the two methods that use them are effects too:
+
+```typescript
 // In a custom closeElement() — preferred over this.parseValue()
-const result = this.tagsPipeline.run(textValue, context);
+const result = yield * this.tagsPipeline.run(textValue, context);
 
 // In a custom addAttribute() — preferred over this.parseValue()
-const result = this.attrsPipeline.run(attrValue, context);
+const result = yield * this.attrsPipeline.run(attrValue, context);
 ```
 
 ---
@@ -481,13 +580,16 @@ class TagListBuilderFactory extends BaseOutputBuilderFactory {
 
 #### Methods to override
 
-| Method                               | Called when    | Notes                                     |
-| ------------------------------------ | -------------- | ----------------------------------------- |
-| `addElement(tag)`                    | Opening tag    |                                           |
-| `closeElement()`                     | Closing tag    | Use `this.tagsPipeline.run()` for values  |
-| `addAttribute(name, value, matcher)` | Each attribute | Use `this.attrsPipeline.run()` for values |
-| `addValue(text)`                     | Text content   |                                           |
-| `getOutput()`                        | Parse complete | Return the result                         |
+`addAttribute` and `closeElement` return an `Effect` because both run the value-parser chain, and
+every other method is plain. That split is the one a subclass author needs to know:
+
+| Method                               | Called when    | Returns                      | Notes                                 |
+| ------------------------------------ | -------------- | ---------------------------- | ------------------------------------- |
+| `addElement(tag)`                    | Opening tag    | `void`                       |                                       |
+| `closeElement()`                     | Closing tag    | `Effect<void, BuilderError>` | Use `yield* this.tagsPipeline.run()`  |
+| `addAttribute(name, value, matcher)` | Each attribute | `Effect<void, BuilderError>` | Use `yield* this.attrsPipeline.run()` |
+| `addValue(text)`                     | Text content   | `void`                       |                                       |
+| `getOutput()`                        | Parse complete | the result                   | Return the result                     |
 
 ---
 
@@ -733,15 +835,19 @@ npm install @endevops/builder
 
 ### Usage
 
-```javascript
+The factory is built by a `make` rather than a constructor, because resolving its options compiles
+the `alwaysArray` patterns and can fail:
+
+```typescript
 import XMLParser from '@endevops/parser';
+import { Effect } from 'effect';
 import { CompactBuilderFactory } from '@endevops/builder';
 
-const cobOpts = {};
-
-const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory(cobOpts) });
-
-const result = parser.parse('<root><item>value</item></root>');
+const program = Effect.gen(function* () {
+  const factory = yield* CompactBuilderFactory.make({});
+  const parser = new XMLParser({ OutputBuilder: factory });
+  return yield* parser.parse('<root><item>value</item></root>');
+});
 ```
 
 ### Properties
@@ -765,14 +871,16 @@ import { CompactBuilderFactory } from '@endevops/builder';
 const inputXml = `<catalog><book>Title</book></catalog>`;
 
 const parser = new XMLParser({
-  OutputBuilder: new CompactBuilderFactory({
-    forceArray: (matcher, isLeafNode) => {
-      return matcher.toString().endsWith('catalog.book');
-    },
-  }),
+  OutputBuilder:
+    yield *
+    CompactBuilderFactory.make({
+      forceArray: (matcher, isLeafNode) => {
+        return matcher.toString().endsWith('catalog.book');
+      },
+    }),
 });
 
-const result = parser.parse(inputXml);
+const result = yield * parser.parse(inputXml);
 ```
 
 Output
@@ -798,9 +906,11 @@ import { Expression } from 'path-expression-matcher';
 
 const inputXml = `<catalog><book>Title</book></catalog>`;
 
-const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ alwaysArray: ['..item', new Expression('root.product')] }) });
+const parser = new XMLParser({
+  OutputBuilder: yield * CompactBuilderFactory.make({ alwaysArray: ['..item', yield * Expression.make('root.product')] }),
+});
 
-const result = parser.parse(inputXml);
+const result = yield * parser.parse(inputXml);
 ```
 
 Output
@@ -823,16 +933,18 @@ Forces creation of a text node object for every tag, ensuring consistent object 
 - Easier to serialize/deserialize
 - Consistent structure across all tags
 
-```js
+```typescript
 const inputXml = `<item>Value</item>`;
 
-const parser = new XMLParser({
-  OutputBuilder: new CompactBuilderFactory({
-    forceTextNode: true, //false by default
-  }),
-});
-
-const result = parser.parse(inputXml);
+const result =
+  yield *
+  new XMLParser({
+    OutputBuilder:
+      yield *
+      CompactBuilderFactory.make({
+        forceTextNode: true, //false by default
+      }),
+  }).parse(inputXml);
 
 // Without option: { item: "Value" }
 // With option: { item: { "#text": "Value" } }
@@ -854,8 +966,8 @@ Output
 
 String inserted between text chunks when a tag accumulates multiple text segments (e.g. text interspersed with comments or CDATA).
 
-```js
-const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ textJoint: ' ' }) });
+```typescript
+const parser = new XMLParser({ OutputBuilder: yield * CompactBuilderFactory.make({ textJoint: ' ' }) });
 ```
 
 ---

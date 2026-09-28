@@ -1,5 +1,8 @@
 import type { MatcherView } from '@endevops/common-xml';
 
+import { Effect } from 'effect';
+
+import type { BuilderError } from '../errors.ts';
 import type { CloseMetaLike, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
@@ -72,26 +75,48 @@ export class CompactBuilderFactory extends BaseOutputBuilderFactory {
    * @param parserOptions - The parser's options.
    * @param readonlyMatcher - The live path, or `null`.
    *
-   * @returns A fresh builder.
+   * @returns An effect producing a fresh builder. Constructing one cannot fail, so the error channel
+   * is only there to match the base class.
    */
-  override getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): CompactBuilder {
-    return new CompactBuilder(
-      parserOptions as ConstructorParameters<typeof CompactBuilder>[0],
-      this.builderOptions as ResolvedFactoryOptions,
-      readonlyMatcher,
-      this.registry as ValueParserRegistryLike
+  override getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): Effect.Effect<CompactBuilder, BuilderError> {
+    return Effect.succeed(
+      new CompactBuilder(
+        parserOptions as ConstructorParameters<typeof CompactBuilder>[0],
+        this.builderOptions as ResolvedFactoryOptions,
+        readonlyMatcher,
+        this.registry as ValueParserRegistryLike
+      )
     );
   }
 
   /**
-   * @description Create a factory.
+   * @description Create a factory from options that are already resolved. Private because resolving them can fail, which is what {@link CompactBuilderFactory.make}
+   * does.
    *
-   * @param builderOptions - This builder's options, resolved on the way in.
+   * @param resolved - The resolved options.
    */
-  constructor(builderOptions: FactoryOptions = {}) {
-    super();
-    this.builderOptions = buildOptions(builderOptions);
+  private constructor(resolved: ResolvedFactoryOptions) {
+    super(resolved);
+    this.builderOptions = resolved;
   }
+
+  /**
+   * @description Create a factory, resolving its options on the way in. A factory rather than a constructor, because resolving the options can fail — an
+   * `alwaysArray` entry that is neither a pattern nor an expression, or a pattern that will not compile — and a constructor has nowhere to put an
+   * error channel.
+   *
+   * @example
+   *   ```typescript
+   *   const factory = yield* CompactBuilderFactory.make({ alwaysArray: ['..item'] });
+   *   ```;
+   *
+   * @param builderOptions - This builder's options.
+   *
+   * @returns An effect producing the factory. Fails with the `InvalidOptionEntry` or
+   * `PatternCompilationFailed` reason.
+   */
+  static make = (builderOptions: FactoryOptions = {}): Effect.Effect<CompactBuilderFactory, BuilderError> =>
+    Effect.map(buildOptions(builderOptions), resolved => new CompactBuilderFactory(resolved));
 }
 
 /**
@@ -256,7 +281,11 @@ export class CompactBuilder extends BaseOutputBuilderClass {
    * A leaf becomes its parsed text, unless it has attributes, in which case the attributes are the object and the text joins them under
    * `nameFor.text`. A non-leaf becomes an object of its children, plus a text key when it also had text of its own.
    */
-  override closeElement(matcher: MatcherView, closeMeta?: CloseMetaLike): void {
+  override closeElement = Effect.fnUntraced(function* (
+    this: CompactBuilder,
+    matcher: MatcherView,
+    closeMeta?: CloseMetaLike
+  ): Effect.fn.Return<void, BuilderError> {
     // Neither argument is needed: the builder tracks position through its own
     // stack, and closing metadata is the parser's business.
     void matcher;
@@ -277,7 +306,7 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     if (isLeafNode) {
       // A stop node's content is raw text the parser already declined to decode,
       // so running the value chain over it would decode it twice.
-      const parsedText = this._pendingStopNode ? textValue : this.tagsPipeline.run(textValue, context);
+      const parsedText = this._pendingStopNode ? textValue : yield* this.tagsPipeline.run(textValue, context);
 
       if (hasAttributes) {
         // Attributes are present — value is already an object.
@@ -299,7 +328,7 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     } else if (textValue.length > 0 || this.builderOptions.forceTextNode) {
       // Non-leaf node with actual text content sitting between child elements
       // mixed content: element has both child tags and text
-      const parsedText = this._pendingStopNode ? textValue : this.tagsPipeline.run(textValue, context);
+      const parsedText = this._pendingStopNode ? textValue : yield* this.tagsPipeline.run(textValue, context);
       (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
     }
 
@@ -320,7 +349,7 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     this.value = parentTag;
     this.hasAttributes = frame.hasAttributes; // restore parent tag's flag
     this._pendingStopNode = false;
-  }
+  });
 
   /**
    * @description Append a named child to the current value, promoting a bare string to an object first.

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('Processing Instruction Tag', function () {
   it('should process PI tag without attributes', function () {
@@ -17,8 +17,8 @@ describe('Processing Instruction Tag', function () {
     const jsObj = [{ '?xml': [{ '#text': '' }], ':@': { '@_version': '1.0' } }, { '?mso-contentType': [{ '#text': '' }] }, { h1: [] }];
     const options = { ignoreAttributes: false, format: true, preserveOrder: true };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -43,8 +43,8 @@ describe('Processing Instruction Tag', function () {
       { h1: [] },
     ];
     const options = { ignoreAttributes: false, format: true, preserveOrder: true };
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -64,8 +64,8 @@ describe('Processing Instruction Tag', function () {
 
     const options = { ignoreAttributes: false, format: true, preserveOrder: true, suppressBooleanAttributes: true };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -81,8 +81,8 @@ describe('Processing Instruction Tag', function () {
     ];
     const options = { ignoreAttributes: false, format: true, preserveOrder: true, suppressBooleanAttributes: true };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -107,8 +107,8 @@ describe('Processing Instruction Tag', function () {
       suppressBooleanAttributes: true,
     };
 
-    const builder = new XMLBuilder(builderOptions);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(builderOptions);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -121,8 +121,8 @@ describe('Processing Instruction Tag', function () {
     const jsObj = [{ '?xml': [{ '#text': '' }], ':@': { '@_version': '1.0' } }, { '?mso-contentType': [{ '#text': '' }] }, { h1: [] }];
     const options = { ignoreAttributes: false, format: true, preserveOrder: true };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -139,8 +139,8 @@ describe('Processing Instruction Tag', function () {
     ];
     const options = { ignoreAttributes: false, format: true, preserveOrder: true };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -157,8 +157,8 @@ describe('Processing Instruction Tag', function () {
     };
     const options = { ignoreAttributes: false, format: true, preserveOrder: false };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 });

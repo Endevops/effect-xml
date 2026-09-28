@@ -1,3 +1,6 @@
+import { Effect } from 'effect';
+
+import type { BuilderError } from '../../errors.ts';
 import type { ToNumberOptions } from './to-number.ts';
 
 import { FinalValue } from '../value-parser.ts';
@@ -39,7 +42,7 @@ export default class NumberValueParser extends BaseValueParser {
    *
    * @returns The number when the value converted, otherwise `val` unchanged.
    */
-  override parse(val: unknown): unknown {
+  override parse(val: unknown): Effect.Effect<unknown, BuilderError> {
     if (typeof val === 'string') {
       const converted = toNumber(val, this.options);
       // `typeof` yields a type name, which never equals the value, so this is
@@ -49,9 +52,9 @@ export default class NumberValueParser extends BaseValueParser {
       // input it did not convert, and the specs assert that so it reads as a
       // decision rather than an accident.
       if (typeof converted !== val) {
-        return this.IS_FINAL ? new FinalValue(converted) : converted;
+        return Effect.succeed(this.IS_FINAL ? new FinalValue(converted) : converted);
       }
     }
-    return val;
+    return Effect.succeed(val);
   }
 }

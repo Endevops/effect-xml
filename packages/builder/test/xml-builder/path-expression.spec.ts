@@ -7,22 +7,34 @@
  * 4. Formatting with stopNodes enabled
  */
 
-import { Expression } from '@endevops/common-xml';
-import { describe, expect, it } from 'vite-plus/test';
+import type { XmlError } from '@endevops/common-xml';
 
-import { XMLBuilder } from '#/index.ts';
+import { Expression } from '@endevops/common-xml';
+import { Effect } from 'effect';
+import { describe, expect, it } from 'vite-plus/test';
+/**
+ * @description Run an effect from `common-xml`, whose error channel is `XmlError` rather than this package's `BuilderError`, so the shared `run` helper does not
+ * apply to it.
+ *
+ * @param effect - The effect to run.
+ *
+ * @returns The successful value.
+ */
+const runXml = <A>(effect: Effect.Effect<A, XmlError>): A => Effect.runSync(effect);
+
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
   describe('Backward Compatibility', function () {
     it('should auto-convert old *.tag syntax to ..tag in stopNodes', function () {
       const jObj = { html: { body: { script: "alert('test');", style: '.test { color: red; }', div: 'normal content' } } };
 
-      const builder = new XMLBuilder({
+      const builder = makeBuilder({
         stopNodes: ['*.script', '*.style'], // Old syntax
         format: false,
       });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       // Script and style should be output as-is (stop nodes)
       expect(xml).toContain("<script>alert('test');</script>");
@@ -43,8 +55,8 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
 
       const builderOptions = { ignoreAttributes: false, preserveOrder: true, stopNodes: ['*.script', '*.style'] };
 
-      const builder = new XMLBuilder(builderOptions);
-      const output = builder.build(htmlObj);
+      const builder = makeBuilder(builderOptions);
+      const output = run(builder.build(htmlObj));
 
       // Should contain original script and style content
       expect(output.replace(/\s+/g, '')).toEqual(html.replace(/\s+/g, ''));
@@ -55,9 +67,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should accept Expression objects in stopNodes', function () {
       const jObj = { root: { script: "alert('test');", pre: 'formatted code', div: 'normal' } };
 
-      const builder = new XMLBuilder({ stopNodes: [new Expression('..script'), new Expression('..pre')], format: false });
+      const builder = makeBuilder({ stopNodes: [runXml(Expression.make('..script')), runXml(Expression.make('..pre'))], format: false });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       expect(xml).toContain("<script>alert('test');</script>");
       expect(xml).toContain('<pre>formatted code</pre>');
@@ -67,9 +79,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should support deep wildcard patterns', function () {
       const jObj = { html: { body: { section: { script: 'nested script' } } } };
 
-      const builder = new XMLBuilder({ stopNodes: [new Expression('..script')], format: false });
+      const builder = makeBuilder({ stopNodes: [runXml(Expression.make('..script'))], format: false });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       expect(xml).toContain('<script>nested script</script>');
     });
@@ -77,16 +89,16 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should support mixed string and Expression in stopNodes', function () {
       const jObj = { root: { script: 'script content', style: 'style content', pre: 'pre content' } };
 
-      const builder = new XMLBuilder({
+      const builder = makeBuilder({
         stopNodes: [
           '..script', // String
-          new Expression('..style'), // Expression
-          new Expression('root.pre'), // Exact path Expression
+          runXml(Expression.make('..style')), // Expression
+          runXml(Expression.make('root.pre')), // Exact path Expression
         ],
         format: false,
       });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       expect(xml).toContain('<script>script content</script>');
       expect(xml).toContain('<style>style content</style>');
@@ -119,8 +131,8 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
 
       const buildOptions = { ignoreAttributes: false, preserveOrder: true, stopNodes: ['..script', '..style', '..pre'] };
 
-      const builder = new XMLBuilder(buildOptions);
-      const output = builder.build(htmlObj);
+      const builder = makeBuilder(buildOptions);
+      const output = run(builder.build(htmlObj));
 
       expect(output.replace(/\s+/g, '')).toEqual(html.replace(/\s+/g, ''));
     });
@@ -130,9 +142,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should handle empty stopNodes array', function () {
       const jObj = { root: { script: 'content' } };
 
-      const builder = new XMLBuilder({ stopNodes: [] });
+      const builder = makeBuilder({ stopNodes: [] });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       expect(xml).toContain('<script>content</script>');
     });
@@ -140,11 +152,11 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should handle undefined stopNodes', function () {
       const jObj = { root: { script: 'content' } };
 
-      const builder = new XMLBuilder({
+      const builder = makeBuilder({
         // stopNodes not specified
       });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       expect(xml).toContain('<script>content</script>');
     });
@@ -152,9 +164,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should handle stop nodes with special characters', function () {
       const jObj = { root: { script: '<![CDATA[special & < > content]]>' } };
 
-      const builder = new XMLBuilder({ stopNodes: ['..script'], format: false });
+      const builder = makeBuilder({ stopNodes: ['..script'], format: false });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       // Stop node content should be preserved as-is
       expect(xml).toContain('<script><![CDATA[special & < > content]]></script>');
@@ -163,9 +175,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should handle nested stop nodes', function () {
       const jObj = { html: { body: { div: { script: 'nested' } } } };
 
-      const builder = new XMLBuilder({ stopNodes: [new Expression('..script')], format: false });
+      const builder = makeBuilder({ stopNodes: [runXml(Expression.make('..script'))], format: false });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       expect(xml).toContain('<script>nested</script>');
     });
@@ -175,9 +187,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should handle exact path expressions', function () {
       const jObj = { root: { level1: { script: 'should stop' }, script: 'should NOT stop' } };
 
-      const builder = new XMLBuilder({ stopNodes: [new Expression('root.level1.script')], format: false });
+      const builder = makeBuilder({ stopNodes: [runXml(Expression.make('root.level1.script'))], format: false });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       // First script is at root.level1.script - should be stop node
       expect(xml).toContain('<script>should stop</script>');
@@ -188,9 +200,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should handle wildcard in middle of path', function () {
       const jObj = { root: { a: { script: 'match1' }, b: { script: 'match2' } } };
 
-      const builder = new XMLBuilder({ stopNodes: [new Expression('root.*.script')], format: false });
+      const builder = makeBuilder({ stopNodes: [runXml(Expression.make('root.*.script'))], format: false });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       expect(xml).toContain('<script>match1</script>');
       expect(xml).toContain('<script>match2</script>');
@@ -201,9 +213,9 @@ describe('XMLBuilder - Path-Expression-Matcher Integration', function () {
     it('should preserve stop node content with formatting enabled', function () {
       const jObj = { html: { body: { script: 'var x = 1;\nvar y = 2;' } } };
 
-      const builder = new XMLBuilder({ stopNodes: [new Expression('..script')], format: true, indentBy: '  ' });
+      const builder = makeBuilder({ stopNodes: [runXml(Expression.make('..script'))], format: true, indentBy: '  ' });
 
-      const xml = builder.build(jObj);
+      const xml = run(builder.build(jObj));
 
       // Should preserve script content including newlines
       expect(xml).toContain('var x = 1;');

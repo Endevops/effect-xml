@@ -4,9 +4,12 @@ import type { XmlVersion } from '@endevops/common-xml';
 import { Expression as CompiledExpression } from '@endevops/common-xml';
 import { Matcher as PathMatcher } from '@endevops/common-xml';
 import { createValidator } from '@endevops/common-xml';
+import { Effect } from 'effect';
 
+import type { BuilderError } from '../errors.ts';
 import type { ResolvedXmlBuilderOptions } from './options.ts';
 
+import { compilePattern, fromPatternError, nestingExceeded, runValueProcessor, tryResolveName } from '../errors.ts';
 import { escapeAttribute, safeCdata, safeComment, valToStr } from './util.ts';
 
 const EOL = '\n';
@@ -64,11 +67,11 @@ function resolveTagName(
   options: ResolvedXmlBuilderOptions,
   matcher: Matcher,
   qNameValidator: NameValidator
-): string {
+): Effect.Effect<string, BuilderError> {
   const resolve = options.sanitizeName;
-  if (!resolve) return name;
-  if (qNameValidator(name)) return name;
-  return resolve(name, { isAttribute, matcher: matcher.readOnly() });
+  if (!resolve) return Effect.succeed(name);
+  if (qNameValidator(name)) return Effect.succeed(name);
+  return tryResolveName(name, () => resolve(name, { isAttribute, matcher: matcher.readOnly() }));
 }
 
 /**
@@ -78,37 +81,50 @@ function resolveTagName(
  * @param jArray - The ordered input.
  * @param options - The resolved options.
  *
- * @returns The XML.
- *
- * @throws {Error} `Maximum nested tags exceeded` past `maxNestedTags`, and whatever a `sanitizeName` resolver throws.
+ * @returns An effect producing the XML. Fails with {@link BuilderError} and the `PatternCompilationFailed` reason if a `stopNodes` pattern does not
+ *   compile, the `MaxNestingExceeded` reason past `maxNestedTags`, or the `NameResolutionFailed` reason when a configured `sanitizeName` throws.
  */
-export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOptions): string {
-  let indentation = '';
-  if (options.format) {
-    indentation = EOL;
-  }
+export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOptions): Effect.Effect<string, BuilderError> {
+  return Effect.gen(function* () {
+    let indentation = '';
+    if (options.format) {
+      indentation = EOL;
+    }
 
-  // Pre-compile stopNode expressions for pattern matching
-  const stopNodeExpressions: Expression[] = [];
-  if (options.stopNodes && Array.isArray(options.stopNodes)) {
-    for (let i = 0; i < options.stopNodes.length; i++) {
-      const node = options.stopNodes[i];
-      if (typeof node === 'string') {
-        stopNodeExpressions.push(new CompiledExpression(node));
-      } else if (node instanceof CompiledExpression) {
-        stopNodeExpressions.push(node);
+    // Pre-compile stopNode expressions for pattern matching
+    const stopNodeExpressions: Expression[] = [];
+    if (options.stopNodes && Array.isArray(options.stopNodes)) {
+      for (let i = 0; i < options.stopNodes.length; i++) {
+        const node = options.stopNodes[i];
+        if (typeof node === 'string') {
+          stopNodeExpressions.push(yield* compilePattern(node));
+        } else if (node instanceof CompiledExpression) {
+          stopNodeExpressions.push(node);
+        }
       }
     }
-  }
 
-  // Detect XML version for use in name validation
-  const xmlVersion = detectXmlVersionFromArray(jArray, options);
-  const qNameValidator: NameValidator = createValidator('qName', { xmlVersion });
-  // Initialize matcher for path tracking
-  const matcher = new PathMatcher();
+    // Detect XML version for use in name validation
+    const xmlVersion = detectXmlVersionFromArray(jArray, options);
+    const qNameValidator: NameValidator = yield* nameValidatorFor(xmlVersion);
+    // Initialize matcher for path tracking
+    const matcher = new PathMatcher();
 
-  return arrToStr(jArray, options, indentation, matcher, stopNodeExpressions, qNameValidator);
+    return yield* arrToStr(jArray, options, indentation, matcher, stopNodeExpressions, qNameValidator);
+  });
 }
+
+/**
+ * @description Build the memoized QName validator for an XML version. `createValidator` reports an unknown production through `common-xml`'s error channel,
+ * unreachable for the literal `'qName'` here. Mapping rather than falling back to a stub, so a production that is not what this claims would fail
+ * loudly instead of silently validating nothing.
+ *
+ * @param xmlVersion - The version detected from the document.
+ *
+ * @returns An effect producing the validator.
+ */
+export const nameValidatorFor = (xmlVersion: XmlVersion): Effect.Effect<NameValidator, BuilderError> =>
+  Effect.mapError(createValidator('qName', { xmlVersion }), cause => fromPatternError('qName', cause));
 
 /**
  * @description Render one level of the ordered form.
@@ -120,9 +136,8 @@ export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOption
  * @param stopNodeExpressions - The pre-compiled stop-node patterns.
  * @param qNameValidator - The memoized QName validator.
  *
- * @returns The rendered XML for this level.
- *
- * @throws {Error} `Maximum nested tags exceeded` past `maxNestedTags`.
+ * @returns An effect producing the rendered XML for this level. Fails with {@link BuilderError} and the `MaxNestingExceeded` reason past
+ *   `maxNestedTags`, or the `NameResolutionFailed` reason when a configured `sanitizeName` throws.
  */
 function arrToStr(
   arr: unknown,
@@ -131,127 +146,132 @@ function arrToStr(
   matcher: Matcher,
   stopNodeExpressions: Expression[],
   qNameValidator: NameValidator
-): string {
-  let xmlStr = '';
-  let isPreviousElementTag = false;
+): Effect.Effect<string, BuilderError> {
+  return Effect.gen(function* () {
+    let xmlStr = '';
+    let isPreviousElementTag = false;
 
-  if (options.maxNestedTags && matcher.getDepth() > options.maxNestedTags) {
-    throw new Error('Maximum nested tags exceeded');
-  }
-
-  if (!Array.isArray(arr)) {
-    // Non-array values (e.g. string tag values) should be treated as text content
-    if (arr !== undefined && arr !== null) {
-      return valToStr(replaceEntitiesValue(valToStr(arr), options));
+    if (options.maxNestedTags && matcher.getDepth() > options.maxNestedTags) {
+      return yield* nestingExceeded(options.maxNestedTags, matcher.getDepth());
     }
-    return '';
-  }
 
-  for (let i = 0; i < arr.length; i++) {
-    const tagObj = arr[i];
-    if (!tagObj || typeof tagObj !== 'object') continue;
-    const rawTagName = propName(tagObj as OrderedTag);
-    if (rawTagName === undefined) continue;
-
-    // Special names are exempt from sanitizeName: internal conventions and PI tags
-    // are not user-supplied XML element names.
-    const isSpecialName =
-      rawTagName === options.textNodeName || rawTagName === options.cdataPropName || rawTagName === options.commentPropName || rawTagName[0] === '?';
-
-    // Resolve tag name (may transform it; may throw for invalid names)
-    const tagName = isSpecialName ? rawTagName : resolveTagName(rawTagName, false, options, matcher, qNameValidator);
-
-    // Extract attributes from ":@" property
-    const attrValues = extractAttributeValues((tagObj as OrderedTag)[':@'], options);
-
-    // Push resolved tag to matcher WITH attributes
-    matcher.push(tagName, attrValues);
-
-    // Check if this is a stop node using Expression matching
-    const isStopNode = checkStopNode(matcher, stopNodeExpressions);
-
-    if (tagName === options.textNodeName) {
-      let tagText = (tagObj as OrderedTag)[rawTagName];
-      if (!isStopNode) {
-        tagText = options.tagValueProcessor(tagName, tagText);
-        tagText = replaceEntitiesValue(tagText, options);
+    if (!Array.isArray(arr)) {
+      // Non-array values (e.g. string tag values) should be treated as text content
+      if (arr !== undefined && arr !== null) {
+        return valToStr(replaceEntitiesValue(valToStr(arr), options));
       }
-      tagText = valToStr(tagText);
-      if (isPreviousElementTag) {
-        xmlStr += indentation;
+      return '';
+    }
+
+    for (let i = 0; i < arr.length; i++) {
+      const tagObj = arr[i];
+      if (!tagObj || typeof tagObj !== 'object') continue;
+      const rawTagName = propName(tagObj as OrderedTag);
+      if (rawTagName === undefined) continue;
+
+      // Special names are exempt from sanitizeName: internal conventions and PI tags
+      // are not user-supplied XML element names.
+      const isSpecialName =
+        rawTagName === options.textNodeName ||
+        rawTagName === options.cdataPropName ||
+        rawTagName === options.commentPropName ||
+        rawTagName[0] === '?';
+
+      // Resolve tag name (may transform it; may throw for invalid names)
+      const tagName = isSpecialName ? rawTagName : yield* resolveTagName(rawTagName, false, options, matcher, qNameValidator);
+
+      // Extract attributes from ":@" property
+      const attrValues = extractAttributeValues((tagObj as OrderedTag)[':@'], options);
+
+      // Push resolved tag to matcher WITH attributes
+      matcher.push(tagName, attrValues);
+
+      // Check if this is a stop node using Expression matching
+      const isStopNode = checkStopNode(matcher, stopNodeExpressions);
+
+      if (tagName === options.textNodeName) {
+        let tagText = (tagObj as OrderedTag)[rawTagName];
+        if (!isStopNode) {
+          const processed = yield* runValueProcessor('tagValueProcessor', tagName, () => options.tagValueProcessor!(tagName, tagText));
+          tagText = replaceEntitiesValue(processed, options);
+        }
+        tagText = valToStr(tagText);
+        if (isPreviousElementTag) {
+          xmlStr += indentation;
+        }
+        xmlStr += tagText;
+        isPreviousElementTag = false;
+        matcher.pop();
+        continue;
+      } else if (tagName === options.cdataPropName) {
+        if (isPreviousElementTag) {
+          xmlStr += indentation;
+        }
+        const val = firstTextChild(tagObj as OrderedTag, rawTagName, options);
+        const safeVal = safeCdata(val);
+        xmlStr += `<![CDATA[${safeVal}]]>`;
+        isPreviousElementTag = false;
+        matcher.pop();
+        continue;
+      } else if (tagName === options.commentPropName) {
+        const val = firstTextChild(tagObj as OrderedTag, rawTagName, options);
+        const safeVal = safeComment(val);
+        xmlStr += indentation + `<!--${safeVal}-->`;
+        isPreviousElementTag = true;
+        matcher.pop();
+        continue;
+      } else if (tagName[0] === '?') {
+        const attStr = yield* attrToStr((tagObj as OrderedTag)[':@'], options, isStopNode, matcher, qNameValidator);
+        const tempInd = tagName === '?xml' ? '' : indentation;
+        // Text node content on PI/XML declaration tags is intentionally ignored.
+        // Only attributes are valid on these tags per the XML spec.
+        xmlStr += tempInd + `<${tagName}${attStr}?>`;
+        isPreviousElementTag = true;
+        matcher.pop();
+        continue;
       }
-      xmlStr += tagText;
-      isPreviousElementTag = false;
-      matcher.pop();
-      continue;
-    } else if (tagName === options.cdataPropName) {
-      if (isPreviousElementTag) {
-        xmlStr += indentation;
+
+      let newIdentation = indentation;
+      if (newIdentation !== '') {
+        newIdentation += options.indentBy;
       }
-      const val = firstTextChild(tagObj as OrderedTag, rawTagName, options);
-      const safeVal = safeCdata(val);
-      xmlStr += `<![CDATA[${safeVal}]]>`;
-      isPreviousElementTag = false;
-      matcher.pop();
-      continue;
-    } else if (tagName === options.commentPropName) {
-      const val = firstTextChild(tagObj as OrderedTag, rawTagName, options);
-      const safeVal = safeComment(val);
-      xmlStr += indentation + `<!--${safeVal}-->`;
-      isPreviousElementTag = true;
-      matcher.pop();
-      continue;
-    } else if (tagName[0] === '?') {
-      const attStr = attrToStr((tagObj as OrderedTag)[':@'], options, isStopNode, matcher, qNameValidator);
-      const tempInd = tagName === '?xml' ? '' : indentation;
-      // Text node content on PI/XML declaration tags is intentionally ignored.
-      // Only attributes are valid on these tags per the XML spec.
-      xmlStr += tempInd + `<${tagName}${attStr}?>`;
-      isPreviousElementTag = true;
-      matcher.pop();
-      continue;
-    }
 
-    let newIdentation = indentation;
-    if (newIdentation !== '') {
-      newIdentation += options.indentBy;
-    }
+      // Pass isStopNode to attr_to_str so attributes are also not processed for stopNodes
+      const attStr = yield* attrToStr((tagObj as OrderedTag)[':@'], options, isStopNode, matcher, qNameValidator);
+      const tagStart = indentation + '<' + tagName + attStr;
 
-    // Pass isStopNode to attr_to_str so attributes are also not processed for stopNodes
-    const attStr = attrToStr((tagObj as OrderedTag)[':@'], options, isStopNode, matcher, qNameValidator);
-    const tagStart = indentation + '<' + tagName + attStr;
-
-    // If this is a stopNode, get raw content without processing
-    let tagValue: string;
-    if (isStopNode) {
-      tagValue = getRawContent((tagObj as OrderedTag)[rawTagName], options);
-    } else {
-      tagValue = arrToStr((tagObj as OrderedTag)[rawTagName], options, newIdentation, matcher, stopNodeExpressions, qNameValidator);
-    }
-
-    if (options.unpairedTags.indexOf(tagName) !== -1) {
-      if (options.suppressUnpairedNode) xmlStr += tagStart + '>';
-      else xmlStr += tagStart + '/>';
-    } else if ((!tagValue || tagValue.length === 0) && options.suppressEmptyNode) {
-      xmlStr += tagStart + '/>';
-    } else if (tagValue && tagValue.endsWith('>')) {
-      xmlStr += tagStart + `>${tagValue}${indentation}</${tagName}>`;
-    } else {
-      xmlStr += tagStart + '>';
-      if (tagValue && indentation !== '' && (tagValue.includes('/>') || tagValue.includes('</'))) {
-        xmlStr += indentation + options.indentBy + tagValue + indentation;
+      // If this is a stopNode, get raw content without processing
+      let tagValue: string;
+      if (isStopNode) {
+        tagValue = getRawContent((tagObj as OrderedTag)[rawTagName], options);
       } else {
-        xmlStr += tagValue;
+        tagValue = yield* arrToStr((tagObj as OrderedTag)[rawTagName], options, newIdentation, matcher, stopNodeExpressions, qNameValidator);
       }
-      xmlStr += `</${tagName}>`;
+
+      if (options.unpairedTags.indexOf(tagName) !== -1) {
+        if (options.suppressUnpairedNode) xmlStr += tagStart + '>';
+        else xmlStr += tagStart + '/>';
+      } else if ((!tagValue || tagValue.length === 0) && options.suppressEmptyNode) {
+        xmlStr += tagStart + '/>';
+      } else if (tagValue && tagValue.endsWith('>')) {
+        xmlStr += tagStart + `>${tagValue}${indentation}</${tagName}>`;
+      } else {
+        xmlStr += tagStart + '>';
+        if (tagValue && indentation !== '' && (tagValue.includes('/>') || tagValue.includes('</'))) {
+          xmlStr += indentation + options.indentBy + tagValue + indentation;
+        } else {
+          xmlStr += tagValue;
+        }
+        xmlStr += `</${tagName}>`;
+      }
+      isPreviousElementTag = true;
+
+      // Pop tag from matcher
+      matcher.pop();
     }
-    isPreviousElementTag = true;
 
-    // Pop tag from matcher
-    matcher.pop();
-  }
-
-  return xmlStr;
+    return xmlStr;
+  });
 }
 
 /**
@@ -409,36 +429,40 @@ function attrToStr(
   isStopNode: boolean,
   matcher: Matcher,
   qNameValidator: NameValidator
-): string {
-  let attrStr = '';
-  if (attrMap && typeof attrMap === 'object' && !options.ignoreAttributes) {
-    for (const attr in attrMap as Record<string, unknown>) {
-      if (!Object.prototype.hasOwnProperty.call(attrMap, attr)) continue;
+): Effect.Effect<string, BuilderError> {
+  return Effect.gen(function* () {
+    let attrStr = '';
+    if (attrMap && typeof attrMap === 'object' && !options.ignoreAttributes) {
+      for (const attr in attrMap as Record<string, unknown>) {
+        if (!Object.prototype.hasOwnProperty.call(attrMap, attr)) continue;
 
-      // Strip prefix to get the clean XML attribute name, then optionally sanitize it
-      const cleanAttrName = attr.substring(options.attributeNamePrefix.length);
-      const resolvedAttrName = isStopNode
-        ? cleanAttrName // stopNodes are raw — skip sanitizeName for attr names too
-        : resolveTagName(cleanAttrName, true, options, matcher, qNameValidator);
+        // Strip prefix to get the clean XML attribute name, then optionally sanitize it
+        const cleanAttrName = attr.substring(options.attributeNamePrefix.length);
+        const resolvedAttrName = isStopNode
+          ? cleanAttrName // stopNodes are raw — skip sanitizeName for attr names too
+          : yield* resolveTagName(cleanAttrName, true, options, matcher, qNameValidator);
 
-      let attrVal: unknown;
-      if (isStopNode) {
-        // For stopNodes, use raw value without any processing
-        attrVal = (attrMap as Record<string, unknown>)[attr];
-      } else {
-        // Normal processing: apply attributeValueProcessor and entity replacement
-        attrVal = options.attributeValueProcessor(attr, (attrMap as Record<string, unknown>)[attr]);
-        attrVal = replaceEntitiesValue(attrVal, options);
-      }
+        let attrVal: unknown;
+        if (isStopNode) {
+          // For stopNodes, use raw value without any processing
+          attrVal = (attrMap as Record<string, unknown>)[attr];
+        } else {
+          // Normal processing: apply attributeValueProcessor and entity replacement
+          const processed = yield* runValueProcessor('attributeValueProcessor', attr, () =>
+            options.attributeValueProcessor!(attr, (attrMap as Record<string, unknown>)[attr])
+          );
+          attrVal = replaceEntitiesValue(processed, options);
+        }
 
-      if (attrVal === true && options.suppressBooleanAttributes) {
-        attrStr += ` ${resolvedAttrName}`;
-      } else {
-        attrStr += ` ${resolvedAttrName}="${escapeAttribute(attrVal)}"`;
+        if (attrVal === true && options.suppressBooleanAttributes) {
+          attrStr += ` ${resolvedAttrName}`;
+        } else {
+          attrStr += ` ${resolvedAttrName}="${escapeAttribute(attrVal)}"`;
+        }
       }
     }
-  }
-  return attrStr;
+    return attrStr;
+  });
 }
 
 /**

@@ -65,6 +65,7 @@ import type {
 } from './xml-builder/index.ts';
 
 import { CompactBuilder, CompactBuilderFactory } from './compact-builder/index.ts';
+import { BuilderError, BuilderErrorReason } from './errors.ts';
 import { XML_UNSAFE_RULES, allUnsafeXml, isUnsafeXml, whyUnsafeXml } from './output-builder/index.ts';
 import { BaseOutputBuilderFactory } from './output-builder/index.ts';
 import { BaseOutputBuilder } from './output-builder/index.ts';
@@ -72,6 +73,7 @@ import { Context, FinalValue, SharedContext, ValueParserPipeline, ValueParserReg
 import { BaseValueParser, BooleanParser, EntitiesValueParser, NumberValueParser, toNumber, Trim, WSNormalizer } from './output-builder/index.ts';
 import XMLBuilder from './xml-builder/index.ts';
 
+export { BuilderError, BuilderErrorReason };
 export { XMLBuilder };
 export {
   BaseOutputBuilder,

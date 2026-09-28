@@ -1,5 +1,8 @@
 import type { MatcherView } from '@endevops/common-xml';
 
+import { Effect } from 'effect';
+
+import type { BuilderError } from '../errors.ts';
 import type { BuiltInValueParserOptions, BuilderParserOptions } from './options.ts';
 import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
 
@@ -201,7 +204,13 @@ export default class BaseOutputBuilder {
    * @param matcher - The live path.
    * @param meta - Where the attribute was seen, for a builder that records it.
    */
-  addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: unknown): void {
+  addAttribute = Effect.fnUntraced(function* (
+    this: BaseOutputBuilder,
+    name: string,
+    value: unknown,
+    matcher: MatcherView,
+    meta?: unknown
+  ): Effect.fn.Return<void, BuilderError> {
     // `meta` is accepted because the parser supplies it, not because the base
     // needs it — only a builder that records attribute positions reads it.
     void meta;
@@ -215,9 +224,9 @@ export default class BaseOutputBuilder {
     const context = new Context(name, matcher, true, true); // attributes are always leaf values
     const bag = (this as { attributes?: Record<string, unknown> }).attributes;
     if (bag) {
-      bag[`${prefix}${name}${suffix}`] = this.attrsPipeline.run(value, context);
+      bag[`${prefix}${name}${suffix}`] = yield* this.attrsPipeline.run(value, context);
     }
-  }
+  });
 
   /**
    * @description Append a text value. A subclass whose shape holds text implements this; the base has nowhere to put it.

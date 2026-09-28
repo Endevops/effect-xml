@@ -9,7 +9,7 @@ import type { X2jOptions } from 'fast-xml-parser';
 import { XMLParser } from 'fast-xml-parser';
 import { describe, expect, it } from 'vite-plus/test';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('XMLBuilder', function () {
   it('should build formatted XML from ordered JS Obj', function () {
@@ -37,10 +37,10 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true, indentBy: ' ' };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
-    const builder = new XMLBuilder(options);
-    result = builder.build(result);
+    const builder = makeBuilder(options);
+    result = run(builder.build(result));
 
     expect(result).toEqual(expected);
   });
@@ -73,11 +73,11 @@ describe('XMLBuilder', function () {
       //   format: true,
     };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
     // `allowBooleanAttributes` is a parser option. The builder ignores keys it does not know, so its copy carries the other three.
-    const builder = new XMLBuilder({ ignoreAttributes: false, preserveOrder: true, cdataPropName: '#CDATA' });
-    result = builder.build(result);
+    const builder = makeBuilder({ ignoreAttributes: false, preserveOrder: true, cdataPropName: '#CDATA' });
+    result = run(builder.build(result));
 
     expect(result).toEqual(expected);
   });
@@ -102,12 +102,12 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
     // The original read `parser.options` here. Every parser default the builder also knows matches the builder's own default, so the
     // literal above resolves to the same configuration.
-    const builder = new XMLBuilder(options);
-    result = builder.build(result);
+    const builder = makeBuilder(options);
+    result = run(builder.build(result));
 
     expect(result).toEqual(expected);
   });
@@ -120,11 +120,11 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
     // The original read `parser.options` here, with the same equivalence.
-    const builder = new XMLBuilder(options);
-    result = builder.build(result);
+    const builder = makeBuilder(options);
+    result = run(builder.build(result));
 
     expect(result).toEqual(expected);
   });
@@ -137,10 +137,10 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true, suppressEmptyNode: true };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
-    const builder = new XMLBuilder(options);
-    result = builder.build(result);
+    const builder = makeBuilder(options);
+    result = run(builder.build(result));
 
     expect(result).toEqual(expected);
   });
@@ -182,10 +182,10 @@ describe('XMLBuilder', function () {
       // cdataPropName: "#CDATA"
     };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
-    const builder = new XMLBuilder(options);
-    result = builder.build(result);
+    const builder = makeBuilder(options);
+    result = run(builder.build(result));
 
     expect(result).toEqual(expected);
   });
@@ -223,10 +223,10 @@ describe('XMLBuilder', function () {
 
     const options = { preserveOrder: true, format: true, cdataPropName: '#CDATA' };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
-    const builder = new XMLBuilder(options);
-    result = builder.build(result);
+    const builder = makeBuilder(options);
+    result = run(builder.build(result));
 
     expect(result).toEqual(expected);
   });
@@ -293,10 +293,10 @@ describe('XMLBuilder', function () {
       preserveOrder: true,
     };
     const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+    let result: unknown = run(parser.parse(XMLdata));
 
-    const builder = new XMLBuilder({ attributeNamePrefix: '@_', ignoreAttributes: false, format: true, preserveOrder: true });
-    result = builder.build(result);
+    const builder = makeBuilder({ attributeNamePrefix: '@_', ignoreAttributes: false, format: true, preserveOrder: true });
+    result = run(builder.build(result));
     expect(result).toEqual(expected);
   });
 
@@ -332,8 +332,8 @@ describe('XMLBuilder', function () {
 
     const builderOptions = { preserveOrder: true, stopNodes: ['..pre', '..script', '..style'] };
 
-    const builder = new XMLBuilder(builderOptions);
-    const output = builder.build(jObj);
+    const builder = makeBuilder(builderOptions);
+    const output = run(builder.build(jObj));
 
     expect(output).toContain('window.dataLayer');
     expect(output).toContain('.CodeMirror');
@@ -341,21 +341,21 @@ describe('XMLBuilder', function () {
   });
 
   it('should preserve the sign of a negative zero text value', function () {
-    const builder = new XMLBuilder({ preserveOrder: true });
-    const result = builder.build([{ a: [{ '#text': -0 }] }]);
+    const builder = makeBuilder({ preserveOrder: true });
+    const result = run(builder.build([{ a: [{ '#text': -0 }] }]));
     expect(result).toEqual(`<a>-0</a>`);
   });
 
   it('should preserve the sign of a negative zero attribute value', function () {
-    const builder = new XMLBuilder({ ignoreAttributes: false, preserveOrder: true });
-    const result = builder.build([{ a: [{ '#text': 'v' }], ':@': { '@_x': -0 } }]);
+    const builder = makeBuilder({ ignoreAttributes: false, preserveOrder: true });
+    const result = run(builder.build([{ a: [{ '#text': 'v' }], ':@': { '@_x': -0 } }]));
     expect(result).toEqual(`<a x="-0">v</a>`);
   });
 });
 
 describe('XMLBuilder- array processing issue', function () {
   it('should not throw stack overflow when child value is a non-array (issue #781)', function () {
-    const builder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: '@_', preserveOrder: true });
+    const builder = makeBuilder({ ignoreAttributes: false, attributeNamePrefix: '@_', preserveOrder: true });
     const input = [
       {
         foo: [
@@ -366,10 +366,10 @@ describe('XMLBuilder- array processing issue', function () {
       },
     ];
     expect(function () {
-      builder.build(input);
+      run(builder.build(input));
     }).not.toThrow();
 
-    const result = builder.build(input);
+    const result = run(builder.build(input));
     expect(result).toContain('<hello>world</hello>');
     expect(result).toContain('<foo>');
   });

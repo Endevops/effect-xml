@@ -1,3 +1,7 @@
+import { Effect } from 'effect';
+
+import type { BuilderError } from '../../errors.ts';
+
 import BaseValueParser from './base-value-parser.ts';
 
 /**
@@ -12,8 +16,8 @@ export default class Trim extends BaseValueParser {
    *
    * @returns The trimmed string, or `val` unchanged if it is not a string.
    */
-  override parse(val: unknown): unknown {
-    if (typeof val === 'string') return val.trim();
-    return val;
+  override parse(val: unknown): Effect.Effect<unknown, BuilderError> {
+    if (typeof val === 'string') return Effect.succeed(val.trim());
+    return Effect.succeed(val);
   }
 }

@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('Builder', function () {
   it('should parse HTML with basic entities, <pre>, <script>, <br>', function () {
@@ -72,7 +72,7 @@ describe('Builder', function () {
       htmlEntities: true,
     };
     const parser = new XMLParser(parsingOptions);
-    const result: unknown = parser.parse(html);
+    const result: unknown = run(parser.parse(html));
 
     const builderOptions: XmlBuilderOptions = {
       ignoreAttributes: false,
@@ -82,8 +82,8 @@ describe('Builder', function () {
       unpairedTags: ['hr', 'br', 'link', 'meta'],
       stopNodes: ['*.pre', '*.script'],
     };
-    const builder = new XMLBuilder(builderOptions);
-    let output = builder.build(result);
+    const builder = makeBuilder(builderOptions);
+    let output = run(builder.build(result));
     output = output.replace('₹', '&inr;');
     expect(output.replace(/\s+/g, '')).toEqual(html.replace(/\s+/g, ''));
   });

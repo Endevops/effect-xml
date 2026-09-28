@@ -1,6 +1,21 @@
 import type { Expression, MatcherView } from '@endevops/common-xml';
 
 /**
+ * @description A caller-supplied transform for a tag or attribute value. Returns an effect because the ordinary use of this hook is to run a value through an
+ * `EntityEncoder`, and encoding can fail. A pure transform is `Effect.succeed(...)`; a caller's own effect is yielded directly, and either way the
+ * failure is mapped into this package's `BuilderError` rather than left to escape as a defect. Returning `undefined` or `null` keeps the original
+ * value, which is what the identity default does.
+ *
+ * @param name - The tag or attribute name.
+ * @param value - The value to transform.
+ *
+ * @returns An effect producing the replacement value.
+ */
+import { Effect } from 'effect';
+
+export type ValueProcessor = (name: string, value: unknown) => Effect.Effect<string | undefined, unknown>;
+
+/**
  * @description Context handed to {@link XmlBuilderOptions.sanitizeName}.
  */
 export interface SanitizeNameContext {
@@ -107,14 +122,21 @@ export interface XmlBuilderOptions {
   stopNodes?: (string | Expression)[];
   /**
    * @description Called for each non-empty tag value before entities are substituted. Return `undefined` or `null` to keep the original. Defaults to the identity
-   * function.
+   * function. See {@link ValueProcessor} for the shape.
+   *
+   * @example
+   *   ```typescript
+   *   import { EntityEncoder } from '@endevops/common-xml';
+   *   const encoder = new EntityEncoder();
+   *   new XMLBuilder({ tagValueProcessor: (_tag, value) => encoder.encode(String(value)) });
+   *   ```;
    */
-  tagValueProcessor?: (name: string, value: unknown) => unknown;
+  tagValueProcessor?: ValueProcessor;
   /**
    * @description Called for each attribute value before entities are substituted. Return `undefined` or `null` to keep the original. Defaults to the identity
-   * function.
+   * function. See {@link ValueProcessor} for the shape.
    */
-  attributeValueProcessor?: (name: string, value: unknown) => unknown;
+  attributeValueProcessor?: ValueProcessor;
   /**
    * @description The entity substitutions applied to text and attribute values. Defaults to the five predefined XML entities; the `&` entry must stay first, or it
    * would re-escape the ampersands the later entries introduce. Overriding this replaces the whole table rather than extending it, so an entry that
@@ -142,6 +164,11 @@ export interface XmlBuilderOptions {
   /**
    * @description Validate and repair tag and attribute names, or `false` to write every name as given. The callback runs only for names that fail QName
    * validation, so a document of valid names pays nothing for having it configured. Defaults to `false`.
+   *
+   * @remarks
+   *   The resolver stays synchronous, and a throw from one is captured: `build` fails with the `NameResolutionFailed` reason carrying the resolver's
+   *   own message, rather than the throw escaping as a defect. That keeps a rejecting resolver in the same error channel as every other build
+   *   failure, so one `catchReason` covers them all.
    *
    * @example
    *   // Repair invalid names
@@ -180,8 +207,8 @@ export interface ResolvedXmlBuilderOptions {
   suppressBooleanAttributes: boolean;
   preserveOrder: boolean;
   unpairedTags: string[];
-  tagValueProcessor: (name: string, value: unknown) => unknown;
-  attributeValueProcessor: (name: string, value: unknown) => unknown;
+  tagValueProcessor: ValueProcessor;
+  attributeValueProcessor: ValueProcessor;
   entities: EntityReplacement[];
   processEntities: boolean;
   oneListGroup: boolean;

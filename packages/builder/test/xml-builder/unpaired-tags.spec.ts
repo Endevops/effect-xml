@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('unpaired and empty tags', () => {
   it('should be parsed with paired tag when suppressEmptyNode:false', () => {
@@ -33,8 +33,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expectedXmlData.replace(/\s+/g, ''));
   });
 
@@ -53,8 +53,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -73,8 +73,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(xmlData.replace(/\s+/g, ''));
   });
 
@@ -123,8 +123,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expectedXml.replace(/\s+/g, ''));
   });
 
@@ -155,8 +155,8 @@ describe('unpaired and empty tags', () => {
       stopNodes: ['*.stop'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expectedXml.replace(/\s+/g, ''));
   });
 
@@ -187,8 +187,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expectedXmlData.replace(/\s+/g, ''));
   });
 
@@ -219,8 +219,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expectedXmlData.replace(/\s+/g, ''));
   });
 
@@ -251,8 +251,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expectedXmlData.replace(/\s+/g, ''));
   });
 
@@ -283,8 +283,8 @@ describe('unpaired and empty tags', () => {
       unpairedTags: ['unpaired'],
     };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expectedXmlData.replace(/\s+/g, ''));
   });
 });

@@ -1,8 +1,12 @@
 import type { Expression, ExpressionSet } from '@endevops/common-xml';
 
-import { Expression as CompiledExpression, ExpressionSet as ExpressionSetImpl } from '@endevops/common-xml';
+import { ExpressionSet as ExpressionSetImpl } from '@endevops/common-xml';
+import { Effect } from 'effect';
 
+import type { BuilderError } from '../errors.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
+
+import { addToSet, BuilderError as BuilderErrorCtor, compilePattern } from '../errors.ts';
 
 /**
  * @description The chain used for element text when the caller configures none.
@@ -29,45 +33,46 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
  *
  * @param options - The caller's options.
  *
- * @returns The resolved options, with `_alwaysArraySet` present and sealed.
- *
- * @throws {Error} `<optionName> expression cannot be empty` for an empty pattern, or `Invalid <optionName> entry: expected a string, or Expression.`
- *   for an entry that is neither.
+ * @returns An effect producing the resolved options, with `_alwaysArraySet` present and sealed. Fails with {@link BuilderError} and the
+ *   `InvalidOptionEntry` reason for an entry that is neither a non-empty pattern string nor an expression, or with the `PatternCompilationFailed`
+ *   reason when a pattern does not compile.
  */
-export function buildOptions(options: FactoryOptions | undefined): ResolvedFactoryOptions {
-  const caller = options ?? {};
+export function buildOptions(options: FactoryOptions | undefined): Effect.Effect<ResolvedFactoryOptions, BuilderError> {
+  return Effect.gen(function* () {
+    const caller = options ?? {};
 
-  // The baseline is built from literals, never from a spread of the caller's
-  // object. A spread copies own enumerable keys — and a `__proto__` key that
-  // `JSON.parse` produced *is* own and enumerable — so it would smuggle a
-  // forbidden key past the filter in copyProperties. Going through copyProperties
-  // for everything the caller supplies is what makes the guard total.
-  const resolved: ResolvedFactoryOptions = {
-    tags: { valueParsers: [...DEFAULT_TAG_PARSERS] },
-    attributes: { valueParsers: [...DEFAULT_ATTR_PARSERS] },
-    alwaysArray: [],
-    textJoint: '',
-    // `null` rather than `undefined`, so the resolved options always carry the key
-    // and a reader can test presence without knowing which absence was meant.
-    forceArray: null,
-    forceTextNode: false,
-    _alwaysArraySet: compileAlwaysArray([]),
-  };
+    // The baseline is built from literals, never from a spread of the caller's
+    // object. A spread copies own enumerable keys — and a `__proto__` key that
+    // `JSON.parse` produced *is* own and enumerable — so it would smuggle a
+    // forbidden key past the filter in copyProperties. Going through copyProperties
+    // for everything the caller supplies is what makes the guard total.
+    const resolved: ResolvedFactoryOptions = {
+      tags: { valueParsers: [...DEFAULT_TAG_PARSERS] },
+      attributes: { valueParsers: [...DEFAULT_ATTR_PARSERS] },
+      alwaysArray: [],
+      textJoint: '',
+      // `null` rather than `undefined`, so the resolved options always carry the key
+      // and a reader can test presence without knowing which absence was meant.
+      forceArray: null,
+      forceTextNode: false,
+      _alwaysArraySet: yield* compileAlwaysArray([]),
+    };
 
-  // The two derived fields the caller also supplies: the chains per key, so
-  // setting `tags.valueParsers` leaves the attribute chain at its default, and
-  // `alwaysArray`, which must be compiled rather than copied.
-  const { tags, attributes, alwaysArray, _alwaysArraySet: _callerSet, ...rest } = caller as FactoryOptions & { _alwaysArraySet?: ExpressionSet };
-  void _callerSet;
+    // The two derived fields the caller also supplies: the chains per key, so
+    // setting `tags.valueParsers` leaves the attribute chain at its default, and
+    // `alwaysArray`, which must be compiled rather than copied.
+    const { tags, attributes, alwaysArray, _alwaysArraySet: _callerSet, ...rest } = caller as FactoryOptions & { _alwaysArraySet?: ExpressionSet };
+    void _callerSet;
 
-  const merged = copyProperties(resolved, rest as Record<string, unknown>);
-  if (tags?.valueParsers) merged.tags = { ...merged.tags, valueParsers: tags.valueParsers };
-  if (attributes?.valueParsers) merged.attributes = { ...merged.attributes, valueParsers: attributes.valueParsers };
-  if (alwaysArray) {
-    merged.alwaysArray = alwaysArray;
-    merged._alwaysArraySet = compileAlwaysArray(alwaysArray);
-  }
-  return merged;
+    const merged = copyProperties(resolved, rest as Record<string, unknown>);
+    if (tags?.valueParsers) merged.tags = { ...merged.tags, valueParsers: tags.valueParsers };
+    if (attributes?.valueParsers) merged.attributes = { ...merged.attributes, valueParsers: attributes.valueParsers };
+    if (alwaysArray) {
+      merged.alwaysArray = alwaysArray;
+      merged._alwaysArraySet = yield* compileAlwaysArray(alwaysArray);
+    }
+    return merged;
+  });
 }
 
 /**
@@ -79,13 +84,17 @@ export function buildOptions(options: FactoryOptions | undefined): ResolvedFacto
  *
  * @returns The sealed set.
  */
-function compileAlwaysArray(entries: (string | Expression)[]): ExpressionSet {
-  const set = new ExpressionSetImpl();
-  for (const entry of entries) {
-    set.add(new CompiledExpression(toPattern(entry, 'alwaysArray')));
-  }
-  set.seal();
-  return set;
+function compileAlwaysArray(entries: (string | Expression)[]): Effect.Effect<ExpressionSet, BuilderError> {
+  return Effect.gen(function* () {
+    const set = new ExpressionSetImpl();
+    for (const entry of entries) {
+      const pattern = yield* toPattern(entry, 'alwaysArray');
+      const compiled = yield* compilePattern(pattern);
+      yield* addToSet(set, compiled);
+    }
+    set.seal();
+    return set;
+  });
 }
 
 /**
@@ -96,23 +105,33 @@ function compileAlwaysArray(entries: (string | Expression)[]): ExpressionSet {
  * @param entry - A pattern string or an expression-like object.
  * @param optionName - Used in the error message.
  *
- * @returns The pattern string.
- *
- * @throws {Error} When the entry is neither a non-empty string nor an expression-like object.
+ * @returns An effect producing the pattern string. Fails with {@link BuilderError} and the `InvalidOptionEntry` reason when the entry is neither a
+ *   non-empty string nor an expression-like object; the `problem` is one of the two messages the original threw.
  */
-function toPattern(entry: string | Expression, optionName: string): string {
+function toPattern(entry: string | Expression, optionName: string): Effect.Effect<string, BuilderError> {
+  const reject = (problem: 'expression cannot be empty' | 'expected a string, or Expression') =>
+    Effect.fail(
+      new BuilderErrorCtor({
+        reason: { _tag: 'InvalidOptionEntry', option: optionName, problem },
+        message:
+          problem === 'expression cannot be empty'
+            ? `${optionName} expression cannot be empty`
+            : `Invalid ${optionName} entry: expected a string, or Expression.`,
+      })
+    );
+
   if (typeof entry === 'string') {
-    if (entry.length === 0) throw new Error(`${optionName} expression cannot be empty`);
-    return entry;
+    if (entry.length === 0) return reject('expression cannot be empty');
+    return Effect.succeed(entry);
   }
   if (
     typeof (entry as Expression | undefined)?.pattern === 'string' &&
     (entry as Expression).pattern.length > 0 &&
     Array.isArray((entry as Expression).segments)
   ) {
-    return entry.toString();
+    return Effect.succeed(entry.toString());
   }
-  throw new Error(`Invalid ${optionName} entry: expected a string, or Expression.`);
+  return reject('expected a string, or Expression');
 }
 
 /**

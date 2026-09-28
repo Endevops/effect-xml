@@ -1,3 +1,7 @@
+import { Effect } from 'effect';
+
+import type { BuilderError } from '../../errors.ts';
+
 import { FinalValue } from '../value-parser.ts';
 import BaseValueParser from './base-value-parser.ts';
 
@@ -35,12 +39,12 @@ export default class BooleanParser extends BaseValueParser {
    *
    * @returns The boolean for a recognised word, otherwise `val` unchanged.
    */
-  override parse(val: unknown): unknown {
+  override parse(val: unknown): Effect.Effect<unknown, BuilderError> {
     if (typeof val === 'string') {
       const temp = val.toLowerCase();
-      if (this.trueList.includes(temp)) return this.IS_FINAL ? new FinalValue(true) : true;
-      if (this.falseList.includes(temp)) return this.IS_FINAL ? new FinalValue(false) : false;
+      if (this.trueList.includes(temp)) return Effect.succeed(this.IS_FINAL ? new FinalValue(true) : true);
+      if (this.falseList.includes(temp)) return Effect.succeed(this.IS_FINAL ? new FinalValue(false) : false);
     }
-    return val;
+    return Effect.succeed(val);
   }
 }

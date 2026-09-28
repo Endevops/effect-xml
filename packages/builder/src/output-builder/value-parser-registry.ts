@@ -15,14 +15,20 @@ import WSNormalizer from './value-parsers/ws-normalizer.ts';
 const defaultValParsers: Record<string, ValueParser> = {
   entity: new EntitiesValueParser(),
   trim: new Trim(),
-  ws: new WSNormalizer(),
+  ws: WSNormalizer.builtin(),
   boolean: new BooleanParser(),
   number: new NumberValueParser({ hex: true, leadingZeros: true, eNotation: true }),
 };
 
+import { Effect } from 'effect';
+
 /**
  * @description The named value parsers a builder's chain can reference.
  */
+import type { BuilderError } from '../errors.ts';
+
+import { BuilderError as BuilderErrorCtor } from '../errors.ts';
+
 export type BuiltInValueParserName = keyof typeof defaultValParsers;
 
 /**
@@ -51,22 +57,15 @@ export default class ValueParserRegistry implements ValueParserRegistryLike {
    * @param name - The name to register under.
    * @param parser - The parser.
    *
-   * @throws {Error} `name must be a string`, `parser is required`, `parser must implement reset()`, or `parser must implement parse()`.
+   * @returns An effect that registers the parser. Fails with {@link BuilderError} and the `InvalidValueParser` reason, whose `problem` is one of the
+   *   four messages the original threw.
    */
-  register(name: string, parser: ValueParser): void {
-    if (!name || typeof name !== 'string') {
-      throw new Error('name must be a string');
-    }
-    if (!parser) {
-      throw new Error('parser is required');
-    }
-    if (!parser.reset || typeof parser.reset !== 'function') {
-      throw new Error('parser must implement reset()');
-    }
-    if (!parser.parse || typeof parser.parse !== 'function') {
-      throw new Error('parser must implement parse()');
-    }
-    this.registered[name] = parser;
+  register(name: string, parser: ValueParser): Effect.Effect<void, BuilderError> {
+    return registerChecked(name, parser).pipe(
+      Effect.map(() => {
+        this.registered[name] = parser;
+      })
+    );
   }
 
   /**
@@ -92,15 +91,32 @@ export default class ValueParserRegistry implements ValueParserRegistryLike {
    *
    * @param name - The parser name.
    *
-   * @returns The parser.
-   *
-   * @throws {Error} `parser not found: <name>` if nothing is registered under that name.
+   * @returns An effect producing the parser. Fails with {@link BuilderError} and the `ValueParserNotFound` reason if nothing is registered under that
+   *   name.
    */
-  get(name: string): ValueParser {
+  get(name: string): Effect.Effect<ValueParser, BuilderError> {
     const ret = this.registered[name];
-    if (!ret) {
-      throw new Error('parser not found: ' + name);
-    }
-    return ret;
+    if (ret) return Effect.succeed(ret);
+    return Effect.fail(new BuilderErrorCtor({ reason: { _tag: 'ValueParserNotFound', name }, message: 'parser not found: ' + name }));
   }
 }
+
+/**
+ * @description The four checks {@link ValueParserRegistry.register} makes, as an effect. Split out so the pipeline can validate a parser it was handed directly
+ * without going through a registry, and so each failure names the problem in one place.
+ *
+ * @param name - The name the parser would be registered under.
+ * @param parser - The parser to check.
+ *
+ * @returns `Effect.void` when the parser is usable, or the `InvalidValueParser` failure.
+ */
+const registerChecked = (name: string, parser: ValueParser): Effect.Effect<void, BuilderError> => {
+  const reject = (problem: 'name must be a string' | 'parser is required' | 'parser must implement reset()' | 'parser must implement parse()') =>
+    Effect.fail(new BuilderErrorCtor({ reason: { _tag: 'InvalidValueParser', name: String(name), problem }, message: problem }));
+
+  if (!name || typeof name !== 'string') return reject('name must be a string');
+  if (!parser) return reject('parser is required');
+  if (!parser.reset || typeof parser.reset !== 'function') return reject('parser must implement reset()');
+  if (!parser.parse || typeof parser.parse !== 'function') return reject('parser must implement parse()');
+  return Effect.void;
+};

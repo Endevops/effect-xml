@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('Entities', () => {
   it('should build by decoding default entities', () => {
@@ -25,8 +25,8 @@ describe('Entities', () => {
       ignoreAttributes: false,
       // processEntities: true,
     };
-    const builder = new XMLBuilder(options);
-    const result = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const result = run(builder.build(jsObj));
     expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 
@@ -50,8 +50,8 @@ describe('Entities', () => {
       // processEntities: false,
     };
 
-    const builder = new XMLBuilder(options);
-    const result = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const result = run(builder.build(jsObj));
     expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 });
@@ -77,8 +77,8 @@ describe('External Entities', () => {
       // processEntities: false,
     };
 
-    const builder = new XMLBuilder(options);
-    const result = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const result = run(builder.build(jsObj));
     expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 
@@ -95,8 +95,8 @@ describe('External Entities', () => {
 
     const options = { attributeNamePrefix: '@', ignoreAttributes: false };
 
-    const builder = new XMLBuilder(options);
-    const output = builder.build(jsObj);
+    const builder = makeBuilder(options);
+    const output = run(builder.build(jsObj));
     expect(output.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 });

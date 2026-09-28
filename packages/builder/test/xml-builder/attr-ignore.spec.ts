@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 const jsonData = {
   tag: {
@@ -23,16 +23,16 @@ const jsonData = {
 describe('XMLParser', function () {
   it('must ignore building attributes by array of strings', () => {
     const options: XmlBuilderOptions = { attributeNamePrefix: '$', ignoreAttributes: ['ns:attr1', 'ns:attr2'] };
-    const builder = new XMLBuilder(options);
-    expect(builder.build(jsonData)).toEqual(
+    const builder = makeBuilder(options);
+    expect(run(builder.build(jsonData))).toEqual(
       '<tag ns2:attr3="a3-value" ns2:attr4="a4-value"><tag2 ns2:attr3="a3-value" ns2:attr4="a4-value"></tag2></tag>'
     );
   });
 
   it('must ignore building attributes by array of RegExp', () => {
     const options: XmlBuilderOptions = { attributeNamePrefix: '$', ignoreAttributes: [/^ns2:/] };
-    const builder = new XMLBuilder(options);
-    expect(builder.build(jsonData)).toEqual(
+    const builder = makeBuilder(options);
+    expect(run(builder.build(jsonData))).toEqual(
       '<tag ns:attr1="a1-value" ns:attr2="a2-value"><tag2 ns:attr1="a1-value" ns:attr2="a2-value"></tag2></tag>'
     );
   });
@@ -42,7 +42,7 @@ describe('XMLParser', function () {
       attributeNamePrefix: '$',
       ignoreAttributes: (aName, jPath) => aName.startsWith('ns:') || jPath === 'tag.tag2',
     };
-    const builder = new XMLBuilder(options);
-    expect(builder.build(jsonData)).toEqual('<tag ns2:attr3="a3-value" ns2:attr4="a4-value"><tag2></tag2></tag>');
+    const builder = makeBuilder(options);
+    expect(run(builder.build(jsonData))).toEqual('<tag ns2:attr3="a3-value" ns2:attr4="a4-value"><tag2></tag2></tag>');
   });
 });

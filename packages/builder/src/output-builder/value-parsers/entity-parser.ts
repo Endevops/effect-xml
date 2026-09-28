@@ -1,9 +1,12 @@
 import type { EntityDecoderOptions } from '@endevops/common-xml';
 
 import { COMMON_HTML, ENTITY_ACTION, EntityDecoder, XML } from '@endevops/common-xml';
+import { Effect } from 'effect';
 
+import type { BuilderError } from '../../errors.ts';
 import type { Context } from '../value-parser.ts';
 
+import { BuilderError as BuilderErrorCtor } from '../../errors.ts';
 import { isUnsafeXml } from '../security/xml-unsafe.ts';
 import BaseValueParser from './base-value-parser.ts';
 
@@ -103,13 +106,20 @@ export default class EntitiesValueParser extends BaseValueParser {
    * @param val - The value. A non-string is returned untouched, so a number that reached this parser in a chain is not mangled.
    * @param context - Unused; accepted to match the parser contract.
    *
-   * @returns The decoded string, or `val` unchanged if it is not a string.
+   * @returns An effect producing the decoded string, or `val` unchanged if it is not a string. Fails with the `EntityDecodingFailed` reason when the
+   *   decoder rejects a reference — a malformed `&…;` or an input entity the security rules block. The decoder reports that as a `common-xml`
+   *   `XmlError`, which is mapped here so this package keeps a single error channel.
    */
-  override parse(val: unknown, context?: Context): unknown {
+  override parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
     void context;
-    if (typeof val !== 'string') return val;
+    if (typeof val !== 'string') return Effect.succeed(val);
     this.#ensureDecoder();
-    return this.#decoder?.decode(val);
+    const decoder = this.#decoder;
+    if (!decoder) return Effect.succeed(val);
+    return Effect.mapError(
+      decoder.decode(val),
+      cause => new BuilderErrorCtor({ reason: { _tag: 'EntityDecodingFailed', value: val, cause: cause.message }, message: cause.message })
+    );
   }
 }
 

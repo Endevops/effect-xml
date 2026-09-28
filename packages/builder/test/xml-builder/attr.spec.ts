@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('Attributes', function () {
   it("should parse and build with tag name 'attributes'", function () {
@@ -29,7 +29,7 @@ describe('Attributes', function () {
 
     const parsingOptions: X2jOptions = { ignoreAttributes: false, preserveOrder: true, unpairedTags: ['star'] };
     const parser = new XMLParser(parsingOptions);
-    const result: unknown = parser.parse(XMLdata);
+    const result: unknown = run(parser.parse(XMLdata));
 
     const builderOptions: XmlBuilderOptions = {
       ignoreAttributes: false,
@@ -38,8 +38,8 @@ describe('Attributes', function () {
       suppressEmptyNode: true,
       unpairedTags: ['star'],
     };
-    const builder = new XMLBuilder(builderOptions);
-    const output = builder.build(result);
+    const builder = makeBuilder(builderOptions);
+    const output = run(builder.build(result));
     expect(output.replace(/\s+/g, '')).toEqual(XMLdata.replace(/\s+/g, ''));
   });
 });

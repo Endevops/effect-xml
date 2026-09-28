@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('Format without indentation', function () {
   const expectedXml = `
@@ -21,8 +21,8 @@ describe('Format without indentation', function () {
 
     const builderOptions: XmlBuilderOptions = { format: true, preserveOrder: true, indentBy: '' };
 
-    const builder = new XMLBuilder(builderOptions);
-    const output = builder.build(jObj);
+    const builder = makeBuilder(builderOptions);
+    const output = run(builder.build(jObj));
     expect(output).toEqual(expectedXml);
   });
 
@@ -34,8 +34,8 @@ describe('Format without indentation', function () {
 
     const builderOptions: XmlBuilderOptions = { format: true, indentBy: '' };
 
-    const builder = new XMLBuilder(builderOptions);
-    const output = builder.build(jObj);
+    const builder = makeBuilder(builderOptions);
+    const output = run(builder.build(jObj));
     expect(output).toEqual(expectedXml);
   });
 });

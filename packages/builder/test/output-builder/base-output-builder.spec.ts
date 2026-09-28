@@ -9,11 +9,14 @@
 import type { MatcherView } from '@endevops/common-xml';
 
 import { Matcher } from '@endevops/common-xml';
+import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
+import type { BuilderError } from '#/errors.ts';
 import type { BuilderParserOptions, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
 
 import { BaseOutputBuilder, BaseOutputBuilderFactory, BooleanParser, Context, ValueParserRegistry } from '#/index.ts';
+import { failed, run } from '#/test/helpers/effect.ts';
 
 /**
  * @description A concrete builder that records the child keys the base's hooks add, and nothing else. This is the minimum needed to observe the base class's own
@@ -112,13 +115,13 @@ describe('BaseOutputBuilder — construction', () => {
   it('resets the parsers by default, so a second builder starts clean', () => {
     let resets = 0;
     const counting: ValueParser = {
-      parse: v => v,
+      parse: (v: unknown) => Effect.succeed(v),
       reset: () => {
         resets++;
       },
     };
     const reg = new ValueParserRegistry();
-    reg.register('counting', counting);
+    run(reg.register('counting', counting));
     new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['counting'] } }, null, reg);
     expect(resets).toBeGreaterThan(0);
   });
@@ -126,13 +129,13 @@ describe('BaseOutputBuilder — construction', () => {
   it('skips the reset when told to, for a caller that already reset', () => {
     let resets = 0;
     const counting: ValueParser = {
-      parse: v => v,
+      parse: (v: unknown) => Effect.succeed(v),
       reset: () => {
         resets++;
       },
     };
     const reg = new ValueParserRegistry();
-    reg.register('counting', counting);
+    run(reg.register('counting', counting));
     new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['counting'] } }, null, reg, false);
     expect(resets).toBe(0);
   });
@@ -144,21 +147,21 @@ describe('BaseOutputBuilder — addAttribute', () => {
   it('applies the configured prefix and suffix', () => {
     const b = builder({ attributes: { prefix: '@_', suffix: '' } }) as RecordingBuilder & { attributes: Record<string, unknown> };
     b.attributes = {};
-    b.addAttribute('id', '1', atA());
+    run(b.addAttribute('id', '1', atA()));
     expect(Object.keys(b.attributes)).toEqual(['@_id']);
   });
 
   it('uses no prefix or suffix when neither is configured', () => {
     const b = builder({}) as RecordingBuilder & { attributes: Record<string, unknown> };
     b.attributes = {};
-    b.addAttribute('id', '1', atA());
+    run(b.addAttribute('id', '1', atA()));
     expect(Object.keys(b.attributes)).toEqual(['id']);
   });
 
   it('runs the value through the attribute pipeline, so "1" becomes 1', () => {
     const b = builder({ attributes: { prefix: '@_' } }) as RecordingBuilder & { attributes: Record<string, unknown> };
     b.attributes = {};
-    b.addAttribute('n', '42', atA());
+    run(b.addAttribute('n', '42', atA()));
     expect(b.attributes['@_n']).toBe(42);
   });
 
@@ -167,7 +170,7 @@ describe('BaseOutputBuilder — addAttribute', () => {
       attributes: Record<string, unknown>;
     };
     b.attributes = {};
-    b.addAttribute('t', '  a  b  ', atA());
+    run(b.addAttribute('t', '  a  b  ', atA()));
     expect(b.attributes['@_t']).toBe('  a  b  ');
   });
 
@@ -175,7 +178,7 @@ describe('BaseOutputBuilder — addAttribute', () => {
     const b = builder({}) as RecordingBuilder & { attributes: Record<string, unknown>; tagName: string };
     b.attributes = {};
     b.tagName = b._rootName;
-    b.addAttribute('version', '1.1', atA());
+    run(b.addAttribute('version', '1.1', atA()));
     expect(b.sharedContext.get('xmlVersion')).toBe(1.1);
   });
 
@@ -183,7 +186,7 @@ describe('BaseOutputBuilder — addAttribute', () => {
     const b = builder({}) as RecordingBuilder & { attributes: Record<string, unknown>; tagName: string };
     b.attributes = {};
     b.tagName = 'other';
-    b.addAttribute('version', '1.1', atA());
+    run(b.addAttribute('version', '1.1', atA()));
     expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
   });
 
@@ -191,7 +194,7 @@ describe('BaseOutputBuilder — addAttribute', () => {
     // The base shape has nowhere to put an attribute; a builder with a different
     // structure overrides addAttribute rather than relying on this.
     const b = builder({ attributes: { prefix: '@_' } });
-    expect(() => b.addAttribute('id', '1', atA())).not.toThrow();
+    run(b.addAttribute('id', '1', atA()));
   });
 });
 
@@ -218,7 +221,7 @@ describe('BaseOutputBuilder — comments', () => {
 
   it('survives a parser that supplied no nameFor or skip at all', () => {
     const b = builder({});
-    expect(() => b.addComment('hi')).not.toThrow();
+    b.addComment('hi');
     expect(b.children).toEqual([]);
   });
 });
@@ -303,7 +306,7 @@ describe('BaseOutputBuilder — onStopNode', () => {
 
   it('does not throw when the caller set no hook', () => {
     const b = builder({});
-    expect(() => b.onStopNode(scriptDetail, 'raw')).not.toThrow();
+    b.onStopNode(scriptDetail, 'raw');
   });
 });
 
@@ -320,13 +323,13 @@ describe('BaseOutputBuilder — declarations and instructions', () => {
 
   it('has a no-op addInstruction, so a base builder tolerates one', () => {
     const b = builder({});
-    expect(() => b.addInstruction('<?pi?>')).not.toThrow();
+    b.addInstruction('<?pi?>');
     expect(b.children).toEqual([]);
   });
 
   it('has a no-op onExit and onStopNode-adjacent hooks', () => {
     const b = builder({});
-    expect(() => b.onExit({ tagDetail: scriptDetail, matcher: atA(), depth: 1 })).not.toThrow();
+    b.onExit({ tagDetail: scriptDetail, matcher: atA(), depth: 1 });
   });
 });
 
@@ -355,17 +358,17 @@ describe('BaseOutputBuilderFactory', () => {
 
   it('refuses to produce a builder — a subclass must implement getInstance', () => {
     const f = new BaseOutputBuilderFactory();
-    expect(() => f.getInstance({}, null)).toThrow('getInstance is not implemented');
+    expect(failed(f.getInstance({}, null)).message).toContain('getInstance is not implemented');
   });
 
   it('registers a value parser for every builder it produces afterwards', () => {
     const f = new BaseOutputBuilderFactory();
     const parser = new BooleanParser();
-    f.registerValueParser('flag', parser);
-    expect(f.registry.get('flag')).toBe(parser);
+    run(f.registerValueParser('flag', parser));
+    expect(run(f.registry.get('flag'))).toBe(parser);
     // The builder the factory hands out shares the factory's registry.
     const b = new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['flag'] } }, null, f.registry);
-    expect(b.tagsPipeline.run('true')).toBe(true);
+    expect(run(b.tagsPipeline.run('true'))).toBe(true);
   });
 
   it('hands each builder a fresh instance, so per-document state cannot leak', () => {
@@ -373,18 +376,23 @@ describe('BaseOutputBuilderFactory', () => {
     // and the factory is not. The two builders must not share a shared context,
     // which is where a document's XML version and DOCTYPE entities live.
     class Flagging extends BaseOutputBuilderFactory {
-      override getInstance(parserOptions: Record<string, unknown>, readonlyMatcher: MatcherView | null): BaseOutputBuilder {
-        return new RecordingBuilder(
-          parserOptions as BuilderParserOptions & Record<string, unknown>,
-          {},
-          readonlyMatcher,
-          this.registry
-        ) as RecordingBuilder;
+      override getInstance(
+        parserOptions: Record<string, unknown>,
+        readonlyMatcher: MatcherView | null
+      ): Effect.Effect<BaseOutputBuilder, BuilderError> {
+        return Effect.succeed(
+          new RecordingBuilder(
+            parserOptions as BuilderParserOptions & Record<string, unknown>,
+            {},
+            readonlyMatcher,
+            this.registry
+          ) as RecordingBuilder
+        );
       }
     }
     const f = new Flagging();
-    const a = f.getInstance({}, null);
-    const b = f.getInstance({}, null);
+    const a = run(f.getInstance({}, null));
+    const b = run(f.getInstance({}, null));
     expect(a).not.toBe(b);
     expect(a.sharedContext).not.toBe(b.sharedContext);
     // A value written for one document is invisible to the next.
@@ -394,17 +402,22 @@ describe('BaseOutputBuilderFactory', () => {
 
   it('passes its own registry to every builder it produces', () => {
     class Flagging extends BaseOutputBuilderFactory {
-      override getInstance(parserOptions: Record<string, unknown>, readonlyMatcher: MatcherView | null): BaseOutputBuilder {
-        return new RecordingBuilder(
-          parserOptions as BuilderParserOptions & Record<string, unknown>,
-          {},
-          readonlyMatcher,
-          this.registry
-        ) as RecordingBuilder;
+      override getInstance(
+        parserOptions: Record<string, unknown>,
+        readonlyMatcher: MatcherView | null
+      ): Effect.Effect<BaseOutputBuilder, BuilderError> {
+        return Effect.succeed(
+          new RecordingBuilder(
+            parserOptions as BuilderParserOptions & Record<string, unknown>,
+            {},
+            readonlyMatcher,
+            this.registry
+          ) as RecordingBuilder
+        );
       }
     }
     const f = new Flagging();
-    expect(f.getInstance({}, null).registry).toBe(f.registry);
+    expect(run(f.getInstance({}, null)).registry).toBe(f.registry);
   });
 });
 

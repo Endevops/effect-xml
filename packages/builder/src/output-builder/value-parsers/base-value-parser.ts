@@ -1,4 +1,9 @@
+import { Effect } from 'effect';
+
+import type { BuilderError } from '../../errors.ts';
 import type { Context, SharedContext, ValueParser } from '../value-parser.ts';
+
+import { BuilderError as BuilderErrorCtor } from '../../errors.ts';
 
 /**
  * @description The base class every value parser should extend. It handles the `IS_FINAL` flag and the `init`/`reset` lifecycle the pipeline drives, so a subclass
@@ -63,13 +68,14 @@ export default class BaseValueParser implements ValueParser {
    * @param val - The value.
    * @param runtimeContext - Where the value came from.
    *
-   * @returns The transformed value.
-   *
-   * @throws {Error} Always, in the base class. A subclass must override this.
+   * @returns An effect producing the transformed value. Fails with {@link BuilderError} and the `NotImplemented` reason, always — a subclass must
+   *   override this. The value and the context are unused, which is why the parameters are referenced rather than dropped.
    */
-  parse(val: unknown, runtimeContext?: Context): unknown {
+  parse(val: unknown, runtimeContext?: Context): Effect.Effect<unknown, BuilderError> {
     void val;
     void runtimeContext;
-    throw new Error('You must implement parse() in a value parser.');
+    return Effect.fail(
+      new BuilderErrorCtor({ reason: { _tag: 'NotImplemented', member: 'parse' }, message: 'You must implement parse() in a value parser.' })
+    );
   }
 }

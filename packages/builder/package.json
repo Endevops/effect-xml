@@ -46,7 +46,8 @@
     "prepublishOnly": "vp pack"
   },
   "dependencies": {
-    "@endevops/common-xml": "workspace:^"
+    "@endevops/common-xml": "workspace:^",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "fast-xml-parser": "^5.11.1",

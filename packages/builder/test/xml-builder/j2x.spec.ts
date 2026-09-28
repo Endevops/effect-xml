@@ -4,47 +4,48 @@
  */
 
 import { EntityEncoder } from '@endevops/common-xml';
+import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('XMLBuilder', function () {
   it('should parse to XML with nested tags', function () {
     const jObj = { a: { b: { c: 'val1', d: 'val2' } } };
-    const builder = new XMLBuilder();
-    const result = builder.build(jObj);
+    const builder = makeBuilder();
+    const result = run(builder.build(jObj));
     const expected = `<a><b><c>val1</c><d>val2</d></b></a>`;
     expect(result).toEqual(expected);
   });
 
   it('should parse text property to tag value ', function () {
     const jObj = { a: { b: { '#text': 'val1', d: 'val2' } } };
-    const builder = new XMLBuilder();
-    const result = builder.build(jObj);
+    const builder = makeBuilder();
+    const result = run(builder.build(jObj));
     const expected = `<a><b>val1<d>val2</d></b></a>`;
     expect(result).toEqual(expected);
   });
 
   it('should parse to XML with array', function () {
     const jObj = { a: { b: ['val1', { c: 'val2' }] } };
-    const builder = new XMLBuilder();
-    const result = builder.build(jObj);
+    const builder = makeBuilder();
+    const result = run(builder.build(jObj));
     const expected = `<a><b>val1</b><b><c>val2</c></b></a>`;
     expect(result).toEqual(expected);
   });
 
   it('should suppress undefined nodes', function () {
     const jObj = { a: { b: [undefined, 'val1', { c: 'val2', d: undefined, e: 'val3' }] } };
-    const builder = new XMLBuilder();
-    const result = builder.build(jObj);
+    const builder = makeBuilder();
+    const result = run(builder.build(jObj));
     const expected = '<a><b>val1</b><b><c>val2</c><e>val3</e></b></a>';
     expect(result).toEqual(expected);
   });
 
   it('should parse  attributes properties as tag when options are not given', function () {
     const jObj = { a: { '@_b': 'val1', '@_c': 'val2' } };
-    const builder = new XMLBuilder();
-    const result = builder.build(jObj);
+    const builder = makeBuilder();
+    const result = run(builder.build(jObj));
     const expected = `<a><@_b>val1</@_b><@_c>val2</@_c></a>`;
     expect(result).toEqual(expected);
   });
@@ -52,40 +53,40 @@ describe('XMLBuilder', function () {
   // Note: attribute should not be set to an array
   it('should parse to XML with attributes', function () {
     const jObj = { a: { '@_b': 'val1', '#text': 'textvalue', tag: { k: 34 }, '@_c': 'val2' } };
-    const builder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: '@_' });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+    const result = run(builder.build(jObj));
     const expected = `<a b="val1" c="val2">textvalue<tag><k>34</k></tag></a>`;
     expect(result).toEqual(expected);
   });
 
   it('should parse to XML with empty CDATA', function () {
     const jObj = { a: { $cdata: null }, b: { $cdata: undefined } };
-    const builder = new XMLBuilder({ cdataPropName: '$cdata' });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ cdataPropName: '$cdata' });
+    const result = run(builder.build(jObj));
     const expected = `<a></a><b></b>`;
     expect(result).toEqual(expected);
   });
 
   it('should parse to XML with attributes as separate node', function () {
     const jObj = { a: { '@': { b: 'val1', c: 'val2' }, '#text': 'textvalue', tag: { k: 34 } } };
-    const builder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: '@_', attributesGroupName: '@' });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ ignoreAttributes: false, attributeNamePrefix: '@_', attributesGroupName: '@' });
+    const result = run(builder.build(jObj));
     const expected = `<a b="val1" c="val2">textvalue<tag><k>34</k></tag></a>`;
     expect(result).toEqual(expected);
   });
 
   it('should parse grouped attributes as tag name when options are not set', function () {
     const jObj = { a: { '@': { b: 'val1', c: 'val2' }, '#text': 'textvalue', tag: { k: 34 } } };
-    const builder = new XMLBuilder({ ignoreAttributes: false });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ ignoreAttributes: false });
+    const result = run(builder.build(jObj));
     const expected = `<a><@><b>val1</b><c>val2</c></@>textvalue<tag><k>34</k></tag></a>`;
     expect(result).toEqual(expected);
   });
 
   it('should parse null values to self closing tag', function () {
     const jObj = { a: null };
-    const builder = new XMLBuilder();
-    const result = builder.build(jObj);
+    const builder = makeBuilder();
+    const result = run(builder.build(jObj));
     const expected = `<a/>`;
     expect(result).toEqual(expected);
   });
@@ -100,8 +101,8 @@ describe('XMLBuilder', function () {
       },
     };
     // The original also passed `encodeHTMLchar`, which the builder has never implemented — a no-op then and now, which is why `>` and `<` survive raw.
-    const builder = new XMLBuilder({ attributeNamePrefix: '', attributesGroupName: '@', suppressEmptyNode: true, processEntities: false });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ attributeNamePrefix: '', attributesGroupName: '@', suppressEmptyNode: true, processEntities: false });
+    const result = run(builder.build(jObj));
     const expected = `<a b="val>1" c="val<2"><notattr>val</notattr>textvalue><tag><k>34</k><g/><nested b="val>1" c="val<2"/></tag></a>`;
     expect(result).toEqual(expected);
   });
@@ -116,8 +117,8 @@ describe('XMLBuilder', function () {
       },
     };
     // The original also passed `encodeHTMLchar`, which the builder has never implemented — the escaping here is all `processEntities`.
-    const builder = new XMLBuilder({ attributesGroupName: '@', format: true });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ attributesGroupName: '@', format: true });
+    const result = run(builder.build(jObj));
     const expected = `
         <a b="val&gt;1" c="val&lt;2">
             textvalue&gt;  <tag>
@@ -144,8 +145,8 @@ describe('XMLBuilder', function () {
       },
     };
     // The original also passed `encodeHTMLchar`, which the builder has never implemented — the escaping here is all `processEntities`.
-    const builder = new XMLBuilder({ attributesGroupName: '@', format: true });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ attributesGroupName: '@', format: true });
+    const result = run(builder.build(jObj));
     const expected = `<a b="val&gt;1" c="val&lt;2">
     textvalue&gt;
   <tag>
@@ -172,7 +173,7 @@ describe('XMLBuilder', function () {
         only_text_obj: { '#text': 'another text & val' },
       },
     };
-    const builder = new XMLBuilder({
+    const builder = makeBuilder({
       attributesGroupName: '@',
       processEntities: false,
       format: true,
@@ -186,7 +187,7 @@ describe('XMLBuilder', function () {
       ignoreAttributes: false,
       suppressEmptyNode: true,
     });
-    const result = builder.build(jObj);
+    const result = run(builder.build(jObj));
     const expected = `<a>
   <element>
     <subelement staticMessage="bar">foo &amp; bar</subelement>
@@ -207,7 +208,7 @@ describe('XMLBuilder', function () {
         date: 'test',
       },
     };
-    const builder = new XMLBuilder({
+    const builder = makeBuilder({
       attributeNamePrefix: '',
       attributesGroupName: '$',
       textNodeName: '_',
@@ -216,7 +217,7 @@ describe('XMLBuilder', function () {
       indentBy: '\t',
       suppressEmptyNode: true,
     });
-    const result = builder.build(jObj);
+    const result = run(builder.build(jObj));
     const expected =
       '<root><element aaa="aaa" bbb="bbb">1</element><element2 aaa="aaa2" bbb="bbb2"><subelement aaa="sub_aaa"/></element2><date>test</date></root>';
     expect(result).toEqual(expected);
@@ -228,7 +229,7 @@ describe('XMLBuilder', function () {
       root: { element: { date: dateVar }, element2: { $: { aaa: 'aaa2', bbb: 'bbb2' }, subelement: { $: { aaa: 'sub_aaa' } } }, date: dateVar },
     };
     // The original also passed `cdataPositionChar: "\\c"`, which the builder has never implemented — a no-op then and now.
-    const builder = new XMLBuilder({
+    const builder = makeBuilder({
       attributeNamePrefix: '',
       attributesGroupName: '$',
       textNodeName: '_',
@@ -238,10 +239,10 @@ describe('XMLBuilder', function () {
       indentBy: '\t',
       suppressEmptyNode: true,
       tagValueProcessor: function (_tagName, a) {
-        return a;
+        return Effect.succeed(a as string);
       },
     });
-    const result = builder.build(jObj);
+    const result = run(builder.build(jObj));
     const expected =
       '<root><element><date>' +
       dateVar.toString() +
@@ -257,46 +258,46 @@ describe('XMLBuilder', function () {
       { color: 'orange', type: 'SUV', registration: '2021-05-17', capacity: 4 },
       { color: 'green', type: 'coupe', registration: '2019-11-13', capacity: 2 },
     ];
-    const builder = new XMLBuilder({ arrayNodeName: 'car' });
-    const result = builder.build(cars);
+    const builder = makeBuilder({ arrayNodeName: 'car' });
+    const result = run(builder.build(cars));
     const expected =
       '<car><color>purple</color><type>minivan</type><registration>2020-02-03</registration><capacity>7</capacity></car><car><color>orange</color><type>SUV</type><registration>2021-05-17</registration><capacity>4</capacity></car><car><color>green</color><type>coupe</type><registration>2019-11-13</registration><capacity>2</capacity></car>';
     expect(result).toEqual(expected);
   });
 
   it('should call tagValue processor', function () {
-    const xmlBuilder = new XMLBuilder({ format: true, tagValueProcessor: (_tagName, tagValue) => String(tagValue).toUpperCase() });
+    const xmlBuilder = makeBuilder({ format: true, tagValueProcessor: (_tagName, tagValue) => Effect.succeed(String(tagValue).toUpperCase()) });
 
     const expected = `
         <root>
           <test>HELLO</test>
         </root>
         `;
-    const result = xmlBuilder.build({ root: { test: 'hello' } });
+    const result = run(xmlBuilder.build({ root: { test: 'hello' } }));
     expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 
   // The original passed the string `"true"` for `oneListGroup`; the option is only truthiness-tested, so the value is kept verbatim.
   it('should group list tags under single tag', function () {
     const jObj = { a: [{ b: '1' }, { b: '2' }] };
-    const builder = new XMLBuilder({ oneListGroup: 'true' as unknown as boolean });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ oneListGroup: 'true' as unknown as boolean });
+    const result = run(builder.build(jObj));
     const expected = `<a><b>1</b><b>2</b></a>`;
     expect(result).toEqual(expected);
   });
 
   it('should correctly handle values with oneListGroup', function () {
     const jObj = { a: ['(first)', '(second)'] };
-    const builder = new XMLBuilder({ oneListGroup: 'true' as unknown as boolean, attributesGroupName: '@' });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ oneListGroup: 'true' as unknown as boolean, attributesGroupName: '@' });
+    const result = run(builder.build(jObj));
     const expected = `<a>(first)(second)</a>`;
     expect(result).toEqual(expected);
   });
 
   it('should handle attributes with oneListGroup', function () {
     const jObj = { a: [{ b: '1' }, { b: '2' }, { '@': { foo: 'bar', baz: 'foo', bar: 'baz' } }] };
-    const builder = new XMLBuilder({ oneListGroup: 'true' as unknown as boolean, attributesGroupName: '@' });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ oneListGroup: 'true' as unknown as boolean, attributesGroupName: '@' });
+    const result = run(builder.build(jObj));
     const expected = `<a foo="bar" baz="foo" bar="baz"><b>1</b><b>2</b></a>`;
     expect(result).toEqual(expected);
   });
@@ -309,8 +310,8 @@ describe('XMLBuilder', function () {
     const parse_options = { ignoreAttributes: false, attributeNamePrefix: '', textNodeName: '#text' };
     const expected = `<field id="skuCombineContent" name="skuProduct" type="multiInput"><values><value size="5">10061001</value></values></field>`;
 
-    const builder = new XMLBuilder(parse_options);
-    const schema_xml = builder.build(schema_obj);
+    const builder = makeBuilder(parse_options);
+    const schema_xml = run(builder.build(schema_obj));
     expect(schema_xml).toEqual(expected);
   });
 
@@ -328,8 +329,8 @@ describe('XMLBuilder', function () {
         ],
       },
     };
-    const builder = new XMLBuilder({ ignoreAttributes: false, format: true });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ ignoreAttributes: false, format: true });
+    const result = run(builder.build(jObj));
     const expected = `
         <list>
             <item>one</item>
@@ -358,8 +359,8 @@ describe('XMLBuilder', function () {
         ],
       },
     };
-    const builder = new XMLBuilder({ ignoreAttributes: false, format: false });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ ignoreAttributes: false, format: false });
+    const result = run(builder.build(jObj));
     const expected =
       '<list><item>one</item><item>two</item><item>three</item><item attr="foo">four</item><item attr1="baz">five</item><item attr="foo" attr1="baz">six</item><item>seven</item></list>';
 
@@ -380,8 +381,8 @@ describe('XMLBuilder', function () {
         ],
       },
     };
-    const builder = new XMLBuilder({ ignoreAttributes: false, format: true });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ ignoreAttributes: false, format: true });
+    const result = run(builder.build(jObj));
     const expected = `
         <list>
             <item>one</item>
@@ -410,8 +411,8 @@ describe('XMLBuilder', function () {
         ],
       },
     };
-    const builder = new XMLBuilder({ ignoreAttributes: false, format: false });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ ignoreAttributes: false, format: false });
+    const result = run(builder.build(jObj));
     const expected =
       '<list><item>one</item><item>two</item><item>three</item><item attr="foo">four</item><item attr1="baz">five</item><item attr="foo" attr1="baz">six</item><item>seven</item></list>';
 
@@ -422,29 +423,29 @@ describe('XMLBuilder', function () {
     // The prototype is not declared to carry this key, so it is written through the index signature the builder itself walks.
     (Object.prototype as Record<string, unknown>).something = 'strange';
     const jObj = { a: 1 };
-    const builder = new XMLBuilder();
-    const result = builder.build(jObj);
+    const builder = makeBuilder();
+    const result = run(builder.build(jObj));
     const expected = `<a>1</a>`;
 
     expect(result).toEqual(expected);
   });
 
   it('should preserve the sign of a negative zero tag value', function () {
-    const builder = new XMLBuilder();
-    const result = builder.build({ a: -0 });
+    const builder = makeBuilder();
+    const result = run(builder.build({ a: -0 }));
     expect(result).toEqual(`<a>-0</a>`);
   });
 
   it('should preserve the sign of a negative zero attribute value', function () {
-    const builder = new XMLBuilder({ ignoreAttributes: false });
-    const result = builder.build({ a: { '@_x': -0 } });
+    const builder = makeBuilder({ ignoreAttributes: false });
+    const result = run(builder.build({ a: { '@_x': -0 } }));
     expect(result).toEqual(`<a x="-0"></a>`);
   });
 
   it('should preserve the sign of a negative zero value with oneListGroup', function () {
     const jObj = { a: [-0, -0] };
-    const builder = new XMLBuilder({ oneListGroup: 'true' as unknown as boolean });
-    const result = builder.build(jObj);
+    const builder = makeBuilder({ oneListGroup: 'true' as unknown as boolean });
+    const result = run(builder.build(jObj));
     expect(result).toEqual(`<a>-0-0</a>`);
   });
 });

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('Builder', function () {
   it('should build XML with CDATA for repeated values without parseOrder', function () {
@@ -32,8 +32,8 @@ describe('Builder', function () {
 
     const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, cdataPropName: 'phone' };
 
-    const builder = new XMLBuilder(options);
-    const xmlOutput = builder.build(input);
+    const builder = makeBuilder(options);
+    const xmlOutput = run(builder.build(input));
     expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 
@@ -58,8 +58,8 @@ describe('Builder', function () {
 
     const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, cdataPropName: 'regx' };
 
-    const builder = new XMLBuilder(options);
-    const xmlOutput = builder.build(input);
+    const builder = makeBuilder(options);
+    const xmlOutput = run(builder.build(input));
     expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
   });
 });

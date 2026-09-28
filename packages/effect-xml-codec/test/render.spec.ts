@@ -4,6 +4,7 @@
  */
 
 import { EntityEncoder } from '@endevops/common-xml';
+import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlValue } from '#/index.ts';
@@ -241,6 +242,16 @@ describe('the escaping helpers agree with @endevops/common-xml', () => {
   const reference = new EntityEncoder({ encodeAllNamed: false });
 
   /**
+   * @description Run the reference encoder, which returns an effect. `EntityEncoder.encode` is effectful so it can report a failure in the error channel, but its
+   * channel is `never` — encoding a string either produces one or needs nothing done — which is what makes `runSync` sound here rather than a cast.
+   *
+   * @param input - The string to encode.
+   *
+   * @returns The encoded string.
+   */
+  const encodeWith = (input: string): string => Effect.runSync(reference.encode(input));
+
+  /**
    * @description Every ASCII character on its own, in every position the fast path scans, so a character the two tables disagree about cannot hide at an index the
    * corpus happens not to reach.
    */
@@ -265,13 +276,13 @@ describe('the escaping helpers agree with @endevops/common-xml', () => {
 
   it('escapes character data exactly as the library does', () => {
     for (const input of CORPUS) {
-      expect(escapeText(input), `input ${JSON.stringify(input.slice(0, 40))}`).toBe(reference.encode(input));
+      expect(escapeText(input), `input ${JSON.stringify(input.slice(0, 40))}`).toBe(encodeWith(input));
     }
   });
 
   it('escapes attribute values exactly as the library does, plus the whitespace XML normalizes', () => {
     for (const input of CORPUS) {
-      const expected = reference.encode(input).replace(/[\n\r\t]/g, character => `&#${character.charCodeAt(0)};`);
+      const expected = encodeWith(input).replace(/[\n\r\t]/g, (character: string) => `&#${character.charCodeAt(0)};`);
       expect(escapeAttribute(input), `input ${JSON.stringify(input.slice(0, 40))}`).toBe(expected);
     }
   });
@@ -282,7 +293,7 @@ describe('the escaping helpers agree with @endevops/common-xml', () => {
     // need replacing.
     for (const input of ['café', 'ship it 🚀', '日本語', 'naïve']) {
       expect(escapeText(input)).toBe(input);
-      expect(reference.encode(input)).toBe(input);
+      expect(encodeWith(input)).toBe(input);
     }
   });
 });

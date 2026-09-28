@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { XMLBuilder } from '#/index.ts';
+import { run, makeBuilder } from '#/test/helpers/effect.ts';
 
 describe('stopNodes Builder - Basic Tests', function () {
   describe('preserveOrder: false', function () {
@@ -14,8 +14,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['issue.fix1'], preserveOrder: false };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       // stopNode content should NOT be entity-encoded
       expect(output).toContain('<fix1><p>p 1</p><div class="show">div 1</div></fix1>');
@@ -26,8 +26,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['issue.fix1'], preserveOrder: false };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       // stopNode content should NOT be entity-encoded, attributes preserved
       expect(output).toContain('<fix1 lang="en"><p>p 1</p><div class="show">div 1</div></fix1>');
@@ -57,8 +57,8 @@ describe('stopNodes Builder - Basic Tests', function () {
   <fix1 lang="hi">
 <p>p 1</p><div class="show">div 1</div>  </fix1>
 </issue>`;
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       // stopNode content should NOT be entity-encoded, attributes preserved
       // expect(output).toContain('<fix1 lang="en"><p>p 1</p><div class="show">div 1</div></fix1>');
@@ -70,8 +70,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['..div'], preserveOrder: false };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       // Both content and attributes should be raw
       expect(output).toContain('class="code"');
@@ -87,8 +87,8 @@ describe('stopNodes Builder - Basic Tests', function () {
         preserveOrder: false,
       };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       // Should be entity-encoded
       expect(output).toContain('<pre>test &gt; &lt; &amp;</pre>');
@@ -99,8 +99,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['..fix1'], preserveOrder: false };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       expect(output).toContain('<fix1><p>first</p></fix1>');
       expect(output).toContain('<fix1><p>second</p></fix1>');
@@ -111,8 +111,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['..fix1'], preserveOrder: false };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       // Both fix1 nodes should preserve raw content
       expect(output).toContain('<fix1><p>p 1</p></fix1>');
@@ -122,8 +122,8 @@ describe('stopNodes Builder - Basic Tests', function () {
     it('should preserve the sign of a negative zero value in raw stopNode content', function () {
       const options = { stopNodes: ['a'], preserveOrder: false };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build({ a: -0 });
+      const builder = makeBuilder(options);
+      const output = run(builder.build({ a: -0 }));
 
       expect(output).toEqual('<a>-0</a>');
     });
@@ -135,8 +135,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['issue.fix1'], preserveOrder: true };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       // stopNode content should NOT be entity-encoded
       expect(output).toContain('<fix1><p>p 1</p><div class="show">div 1</div></fix1>');
@@ -147,8 +147,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['issue.fix1'], preserveOrder: true };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       expect(output).toContain('<fix1 lang="en"><p>p 1</p><div class="show">div 1</div></fix1>');
     });
@@ -158,8 +158,8 @@ describe('stopNodes Builder - Basic Tests', function () {
 
       const options = { ignoreAttributes: false, stopNodes: ['..div'], preserveOrder: true };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build(jsObj);
+      const builder = makeBuilder(options);
+      const output = run(builder.build(jsObj));
 
       expect(output).toContain('class="code"');
       expect(output).toContain('<pre>test > < &</pre>');
@@ -168,8 +168,8 @@ describe('stopNodes Builder - Basic Tests', function () {
     it('should preserve the sign of a negative zero value in raw stopNode content', function () {
       const options = { stopNodes: ['a'], preserveOrder: true };
 
-      const builder = new XMLBuilder(options);
-      const output = builder.build([{ a: [{ '#text': -0 }] }]);
+      const builder = makeBuilder(options);
+      const output = run(builder.build([{ a: [{ '#text': -0 }] }]));
 
       expect(output).toEqual('<a>-0</a>');
     });
