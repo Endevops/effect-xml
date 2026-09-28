@@ -8,177 +8,177 @@
 import { describe, expect, it } from 'vite-plus/test';
 
 import { Matcher } from '#/index.ts';
-import { expr } from '#/test/helpers/effect.ts';
+import { expr, run } from '#/test/helpers/effect.ts';
 
 describe('kept-attribute lookup', () => {
   it('is readable from the node that declared the attribute and from deeper descendants', () => {
     const m = new Matcher();
-    m.push('Envelope', null, 'soap');
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
+    run(m.push('Envelope', null, 'soap'));
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] }));
 
-    expect(m.hasAnyParentAttr('version')).toBe(true);
-    expect(m.getAnyParentAttr('version')).toBe('1.1');
-    expect(m.hasAnyParentAttr('missing')).toBe(false);
+    expect(run(m.hasAnyParentAttr('version'))).toBe(true);
+    expect(run(m.getAnyParentAttr('version'))).toBe('1.1');
+    expect(run(m.hasAnyParentAttr('missing'))).toBe(false);
 
-    m.push('GetUserRequest', { id: '42' }, 'ns');
-    m.push('UserId', null, 'ns');
+    run(m.push('GetUserRequest', { id: '42' }, 'ns'));
+    run(m.push('UserId', null, 'ns'));
 
-    expect(m.hasAnyParentAttr('version')).toBe(true);
-    expect(m.getAnyParentAttr('version')).toBe('1.1');
-    expect(m.getAttrValue('version')).toBe(undefined);
-    expect(m.hasAnyParentAttr('id')).toBe(false);
+    expect(run(m.hasAnyParentAttr('version'))).toBe(true);
+    expect(run(m.getAnyParentAttr('version'))).toBe('1.1');
+    expect(run(m.getAttrValue('version'))).toBe(undefined);
+    expect(run(m.hasAnyParentAttr('id'))).toBe(false);
   });
 
   it('leaves current-node attribute access untouched', () => {
     const m = new Matcher();
-    m.push('Body', { version: '1.1', extra: 'x' }, 'soap', { keep: ['version'] });
+    run(m.push('Body', { version: '1.1', extra: 'x' }, 'soap', { keep: ['version'] }));
 
-    expect(m.getAttrValue('version')).toBe('1.1');
-    expect(m.getAttrValue('extra')).toBe('x');
-    expect(m.hasAttr('extra')).toBe(true);
+    expect(run(m.getAttrValue('version'))).toBe('1.1');
+    expect(run(m.getAttrValue('extra'))).toBe('x');
+    expect(run(m.hasAttr('extra'))).toBe(true);
   });
 
   it('resolves to the nearest value when the same name is kept at several depths', () => {
     const m = new Matcher();
-    m.push('Outer', { version: 'A' }, null, { keep: ['version'] });
-    m.push('Inner', { version: 'B' }, null, { keep: ['version'] });
+    run(m.push('Outer', { version: 'A' }, null, { keep: ['version'] }));
+    run(m.push('Inner', { version: 'B' }, null, { keep: ['version'] }));
 
-    expect(m.getAnyParentAttr('version')).toBe('B');
+    expect(run(m.getAnyParentAttr('version'))).toBe('B');
 
-    m.pop();
-    expect(m.getAnyParentAttr('version')).toBe('A');
+    run(m.pop());
+    expect(run(m.getAnyParentAttr('version'))).toBe('A');
   });
 
   it('keeps distinct attributes from different ancestors side by side', () => {
     const m = new Matcher();
-    m.push('Envelope', { version: '1.1', xmlns: 'soap-env' }, 'soap', { keep: ['version', 'xmlns'] });
-    m.push('Body', { lang: 'en' }, null, { keep: ['lang'] });
-    m.push('Deep');
+    run(m.push('Envelope', { version: '1.1', xmlns: 'soap-env' }, 'soap', { keep: ['version', 'xmlns'] }));
+    run(m.push('Body', { lang: 'en' }, null, { keep: ['lang'] }));
+    run(m.push('Deep'));
 
-    expect(m.getAnyParentAttr('version')).toBe('1.1');
-    expect(m.getAnyParentAttr('xmlns')).toBe('soap-env');
-    expect(m.getAnyParentAttr('lang')).toBe('en');
+    expect(run(m.getAnyParentAttr('version'))).toBe('1.1');
+    expect(run(m.getAnyParentAttr('xmlns'))).toBe('soap-env');
+    expect(run(m.getAnyParentAttr('lang'))).toBe('en');
   });
 
   it('ignores a keep name the pushed node does not carry', () => {
     const m = new Matcher();
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version', 'doesNotExist'] });
-    expect(m.hasAnyParentAttr('version')).toBe(true);
-    expect(m.hasAnyParentAttr('doesNotExist')).toBe(false);
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version', 'doesNotExist'] }));
+    expect(run(m.hasAnyParentAttr('version'))).toBe(true);
+    expect(run(m.hasAnyParentAttr('doesNotExist'))).toBe(false);
   });
 
   it('creates no entry when the pushed node has null attributes', () => {
     const m = new Matcher();
-    m.push('Body', null, 'soap', { keep: ['version'] });
-    expect(m.hasAnyParentAttr('version')).toBe(false);
+    run(m.push('Body', null, 'soap', { keep: ['version'] }));
+    expect(run(m.hasAnyParentAttr('version'))).toBe(false);
   });
 
   it('resolves an unknown keep name to undefined and falls back as repeated names are popped', () => {
     const m = new Matcher();
-    m.push('Envelope', null, 'soap');
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['lang'] });
-    expect(m.getAnyParentAttr('lang')).toBe(undefined);
-    m.push('parent', { space: 'preserve' }, null, { keep: ['space'] });
-    expect(m.getAnyParentAttr('space')).toBe('preserve');
-    m.push('child', { space: 'default' }, null, { keep: ['space'] });
-    expect(m.getAnyParentAttr('space')).toBe('default');
+    run(m.push('Envelope', null, 'soap'));
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['lang'] }));
+    expect(run(m.getAnyParentAttr('lang'))).toBe(undefined);
+    run(m.push('parent', { space: 'preserve' }, null, { keep: ['space'] }));
+    expect(run(m.getAnyParentAttr('space'))).toBe('preserve');
+    run(m.push('child', { space: 'default' }, null, { keep: ['space'] }));
+    expect(run(m.getAnyParentAttr('space'))).toBe('default');
 
-    m.push('GetUserRequest', { id: '42' }, 'ns');
-    m.pop(); // GetUserRequest
-    m.pop(); // child
-    expect(m.getAnyParentAttr('space')).toBe('preserve');
-    m.push('UserId', null, 'ns');
-    expect(m.getAnyParentAttr('space')).toBe('preserve');
-    m.pop(); // UserId
-    expect(m.getAnyParentAttr('space')).toBe('preserve');
-    m.pop(); // parent
-    expect(m.getAnyParentAttr('space')).toBe(undefined);
+    run(m.push('GetUserRequest', { id: '42' }, 'ns'));
+    run(m.pop()); // GetUserRequest;
+    run(m.pop()); // child;
+    expect(run(m.getAnyParentAttr('space'))).toBe('preserve');
+    run(m.push('UserId', null, 'ns'));
+    expect(run(m.getAnyParentAttr('space'))).toBe('preserve');
+    run(m.pop()); // UserId;
+    expect(run(m.getAnyParentAttr('space'))).toBe('preserve');
+    run(m.pop()); // parent;
+    expect(run(m.getAnyParentAttr('space'))).toBe(undefined);
   });
 });
 
 describe('kept-attribute lifetime', () => {
   it('drops the kept attributes owned by a popped subtree, and only those', () => {
     const m = new Matcher();
-    m.push('Envelope', null, 'soap');
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
-    m.push('Inner', { mode: 'strict' }, null, { keep: ['mode'] });
+    run(m.push('Envelope', null, 'soap'));
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] }));
+    run(m.push('Inner', { mode: 'strict' }, null, { keep: ['mode'] }));
 
-    expect(m.hasAnyParentAttr('version')).toBe(true);
-    expect(m.hasAnyParentAttr('mode')).toBe(true);
+    expect(run(m.hasAnyParentAttr('version'))).toBe(true);
+    expect(run(m.hasAnyParentAttr('mode'))).toBe(true);
 
-    m.pop(); // pop Inner
+    run(m.pop()); // pop Inner;
 
-    expect(m.hasAnyParentAttr('version')).toBe(true);
-    expect(m.hasAnyParentAttr('mode')).toBe(false);
+    expect(run(m.hasAnyParentAttr('version'))).toBe(true);
+    expect(run(m.hasAnyParentAttr('mode'))).toBe(false);
 
-    m.pop(); // pop Body
+    run(m.pop()); // pop Body;
 
-    expect(m.hasAnyParentAttr('version')).toBe(false);
+    expect(run(m.hasAnyParentAttr('version'))).toBe(false);
   });
 
   it('clears every kept attribute on reset', () => {
     const m = new Matcher();
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
-    expect(m.hasAnyParentAttr('version')).toBe(true);
-    m.reset();
-    expect(m.hasAnyParentAttr('version')).toBe(false);
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] }));
+    expect(run(m.hasAnyParentAttr('version'))).toBe(true);
+    run(m.reset());
+    expect(run(m.hasAnyParentAttr('version'))).toBe(false);
   });
 
   it('round-trips kept attributes through snapshot() and restore()', () => {
     const m = new Matcher();
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
-    const snap = m.snapshot();
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] }));
+    const snap = run(m.snapshot());
 
-    m.push('Child');
-    m.pop();
-    m.pop(); // pop Body -> kept attr should be gone now
-    expect(m.hasAnyParentAttr('version')).toBe(false);
+    run(m.push('Child'));
+    run(m.pop());
+    run(m.pop()); // pop Body -> kept attr should be gone now;
+    expect(run(m.hasAnyParentAttr('version'))).toBe(false);
 
-    m.restore(snap);
-    expect(m.hasAnyParentAttr('version')).toBe(true);
-    expect(m.getAnyParentAttr('version')).toBe('1.1');
+    run(m.restore(snap));
+    expect(run(m.hasAnyParentAttr('version'))).toBe(true);
+    expect(run(m.getAnyParentAttr('version'))).toBe('1.1');
   });
 });
 
 describe('MatcherView', () => {
   it('mirrors the ancestor-attribute methods of the matcher it wraps', () => {
     const m = new Matcher();
-    const view = m.readOnly();
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
-    m.push('Child');
+    const view = run(m.readOnly());
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] }));
+    run(m.push('Child'));
 
-    expect(view.hasAnyParentAttr('version')).toBe(true);
-    expect(view.getAnyParentAttr('version')).toBe('1.1');
-    expect(view.hasAnyParentAttr('nope')).toBe(false);
+    expect(run(view.hasAnyParentAttr('version'))).toBe(true);
+    expect(run(view.getAnyParentAttr('version'))).toBe('1.1');
+    expect(run(view.hasAnyParentAttr('nope'))).toBe(false);
   });
 });
 
 describe('compatibility', () => {
   it('builds the path the same way when push is called without options', () => {
     const m = new Matcher();
-    m.push('root');
-    m.push('child', { a: '1' });
-    m.push('grandchild', { b: '2' }, 'ns');
-    expect(m.toString()).toBe('root.child.ns:grandchild');
-    expect(m.hasAnyParentAttr('a')).toBe(false);
+    run(m.push('root'));
+    run(m.push('child', { a: '1' }));
+    run(m.push('grandchild', { b: '2' }, 'ns'));
+    expect(run(m.toString())).toBe('root.child.ns:grandchild');
+    expect(run(m.hasAnyParentAttr('a'))).toBe(false);
   });
 
   it('leaves expression matching unaffected', () => {
     const m = new Matcher();
-    m.push('Envelope', null, 'soap');
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
-    m.push('UserId');
+    run(m.push('Envelope', null, 'soap'));
+    run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] }));
+    run(m.push('UserId'));
 
     const userExpr = expr('soap::Envelope.soap::Body.UserId');
-    expect(m.matches(userExpr)).toBe(true);
+    expect(run(m.matches(userExpr))).toBe(true);
 
     const deepExpr = expr('..UserId');
-    expect(m.matches(deepExpr)).toBe(true);
+    expect(run(m.matches(deepExpr))).toBe(true);
 
     // "[^version]" is NOT special syntax here - parsed as a literal attribute
     // name "^version" on the current node, which won't exist, so this
     // correctly does not match. Confirms no new syntax leaked in.
     const literalCaret = expr('UserId[^version]');
-    expect(m.matches(literalCaret)).toBe(false);
+    expect(run(m.matches(literalCaret))).toBe(false);
   });
 });

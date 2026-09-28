@@ -18,6 +18,8 @@ import type { XmlVersion } from '@endevops/common-xml';
 import { qName, sanitize, validate } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
+import { XmlParseError } from './errors.ts';
+
 /**
  * @description The key prefix that marks a field as an XML attribute. `@xmlns` is written as `xmlns="…"`.
  */
@@ -105,39 +107,33 @@ export const isReservedKey = (key: string): boolean => isTextKey(key);
  * @param name - The candidate element or attribute name.
  * @param options - Repair mode and XML version.
  *
- * @returns The name to write, unchanged when it was already legal.
- *
- * @throws {TypeError} When `options.mode` is `'error'` and the name is not a legal XML name.
+ * @returns An effect producing the name to write, unchanged when it was already legal. Fails with {@link XmlParseError} when `options.mode` is
+ *   `'error'` and the name is not a legal XML name.
  */
-export const resolveName = (name: string, { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}): string => {
-  // QName is the widest production the naming package offers: an NCName, or an
-  // NCName with a single namespace prefix. Both element names and attribute
-  // names are QNames in a namespaced document, so one check covers both and a
-  // prefixed name is not needlessly rejected.
-  if (qName(name, { xmlVersion })) return name;
+export const resolveName = (name: string, { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}): Effect.Effect<string, XmlParseError> =>
+  Effect.gen(function* () {
+    if (yield* Effect.orElseSucceed(qName(name, { xmlVersion }), () => false)) return name;
 
-  switch (mode) {
-    case 'ignore':
-      return name;
-    case 'error': {
-      // `validate` reports an unknown production through its error channel, but
-      // the production is the literal `'qName'` here, so that failure is
-      // unreachable — `orElseSucceed` says so rather than a cast. `qName` above
-      // has already rejected the name, so a successful result is the invalid
-      // branch; it is narrowed rather than cast, so a change in the naming
-      // package that made the two disagree would fail here instead of reading
-      // `reason` off the valid branch.
-      const result = Effect.runSync(Effect.orElseSucceed(validate(name, 'qName', { xmlVersion }), () => undefined));
-      const reason = result !== undefined && !result.valid ? result.reason : 'is not a legal XML name';
-      throw new TypeError(`Invalid XML name ${JSON.stringify(name)}: ${reason}`);
+    switch (mode) {
+      case 'ignore':
+        return name;
+      case 'error': {
+        // `validate` reports an unknown production through its error channel, but the production is
+        // the literal `'qName'` here, so that failure is unreachable — `orElseSucceed` says so
+        // rather than a cast. `qName` above has already rejected the name, so a successful result is
+        // the invalid branch; it is narrowed rather than cast, so a change in the naming package that
+        // made the two disagree would fail here instead of reading `reason` off the valid branch.
+        const result = yield* Effect.orElseSucceed(validate(name, 'qName', { xmlVersion }), () => undefined);
+        const reason = result !== undefined && !result.valid ? result.reason : 'is not a legal XML name';
+        return yield* Effect.fail(new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name }));
+      }
+      case 'repair':
+        // `sanitize` needs the 'name' production, not 'qName': its NCName branch would strip the
+        // namespace prefix off `ns:local`, losing information rather than repairing it. The 'name'
+        // production keeps colons.
+        return yield* Effect.orElseSucceed(sanitize(name, 'name', { replacement: '_' }), () => name);
     }
-    case 'repair':
-      // `sanitize` needs the 'name' production, not 'qName': its NCName branch
-      // would strip the namespace prefix off `ns:local`, losing information
-      // rather than repairing it. The 'name' production keeps colons.
-      return sanitize(name, 'name', { replacement: '_' });
-  }
-};
+  });
 
 /**
  * @description Whether a string is a legal XML element or attribute name, without allocating a result. The guard {@link resolveName} calls before doing any work,
@@ -148,4 +144,7 @@ export const resolveName = (name: string, { mode = 'repair', xmlVersion = '1.0' 
  *
  * @returns Whether the name is legal.
  */
-export const isValidName = (name: string, xmlVersion: XmlVersion = '1.0'): boolean => qName(name, { xmlVersion });
+export const isValidName = (name: string, xmlVersion: XmlVersion = '1.0'): Effect.Effect<boolean, XmlParseError> =>
+  // `qName` reports an unknown production through its error channel, and the production here is the
+  // literal `'qName'`, so that failure is unreachable. `orElseSucceed` says so rather than a cast.
+  Effect.orElseSucceed(qName(name, { xmlVersion }), () => false);

@@ -71,9 +71,9 @@ export default class ExpressionSet<T = unknown> {
    * @returns An effect producing `this`, for chaining. Fails with {@link XmlError} and the `SealedExpressionSet` reason if the set has been sealed —
    *   a sealed set is the compiled snapshot a parser consults per tag, so mutating it after sealing would change what the hot path reads.
    */
-  add(expression: Expression<T>): Effect.Effect<this, XmlError> {
+  add = Effect.fnUntraced(function* (this: ExpressionSet<T>, expression: Expression<T>): Effect.fn.Return<ExpressionSet<T>, XmlError> {
     if (this.#sealed) {
-      return Effect.fail(
+      return yield* Effect.fail(
         new XmlErrorCtor({
           reason: { _tag: 'SealedExpressionSet', size: this.#patterns.size },
           message: 'ExpressionSet is sealed. Create a new ExpressionSet to add more expressions.',
@@ -82,10 +82,10 @@ export default class ExpressionSet<T = unknown> {
     }
 
     // Deduplicate by pattern string
-    if (this.#patterns.has(expression.pattern)) return Effect.succeed(this);
+    if (this.#patterns.has(expression.pattern)) return this;
     this.#patterns.add(expression.pattern);
 
-    if (expression.hasDeepWildcard()) {
+    if (yield* expression.hasDeepWildcard()) {
       // `..` breaks depth indexing, so these are indexed by terminal tag when
       // there is a concrete one, and fall back to an unindexed scan when the
       // last segment is a wildcard or has no tag to key on.
@@ -101,10 +101,10 @@ export default class ExpressionSet<T = unknown> {
       } else {
         this.#deepWildcards.push(expression);
       }
-      return Effect.succeed(this);
+      return this;
     }
 
-    const depth = expression.length;
+    const depth = yield* expression.length();
     const lastSeg = expression.segments[expression.segments.length - 1];
     const tag = lastSeg?.tag;
 
@@ -127,8 +127,8 @@ export default class ExpressionSet<T = unknown> {
       }
     }
 
-    return Effect.succeed(this);
-  }
+    return this;
+  });
 
   /**
    * @description Add several expressions at once.
@@ -150,34 +150,42 @@ export default class ExpressionSet<T = unknown> {
    *
    * @param expression - The expression to look up. Only its {@link Expression.pattern} is read, so any payload type is accepted.
    *
-   * @returns Whether that pattern was already added.
+   * @returns An effect producing whether that pattern was already added. Infallible; the channel is empty because the package has one shape for its
+   *   public surface.
    */
-  has(expression: Expression<unknown>): boolean {
-    return this.#patterns.has(expression.pattern);
+  has(expression: Expression<unknown>): Effect.Effect<boolean, XmlError> {
+    return Effect.succeed(this.#patterns.has(expression.pattern));
   }
 
   /**
-   * @description How many distinct patterns the set holds.
+   * @description How many distinct patterns the set holds. Was a getter. A getter cannot return an effect, and the package has one shape for its public surface,
+   * so it is a method now.
+   *
+   * @returns An effect producing the count. Infallible; the channel is empty.
    */
-  get size(): number {
-    return this.#patterns.size;
+  size(): Effect.Effect<number, XmlError> {
+    return Effect.succeed(this.#patterns.size);
   }
 
   /**
-   * @description Whether {@link ExpressionSet.seal} has been called.
+   * @description Whether {@link ExpressionSet.seal} has been called. A method rather than a getter, for the same reason as {@link ExpressionSet.size}.
+   *
+   * @returns An effect producing whether the set is sealed. Infallible; the channel is empty.
    */
-  get isSealed(): boolean {
-    return this.#sealed;
+  isSealed(): Effect.Effect<boolean, XmlError> {
+    return Effect.succeed(this.#sealed);
   }
 
   /**
    * @description Seal the set against further additions, so a half-built config cannot be mutated once parsing has started. Reads still work.
    *
-   * @returns `this`, for chaining.
+   * @returns An effect producing `this`, for chaining. Infallible; the channel is empty.
    */
-  seal(): this {
-    this.#sealed = true;
-    return this;
+  seal(): Effect.Effect<this, XmlError> {
+    return Effect.sync(() => {
+      this.#sealed = true;
+      return this;
+    });
   }
 
   /**
@@ -196,10 +204,10 @@ export default class ExpressionSet<T = unknown> {
    *
    * @param matcher - A `Matcher`, or a `MatcherView` obtained from {@link Matcher.readOnly}.
    *
-   * @returns Whether at least one expression matches the current path.
+   * @returns An effect producing whether at least one expression matches the current path.
    */
-  matchesAny(matcher: Matcher | MatcherView): boolean {
-    return this.findMatch(matcher) !== null;
+  matchesAny(matcher: Matcher | MatcherView): Effect.Effect<boolean, XmlError> {
+    return Effect.map(this.findMatch(matcher), found => found !== null);
   }
 
   /**
@@ -209,17 +217,17 @@ export default class ExpressionSet<T = unknown> {
    *
    * @param matcher - A `Matcher`, or a `MatcherView` obtained from {@link Matcher.readOnly}.
    *
-   * @returns The first matching expression, or `null`.
+   * @returns An effect producing the first matching expression, or `null`.
    */
-  findMatch(matcher: Matcher | MatcherView): Expression<T> | null {
-    const depth = matcher.getDepth();
-    const tag = matcher.getCurrentTag();
+  findMatch = Effect.fnUntraced(function* (this: ExpressionSet<T>, matcher: Matcher | MatcherView): Effect.fn.Return<Expression<T> | null, XmlError> {
+    const depth = yield* matcher.getDepth();
+    const tag = yield* matcher.getCurrentTag();
 
     // 1. Tightest bucket — most expressions live here
     const exactBucket = this.#byDepthAndTag.get(`${depth}:${tag}`);
     if (exactBucket) {
       for (const expression of exactBucket) {
-        if (matcher.matches(expression)) return expression;
+        if (yield* (matcher as MatcherView).matches(expression)) return expression;
       }
     }
 
@@ -227,7 +235,7 @@ export default class ExpressionSet<T = unknown> {
     const wildcardBucket = this.#wildcardByDepth.get(depth);
     if (wildcardBucket) {
       for (const expression of wildcardBucket) {
-        if (matcher.matches(expression)) return expression;
+        if (yield* (matcher as MatcherView).matches(expression)) return expression;
       }
     }
 
@@ -237,13 +245,13 @@ export default class ExpressionSet<T = unknown> {
     const deepBucket = tag === undefined ? undefined : this.#deepByTerminalTag.get(tag);
     if (deepBucket) {
       for (const expression of deepBucket) {
-        if (matcher.matches(expression)) return expression;
+        if (yield* (matcher as MatcherView).matches(expression)) return expression;
       }
     }
     for (const expression of this.#deepWildcards) {
-      if (matcher.matches(expression)) return expression;
+      if (yield* (matcher as MatcherView).matches(expression)) return expression;
     }
 
     return null;
-  }
+  });
 }

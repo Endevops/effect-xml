@@ -19,6 +19,8 @@
 
 import type { XmlVersion } from '@endevops/common-xml';
 
+import { Effect } from 'effect';
+
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
@@ -159,7 +161,7 @@ const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: 
   return name => {
     const hit = cache.get(name);
     if (hit !== undefined) return hit;
-    const resolved = resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion });
+    const resolved = Effect.runSync(resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion }));
     cache.set(name, resolved);
     return resolved;
   };

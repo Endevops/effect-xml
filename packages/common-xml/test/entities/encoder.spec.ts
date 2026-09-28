@@ -140,7 +140,7 @@ describe('the replacement budget', () => {
     const encoder = new EntityEncoder({ maxReplacements: 1 });
     run(encoder.encode('<'));
     expect(encoder.replacementsCount).toBe(1);
-    encoder.reset();
+    run(encoder.reset());
     expect(encoder.replacementsCount).toBe(0);
     expect(encoder.maxReplacements).toBe(1);
     expect(run(encoder.encode('<'))).toBe('&lt;');
@@ -393,7 +393,7 @@ describe('preserved upstream quirk: the name chosen for a character is the last 
 
   it('decodes whatever it emitted, so the choice of name never costs a caller the character', () => {
     const encoder = new EntityEncoder();
-    const decoder = new EntityDecoder({ namedEntities: ALL_ENTITIES });
+    const decoder = run(EntityDecoder.make({ namedEntities: ALL_ENTITIES }));
     expect(run(decoder.decode(run(encoder.encode('©<>&"\''))))).toBe('©<>&"\'');
   });
 });
@@ -458,7 +458,7 @@ describe('decode(encode(x))', () => {
    *
    * @returns The decoder.
    */
-  const fullDecoder = (): EntityDecoder => new EntityDecoder({ namedEntities: ALL_ENTITIES });
+  const fullDecoder = (): EntityDecoder => run(EntityDecoder.make({ namedEntities: ALL_ENTITIES }));
 
   for (const sample of ['<a href="x">café & ©</a>', 'plain ascii with no entities at all', '日本語 & é', '𝔄 ብር ⩭̸ ↝̸ ≍⃒', '’ ¸ ˆ ≏', '&<>"\'']) {
     it(`gives back ${JSON.stringify(sample)}`, () => {
@@ -485,7 +485,7 @@ describe('decode(encode(x))', () => {
   it('does not survive a decoder that holds only the five XML entities, which is the point of naming them', () => {
     // The other direction, and the reason the option exists: encoding `é` and decoding it back needs a table, and without one the caller gets the
     // reference text rather than the character.
-    const bare = new EntityDecoder();
+    const bare = run(EntityDecoder.make());
     const encoded = run(new EntityEncoder().encode('café & ©'));
     expect(encoded).toBe('caf&eacute; &amp; &COPY;');
     expect(run(bare.decode(encoded))).toBe('caf&eacute; & &COPY;');

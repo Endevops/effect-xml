@@ -1,4 +1,4 @@
-import type { MatcherView } from '@endevops/common-xml';
+import type { MatcherView, XmlError } from '@endevops/common-xml';
 
 import { Effect } from 'effect';
 
@@ -6,6 +6,7 @@ import type { BuilderError } from '../errors.ts';
 import type { CloseMetaLike, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
+import { BuilderError as BuilderErrorCtor } from '../errors.ts';
 import { BaseOutputBuilder as BaseOutputBuilderClass, BaseOutputBuilderFactory, Context } from '../output-builder/index.ts';
 import { buildOptions } from './options-builder.ts';
 
@@ -125,6 +126,23 @@ export class CompactBuilderFactory extends BaseOutputBuilderFactory {
  * occurrence and an array from the second — and {@link FactoryOptions.alwaysArray} and {@link FactoryOptions.forceArray} exist to make a key's shape
  * predictable when it matters.
  */
+/**
+ * @description Run a `common-xml` effect in the middle of a synchronous decision. `_resolveForceArray` is reached once per tag, from `closeElement`, and it asks
+ * the path matcher a question. That question is an effect now, as everything in `common-xml` is, so it is run here rather than read as a value — an
+ * effect is an object, and an object is truthy, which would make the `alwaysArray` vote unconditional.
+ *
+ * @param effect - The effect to run.
+ *
+ * @returns The successful value.
+ */
+const runXml = <A>(effect: Effect.Effect<A, XmlError>): A =>
+  Effect.runSync(
+    Effect.mapError(
+      effect,
+      cause => new BuilderErrorCtor({ reason: { _tag: 'EntityDecodingFailed', value: '', cause: cause.message }, message: cause.message })
+    )
+  );
+
 export class CompactBuilder extends BaseOutputBuilderClass {
   /**
    * @description One frame per open tag, holding the state to restore when that tag closes.
@@ -253,7 +271,7 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     // undefined = abstain. Note that a non-match abstains rather than vetoing:
     // "not in the alwaysArray list" says nothing about whether this tag should be
     // an array, so the decision is left to the other voter.
-    const matched = this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView);
+    const matched = runXml(this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView));
     const alwaysVote = matched ? true : undefined;
 
     // --- forceArray vote ---

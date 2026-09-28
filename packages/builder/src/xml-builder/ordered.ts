@@ -9,7 +9,7 @@ import { Effect } from 'effect';
 import type { BuilderError } from '../errors.ts';
 import type { ResolvedXmlBuilderOptions } from './options.ts';
 
-import { compilePattern, fromPatternError, nestingExceeded, runValueProcessor, tryResolveName } from '../errors.ts';
+import { compilePattern, fromPatternError, liftXml, nestingExceeded, runValueProcessor, tryResolveName } from '../errors.ts';
 import { escapeAttribute, safeCdata, safeComment, valToStr } from './util.ts';
 
 const EOL = '\n';
@@ -22,9 +22,10 @@ const EOL = '\n';
 export type OrderedTag = Record<string, unknown>;
 
 /**
- * @description A memoized QName validator, or the equivalent plain function.
+ * @description A memoized QName validator. It returns an effect, as every validator in `common-xml` does, and the walk runs it before deciding a name needs
+ * repairing — so a name the validator rejects is the one that reaches `sanitizeName`, the same rule as before with one more `yield*`.
  */
-type NameValidator = (name: string) => boolean;
+type NameValidator = (name: string) => Effect.Effect<boolean, BuilderError>;
 
 /**
  * @description Detect the XML version from the first element of the ordered array input. Only the first element can carry a declaration, and only if it is a
@@ -68,10 +69,15 @@ function resolveTagName(
   matcher: Matcher,
   qNameValidator: NameValidator
 ): Effect.Effect<string, BuilderError> {
-  const resolve = options.sanitizeName;
-  if (!resolve) return Effect.succeed(name);
-  if (qNameValidator(name)) return Effect.succeed(name);
-  return tryResolveName(name, () => resolve(name, { isAttribute, matcher: matcher.readOnly() }));
+  return Effect.gen(function* () {
+    const resolve = options.sanitizeName;
+    if (!resolve) return name;
+    if (yield* qNameValidator(name)) return name;
+    // `readOnly` is an effect, so the view is built before the callback runs rather than inside
+    // it — the callback is a plain function, and a plain function cannot run an effect.
+    const view = yield* liftXml(matcher.readOnly());
+    return yield* tryResolveName(name, () => resolve(name, { isAttribute, matcher: view }));
+  });
 }
 
 /**
@@ -124,7 +130,10 @@ export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOption
  * @returns An effect producing the validator.
  */
 export const nameValidatorFor = (xmlVersion: XmlVersion): Effect.Effect<NameValidator, BuilderError> =>
-  Effect.mapError(createValidator('qName', { xmlVersion }), cause => fromPatternError('qName', cause));
+  Effect.gen(function* () {
+    const validate = yield* Effect.mapError(createValidator('qName', { xmlVersion }), cause => fromPatternError('qName', cause));
+    return (name: string) => Effect.mapError(validate(name), cause => fromPatternError(name, cause));
+  });
 
 /**
  * @description Render one level of the ordered form.
@@ -151,8 +160,8 @@ function arrToStr(
     let xmlStr = '';
     let isPreviousElementTag = false;
 
-    if (options.maxNestedTags && matcher.getDepth() > options.maxNestedTags) {
-      return yield* nestingExceeded(options.maxNestedTags, matcher.getDepth());
+    if (options.maxNestedTags && (yield* liftXml(matcher.getDepth())) > options.maxNestedTags) {
+      return yield* nestingExceeded(options.maxNestedTags, yield* liftXml(matcher.getDepth()));
     }
 
     if (!Array.isArray(arr)) {
@@ -184,10 +193,10 @@ function arrToStr(
       const attrValues = extractAttributeValues((tagObj as OrderedTag)[':@'], options);
 
       // Push resolved tag to matcher WITH attributes
-      matcher.push(tagName, attrValues);
+      yield* liftXml(matcher.push(tagName, attrValues));
 
       // Check if this is a stop node using Expression matching
-      const isStopNode = checkStopNode(matcher, stopNodeExpressions);
+      const isStopNode = yield* checkStopNode(matcher, stopNodeExpressions);
 
       if (tagName === options.textNodeName) {
         let tagText = (tagObj as OrderedTag)[rawTagName];
@@ -201,7 +210,7 @@ function arrToStr(
         }
         xmlStr += tagText;
         isPreviousElementTag = false;
-        matcher.pop();
+        yield* liftXml(matcher.pop());
         continue;
       } else if (tagName === options.cdataPropName) {
         if (isPreviousElementTag) {
@@ -211,14 +220,14 @@ function arrToStr(
         const safeVal = safeCdata(val);
         xmlStr += `<![CDATA[${safeVal}]]>`;
         isPreviousElementTag = false;
-        matcher.pop();
+        yield* liftXml(matcher.pop());
         continue;
       } else if (tagName === options.commentPropName) {
         const val = firstTextChild(tagObj as OrderedTag, rawTagName, options);
         const safeVal = safeComment(val);
         xmlStr += indentation + `<!--${safeVal}-->`;
         isPreviousElementTag = true;
-        matcher.pop();
+        yield* liftXml(matcher.pop());
         continue;
       } else if (tagName[0] === '?') {
         const attStr = yield* attrToStr((tagObj as OrderedTag)[':@'], options, isStopNode, matcher, qNameValidator);
@@ -227,7 +236,7 @@ function arrToStr(
         // Only attributes are valid on these tags per the XML spec.
         xmlStr += tempInd + `<${tagName}${attStr}?>`;
         isPreviousElementTag = true;
-        matcher.pop();
+        yield* liftXml(matcher.pop());
         continue;
       }
 
@@ -267,7 +276,7 @@ function arrToStr(
       isPreviousElementTag = true;
 
       // Pop tag from matcher
-      matcher.pop();
+      yield* liftXml(matcher.pop());
     }
 
     return xmlStr;
@@ -473,16 +482,18 @@ function attrToStr(
  *
  * @returns Whether this node should be copied through verbatim.
  */
-function checkStopNode(matcher: Matcher, stopNodeExpressions: Expression[]): boolean {
-  if (!stopNodeExpressions || stopNodeExpressions.length === 0) return false;
+function checkStopNode(matcher: Matcher, stopNodeExpressions: Expression[]): Effect.Effect<boolean, BuilderError> {
+  return Effect.gen(function* () {
+    if (!stopNodeExpressions || stopNodeExpressions.length === 0) return false;
 
-  for (let i = 0; i < stopNodeExpressions.length; i++) {
-    const expression = stopNodeExpressions[i];
-    if (expression !== undefined && matcher.matches(expression)) {
-      return true;
+    for (let i = 0; i < stopNodeExpressions.length; i++) {
+      const expression = stopNodeExpressions[i];
+      if (expression !== undefined && (yield* liftXml(matcher.matches(expression)))) {
+        return true;
+      }
     }
-  }
-  return false;
+    return false;
+  });
 }
 
 /**

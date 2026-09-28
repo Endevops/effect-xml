@@ -6,7 +6,7 @@ import { Effect } from 'effect';
 import type { BuilderError } from '../errors.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
-import { addToSet, BuilderError as BuilderErrorCtor, compilePattern } from '../errors.ts';
+import { addToSet, BuilderError as BuilderErrorCtor, compilePattern, liftXml } from '../errors.ts';
 
 /**
  * @description The chain used for element text when the caller configures none.
@@ -129,7 +129,9 @@ function toPattern(entry: string | Expression, optionName: string): Effect.Effec
     (entry as Expression).pattern.length > 0 &&
     Array.isArray((entry as Expression).segments)
   ) {
-    return Effect.succeed(entry.toString());
+    // `toString` is effectful, so an already-compiled expression is reduced by
+    // running it rather than stringified.
+    return liftXml(entry.toString());
   }
   return reject('expected a string, or Expression');
 }

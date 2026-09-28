@@ -14,6 +14,8 @@
  *   XMLBuilder(...)` is no longer how one is built.
  */
 
+import type { XmlError } from '@endevops/common-xml';
+
 import { Effect, Exit, Option } from 'effect';
 import { expect } from 'vite-plus/test';
 
@@ -126,4 +128,45 @@ export function makeBuilder(options?: XmlBuilderOptions): XMLBuilder {
  */
 export function makeFactory(options: FactoryOptions = {}): CompactBuilderFactory {
   return run(CompactBuilderFactory.make(options));
+}
+
+/**
+ * @description Run an effect from `common-xml`, whose error channel is `XmlError` rather than this package's `BuilderError`. The specs drive the matcher directly
+ * — pushing onto one, reading a depth, asking for a read-only view — and every one of those is a `common-xml` effect. `run` is typed for this
+ * package's channel and does not apply to them, so this is the runner for the other one.
+ *
+ * @param effect - The effect to run.
+ *
+ * @returns The successful value.
+ *
+ * @throws {Error} If the effect fails. Its message is the `common-xml` one, which is what a matcher
+ * failure says.
+ */
+export function runXml<A>(effect: Effect.Effect<A, XmlError>): A {
+  const exit = Effect.runSyncExit(effect);
+  if (Exit.isSuccess(exit)) return exit.value;
+
+  const error = Option.getOrUndefined(Exit.findErrorOption(exit));
+  throw new Error(error === undefined ? 'the effect died rather than failing' : error.message);
+}
+
+/**
+ * @description Run an effect from either package. The specs' document walks drive both — a builder method and the matcher's own — so the walk's channel is the
+ * union of the two, and neither {@link run} nor {@link runXml} is typed for it. This is, and the message names which package reported so a failure says
+ * where it came from.
+ *
+ * @param effect - The effect to run.
+ *
+ * @returns The successful value.
+ */
+export function runAny<A>(effect: Effect.Effect<A, BuilderError | XmlError>): A {
+  const exit = Effect.runSyncExit(effect);
+  if (Exit.isSuccess(exit)) return exit.value;
+
+  const error = Option.getOrUndefined(Exit.findErrorOption(exit));
+  if (error === undefined) {
+    expect(Exit.hasDies(exit), 'expected a typed failure, but the effect died').toBe(false);
+    throw new Error('the effect died rather than failing');
+  }
+  throw new Error(`Expected success, got ${error.reason._tag}: ${error.message}`);
 }

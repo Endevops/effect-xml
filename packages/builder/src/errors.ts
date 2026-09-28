@@ -328,3 +328,18 @@ export const runValueProcessor = (
     const message = cause instanceof Error ? cause.message : String(cause);
     return new BuilderError({ reason: { _tag: 'ValueProcessingFailed', hook, name, cause: message }, message });
   });
+
+/**
+ * @description Lift any `common-xml` effect into this package's error channel. The builder asks `common-xml` questions of its own — a path match, a depth, an
+ * ancestor attribute — and those arrive typed as `XmlError`. Three of them cannot fail for the objects the builder holds, but the package keeps one
+ * error channel rather than a union a caller has to branch on twice, so they are mapped here instead.
+ *
+ * @param effect - The effect to lift.
+ *
+ * @returns An effect in this package's channel.
+ */
+export const liftXml = <A>(effect: Effect.Effect<A, XmlError>): Effect.Effect<A, BuilderError> =>
+  Effect.mapError(
+    effect,
+    cause => new BuilderError({ reason: { _tag: 'EntityDecodingFailed', value: '', cause: cause.message }, message: cause.message })
+  );

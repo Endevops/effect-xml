@@ -13,8 +13,20 @@
  * - One test for input shape, one benchmark per input with the fast path off and on — where the length and unicode costs actually show up.
  */
 
+import { Effect } from 'effect';
+
+/**
+ * @description Run a validator, for the benchmark bodies below. The predicate is effectful as every entry point in the package is, and the bodies run it, so the
+ * number reported is what a caller actually pays rather than a bare regex test.
+ *
+ * @param effect - The effect to run.
+ *
+ * @returns The successful value.
+ */
+const runSync = Effect.runSync;
 import { afterAll, expect, test } from 'vite-plus/test';
 
+import type { XmlError } from '#/errors.ts';
 import type { Production, ValidationOptions } from '#/index.ts';
 
 import * as xmlNaming from '#/index.ts';
@@ -74,9 +86,11 @@ const BUDGET = { time: 200, warmupTime: 50 } as const;
  *
  * @param production - Which production to bind.
  *
- * @returns The validator.
+ * @returns The validator. It is effectful, as every entry point in the package is, and the bodies below run it
+ * rather than timing a bare boolean.
  */
-const validatorFor = (production: Production): ((input: string, options?: ValidationOptions) => boolean) => xmlNaming[production];
+const validatorFor = (production: Production): ((input: string, options?: ValidationOptions) => Effect.Effect<boolean, XmlError>) =>
+  xmlNaming[production];
 
 afterAll(() => {
   // If the sink is still empty, the benchmark bodies never reached the line
@@ -97,7 +111,7 @@ for (const { label, options } of OPTION_SETS) {
         // production does byte-identical work and the rows compare directly.
         // The two 1000-character inputs dominate the per-op time here, which
         // is why the next test measures the shapes separately.
-        for (const input of INPUTS) observed += validate(input, options) ? 1 : 0;
+        for (const input of INPUTS) observed += runSync(validate(input, options)) ? 1 : 0;
       });
     });
 
@@ -111,7 +125,7 @@ test('input shape — name production', async ({ bench }) => {
   const measurements = Object.entries(CASES).flatMap(([caseLabel, input]) =>
     [false, true].map(asciiOnly =>
       bench(`${caseLabel} / asciiOnly=${asciiOnly}`, () => {
-        observed += validate(input, { xmlVersion: '1.0', asciiOnly }) ? 1 : 0;
+        observed += runSync(validate(input, { xmlVersion: '1.0', asciiOnly })) ? 1 : 0;
       })
     )
   );

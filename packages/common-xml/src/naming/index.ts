@@ -82,14 +82,19 @@ export interface CreateValidatorOptions extends ValidationOptions {
 }
 
 /**
- * @description A boolean validator with a private string cache attached. Call `reset` to drop the cache; the function stays correct afterwards.
+ * @description An effectful validator with a private string cache attached. Call `reset` to drop the cache; the function stays correct afterwards. The call
+ * signature returns an `Effect` for the same reason the six short-hand predicates do: the package has one shape for every way of asking whether a
+ * name is valid, so a caller who starts with `qName` and switches to `createValidator` for the memoized form is not also switching the shape of the
+ * answer. The channel is empty in practice, but it is the channel, not a bare boolean that a future check would have to widen.
  */
 export interface MemoizedValidator {
-  (str: string): boolean;
+  (str: string): Effect.Effect<boolean, XmlError>;
   /**
    * @description Clears the internal cache.
+   *
+   * @returns An effect that clears the cache. Infallible, so the channel is empty.
    */
-  reset: () => void;
+  reset: () => Effect.Effect<void, XmlError>;
 }
 
 /**
@@ -275,10 +280,11 @@ const getRegexes = (xmlVersion: XmlVersion = '1.0', asciiOnly = false): Producti
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
  *
- * @returns Whether `str` satisfies the Name production.
+ * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
+ *   package has one shape.
  */
-export const name = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).name.test(str);
+export const name = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
+  Effect.succeed(getRegexes(xmlVersion, asciiOnly).name.test(str));
 
 /**
  * @description Returns true if the string is a valid NCName (Non-Colonized Name). Colons are not permitted. Used for: namespace prefixes, local names, SVG id
@@ -287,10 +293,11 @@ export const name = (str: string, { xmlVersion = '1.0', asciiOnly = false }: Val
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
  *
- * @returns Whether `str` satisfies the NCName production.
+ * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
+ *   package has one shape.
  */
-export const ncName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).ncName.test(str);
+export const ncName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
+  Effect.succeed(getRegexes(xmlVersion, asciiOnly).ncName.test(str));
 
 /**
  * @description Returns true if the string is a valid QName (Qualified Name). Allows exactly one colon as a prefix separator: `prefix:localName`. Used for: element
@@ -299,10 +306,11 @@ export const ncName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: V
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
  *
- * @returns Whether `str` satisfies the QName production.
+ * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
+ *   package has one shape.
  */
-export const qName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).qName.test(str);
+export const qName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
+  Effect.succeed(getRegexes(xmlVersion, asciiOnly).qName.test(str));
 
 /**
  * @description Returns true if the string is a valid NMToken. Like Name but no restriction on the first character. Used for: DTD NMTOKEN attribute values.
@@ -310,10 +318,11 @@ export const qName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: Va
  * @param str - The candidate token.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
  *
- * @returns Whether `str` satisfies the NMToken production.
+ * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
+ *   package has one shape.
  */
-export const nmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).nmToken.test(str);
+export const nmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
+  Effect.succeed(getRegexes(xmlVersion, asciiOnly).nmToken.test(str));
 
 /**
  * @description Returns true if the string is a valid NMTokens value — a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values.
@@ -321,10 +330,11 @@ export const nmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }: 
  * @param str - The candidate list.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
  *
- * @returns Whether `str` satisfies the NMTokens production.
+ * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
+ *   package has one shape.
  */
-export const nmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).nmTokens.test(str);
+export const nmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
+  Effect.succeed(getRegexes(xmlVersion, asciiOnly).nmTokens.test(str));
 
 // ---------------------------------------------------------------------------
 // Memoized validator factory
@@ -389,18 +399,19 @@ export const createValidator = (
 
   return Effect.succeed(
     Object.assign(
-      (str: string): boolean => {
+      (str: string): Effect.Effect<boolean, XmlError> => {
         const cached = cache.get(str);
-        if (cached !== undefined) return cached;
+        if (cached !== undefined) return Effect.succeed(cached);
 
         const result = regex.test(str);
         if (cache.size < maxCacheSize) cache.set(str, result);
-        return result;
+        return Effect.succeed(result);
       },
       {
-        reset: (): void => {
-          cache = new Map();
-        },
+        reset: (): Effect.Effect<void, XmlError> =>
+          Effect.sync(() => {
+            cache = new Map();
+          }),
       }
     )
   );
@@ -430,19 +441,39 @@ const checkProduction = (production: Production): Effect.Effect<void, XmlError> 
 
 /**
  * @description The diagnostic body {@link validate} reports, with the production already known to be valid. Kept separate so the reason-finding logic carries no
- * error channel and the batch path can map over it without re-entering the guard per element.
+ * unknown-production check and the batch path can map over it without re-entering the guard per element. The error channel is the one the predicates
+ * carry, not a new one — asking which production failed cannot fail differently from asking whether it passed.
  *
  * @param str - The candidate name.
  * @param production - The production to validate against, already checked.
  * @param xmlVersion - Which version's character classes to use.
  * @param asciiOnly - Whether the ASCII-only fast path applied.
  *
+ * @returns An effect producing the discriminated result.
+ */
+const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, asciiOnly: boolean): Effect.Effect<ValidationResult, XmlError> => {
+  const validators: Record<Production, (str: string, opts?: ValidationOptions) => Effect.Effect<boolean, XmlError>> = {
+    name,
+    ncName,
+    qName,
+    nmToken,
+    nmTokens,
+  };
+  return Effect.map(validators[production](str, { xmlVersion, asciiOnly }), isValid => diagnoseWith(str, production, isValid, asciiOnly));
+};
+
+/**
+ * @description Why a name failed, once whether it failed is already known. Split from {@link diagnose} so the effect that asks the question stays a one-liner and
+ * the reason-finding is plain.
+ *
+ * @param str - The candidate name.
+ * @param production - The production checked.
+ * @param isValid - Whether it passed.
+ * @param asciiOnly - Whether the ASCII-only fast path applied.
+ *
  * @returns The discriminated result.
  */
-const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, asciiOnly: boolean): ValidationResult => {
-  const validators: Record<Production, (str: string, opts?: ValidationOptions) => boolean> = { name, ncName, qName, nmToken, nmTokens };
-  const isValid = validators[production](str, { xmlVersion, asciiOnly });
-
+const diagnoseWith = (str: string, production: Production, isValid: boolean, asciiOnly: boolean): ValidationResult => {
   if (isValid) return { valid: true, production, input: str };
 
   let reason = 'Does not match the production rules';
@@ -519,7 +550,7 @@ export const validate = (
   // the validator table — before the guard had a chance to fail.
   Effect.gen(function* () {
     yield* checkProduction(production);
-    return diagnose(str, production, xmlVersion, asciiOnly);
+    return yield* diagnose(str, production, xmlVersion, asciiOnly);
   });
 
 // ---------------------------------------------------------------------------
@@ -553,7 +584,7 @@ export const validateAll = (
 ): Effect.Effect<ValidationResult[], XmlError> =>
   Effect.gen(function* () {
     yield* checkProduction(production);
-    return strings.map(str => diagnose(str, production, xmlVersion, asciiOnly));
+    return yield* Effect.forEach(strings, str => diagnose(str, production, xmlVersion, asciiOnly));
   });
 
 // ---------------------------------------------------------------------------
@@ -568,28 +599,34 @@ export const validateAll = (
  * @param production - The production to sanitize for. Defaults to `'name'`.
  * @param opts - `replacement` is the substitute character (default `'_'`); `asciiOnly` also replaces non-ASCII characters.
  *
- * @returns A string that satisfies `production` for the ASCII range, or the nearest approximation of it.
+ * @returns An effect producing a string that satisfies `production` for the ASCII range, or the nearest approximation of it. Infallible, so the error
+ *   channel is empty; it exists so every entry point in the package has one shape.
  */
-export const sanitize = (str: string, production: Production = 'name', { replacement = '_', asciiOnly = false }: SanitizeOptions = {}): string => {
-  if (!str) return replacement;
+export const sanitize = (
+  str: string,
+  production: Production = 'name',
+  { replacement = '_', asciiOnly = false }: SanitizeOptions = {}
+): Effect.Effect<string, XmlError> =>
+  Effect.sync(() => {
+    if (!str) return replacement;
 
-  let result = str;
+    let result = str;
 
-  // Strip colons for NCName
-  if (production === 'ncName') {
-    result = result.replace(/:/g, '');
-  }
-
-  // Replace illegal characters
-  const allowedCharPattern = asciiOnly ? /[^\w\-.:]/g : /[^\w\-.:\u00B7\u00C0-\uFFFD]/g;
-  result = result.replace(allowedCharPattern, replacement);
-
-  // Fix invalid start character for Name / NCName / QName
-  if (production !== 'nmToken' && production !== 'nmTokens') {
-    if (/^[-.\d]/.test(result)) {
-      result = replacement + result;
+    // Strip colons for NCName
+    if (production === 'ncName') {
+      result = result.replace(/:/g, '');
     }
-  }
 
-  return result || replacement;
-};
+    // Replace illegal characters
+    const allowedCharPattern = asciiOnly ? /[^\w\-.:]/g : /[^\w\-.:\u00B7\u00C0-\uFFFD]/g;
+    result = result.replace(allowedCharPattern, replacement);
+
+    // Fix invalid start character for Name / NCName / QName
+    if (production !== 'nmToken' && production !== 'nmTokens') {
+      if (/^[-.\d]/.test(result)) {
+        result = replacement + result;
+      }
+    }
+
+    return result || replacement;
+  });

@@ -7,6 +7,8 @@
 
 import { Effect } from 'effect';
 
+import type { XmlError } from '../errors.ts';
+
 import { trie1, trie2, trie3 } from './entity-tries.ts';
 
 // Replacement strings indexed by char code — direct array access, no hashing.
@@ -317,8 +319,12 @@ export class EntityEncoder {
 
   /**
    * @description Reset the replacement counter. The three options are untouched, so a limited encoder stays limited and only gets its budget back.
+   *
+   * @returns An effect that zeroes the counter. Infallible; the channel is empty because the package has one shape for its public surface.
    */
-  reset(): void {
-    this.replacementsCount = 0;
+  reset(): Effect.Effect<void, XmlError> {
+    return Effect.sync(() => {
+      this.replacementsCount = 0;
+    });
   }
 }

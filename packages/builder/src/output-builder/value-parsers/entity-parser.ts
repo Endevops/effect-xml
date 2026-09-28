@@ -1,4 +1,4 @@
-import type { EntityDecoderOptions } from '@endevops/common-xml';
+import type { EntityDecoderOptions, XmlError } from '@endevops/common-xml';
 
 import { COMMON_HTML, ENTITY_ACTION, EntityDecoder, XML } from '@endevops/common-xml';
 import { Effect } from 'effect';
@@ -43,6 +43,20 @@ const defaultOptions: EntitiesValueParserOptions = {
  *   const evp = new EntitiesValueParser({ ncr: { onNcr: 'allow' } });
  *   ```;
  */
+/**
+ * @description Map a `common-xml` failure from the decoder into this package's error type. The decoder is `common-xml`'s, so its whole error surface is
+ * `common-xml`'s. Mapping at the two calls the builder makes is what keeps this package's channel one type rather than a union, and the message rides
+ * along so nothing is lost.
+ *
+ * @param value - The value being decoded, carried in the reason.
+ *
+ * @returns A mapper for `Effect.mapError`.
+ */
+const fromDecoder =
+  (value: string) =>
+  (cause: XmlError): BuilderError =>
+    new BuilderErrorCtor({ reason: { _tag: 'EntityDecodingFailed', value, cause: cause.message }, message: cause.message });
+
 export default class EntitiesValueParser extends BaseValueParser {
   /**
    * @description Whether the per-document decoder state has been consumed. Drives the one-time read of version and entities.
@@ -75,29 +89,38 @@ export default class EntitiesValueParser extends BaseValueParser {
   }
 
   /**
-   * @description Build the decoder on first use, then feed it this document's version and DOCTYPE entities exactly once.
+   * @description Build the decoder on first use, then feed it this document's version and DOCTYPE entities exactly once. Both halves are effects, and both are
+   * lazy: a parser that never sees a string never builds a decoder, which is the same as before, and one that does is built once per document rather
+   * than once per value.
    */
-  #ensureDecoder(): void {
-    if (!this.#decoder) {
-      this.#decoder = new EntityDecoder(this.#options);
+  #ensureDecoder = Effect.fnUntraced(function* (this: EntitiesValueParser): Effect.fn.Return<EntityDecoder, BuilderError> {
+    // A local rather than `this.#decoder` throughout: assigning inside the guard narrows the
+    // field to `never` for the rest of the body, and every call below would type as one.
+    let decoder = this.#decoder;
+    if (!decoder) {
+      decoder = yield* Effect.mapError(EntityDecoder.make(this.#options), fromDecoder(''));
+      this.#decoder = decoder;
     }
     if (!this.#seen) {
       const version = this.ctx?.get('xmlVersion');
       const entities = this.ctx?.get('inputEntities');
-      if (version) this.#decoder.setXmlVersion(version as number);
-      if (entities) this.#decoder.addInputEntities(entities as Record<string, string>);
+      if (version) yield* Effect.mapError(decoder.setXmlVersion(version as number), fromDecoder(''));
+      if (entities) yield* Effect.mapError(decoder.addInputEntities(entities as Record<string, string>), fromDecoder(''));
       this.#seen = true;
     }
-  }
+    return decoder;
+  });
 
   /**
    * @description Forget this document's version and entities, so the next parse re-reads them.
+   *
+   * @returns An effect that clears the per-document state. Infallible in practice; the channel is there to match the parser contract, which every
+   *   member of the chain now satisfies.
    */
-  override reset(): void {
+  override reset(): Effect.Effect<void, BuilderError> {
     this.#seen = false;
-    if (this.#decoder) {
-      this.#decoder.reset();
-    }
+    if (!this.#decoder) return Effect.void;
+    return Effect.mapError(this.#decoder.reset(), fromDecoder(''));
   }
 
   /**
@@ -110,17 +133,14 @@ export default class EntitiesValueParser extends BaseValueParser {
    *   decoder rejects a reference — a malformed `&…;` or an input entity the security rules block. The decoder reports that as a `common-xml`
    *   `XmlError`, which is mapped here so this package keeps a single error channel.
    */
-  override parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
+  override parse = Effect.fnUntraced(function* (this: EntitiesValueParser, val: unknown, context?: Context): Effect.fn.Return<unknown, BuilderError> {
     void context;
-    if (typeof val !== 'string') return Effect.succeed(val);
-    this.#ensureDecoder();
-    const decoder = this.#decoder;
-    if (!decoder) return Effect.succeed(val);
-    return Effect.mapError(
-      decoder.decode(val),
-      cause => new BuilderErrorCtor({ reason: { _tag: 'EntityDecodingFailed', value: val, cause: cause.message }, message: cause.message })
-    );
-  }
+    if (typeof val !== 'string') return val;
+
+    const decoder = yield* this.#ensureDecoder();
+    if (!decoder) return val;
+    return yield* Effect.mapError(decoder.decode(val), fromDecoder(val));
+  });
 }
 
 /**

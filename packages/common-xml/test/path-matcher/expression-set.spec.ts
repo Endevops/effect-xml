@@ -4,7 +4,10 @@
  * bucket routing that keeps a lookup off a full scan; and `findMatch` handing back the matched expression together with its data payload.
  */
 
+import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
+
+import type { XmlError } from '#/errors.ts';
 
 import { ExpressionSet, Matcher } from '#/index.ts';
 import { run, failed, expr } from '#/test/helpers/effect.ts';
@@ -14,13 +17,14 @@ import { run, failed, expr } from '#/test/helpers/effect.ts';
  *
  * @param tags - The tag names, root first.
  *
- * @returns A matcher sitting on that exact path.
+ * @returns An effect producing a matcher sitting on that exact path. It has to be one because `push` is.
  */
-function matcherAt(...tags: string[]): Matcher {
-  const m = new Matcher();
-  for (const t of tags) m.push(t);
-  return m;
-}
+const matcherAt = (...tags: string[]): Effect.Effect<Matcher, XmlError> =>
+  Effect.gen(function* () {
+    const m = new Matcher();
+    for (const t of tags) yield* m.push(t);
+    return m;
+  });
 
 /**
  * @description Build a matcher positioned at the given path, carrying attributes on its current tag.
@@ -28,21 +32,22 @@ function matcherAt(...tags: string[]): Matcher {
  * @param attrs - Attribute values for the terminal tag.
  * @param tags - The tag names, root first.
  *
- * @returns A matcher whose current node holds `attrs`.
+ * @returns An effect producing a matcher whose current node holds `attrs`.
  */
-function matcherAtWithAttrs(attrs: Record<string, unknown>, ...tags: string[]): Matcher {
-  const m = new Matcher();
-  for (let i = 0; i < tags.length - 1; i++) m.push(tags[i]);
-  m.push(tags[tags.length - 1], attrs);
-  return m;
-}
+const matcherAtWithAttrs = (attrs: Record<string, unknown>, ...tags: string[]): Effect.Effect<Matcher, XmlError> =>
+  Effect.gen(function* () {
+    const m = new Matcher();
+    for (let i = 0; i < tags.length - 1; i++) yield* m.push(tags[i]);
+    yield* m.push(tags[tags.length - 1], attrs);
+    return m;
+  });
 
 describe('ExpressionSet', () => {
   describe('construction, mutation and sealing', () => {
     it('a new set is empty and unsealed', () => {
       const set = new ExpressionSet();
-      expect(set.size).toBe(0);
-      expect(!set.isSealed).toBe(true);
+      expect(run(set.size())).toBe(0);
+      expect(!run(set.isSealed())).toBe(true);
     });
 
     it('adds an expression, growing the size and reporting it through has()', () => {
@@ -50,9 +55,9 @@ describe('ExpressionSet', () => {
       const userExpr = expr('root.users.user');
 
       run(set.add(userExpr));
-      expect(set.size).toBe(1);
-      expect(set.has(userExpr)).toBe(true);
-      expect(set.has(expr('root.other'))).toBe(false);
+      expect(run(set.size())).toBe(1);
+      expect(run(set.has(userExpr))).toBe(true);
+      expect(run(set.has(expr('root.other')))).toBe(false);
     });
 
     it('ignores a second expression carrying an already-known pattern', () => {
@@ -62,7 +67,7 @@ describe('ExpressionSet', () => {
       const e2 = expr('root.users.user'); // same pattern, different object
 
       run(set.addAll([e1, e2]));
-      expect(set.size).toBe(1);
+      expect(run(set.size())).toBe(1);
     });
 
     it('produces the set itself, so a caller can keep a reference to it', () => {
@@ -74,7 +79,7 @@ describe('ExpressionSet', () => {
     it('addAll() registers every expression and produces the set', () => {
       const set = new ExpressionSet();
       run(set.addAll([expr('root.a'), expr('root.b'), expr('root.c')]));
-      expect(set.size).toBe(3);
+      expect(run(set.size())).toBe(3);
       const result = run(new ExpressionSet().addAll([expr('x.y')]));
       expect(result instanceof ExpressionSet).toBe(true);
     });
@@ -82,12 +87,12 @@ describe('ExpressionSet', () => {
     it('seal() blocks further additions and leaves the size untouched', () => {
       const set = new ExpressionSet();
       run(set.add(expr('root.a')));
-      set.seal();
+      run(set.seal());
 
-      expect(set.isSealed).toBe(true);
+      expect(run(set.isSealed())).toBe(true);
       expect(failed(set.add(expr('root.b'))).message).toContain('sealed');
       expect(failed(set.addAll([expr('root.c')])).message).toContain('sealed');
-      expect(set.size).toBe(1);
+      expect(run(set.size())).toBe(1);
     });
   });
 
@@ -96,22 +101,22 @@ describe('ExpressionSet', () => {
       const set = new ExpressionSet();
       run(set.addAll([expr('root.users.user'), expr('root.config.setting'), expr('root.orders.order')]));
 
-      expect(set.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'config', 'setting'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'orders', 'order'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'users'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'users', 'admin'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('other', 'users', 'user'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'users', 'user'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'config', 'setting'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'orders', 'order'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'users'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'users', 'admin'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('other', 'users', 'user'))))).toBe(true);
     });
 
     it('reads a * segment as any one tag, never as a shorter path', () => {
       const set = new ExpressionSet();
       run(set.add(expr('root.users.*')));
 
-      expect(set.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'users', 'admin'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'users'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'other', 'user'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'users', 'user'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'users', 'admin'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'users'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'other', 'user'))))).toBe(true);
     });
 
     it('matches ..user at depth 2 and deeper but never at depth 1', () => {
@@ -119,20 +124,20 @@ describe('ExpressionSet', () => {
       run(set.add(expr('..user')));
 
       // ..user requires at least one ancestor (the '..' consumes ≥1 levels before the tag)
-      expect(set.matchesAny(matcherAt('root', 'user'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
-      expect(set.matchesAny(matcherAt('a', 'b', 'c', 'user'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('user'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'users', 'admin'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'user'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'users', 'user'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('a', 'b', 'c', 'user'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('user'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'users', 'admin'))))).toBe(true);
     });
 
     it('matches an attribute condition only when the current node carries that value', () => {
       const set = new ExpressionSet();
       run(set.add(expr('root.users.user[type=admin]')));
 
-      expect(set.matchesAny(matcherAtWithAttrs({ type: 'admin' }, 'root', 'users', 'user'))).toBe(true);
-      expect(!set.matchesAny(matcherAtWithAttrs({ type: 'guest' }, 'root', 'users', 'user'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAtWithAttrs({ type: 'admin' }, 'root', 'users', 'user'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAtWithAttrs({ type: 'guest' }, 'root', 'users', 'user'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'users', 'user'))))).toBe(true);
     });
 
     it('matches a :first selector only against the first sibling of that name', () => {
@@ -140,14 +145,14 @@ describe('ExpressionSet', () => {
       run(set.add(expr('root.items.item:first')));
 
       const m = new Matcher();
-      m.push('root');
-      m.push('items');
-      m.push('item'); // first item, counter=0
-      expect(set.matchesAny(m)).toBe(true);
-      m.pop();
+      run(m.push('root'));
+      run(m.push('items'));
+      run(m.push('item')); // first item, counter=0;
+      expect(run(set.matchesAny(m))).toBe(true);
+      run(m.pop());
 
-      m.push('item'); // second item, counter=1
-      expect(!set.matchesAny(m)).toBe(true);
+      run(m.push('item')); // second item, counter=1;
+      expect(!run(set.matchesAny(m))).toBe(true);
     });
 
     it('resolves a realistic config mixing exact, wildcard, deep and attribute expressions', () => {
@@ -161,19 +166,19 @@ describe('ExpressionSet', () => {
         ])
       );
 
-      expect(stopNodes.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
-      expect(stopNodes.matchesAny(matcherAt('root', 'config', 'setting'))).toBe(true);
-      expect(stopNodes.matchesAny(matcherAt('root', 'config', 'feature'))).toBe(true);
-      expect(stopNodes.matchesAny(matcherAt('root', 'head', 'script'))).toBe(true);
-      expect(!stopNodes.matchesAny(matcherAt('script'))).toBe(true);
-      expect(stopNodes.matchesAny(matcherAtWithAttrs({ id: '42' }, 'root', 'data', 'item'))).toBe(true);
-      expect(!stopNodes.matchesAny(matcherAtWithAttrs({ id: '99' }, 'root', 'data', 'item'))).toBe(true);
-      expect(!stopNodes.matchesAny(matcherAt('root', 'users', 'admin'))).toBe(true);
+      expect(run(stopNodes.matchesAny(run(matcherAt('root', 'users', 'user'))))).toBe(true);
+      expect(run(stopNodes.matchesAny(run(matcherAt('root', 'config', 'setting'))))).toBe(true);
+      expect(run(stopNodes.matchesAny(run(matcherAt('root', 'config', 'feature'))))).toBe(true);
+      expect(run(stopNodes.matchesAny(run(matcherAt('root', 'head', 'script'))))).toBe(true);
+      expect(!run(stopNodes.matchesAny(run(matcherAt('script'))))).toBe(true);
+      expect(run(stopNodes.matchesAny(run(matcherAtWithAttrs({ id: '42' }, 'root', 'data', 'item'))))).toBe(true);
+      expect(!run(stopNodes.matchesAny(run(matcherAtWithAttrs({ id: '99' }, 'root', 'data', 'item'))))).toBe(true);
+      expect(!run(stopNodes.matchesAny(run(matcherAt('root', 'users', 'admin'))))).toBe(true);
     });
 
     it('never matches when the set is empty', () => {
       const set = new ExpressionSet();
-      expect(!set.matchesAny(matcherAt('root', 'users', 'user'))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'users', 'user'))))).toBe(true);
     });
 
     it('matches through a read-only matcher view', () => {
@@ -181,11 +186,11 @@ describe('ExpressionSet', () => {
       run(set.add(expr('root.users.user')));
 
       const m = new Matcher();
-      m.push('root');
-      m.push('users');
-      m.push('user');
+      run(m.push('root'));
+      run(m.push('users'));
+      run(m.push('user'));
 
-      expect(set.matchesAny(m.readOnly())).toBe(true);
+      expect(run(set.matchesAny(run(m.readOnly())))).toBe(true);
     });
 
     it('matches a namespaced tag only inside its own namespace', () => {
@@ -193,16 +198,16 @@ describe('ExpressionSet', () => {
       run(set.add(expr('root.ns::user')));
 
       const m = new Matcher();
-      m.push('root');
-      m.push('user', null, 'ns');
+      run(m.push('root'));
+      run(m.push('user', null, 'ns'));
 
-      expect(set.matchesAny(m)).toBe(true);
+      expect(run(set.matchesAny(m))).toBe(true);
 
       const m2 = new Matcher();
-      m2.push('root');
-      m2.push('user', null, 'other');
+      run(m2.push('root'));
+      run(m2.push('user', null, 'other'));
 
-      expect(!set.matchesAny(m2)).toBe(true);
+      expect(!run(set.matchesAny(m2))).toBe(true);
     });
   });
 
@@ -212,13 +217,13 @@ describe('ExpressionSet', () => {
       const expressions = [expr('root.users.user', {}, { extra: 'property' }), expr('root.config.setting'), expr('root.orders.order')];
       run(set.addAll(expressions));
 
-      const match1 = set.findMatch(matcherAt('root', 'users', 'user'));
+      const match1 = run(set.findMatch(run(matcherAt('root', 'users', 'user'))));
       expect(match1?.data).toBe(expressions[0].data);
 
-      const match2 = set.findMatch(matcherAt('root', 'config', 'setting'));
+      const match2 = run(set.findMatch(run(matcherAt('root', 'config', 'setting'))));
       expect(match2?.data).toBe(expressions[1].data);
 
-      const match3 = set.findMatch(matcherAt('root', 'orders', 'order'));
+      const match3 = run(set.findMatch(run(matcherAt('root', 'orders', 'order'))));
       expect(match3?.data).toBe(expressions[2].data);
     });
   });
@@ -229,11 +234,11 @@ describe('ExpressionSet', () => {
       const set = new ExpressionSet();
       run(set.add(expr('..title')));
 
-      expect(set.matchesAny(matcherAt('root', 'title'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'channel', 'title'))).toBe(true);
-      expect(set.matchesAny(matcherAt('a', 'b', 'c', 'd', 'title'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('title'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'other'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'title'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'channel', 'title'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('a', 'b', 'c', 'd', 'title'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('title'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'other'))))).toBe(true);
     });
 
     it('leaves ..* unindexed, matching any tag at any depth above 1', () => {
@@ -241,9 +246,9 @@ describe('ExpressionSet', () => {
       const set = new ExpressionSet();
       run(set.add(expr('..*')));
 
-      expect(set.matchesAny(matcherAt('root', 'anything'))).toBe(true);
-      expect(set.matchesAny(matcherAt('a', 'b', 'c'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'anything'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('a', 'b', 'c'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root'))))).toBe(true);
     });
 
     it('leaves a trailing .. unindexed, so root.. covers every descendant of root', () => {
@@ -251,9 +256,9 @@ describe('ExpressionSet', () => {
       const set = new ExpressionSet();
       run(set.add(expr('root..')));
 
-      expect(set.matchesAny(matcherAt('root', 'anything'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'a', 'b'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('other', 'anything'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'anything'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'a', 'b'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('other', 'anything'))))).toBe(true);
     });
 
     it('indexes ..ns::user by its tag and checks the namespace during the full match', () => {
@@ -262,16 +267,16 @@ describe('ExpressionSet', () => {
       run(set.add(expr('..ns::user')));
 
       const m1 = new Matcher();
-      m1.push('root');
-      m1.push('user', null, 'ns');
-      expect(set.matchesAny(m1)).toBe(true);
+      run(m1.push('root'));
+      run(m1.push('user', null, 'ns'));
+      expect(run(set.matchesAny(m1))).toBe(true);
 
       const m2 = new Matcher();
-      m2.push('root');
-      m2.push('user', null, 'other');
-      expect(!set.matchesAny(m2)).toBe(true);
+      run(m2.push('root'));
+      run(m2.push('user', null, 'other'));
+      expect(!run(set.matchesAny(m2))).toBe(true);
 
-      expect(!set.matchesAny(matcherAt('root', 'user'))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'user'))))).toBe(true);
     });
 
     it('matches multiple deep wildcards against their literal segments', () => {
@@ -279,10 +284,10 @@ describe('ExpressionSet', () => {
       const set = new ExpressionSet();
       run(set.add(expr('root..b..d')));
 
-      expect(set.matchesAny(matcherAt('root', 'b', 'd'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'x', 'b', 'y', 'd'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'x', 'd'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('other', 'b', 'd'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'b', 'd'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'x', 'b', 'y', 'd'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'x', 'd'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('other', 'b', 'd'))))).toBe(true);
     });
 
     it('resolves a mix of indexed and unindexed deep wildcards together', () => {
@@ -292,10 +297,10 @@ describe('ExpressionSet', () => {
       run(set.add(expr('..*'))); // unindexed (terminal *)
       run(set.add(expr('root..'))); // unindexed (terminal ..)
 
-      expect(set.matchesAny(matcherAt('root', 'script'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'anything'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'deep', 'path'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('other'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'script'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'anything'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'deep', 'path'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('other'))))).toBe(true);
     });
 
     it('matches correctly across a set of 30 expressions', () => {
@@ -314,15 +319,15 @@ describe('ExpressionSet', () => {
       // 5 wildcard-tag
       for (let i = 1; i <= 5; i++) run(set.add(expr(`root.level${i}.*`)));
 
-      expect(set.size).toBe(30);
+      expect(run(set.size())).toBe(30);
 
       // Spot checks
-      expect(set.matchesAny(matcherAt('root', 'alpha'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'items', 'gamma'))).toBe(true);
-      expect(set.matchesAny(matcherAt('a', 'b', 'c', 'beta'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'level3', 'anything'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'unknown'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'items', 'unknown'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'alpha'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'items', 'gamma'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('a', 'b', 'c', 'beta'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'level3', 'anything'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'unknown'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'items', 'unknown'))))).toBe(true);
     });
 
     it('holds 300 indexed deep wildcards and still matches only the configured tags', () => {
@@ -331,13 +336,13 @@ describe('ExpressionSet', () => {
       for (let i = 0; i < 300; i++) {
         run(set.add(expr(`..tag${i}`)));
       }
-      expect(set.size).toBe(300);
+      expect(run(set.size())).toBe(300);
 
-      expect(set.matchesAny(matcherAt('root', 'child', 'tag0'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'child', 'tag150'))).toBe(true);
-      expect(set.matchesAny(matcherAt('root', 'child', 'tag299'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'child', 'tag300'))).toBe(true);
-      expect(!set.matchesAny(matcherAt('root', 'child', 'nonexistent'))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'child', 'tag0'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'child', 'tag150'))))).toBe(true);
+      expect(run(set.matchesAny(run(matcherAt('root', 'child', 'tag299'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'child', 'tag300'))))).toBe(true);
+      expect(!run(set.matchesAny(run(matcherAt('root', 'child', 'nonexistent'))))).toBe(true);
     });
   });
 });

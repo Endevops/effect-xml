@@ -8,7 +8,7 @@ import type { BuilderError } from '../errors.ts';
 import type { IgnoreAttributesPredicate, ResolvedXmlBuilderOptions, XmlBuilderOptions } from './options.ts';
 import type { OrderedTag } from './ordered.ts';
 
-import { compilePattern, nestingExceeded, runValueProcessor, tryResolveName } from '../errors.ts';
+import { compilePattern, liftXml, nestingExceeded, runValueProcessor, tryResolveName } from '../errors.ts';
 import getIgnoreAttributesFn from './ignore-attributes.ts';
 import buildFromOrderedJs from './ordered.ts';
 import { nameValidatorFor } from './ordered.ts';
@@ -35,9 +35,10 @@ export type AttributeValues = Record<string, string>;
 
 /**
  * @description A QName validator. Always the memoized form from `@endevops/common-xml`; named separately so the signature reads at each use site without repeating
- * the `MemoizedValidator` import.
+ * the `MemoizedValidator` import. It returns an effect, as every validator in `common-xml` does. The walk tests it before deciding a name needs
+ * repairing, so a name the validator rejects is the one that reaches `sanitizeName` — the same rule as before, with one more `yield*` at each use.
  */
-type NameValidator = (name: string) => boolean;
+type NameValidator = (name: string) => Effect.Effect<boolean, BuilderError>;
 
 const defaultOptions = {
   attributeNamePrefix: '@_',
@@ -165,10 +166,15 @@ function resolveTagName(
   matcher: Matcher,
   qNameValidator: NameValidator
 ): Effect.Effect<string, BuilderError> {
-  const resolve = options.sanitizeName;
-  if (!resolve) return Effect.succeed(name);
-  if (qNameValidator(name)) return Effect.succeed(name);
-  return tryResolveName(name, () => resolve(name, { isAttribute, matcher: matcher.readOnly() }));
+  return Effect.gen(function* () {
+    const resolve = options.sanitizeName;
+    if (!resolve) return name;
+    if (yield* qNameValidator(name)) return name;
+    // `readOnly` is an effect, so the view is built before the callback runs rather than inside it
+    // — the callback is a plain function, and a plain function cannot run an effect.
+    const view = yield* liftXml(matcher.readOnly());
+    return yield* tryResolveName(name, () => resolve(name, { isAttribute, matcher: view }));
+  });
 }
 
 /**
@@ -354,14 +360,14 @@ export class XMLBuilder {
   ): Effect.fn.Return<J2xResult, BuilderError> {
     let attrStr = '';
     let val = '';
-    if (this.options.maxNestedTags && matcher.getDepth() >= this.options.maxNestedTags) {
-      return yield* nestingExceeded(this.options.maxNestedTags, matcher.getDepth());
+    if (this.options.maxNestedTags && (yield* liftXml(matcher.getDepth())) >= this.options.maxNestedTags) {
+      return yield* nestingExceeded(this.options.maxNestedTags, yield* liftXml(matcher.getDepth()));
     }
     // Get jPath based on option: string for backward compatibility, or Matcher for new features
-    const jPath = this.options.jPath ? matcher.toString() : matcher;
+    const jPath = this.options.jPath ? yield* liftXml(matcher.toString()) : matcher;
 
     // Check if current node is a stopNode (will be used for attribute encoding)
-    const isCurrentStopNode = this.checkStopNode(matcher);
+    const isCurrentStopNode = yield* this.checkStopNode(matcher);
 
     for (const key in jObj) {
       if (!Object.prototype.hasOwnProperty.call(jObj, key)) continue;
@@ -413,9 +419,9 @@ export class XMLBuilder {
             val += this.replaceEntitiesValue(newval);
           } else {
             // Check if this is a stopNode before building
-            matcher.push(resolvedKey);
-            const isStopNode = this.checkStopNode(matcher);
-            matcher.pop();
+            yield* liftXml(matcher.push(resolvedKey));
+            const isStopNode = yield* this.checkStopNode(matcher);
+            yield* liftXml(matcher.pop());
 
             if (isStopNode) {
               // Build as raw content without encoding
@@ -445,10 +451,10 @@ export class XMLBuilder {
           } else if (typeof item === 'object') {
             if (this.options.oneListGroup) {
               // Push tag to matcher before recursive call
-              matcher.push(resolvedKey);
+              yield* liftXml(matcher.push(resolvedKey));
               const result = yield* this.j2x(item as Record<string, unknown>, level + 1, matcher, qNameValidator);
               // Pop tag from matcher after recursive call
-              matcher.pop();
+              yield* liftXml(matcher.pop());
 
               listTagVal += result.val;
               if (this.options.attributesGroupName && Object.prototype.hasOwnProperty.call(item, this.options.attributesGroupName)) {
@@ -465,9 +471,9 @@ export class XMLBuilder {
               listTagVal += textValue;
             } else {
               // Check if this is a stopNode before building
-              matcher.push(resolvedKey);
-              const isStopNode = this.checkStopNode(matcher);
-              matcher.pop();
+              yield* liftXml(matcher.push(resolvedKey));
+              const isStopNode = yield* this.checkStopNode(matcher);
+              yield* liftXml(matcher.pop());
 
               if (isStopNode) {
                 // Build as raw content without encoding
@@ -758,19 +764,19 @@ export class XMLBuilder {
    *
    * @param matcher - The live path.
    *
-   * @returns Whether this node should be copied through verbatim.
+   * @returns An effect producing whether this node should be copied through verbatim.
    */
-  checkStopNode(matcher: Matcher): boolean {
+  checkStopNode = Effect.fnUntraced(function* (this: XMLBuilder, matcher: Matcher): Effect.fn.Return<boolean, BuilderError> {
     if (!this.stopNodeExpressions || this.stopNodeExpressions.length === 0) return false;
 
     for (let i = 0; i < this.stopNodeExpressions.length; i++) {
       const expression = this.stopNodeExpressions[i];
-      if (expression !== undefined && matcher.matches(expression)) {
+      if (expression !== undefined && (yield* liftXml(matcher.matches(expression)))) {
         return true;
       }
     }
     return false;
-  }
+  });
 
   /**
    * @description Render a text-valued node, routing CDATA, comments and processing instructions to their own forms.
@@ -858,22 +864,22 @@ export class XMLBuilder {
     const attrValues = this.extractAttributes(object);
 
     // Push tag to matcher before recursion WITH attributes
-    matcher.push(key, attrValues);
+    yield* liftXml(matcher.push(key, attrValues));
 
     // Check if this entire node is a stopNode
-    const isStopNode = this.checkStopNode(matcher);
+    const isStopNode = yield* this.checkStopNode(matcher);
 
     if (isStopNode) {
       // For stopNodes, build raw content without entity encoding
       const rawContent = this.buildRawContent(object);
       const attrStr = this.buildAttributesForStopNode(object);
-      matcher.pop();
+      yield* liftXml(matcher.pop());
       return this.buildObjectNode(rawContent, key, attrStr, level);
     }
 
     const result = yield* this.j2x(object, level + 1, matcher, qNameValidator);
     // Pop tag from matcher after recursion
-    matcher.pop();
+    yield* liftXml(matcher.pop());
 
     // PI/XML-declaration tags must never emit text content — route through
     // buildTextValNode which correctly ignores the text node for "?" tags.

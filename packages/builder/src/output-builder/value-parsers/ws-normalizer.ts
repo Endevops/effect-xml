@@ -6,7 +6,7 @@ import { Effect } from 'effect';
 import type { BuilderError } from '../../errors.ts';
 import type { Context } from '../value-parser.ts';
 
-import { addToSet, compilePattern } from '../../errors.ts';
+import { addToSet, compilePattern, liftXml } from '../../errors.ts';
 import BaseValueParser from './base-value-parser.ts';
 
 /**
@@ -97,22 +97,23 @@ export default class WSNormalizer extends BaseValueParser {
    *
    * @returns The normalized string, or `val` unchanged when normalization does not apply.
    */
-  override parse(val: unknown, ctx?: Context): Effect.Effect<unknown, BuilderError> {
-    if (typeof val !== 'string') return Effect.succeed(val);
+  override parse = Effect.fnUntraced(function* (this: WSNormalizer, val: unknown, ctx?: Context): Effect.fn.Return<unknown, BuilderError> {
+    if (typeof val !== 'string') return val;
 
     if (ctx) {
       // Only normalize element text, not attribute values
-      if (ctx.isAttribute) return Effect.succeed(val);
+      if (ctx.isAttribute) return val;
 
       if (ctx.matcher) {
         // Respect xml:space="preserve" on any ancestor
-        if (ctx.matcher.getAnyParentAttr('xml:space') === 'preserve') return Effect.succeed(val);
+        if ((yield* liftXml(ctx.matcher.getAnyParentAttr('xml:space'))) === 'preserve') return val;
 
         // Respect user-configured exclusion paths
-        if (this.#excludeSet.size > 0 && this.#excludeSet.matchesAny(ctx.matcher)) return Effect.succeed(val);
+        const size = yield* liftXml(this.#excludeSet.size());
+        if (size > 0 && (yield* liftXml(this.#excludeSet.matchesAny(ctx.matcher)))) return val;
       }
     }
 
-    return Effect.succeed(val.replace(/[ \t\r\n]+/g, ' ').trim());
-  }
+    return val.replace(/[ \t\r\n]+/g, ' ').trim();
+  });
 }

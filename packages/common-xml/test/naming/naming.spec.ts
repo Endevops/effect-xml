@@ -29,54 +29,54 @@ const diagnosticsOf = (result: ValidationResult): { reason: string; position: nu
 
 describe('name()', () => {
   it('accepts simple ASCII names', () => {
-    expect(name('foo')).toBe(true);
-    expect(name('Foo')).toBe(true);
-    expect(name('_bar')).toBe(true);
-    expect(name('_')).toBe(true);
+    expect(run(name('foo'))).toBe(true);
+    expect(run(name('Foo'))).toBe(true);
+    expect(run(name('_bar'))).toBe(true);
+    expect(run(name('_'))).toBe(true);
   });
 
   it('accepts names with colons', () => {
-    expect(name('a:b')).toBe(true);
-    expect(name(':')).toBe(true); // colon alone is a valid Name
-    expect(name('a:b:c')).toBe(true); // multiple colons allowed in Name
+    expect(run(name('a:b'))).toBe(true);
+    expect(run(name(':'))).toBe(true); // colon alone is a valid Name
+    expect(run(name('a:b:c'))).toBe(true); // multiple colons allowed in Name
   });
 
   it('accepts names with digits, hyphens, dots after start', () => {
-    expect(name('a1')).toBe(true);
-    expect(name('a-b')).toBe(true);
-    expect(name('a.b')).toBe(true);
-    expect(name('a0.b-c')).toBe(true);
+    expect(run(name('a1'))).toBe(true);
+    expect(run(name('a-b'))).toBe(true);
+    expect(run(name('a.b'))).toBe(true);
+    expect(run(name('a0.b-c'))).toBe(true);
   });
 
   it('accepts Unicode letter start chars', () => {
-    expect(name('café')).toBe(true); // \u00E9 in \u00C0-\u00F6 range
-    expect(name('元素')).toBe(true); // \u5143 in \u3001-\uD7FF range
+    expect(run(name('café'))).toBe(true); // \u00E9 in \u00C0-\u00F6 range
+    expect(run(name('元素'))).toBe(true); // \u5143 in \u3001-\uD7FF range
   });
 
   it('rejects names starting with a digit', () => {
-    expect(name('1foo')).toBe(false);
-    expect(name('0')).toBe(false);
+    expect(run(name('1foo'))).toBe(false);
+    expect(run(name('0'))).toBe(false);
   });
 
   it('rejects names starting with hyphen or dot', () => {
-    expect(name('-foo')).toBe(false);
-    expect(name('.foo')).toBe(false);
+    expect(run(name('-foo'))).toBe(false);
+    expect(run(name('.foo'))).toBe(false);
   });
 
   it('rejects names with illegal characters', () => {
-    expect(name('foo bar')).toBe(false);
-    expect(name('foo!')).toBe(false);
-    expect(name('foo@bar')).toBe(false);
-    expect(name("foo'bar")).toBe(false);
+    expect(run(name('foo bar'))).toBe(false);
+    expect(run(name('foo!'))).toBe(false);
+    expect(run(name('foo@bar'))).toBe(false);
+    expect(run(name("foo'bar"))).toBe(false);
   });
 
   it('rejects empty string', () => {
-    expect(name('')).toBe(false);
+    expect(run(name(''))).toBe(false);
   });
 
   it('validates DOCTYPE entity names (Name production, not QName)', () => {
-    expect(name('myEntity')).toBe(true);
-    expect(name('my.entity-1')).toBe(true);
+    expect(run(name('myEntity'))).toBe(true);
+    expect(run(name('my.entity-1'))).toBe(true);
   });
 });
 
@@ -91,17 +91,17 @@ describe('name() — XML 1.0 vs 1.1 differences', () => {
   // by splitting the range into \u037F-\u0486 and \u0488-\u1FFF.
   // Valid NameChar (not NameStartChar) in XML 1.1.
   it('rejects \\u0487 as NameChar in XML 1.0', () => {
-    expect(name('foo\u0487', { xmlVersion: '1.0' })).toBe(false);
+    expect(run(name('foo\u0487', { xmlVersion: '1.0' }))).toBe(false);
   });
 
   it('accepts \\u0487 as NameChar in XML 1.1', () => {
-    expect(name('foo\u0487', { xmlVersion: '1.1' })).toBe(true);
+    expect(run(name('foo\u0487', { xmlVersion: '1.1' }))).toBe(true);
   });
 
   it('rejects \\u0487 as NameStartChar in both versions', () => {
     // \u0487 is a combining mark — never valid as first character
-    expect(name('\u0487foo', { xmlVersion: '1.0' })).toBe(false);
-    expect(name('\u0487foo', { xmlVersion: '1.1' })).toBe(false);
+    expect(run(name('\u0487foo', { xmlVersion: '1.0' }))).toBe(false);
+    expect(run(name('\u0487foo', { xmlVersion: '1.1' }))).toBe(false);
   });
 
   // Supplementary plane characters (\u{10000}-\u{EFFFF})
@@ -109,31 +109,31 @@ describe('name() — XML 1.0 vs 1.1 differences', () => {
   // XML 1.1: explicitly allows \u{10000}-\u{EFFFF} as NameStartChar.
   // Requires /u flag on RegExp to correctly match surrogate pairs.
   it('rejects supplementary plane char as NameStartChar in XML 1.0', () => {
-    expect(name('\u{10000}foo', { xmlVersion: '1.0' })).toBe(false);
-    expect(name('\u{1F600}foo', { xmlVersion: '1.0' })).toBe(false); // emoji U+1F600
+    expect(run(name('\u{10000}foo', { xmlVersion: '1.0' }))).toBe(false);
+    expect(run(name('\u{1F600}foo', { xmlVersion: '1.0' }))).toBe(false); // emoji U+1F600
   });
 
   it('accepts supplementary plane char as NameStartChar in XML 1.1', () => {
-    expect(name('\u{10000}foo', { xmlVersion: '1.1' })).toBe(true); // Linear B Syllable B008 A
-    expect(name('\u{1F600}foo', { xmlVersion: '1.1' })).toBe(true); // emoji U+1F600
+    expect(run(name('\u{10000}foo', { xmlVersion: '1.1' }))).toBe(true); // Linear B Syllable B008 A
+    expect(run(name('\u{1F600}foo', { xmlVersion: '1.1' }))).toBe(true); // emoji U+1F600
   });
 
   // Lone surrogates are illegal XML characters and must be rejected even in 1.1.
   // The /u flag on RegExp ensures surrogate pairs are matched as a unit,
   // so individual surrogates cannot slip through.
   it('rejects lone high surrogate in XML 1.1', () => {
-    expect(name('\uD800foo', { xmlVersion: '1.1' })).toBe(false);
-    expect(name('\uDBFF foo', { xmlVersion: '1.1' })).toBe(false);
+    expect(run(name('\uD800foo', { xmlVersion: '1.1' }))).toBe(false);
+    expect(run(name('\uDBFF foo', { xmlVersion: '1.1' }))).toBe(false);
   });
 
   it('rejects lone low surrogate in XML 1.1', () => {
-    expect(name('\uDC00foo', { xmlVersion: '1.1' })).toBe(false);
-    expect(name('\uDFFFfoo', { xmlVersion: '1.1' })).toBe(false);
+    expect(run(name('\uDC00foo', { xmlVersion: '1.1' }))).toBe(false);
+    expect(run(name('\uDFFFfoo', { xmlVersion: '1.1' }))).toBe(false);
   });
 
   it('accepts common ASCII names in both versions', () => {
-    expect(name('fooBar', { xmlVersion: '1.0' })).toBe(true);
-    expect(name('fooBar', { xmlVersion: '1.1' })).toBe(true);
+    expect(run(name('fooBar', { xmlVersion: '1.0' }))).toBe(true);
+    expect(run(name('fooBar', { xmlVersion: '1.1' }))).toBe(true);
   });
 });
 
@@ -143,31 +143,31 @@ describe('name() — XML 1.0 vs 1.1 differences', () => {
 
 describe('ncName()', () => {
   it('accepts simple names without colons', () => {
-    expect(ncName('foo')).toBe(true);
-    expect(ncName('_bar')).toBe(true);
-    expect(ncName('svg')).toBe(true);
-    expect(ncName('my-id')).toBe(true);
+    expect(run(ncName('foo'))).toBe(true);
+    expect(run(ncName('_bar'))).toBe(true);
+    expect(run(ncName('svg'))).toBe(true);
+    expect(run(ncName('my-id'))).toBe(true);
   });
 
   it('rejects any name containing a colon', () => {
-    expect(ncName('a:b')).toBe(false);
-    expect(ncName(':')).toBe(false);
-    expect(ncName('xlink:href')).toBe(false);
+    expect(run(ncName('a:b'))).toBe(false);
+    expect(run(ncName(':'))).toBe(false);
+    expect(run(ncName('xlink:href'))).toBe(false);
   });
 
   it('rejects invalid start characters', () => {
-    expect(ncName('1foo')).toBe(false);
-    expect(ncName('-foo')).toBe(false);
+    expect(run(ncName('1foo'))).toBe(false);
+    expect(run(ncName('-foo'))).toBe(false);
   });
 
   it('rejects empty string', () => {
-    expect(ncName('')).toBe(false);
+    expect(run(ncName(''))).toBe(false);
   });
 
   it('validates SVG id attribute values', () => {
-    expect(ncName('my-icon')).toBe(true);
-    expect(ncName('icon_1')).toBe(true);
-    expect(ncName('ns:icon')).toBe(false); // colon not allowed in SVG id
+    expect(run(ncName('my-icon'))).toBe(true);
+    expect(run(ncName('icon_1'))).toBe(true);
+    expect(run(ncName('ns:icon'))).toBe(false); // colon not allowed in SVG id
   });
 });
 
@@ -177,33 +177,33 @@ describe('ncName()', () => {
 
 describe('qName()', () => {
   it('accepts unprefixed names', () => {
-    expect(qName('foo')).toBe(true);
-    expect(qName('svg')).toBe(true);
+    expect(run(qName('foo'))).toBe(true);
+    expect(run(qName('svg'))).toBe(true);
   });
 
   it('accepts prefixed names with exactly one colon', () => {
-    expect(qName('svg:circle')).toBe(true);
-    expect(qName('xlink:href')).toBe(true);
-    expect(qName('xml:lang')).toBe(true);
+    expect(run(qName('svg:circle'))).toBe(true);
+    expect(run(qName('xlink:href'))).toBe(true);
+    expect(run(qName('xml:lang'))).toBe(true);
   });
 
   it('rejects names with more than one colon', () => {
-    expect(qName('a:b:c')).toBe(false);
+    expect(run(qName('a:b:c'))).toBe(false);
   });
 
   it('rejects names starting or ending with colon', () => {
-    expect(qName(':foo')).toBe(false);
-    expect(qName('foo:')).toBe(false);
-    expect(qName(':')).toBe(false);
+    expect(run(qName(':foo'))).toBe(false);
+    expect(run(qName('foo:'))).toBe(false);
+    expect(run(qName(':'))).toBe(false);
   });
 
   it('rejects invalid start characters', () => {
-    expect(qName('1foo')).toBe(false);
-    expect(qName('-foo')).toBe(false);
+    expect(run(qName('1foo'))).toBe(false);
+    expect(run(qName('-foo'))).toBe(false);
   });
 
   it('rejects empty string', () => {
-    expect(qName('')).toBe(false);
+    expect(run(qName(''))).toBe(false);
   });
 });
 
@@ -213,21 +213,21 @@ describe('qName()', () => {
 
 describe('nmToken()', () => {
   it('accepts names starting with any NameChar', () => {
-    expect(nmToken('foo')).toBe(true);
-    expect(nmToken('123')).toBe(true);
-    expect(nmToken('-bar')).toBe(true);
-    expect(nmToken('.baz')).toBe(true);
-    expect(nmToken('a:b')).toBe(true);
+    expect(run(nmToken('foo'))).toBe(true);
+    expect(run(nmToken('123'))).toBe(true);
+    expect(run(nmToken('-bar'))).toBe(true);
+    expect(run(nmToken('.baz'))).toBe(true);
+    expect(run(nmToken('a:b'))).toBe(true);
   });
 
   it('rejects strings with illegal characters', () => {
-    expect(nmToken('foo bar')).toBe(false);
-    expect(nmToken('foo!')).toBe(false);
-    expect(nmToken('@id')).toBe(false);
+    expect(run(nmToken('foo bar'))).toBe(false);
+    expect(run(nmToken('foo!'))).toBe(false);
+    expect(run(nmToken('@id'))).toBe(false);
   });
 
   it('rejects empty string', () => {
-    expect(nmToken('')).toBe(false);
+    expect(run(nmToken(''))).toBe(false);
   });
 });
 
@@ -237,22 +237,22 @@ describe('nmToken()', () => {
 
 describe('nmTokens()', () => {
   it('accepts a single token', () => {
-    expect(nmTokens('foo')).toBe(true);
-    expect(nmTokens('123')).toBe(true);
+    expect(run(nmTokens('foo'))).toBe(true);
+    expect(run(nmTokens('123'))).toBe(true);
   });
 
   it('accepts multiple whitespace-separated tokens', () => {
-    expect(nmTokens('foo bar')).toBe(true);
-    expect(nmTokens('token1 token2 -foo 123')).toBe(true);
+    expect(run(nmTokens('foo bar'))).toBe(true);
+    expect(run(nmTokens('token1 token2 -foo 123'))).toBe(true);
   });
 
   it('rejects strings with illegal characters', () => {
-    expect(nmTokens('foo!')).toBe(false);
-    expect(nmTokens('foo @bar')).toBe(false);
+    expect(run(nmTokens('foo!'))).toBe(false);
+    expect(run(nmTokens('foo @bar'))).toBe(false);
   });
 
   it('rejects empty string', () => {
-    expect(nmTokens('')).toBe(false);
+    expect(run(nmTokens(''))).toBe(false);
   });
 });
 
@@ -363,53 +363,53 @@ describe('validateAll()', () => {
 
 describe('sanitize()', () => {
   it('prefixes underscore when name starts with a digit', () => {
-    expect(sanitize('123abc', 'ncName')).toBe('_123abc');
+    expect(run(sanitize('123abc', 'ncName'))).toBe('_123abc');
   });
 
   it('replaces spaces with underscore by default', () => {
-    expect(sanitize('my element', 'name')).toBe('my_element');
+    expect(run(sanitize('my element', 'name'))).toBe('my_element');
   });
 
   it('removes colons for ncName production', () => {
-    expect(sanitize('foo:bar', 'ncName')).toBe('foobar');
+    expect(run(sanitize('foo:bar', 'ncName'))).toBe('foobar');
   });
 
   it('removes multiple colons for ncName production', () => {
-    expect(sanitize('a:b:c', 'ncName')).toBe('abc');
+    expect(run(sanitize('a:b:c', 'ncName'))).toBe('abc');
   });
 
   it('replaces illegal characters', () => {
-    expect(sanitize('foo!bar', 'name')).toBe('foo_bar');
-    expect(sanitize('hello@world', 'name')).toBe('hello_world');
+    expect(run(sanitize('foo!bar', 'name'))).toBe('foo_bar');
+    expect(run(sanitize('hello@world', 'name'))).toBe('hello_world');
   });
 
   it('uses custom replacement character', () => {
-    expect(sanitize('foo bar', 'name', { replacement: '-' })).toBe('foo-bar');
+    expect(run(sanitize('foo bar', 'name', { replacement: '-' }))).toBe('foo-bar');
   });
 
   it('handles empty string', () => {
-    expect(sanitize('', 'name')).toBe('_');
+    expect(run(sanitize('', 'name'))).toBe('_');
   });
 
   it('does not modify already valid names', () => {
-    expect(sanitize('validName', 'name')).toBe('validName');
-    expect(sanitize('svg:circle', 'qName')).toBe('svg:circle');
+    expect(run(sanitize('validName', 'name'))).toBe('validName');
+    expect(run(sanitize('svg:circle', 'qName'))).toBe('svg:circle');
   });
 
   it('defaults to the Name production', () => {
-    expect(sanitize('123abc')).toBe('_123abc');
+    expect(run(sanitize('123abc'))).toBe('_123abc');
   });
 
   it('does not prepend for nmToken (digit start is valid)', () => {
-    expect(sanitize('123abc', 'nmToken')).toBe('123abc');
+    expect(run(sanitize('123abc', 'nmToken'))).toBe('123abc');
   });
 
   it('replaces non-ASCII characters when asciiOnly is true', () => {
-    expect(sanitize('café', 'name', { asciiOnly: true })).toBe('caf_');
+    expect(run(sanitize('café', 'name', { asciiOnly: true }))).toBe('caf_');
   });
 
   it('keeps non-ASCII characters when asciiOnly is false (default)', () => {
-    expect(sanitize('café', 'name')).toBe('café');
+    expect(run(sanitize('café', 'name'))).toBe('café');
   });
 });
 
@@ -421,48 +421,48 @@ describe('asciiOnly option', () => {
   it('is off by default — behaviour is unchanged when the option is omitted', () => {
     // Same assertions as the default-behaviour specs above, repeated here as
     // an explicit backward-compatibility regression check.
-    expect(name('café')).toBe(true);
-    expect(name('元素')).toBe(true);
-    expect(ncName('café')).toBe(true);
-    expect(qName('svg:café')).toBe(true);
+    expect(run(name('café'))).toBe(true);
+    expect(run(name('元素'))).toBe(true);
+    expect(run(ncName('café'))).toBe(true);
+    expect(run(qName('svg:café'))).toBe(true);
   });
 
   it('accepts plain ASCII names identically to the default matcher', () => {
     const opts = { asciiOnly: true };
-    expect(name('foo', opts)).toBe(true);
-    expect(name('_bar', opts)).toBe(true);
-    expect(name('a1', opts)).toBe(true);
-    expect(name('a-b.c', opts)).toBe(true);
-    expect(name('a:b:c', opts)).toBe(true);
-    expect(ncName('my-id_1', opts)).toBe(true);
-    expect(qName('svg:circle', opts)).toBe(true);
-    expect(nmToken('123', opts)).toBe(true);
-    expect(nmTokens('tok1 tok2 -foo 123', opts)).toBe(true);
+    expect(run(name('foo', opts))).toBe(true);
+    expect(run(name('_bar', opts))).toBe(true);
+    expect(run(name('a1', opts))).toBe(true);
+    expect(run(name('a-b.c', opts))).toBe(true);
+    expect(run(name('a:b:c', opts))).toBe(true);
+    expect(run(ncName('my-id_1', opts))).toBe(true);
+    expect(run(qName('svg:circle', opts))).toBe(true);
+    expect(run(nmToken('123', opts))).toBe(true);
+    expect(run(nmTokens('tok1 tok2 -foo 123', opts))).toBe(true);
   });
 
   it('still rejects structurally invalid ASCII names', () => {
     const opts = { asciiOnly: true };
-    expect(name('1foo', opts)).toBe(false);
-    expect(name('-foo', opts)).toBe(false);
-    expect(name('foo bar', opts)).toBe(false);
-    expect(ncName('foo:bar', opts)).toBe(false);
-    expect(qName('a:b:c', opts)).toBe(false);
+    expect(run(name('1foo', opts))).toBe(false);
+    expect(run(name('-foo', opts))).toBe(false);
+    expect(run(name('foo bar', opts))).toBe(false);
+    expect(run(ncName('foo:bar', opts))).toBe(false);
+    expect(run(qName('a:b:c', opts))).toBe(false);
   });
 
   it('rejects non-ASCII names that are valid under the default matcher', () => {
     const opts = { asciiOnly: true };
-    expect(name('café', opts)).toBe(false); // \u00E9 accepted by default, not ASCII
-    expect(name('元素', opts)).toBe(false); // valid Han range char, not ASCII
-    expect(ncName('café', opts)).toBe(false);
-    expect(qName('svg:café', opts)).toBe(false);
+    expect(run(name('café', opts))).toBe(false); // \u00E9 accepted by default, not ASCII
+    expect(run(name('元素', opts))).toBe(false); // valid Han range char, not ASCII
+    expect(run(ncName('café', opts))).toBe(false);
+    expect(run(qName('svg:café', opts))).toBe(false);
   });
 
   it('works the same for xmlVersion 1.1 without needing the /u flag', () => {
     const opts11 = { xmlVersion: '1.1', asciiOnly: true } as const;
-    expect(name('foo-bar_1', opts11)).toBe(true);
-    expect(name('\u{10000}foo', opts11)).toBe(false); // supplementary plane, not ASCII
+    expect(run(name('foo-bar_1', opts11))).toBe(true);
+    expect(run(name('\u{10000}foo', opts11))).toBe(false); // supplementary plane, not ASCII
     // Sanity check: same input is valid under 1.1 when asciiOnly is off.
-    expect(name('\u{10000}foo', { xmlVersion: '1.1' })).toBe(true);
+    expect(run(name('\u{10000}foo', { xmlVersion: '1.1' }))).toBe(true);
   });
 
   it('keeps validate() reason/position consistent with the ASCII-only result', () => {
@@ -499,7 +499,7 @@ describe('createValidator()', () => {
     const isName = run(createValidator('name'));
     const cases = ['foo', '1foo', 'a:b:c', '-bad', '', 'café', ':', 'a-b.c1'];
     for (const str of cases) {
-      expect(isName(str)).toBe(name(str));
+      expect(run(isName(str))).toBe(run(name(str)));
     }
   });
 
@@ -507,7 +507,7 @@ describe('createValidator()', () => {
     const isQName = run(createValidator('qName'));
     const cases = ['svg:circle', 'foo', 'a:b:c', ':foo', 'foo:'];
     for (const str of cases) {
-      expect(isQName(str)).toBe(qName(str));
+      expect(run(isQName(str))).toBe(run(qName(str)));
     }
   });
 
@@ -515,16 +515,16 @@ describe('createValidator()', () => {
     const isNc = run(createValidator('ncName'));
     const cases = ['my-id', 'xlink:href', 'foo'];
     for (const str of cases) {
-      expect(isNc(str)).toBe(ncName(str));
+      expect(run(isNc(str))).toBe(run(ncName(str)));
     }
   });
 
   it('matches the uncached validator for nmToken and nmTokens', () => {
     const isTok = run(createValidator('nmToken'));
     const isToks = run(createValidator('nmTokens'));
-    expect(isTok('123')).toBe(nmToken('123'));
-    expect(isTok('foo bar')).toBe(nmToken('foo bar'));
-    expect(isToks('tok1 tok2 -foo 123')).toBe(nmTokens('tok1 tok2 -foo 123'));
+    expect(run(isTok('123'))).toBe(run(nmToken('123')));
+    expect(run(isTok('foo bar'))).toBe(run(nmToken('foo bar')));
+    expect(run(isToks('tok1 tok2 -foo 123'))).toBe(run(nmTokens('tok1 tok2 -foo 123')));
   });
 
   it('respects xmlVersion fixed at creation time', () => {
@@ -532,56 +532,56 @@ describe('createValidator()', () => {
     const is11 = run(createValidator('name', { xmlVersion: '1.1' }));
     // Supplementary-plane char is only valid as a NameStartChar in XML 1.1
     const supplementaryChar = '\u{10000}';
-    expect(is10(supplementaryChar)).toBe(false);
-    expect(is11(supplementaryChar)).toBe(true);
+    expect(run(is10(supplementaryChar))).toBe(false);
+    expect(run(is11(supplementaryChar))).toBe(true);
   });
 
   it('respects asciiOnly fixed at creation time', () => {
     const isAscii = run(createValidator('name', { asciiOnly: true }));
     const isUnicode = run(createValidator('name', { asciiOnly: false }));
-    expect(isAscii('café')).toBe(false);
-    expect(isUnicode('café')).toBe(true);
+    expect(run(isAscii('café'))).toBe(false);
+    expect(run(isUnicode('café'))).toBe(true);
   });
 
   it('returns the same boolean result on repeated calls (cache hit path)', () => {
     const isQName = run(createValidator('qName'));
-    expect(isQName('sku')).toBe(true);
-    expect(isQName('sku')).toBe(true);
-    expect(isQName('1bad')).toBe(false);
-    expect(isQName('1bad')).toBe(false);
+    expect(run(isQName('sku'))).toBe(true);
+    expect(run(isQName('sku'))).toBe(true);
+    expect(run(isQName('1bad'))).toBe(false);
+    expect(run(isQName('1bad'))).toBe(false);
   });
 
   it('stops caching new entries once maxCacheSize is reached, but keeps validating correctly', () => {
     const isName = run(createValidator('name', { maxCacheSize: 2 }));
-    expect(isName('a')).toBe(true);
-    expect(isName('b')).toBe(true);
+    expect(run(isName('a'))).toBe(true);
+    expect(run(isName('b'))).toBe(true);
     // cache is now full (size 2) — further distinct inputs are still validated
     // correctly, just not cached
-    expect(isName('c')).toBe(true);
-    expect(isName('1bad')).toBe(false);
-    expect(isName('d')).toBe(true);
+    expect(run(isName('c'))).toBe(true);
+    expect(run(isName('1bad'))).toBe(false);
+    expect(run(isName('d'))).toBe(true);
     // previously cached entries still resolve correctly
-    expect(isName('a')).toBe(true);
-    expect(isName('b')).toBe(true);
+    expect(run(isName('a'))).toBe(true);
+    expect(run(isName('b'))).toBe(true);
   });
 
   it('exposes a reset() method that clears the cache without breaking correctness', () => {
     const isName = run(createValidator('name', { maxCacheSize: 1 }));
-    expect(isName('a')).toBe(true); // fills cache
-    expect(isName('b')).toBe(true); // not cached (cache full)
-    isName.reset();
-    expect(isName('b')).toBe(true); // now cacheable again post-reset
-    expect(isName('a')).toBe(true);
+    expect(run(isName('a'))).toBe(true); // fills cache
+    expect(run(isName('b'))).toBe(true); // not cached (cache full)
+    run(isName.reset());
+    expect(run(isName('b'))).toBe(true); // now cacheable again post-reset
+    expect(run(isName('a'))).toBe(true);
   });
 
   it('keeps caches independent across separate createValidator instances', () => {
     const v1 = run(createValidator('name', { maxCacheSize: 1 }));
     const v2 = run(createValidator('name', { maxCacheSize: 1 }));
-    v1('x');
-    v2('y');
+    run(v1('x'));
+    run(v2('y'));
     // Filling v1's single-entry cache with 'x' must not affect v2's ability
     // to validate/cache 'y', and vice versa — no shared state.
-    expect(v1('x')).toBe(true);
-    expect(v2('y')).toBe(true);
+    expect(run(v1('x'))).toBe(true);
+    expect(run(v2('y'))).toBe(true);
   });
 });

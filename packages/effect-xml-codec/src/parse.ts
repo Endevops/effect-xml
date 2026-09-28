@@ -31,9 +31,11 @@ import { XmlParseError } from './errors.ts';
 
 /**
  * @description Resolves character references. The default expansion limits are zero, which the decoder treats as unlimited, so one instance can be shared for the
- * process; the counters it keeps are only ever compared against a non-zero limit.
+ * process; the counters it keeps are only ever compared against a non-zero limit. `make` is effectful only because it refuses a `null` options
+ * object, and the argument here is a literal — so `runSync` is sound rather than a cast, and it keeps the decoder a module constant instead of a
+ * promise of one.
  */
-const decoder = new EntityDecoder();
+const decoder = Effect.runSync(EntityDecoder.make());
 
 /**
  * @description A parsed document: the root element's name, and its content as an {@link XmlValue}.
@@ -216,16 +218,14 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     const cached = nameCache.get(raw);
     if (cached !== undefined) return cached;
 
-    let name: string;
-    try {
-      name = resolveName(raw, nameOptions);
-    } catch (cause) {
-      // `resolveName` throws a `TypeError` because it is also called from the
-      // renderer, which has no error channel. Here the failure is a property of
-      // the document, so it becomes a parse error like any other.
-      const reason = cause instanceof Error ? cause.message : String(cause);
-      return fail(`${what} ${JSON.stringify(raw)} is not a legal XML name: ${reason}`, position);
-    }
+    // `resolveName` returns an effect, as every entry point in the naming package does. The parser's
+    // own loop is synchronous and reports through `fail`, so the effect is run here and its failure
+    // routed into the same place — a rejected name is a property of the document either way.
+    const name = Effect.runSync(
+      Effect.mapError(resolveName(raw, nameOptions), cause => {
+        fail(`${what} ${JSON.stringify(raw)} is not a legal XML name: ${cause.message}`, position);
+      })
+    );
 
     nameCache.set(raw, name);
     return name;

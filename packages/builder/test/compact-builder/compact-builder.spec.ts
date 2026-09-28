@@ -16,7 +16,7 @@ import type { BuilderError } from '#/errors.ts';
 import type { CompactParserOptions, FactoryOptions, ForceArrayPredicate } from '#/index.ts';
 
 import { CompactBuilderFactory } from '#/index.ts';
-import { failed, makeFactory, run } from '#/test/helpers/effect.ts';
+import { failed, makeFactory, run, runAny } from '#/test/helpers/effect.ts';
 
 /**
  * @description The one place a spec runs an effect from either package. The `run` in the shared helper is typed for this package's `BuilderError`, and several
@@ -47,22 +47,22 @@ type WalkNode = Record<string, unknown>;
  * @param builderOptions - This builder's options.
  * @param parserOptions - Overrides for the assumed parser options.
  *
- * @returns An effect producing `getOutput()`. The walk is a sequence of fallible builder calls — `addAttribute` runs the value chain — so it is
- *   written as one rather than a callback that has to swallow each failure.
+ * @returns An effect producing `getOutput()`. The walk is a sequence of fallible calls — a builder method, then the matcher's own — so it is written
+ *   as one rather than a callback that has to swallow each failure. The channel is the union of the two packages' error types, which is why the specs
+ *   run it with `runAny` rather than `run`.
  */
 const build = (
   input: WalkNode,
   builderOptions: FactoryOptions = {},
   parserOptions: Partial<CompactParserOptions> = {}
-): Effect.Effect<unknown, BuilderError> =>
+): Effect.Effect<unknown, BuilderError | XmlError> =>
   Effect.gen(function* () {
     const matcher = new Matcher();
-    const builder = yield* makeFactory(builderOptions).getInstance(
-      { ...PARSER_OPTIONS, ...parserOptions } as CompactParserOptions,
-      matcher.readOnly()
+    const builder = run(
+      makeFactory(builderOptions).getInstance({ ...PARSER_OPTIONS, ...parserOptions } as CompactParserOptions, runXml(matcher.readOnly()))
     );
 
-    const walk = Effect.fnUntraced(function* (node: WalkNode, tagName: string): Effect.fn.Return<void, BuilderError> {
+    const walk = Effect.fnUntraced(function* (node: WalkNode, tagName: string): Effect.fn.Return<void, BuilderError | XmlError> {
       const attributes: Record<string, unknown> = {};
       let text = '';
       const children: [string, unknown][] = [];
@@ -77,10 +77,10 @@ const build = (
         }
       }
 
-      matcher.push(tagName);
-      for (const [name, value] of Object.entries(attributes)) yield* builder.addAttribute(name, value, matcher.readOnly());
-      builder.addElement({ name: tagName, index: matcher.getDepth() }, matcher.readOnly());
-      if (text) builder.addValue(text, matcher.readOnly());
+      runXml(matcher.push(tagName));
+      for (const [name, value] of Object.entries(attributes)) yield* builder.addAttribute(name, value, runXml(matcher.readOnly()));
+      builder.addElement({ name: tagName, index: runXml(matcher.getDepth()) }, runXml(matcher.readOnly()));
+      if (text) builder.addValue(text, runXml(matcher.readOnly()));
       for (const [name, value] of children) {
         if (Array.isArray(value)) {
           for (const item of value) yield* walk(asNode(item), name);
@@ -88,8 +88,8 @@ const build = (
           yield* walk(asNode(value), name);
         }
       }
-      yield* builder.closeElement(matcher.readOnly(), { name: tagName });
-      matcher.pop();
+      yield* builder.closeElement(runXml(matcher.readOnly()), { name: tagName });
+      runXml(matcher.pop());
     });
 
     for (const [name, value] of Object.entries(input)) {
@@ -117,28 +117,28 @@ const asNode = (value: unknown): WalkNode =>
 
 describe('CompactBuilder — leaf shape', () => {
   it('collapses a text-only tag to its parsed value', () => {
-    expect(run(build({ a: 'text' }))).toEqual({ a: 'text' });
+    expect(runAny(build({ a: 'text' }))).toEqual({ a: 'text' });
   });
 
   it('runs text through the value chain, so "42" becomes 42', () => {
-    expect(run(build({ a: '42' }))).toEqual({ a: 42 });
-    expect(run(build({ a: 'true' }))).toEqual({ a: true });
+    expect(runAny(build({ a: '42' }))).toEqual({ a: 42 });
+    expect(runAny(build({ a: 'true' }))).toEqual({ a: true });
   });
 
   it('trims and collapses whitespace in element text', () => {
-    expect(run(build({ a: '  spaced   out  ' }))).toEqual({ a: 'spaced out' });
+    expect(runAny(build({ a: '  spaced   out  ' }))).toEqual({ a: 'spaced out' });
   });
 
   it('expands entities in element text', () => {
-    expect(run(build({ a: '&amp;' }))).toEqual({ a: '&' });
+    expect(runAny(build({ a: '&amp;' }))).toEqual({ a: '&' });
   });
 
   it('collapses a tag with no content to an empty string', () => {
-    expect(run(build({ a: {} }))).toEqual({ a: '' });
+    expect(runAny(build({ a: {} }))).toEqual({ a: '' });
   });
 
   it('emits the root object directly, not wrapped', () => {
-    expect(run(build({ a: '1', b: '2' }))).toEqual({ a: 1, b: 2 });
+    expect(runAny(build({ a: '1', b: '2' }))).toEqual({ a: 1, b: 2 });
   });
 });
 
@@ -146,30 +146,30 @@ describe('CompactBuilder — leaf shape', () => {
 
 describe('CompactBuilder — object shapes', () => {
   it('nests child tags as an object', () => {
-    expect(run(build({ a: { b: '1' } }))).toEqual({ a: { b: 1 } });
+    expect(runAny(build({ a: { b: '1' } }))).toEqual({ a: { b: 1 } });
   });
 
   it('nests deeply', () => {
-    expect(run(build({ a: { b: { c: { d: 'deep' } } } }))).toEqual({ a: { b: { c: { d: 'deep' } } } });
+    expect(runAny(build({ a: { b: { c: { d: 'deep' } } } }))).toEqual({ a: { b: { c: { d: 'deep' } } } });
   });
 
   it('keeps siblings as separate keys', () => {
-    expect(run(build({ a: { b: '1', c: '2' } }))).toEqual({ a: { b: 1, c: 2 } });
+    expect(runAny(build({ a: { b: '1', c: '2' } }))).toEqual({ a: { b: 1, c: 2 } });
   });
 
   it('merges text into a non-leaf as the text key', () => {
-    expect(run(build({ a: { '#text': 'mixed', b: 'child' } }))).toEqual({ a: { b: 'child', '#text': 'mixed' } });
+    expect(runAny(build({ a: { '#text': 'mixed', b: 'child' } }))).toEqual({ a: { b: 'child', '#text': 'mixed' } });
   });
 
   it('does not add a text key to a non-leaf with no text of its own', () => {
-    expect(run(build({ a: { b: '1' } }))).toEqual({ a: { b: 1 } });
-    expect(Object.keys((run(build({ a: { b: '1' } })) as { a: object }).a)).toEqual(['b']);
+    expect(runAny(build({ a: { b: '1' } }))).toEqual({ a: { b: 1 } });
+    expect(Object.keys((runAny(build({ a: { b: '1' } })) as { a: object }).a)).toEqual(['b']);
   });
 
   it('produces no cycle for a nested document', () => {
     // A regression guard: an earlier version of this port captured the wrong
     // parent in the tag stack, which made every document self-referential.
-    const out = run(build({ a: { b: { c: '1' } } })) as { a: { b: { c: unknown } } };
+    const out = runAny(build({ a: { b: { c: '1' } } })) as { a: { b: { c: unknown } } };
     expect(out.a).not.toBe(out.a.b);
     expect(out.a.b.c).toBe(1);
   });
@@ -182,21 +182,21 @@ describe('CompactBuilder — attributes', () => {
   // arrives as `1`. Every expectation below is post-chain.
 
   it('folds attributes into the value when there is text', () => {
-    expect(run(build({ a: { '@_id': '1', '#text': 'hello' } }))).toEqual({ a: { '@_id': 1, '#text': 'hello' } });
+    expect(runAny(build({ a: { '@_id': '1', '#text': 'hello' } }))).toEqual({ a: { '@_id': 1, '#text': 'hello' } });
   });
 
   it('emits a tag with only attributes as an object', () => {
-    expect(run(build({ a: { '@_id': '1' } }))).toEqual({ a: { '@_id': 1 } });
+    expect(runAny(build({ a: { '@_id': '1' } }))).toEqual({ a: { '@_id': 1 } });
   });
 
   it('does not add an empty text key alongside attributes', () => {
     // A spurious `#text: ''` would be indistinguishable from real empty text.
-    expect(run(build({ a: { '@_id': '1', '#text': '' } }))).toEqual({ a: { '@_id': 1 } });
+    expect(runAny(build({ a: { '@_id': '1', '#text': '' } }))).toEqual({ a: { '@_id': 1 } });
   });
 
   it('groups attributes under groupBy when configured', () => {
     expect(
-      run(
+      runAny(
         build({ a: { '@_id': '1', '#text': 'x' } }, {}, { attributes: { prefix: '@_', suffix: '', groupBy: '$' } } as Partial<CompactParserOptions>)
       )
     ).toEqual({ a: { $: { '@_id': 1 }, '#text': 'x' } });
@@ -204,17 +204,17 @@ describe('CompactBuilder — attributes', () => {
 
   it('applies the configured prefix and suffix', () => {
     expect(
-      run(build({ a: { '@_id': '1' } }, {}, { attributes: { prefix: '', suffix: '_s', groupBy: '' } } as Partial<CompactParserOptions>))
+      runAny(build({ a: { '@_id': '1' } }, {}, { attributes: { prefix: '', suffix: '_s', groupBy: '' } } as Partial<CompactParserOptions>))
     ).toEqual({ a: { id_s: 1 } });
   });
 
   it('runs attribute values through the attribute chain', () => {
-    expect(run(build({ a: { '@_n': '42' } }))).toEqual({ a: { '@_n': 42 } });
-    expect(run(build({ a: { '@_b': 'true' } }))).toEqual({ a: { '@_b': true } });
+    expect(runAny(build({ a: { '@_n': '42' } }))).toEqual({ a: { '@_n': 42 } });
+    expect(runAny(build({ a: { '@_b': 'true' } }))).toEqual({ a: { '@_b': true } });
   });
 
   it('does not normalize attribute whitespace', () => {
-    expect(run(build({ a: { '@_v': '  x  y  ' } }))).toEqual({ a: { '@_v': '  x  y  ' } });
+    expect(runAny(build({ a: { '@_v': '  x  y  ' } }))).toEqual({ a: { '@_v': '  x  y  ' } });
   });
 });
 
@@ -222,15 +222,15 @@ describe('CompactBuilder — attributes', () => {
 
 describe('CompactBuilder — forceTextNode', () => {
   it('wraps a text-only tag in the text key', () => {
-    expect(run(build({ a: 'text' }, { forceTextNode: true }))).toEqual({ a: { '#text': 'text' } });
+    expect(runAny(build({ a: 'text' }, { forceTextNode: true }))).toEqual({ a: { '#text': 'text' } });
   });
 
   it('writes an empty text key for an empty tag', () => {
-    expect(run(build({ a: {} }, { forceTextNode: true }))).toEqual({ a: { '#text': '' } });
+    expect(runAny(build({ a: {} }, { forceTextNode: true }))).toEqual({ a: { '#text': '' } });
   });
 
   it('writes an empty text key alongside attributes', () => {
-    expect(run(build({ a: { '@_id': '1', '#text': '' } }, { forceTextNode: true }))).toEqual({ a: { '@_id': 1, '#text': '' } });
+    expect(runAny(build({ a: { '@_id': '1', '#text': '' } }, { forceTextNode: true }))).toEqual({ a: { '@_id': 1, '#text': '' } });
   });
 
   it('wraps leaves too, and gives a childless parent an empty text key', () => {
@@ -238,7 +238,7 @@ describe('CompactBuilder — forceTextNode', () => {
     // inner `b` is a leaf, and the outer `a` gets `#text: ''` because
     // closeElement writes the text key whenever the flag is set, not only when
     // there was text.
-    expect(run(build({ a: { b: '1' } }, { forceTextNode: true }))).toEqual({ a: { b: { '#text': 1 }, '#text': '' } });
+    expect(runAny(build({ a: { b: '1' } }, { forceTextNode: true }))).toEqual({ a: { b: { '#text': 1 }, '#text': '' } });
   });
 });
 
@@ -246,23 +246,23 @@ describe('CompactBuilder — forceTextNode', () => {
 
 describe('CompactBuilder — repeated tags', () => {
   it('keeps a single occurrence a bare value', () => {
-    expect(run(build({ a: '1' }))).toEqual({ a: 1 });
+    expect(runAny(build({ a: '1' }))).toEqual({ a: 1 });
   });
 
   it('promotes the second occurrence to an array', () => {
-    expect(run(build({ a: ['1', '2'] }))).toEqual({ a: [1, 2] });
+    expect(runAny(build({ a: ['1', '2'] }))).toEqual({ a: [1, 2] });
   });
 
   it('handles three or more occurrences', () => {
-    expect(run(build({ a: ['1', '2', '3'] }))).toEqual({ a: [1, 2, 3] });
+    expect(runAny(build({ a: ['1', '2', '3'] }))).toEqual({ a: [1, 2, 3] });
   });
 
   it('collects mixed repeated shapes', () => {
-    expect(run(build({ a: ['x', { b: 'y' }] }))).toEqual({ a: ['x', { b: 'y' }] });
+    expect(runAny(build({ a: ['x', { b: 'y' }] }))).toEqual({ a: ['x', { b: 'y' }] });
   });
 
   it('collects repeated attributed tags', () => {
-    expect(run(build({ a: [{ '@_k': '1' }, { '@_k': '2' }] }))).toEqual({ a: [{ '@_k': 1 }, { '@_k': 2 }] });
+    expect(runAny(build({ a: [{ '@_k': '1' }, { '@_k': '2' }] }))).toEqual({ a: [{ '@_k': 1 }, { '@_k': 2 }] });
   });
 });
 
@@ -270,32 +270,32 @@ describe('CompactBuilder — repeated tags', () => {
 
 describe('CompactBuilder — alwaysArray', () => {
   it('wraps a single occurrence when the path matches', () => {
-    expect(run(build({ a: '1' }, { alwaysArray: ['a'] }))).toEqual({ a: [1] });
+    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'] }))).toEqual({ a: [1] });
   });
 
   it('leaves a non-matching tag alone', () => {
-    expect(run(build({ a: '1', b: '2' }, { alwaysArray: ['a'] }))).toEqual({ a: [1], b: 2 });
+    expect(runAny(build({ a: '1', b: '2' }, { alwaysArray: ['a'] }))).toEqual({ a: [1], b: 2 });
   });
 
   it('matches at any depth with a deep wildcard', () => {
-    expect(run(build({ root: { item: '1' } }, { alwaysArray: ['..item'] }))).toEqual({ root: { item: [1] } });
+    expect(runAny(build({ root: { item: '1' } }, { alwaysArray: ['..item'] }))).toEqual({ root: { item: [1] } });
   });
 
   it('matches an exact path', () => {
-    expect(run(build({ a: { b: '1' } }, { alwaysArray: ['a.b'] }))).toEqual({ a: { b: [1] } });
-    expect(run(build({ a: { b: '1' } }, { alwaysArray: ['a.c'] }))).toEqual({ a: { b: 1 } });
+    expect(runAny(build({ a: { b: '1' } }, { alwaysArray: ['a.b'] }))).toEqual({ a: { b: [1] } });
+    expect(runAny(build({ a: { b: '1' } }, { alwaysArray: ['a.c'] }))).toEqual({ a: { b: 1 } });
   });
 
   it('accepts a pre-compiled Expression', () => {
-    expect(run(build({ a: '1' }, { alwaysArray: [runXml(Expression.make('a'))] }))).toEqual({ a: [1] });
+    expect(runAny(build({ a: '1' }, { alwaysArray: [runXml(Expression.make('a'))] }))).toEqual({ a: [1] });
   });
 
   it('accepts a wildcard tag', () => {
-    expect(run(build({ a: '1', b: '2' }, { alwaysArray: ['*'] }))).toEqual({ a: [1], b: [2] });
+    expect(runAny(build({ a: '1', b: '2' }, { alwaysArray: ['*'] }))).toEqual({ a: [1], b: [2] });
   });
 
   it('changes nothing when the list is empty', () => {
-    expect(run(build({ a: '1' }, { alwaysArray: [] }))).toEqual({ a: 1 });
+    expect(runAny(build({ a: '1' }, { alwaysArray: [] }))).toEqual({ a: 1 });
   });
 });
 
@@ -305,37 +305,37 @@ describe('CompactBuilder — forceArray', () => {
   const vote = (fn: ForceArrayPredicate) => fn;
 
   it('forces when it votes true', () => {
-    expect(run(build({ a: '1' }, { forceArray: vote(() => true) }))).toEqual({ a: [1] });
+    expect(runAny(build({ a: '1' }, { forceArray: vote(() => true) }))).toEqual({ a: [1] });
   });
 
   it('abstains when it returns undefined, leaving the default shape', () => {
-    expect(run(build({ a: '1' }, { forceArray: vote(() => undefined) }))).toEqual({ a: 1 });
+    expect(runAny(build({ a: '1' }, { forceArray: vote(() => undefined) }))).toEqual({ a: 1 });
   });
 
   it('vetoes when it returns false, overriding an alwaysArray match', () => {
     // The whole reason forceArray can return three states: a veto has to be able
     // to beat alwaysArray, and an abstention must not.
-    expect(run(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) }))).toEqual({ a: 1 });
+    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) }))).toEqual({ a: 1 });
   });
 
   it('loses to an alwaysArray match when it abstains', () => {
-    expect(run(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => undefined) }))).toEqual({ a: [1] });
+    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => undefined) }))).toEqual({ a: [1] });
   });
 
   it('agrees with alwaysArray when both vote true', () => {
-    expect(run(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => true) }))).toEqual({ a: [1] });
+    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => true) }))).toEqual({ a: [1] });
   });
 
   it('decides per tag from the path', () => {
-    expect(run(build({ a: '1', b: '2' }, { forceArray: vote(m => m.getCurrentTag() === 'a') }))).toEqual({ a: [1], b: 2 });
+    expect(runAny(build({ a: '1', b: '2' }, { forceArray: vote(m => runXml(m.getCurrentTag()) === 'a') }))).toEqual({ a: [1], b: 2 });
   });
 
   it('sees the leaf flag', () => {
-    expect(run(build({ a: { b: '1' } }, { forceArray: vote((_m, isLeaf) => (isLeaf ? true : undefined)) }))).toEqual({ a: { b: [1] } });
+    expect(runAny(build({ a: { b: '1' } }, { forceArray: vote((_m, isLeaf) => (isLeaf ? true : undefined)) }))).toEqual({ a: { b: [1] } });
   });
 
   it('sees an alwaysArray match it does not agree with', () => {
-    expect(run(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) }))).toEqual({ a: 1 });
+    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) }))).toEqual({ a: 1 });
   });
 
   it('treats a non-boolean return as an abstention', () => {
@@ -343,7 +343,7 @@ describe('CompactBuilder — forceArray', () => {
     // anything else is silence — which is what lets a callback return a
     // conditional expression without guarding every branch.
     const truthy = () => 'yes' as unknown as boolean;
-    expect(run(build({ a: '1' }, { forceArray: truthy }))).toEqual({ a: 1 });
+    expect(runAny(build({ a: '1' }, { forceArray: truthy }))).toEqual({ a: 1 });
   });
 });
 
@@ -351,39 +351,39 @@ describe('CompactBuilder — forceArray', () => {
 
 describe('CompactBuilder — textJoint', () => {
   it('joins nothing when there is one chunk', () => {
-    expect(run(build({ a: 'x' }, { textJoint: ' ' }))).toEqual({ a: 'x' });
+    expect(runAny(build({ a: 'x' }, { textJoint: ' ' }))).toEqual({ a: 'x' });
   });
 
   it('collapses consecutive text into the whitespace-normalized value', () => {
     // `ws` runs first in the default chain, so any joint the caller sets is
     // normalized away for element text — visible only on a non-default chain.
-    expect(run(build({ a: 'x' }, { textJoint: '|', tags: { valueParsers: [] } }))).toEqual({ a: 'x' });
+    expect(runAny(build({ a: 'x' }, { textJoint: '|', tags: { valueParsers: [] } }))).toEqual({ a: 'x' });
   });
 
   it('applies the joint when the chain does not normalize', () => {
     const builder = makeFactory({ textJoint: '|', tags: { valueParsers: [] } });
     const matcher = new Matcher();
-    const b = run(builder.getInstance(PARSER_OPTIONS, matcher.readOnly()));
-    matcher.push('a');
-    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
-    b.addValue('one', matcher.readOnly());
-    b.addValue('two', matcher.readOnly());
-    b.addValue('three', matcher.readOnly());
-    run(b.closeElement(matcher.readOnly(), { name: 'a' }));
-    matcher.pop();
+    const b = run(builder.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
+    runXml(matcher.push('a'));
+    b.addElement({ name: 'a', index: 1 }, runXml(matcher.readOnly()));
+    b.addValue('one', runXml(matcher.readOnly()));
+    b.addValue('two', runXml(matcher.readOnly()));
+    b.addValue('three', runXml(matcher.readOnly()));
+    run(b.closeElement(runXml(matcher.readOnly()), { name: 'a' }));
+    runXml(matcher.pop());
     expect(b.getOutput()).toEqual({ a: 'one|two|three' });
   });
 
   it('defaults the joint to nothing', () => {
     const builder = makeFactory({ tags: { valueParsers: [] } });
     const matcher = new Matcher();
-    const b = run(builder.getInstance(PARSER_OPTIONS, matcher.readOnly()));
-    matcher.push('a');
-    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
-    b.addValue('one', matcher.readOnly());
-    b.addValue('two', matcher.readOnly());
-    run(b.closeElement(matcher.readOnly(), { name: 'a' }));
-    matcher.pop();
+    const b = run(builder.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
+    runXml(matcher.push('a'));
+    b.addElement({ name: 'a', index: 1 }, runXml(matcher.readOnly()));
+    b.addValue('one', runXml(matcher.readOnly()));
+    b.addValue('two', runXml(matcher.readOnly()));
+    run(b.closeElement(runXml(matcher.readOnly()), { name: 'a' }));
+    runXml(matcher.pop());
     expect(b.getOutput()).toEqual({ a: 'onetwo' });
   });
 });
@@ -392,24 +392,24 @@ describe('CompactBuilder — textJoint', () => {
 
 describe('CompactBuilder — value-parser chains', () => {
   it('uses ws/entity/boolean/number for tags by default', () => {
-    expect(run(build({ a: '  42  ' }))).toEqual({ a: 42 });
+    expect(runAny(build({ a: '  42  ' }))).toEqual({ a: 42 });
   });
 
   it('omits ws from attributes', () => {
     // Attribute whitespace is significant, so it is not normalized away.
-    expect(run(build({ a: { '@_v': '  x  y  ' } }))).toEqual({ a: { '@_v': '  x  y  ' } });
+    expect(runAny(build({ a: { '@_v': '  x  y  ' } }))).toEqual({ a: { '@_v': '  x  y  ' } });
   });
 
   it('normalizes element text with a configured ws', () => {
-    expect(run(build({ a: '  x  y  ' }, { tags: { valueParsers: ['ws'] } }))).toEqual({ a: 'x y' });
+    expect(runAny(build({ a: '  x  y  ' }, { tags: { valueParsers: ['ws'] } }))).toEqual({ a: 'x y' });
   });
 
   it('leaves text alone with an empty chain', () => {
-    expect(run(build({ a: '  42  ' }, { tags: { valueParsers: [] } }))).toEqual({ a: '  42  ' });
+    expect(runAny(build({ a: '  42  ' }, { tags: { valueParsers: [] } }))).toEqual({ a: '  42  ' });
   });
 
   it('accepts a chain of instances', () => {
-    expect(run(build({ a: '  true  ' }, { tags: { valueParsers: ['ws'] } }))).toEqual({ a: 'true' });
+    expect(runAny(build({ a: '  true  ' }, { tags: { valueParsers: ['ws'] } }))).toEqual({ a: 'true' });
   });
 });
 
@@ -419,14 +419,16 @@ describe('CompactBuilderFactory', () => {
   it('hands out a fresh builder per document', () => {
     const factory = makeFactory();
     const matcher = new Matcher();
-    expect(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()))).not.toBe(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly())));
+    expect(run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())))).not.toBe(
+      run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())))
+    );
   });
 
   it('gives each builder its own shared context', () => {
     const factory = makeFactory();
     const matcher = new Matcher();
-    const a = run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()));
-    const b = run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()));
+    const a = run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
+    const b = run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
     a.sharedContext.set('xmlVersion', 1.1);
     expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
   });
@@ -445,7 +447,7 @@ describe('CompactBuilderFactory', () => {
 
   it('compiles alwaysArray once, at construction', () => {
     const factory = makeFactory({ alwaysArray: ['a', 'b'] });
-    expect(factory.builderOptions._alwaysArraySet.size).toBe(2);
+    expect(runXml(factory.builderOptions._alwaysArraySet.size())).toBe(2);
   });
 
   it('defaults forceArray to null', () => {
@@ -455,7 +457,7 @@ describe('CompactBuilderFactory', () => {
   it('shares one registry across every builder it produces', () => {
     const factory = makeFactory();
     const matcher = new Matcher();
-    expect(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly())).registry).toBe(factory.registry);
+    expect(run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly()))).registry).toBe(factory.registry);
   });
 
   it('rejects an empty alwaysArray pattern', () => {

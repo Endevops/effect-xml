@@ -36,6 +36,19 @@ import { Schema } from 'effect';
  */
 export const XmlErrorReason = Schema.TaggedUnion({
   /**
+   * @description A required argument was `null` or another non-value where the package requires a real one. Raised by the factories that compile caller-supplied
+   * input — {@link EntityDecoder.make} among them — when they are handed `null` for an options object that has no meaningful default. It is a
+   * distinct case from the rest because the argument is not _wrong_, it is _absent_, and a caller who wrote `make(null)` meant something the type
+   * system does not allow: a decoder with every default is `make({})`, and saying so here is more useful than silently producing one.
+   */
+  MissingOptions: {
+    /**
+     * @description The parameter that was given nothing, named as it appears in the signature.
+     */
+    parameter: Schema.String,
+  },
+
+  /**
    * @description A name was checked against one of the five XML name productions and given a different one. Unreachable from TypeScript, where `Production` is a
    * closed union — it is the guard for untyped JavaScript callers and for values that crossed a boundary as `unknown`.
    */

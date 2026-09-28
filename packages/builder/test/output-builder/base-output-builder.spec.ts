@@ -16,7 +16,7 @@ import type { BuilderError } from '#/errors.ts';
 import type { BuilderParserOptions, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
 
 import { BaseOutputBuilder, BaseOutputBuilderFactory, BooleanParser, Context, ValueParserRegistry } from '#/index.ts';
-import { failed, run } from '#/test/helpers/effect.ts';
+import { failed, run, runXml } from '#/test/helpers/effect.ts';
 
 /**
  * @description A concrete builder that records the child keys the base's hooks add, and nothing else. This is the minimum needed to observe the base class's own
@@ -48,8 +48,8 @@ class RecordingBuilder extends BaseOutputBuilder {
  */
 const atA = (): MatcherView => {
   const matcher = new Matcher();
-  matcher.push('a');
-  return matcher.readOnly();
+  runXml(matcher.push('a'));
+  return runXml(matcher.readOnly());
 };
 
 const registry = (): ValueParserRegistryLike => new ValueParserRegistry();

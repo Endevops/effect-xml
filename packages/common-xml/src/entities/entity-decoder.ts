@@ -627,20 +627,41 @@ export class EntityDecoder {
   readonly #onInputEntity: EntityRegistrationHook | null;
 
   /**
+   * @description Create a decoder. A factory rather than a constructor, because it refuses a `null` options object. Every field is optional, so `null` is not "a
+   * decoder with the defaults" — a caller who wrote it meant something the signature does not allow, and a decoder built from it would be
+   * indistinguishable from one built from `{}` while hiding the mistake. Saying so is worth a factory; `EntityDecoderOptions` is a plain object and
+   * nothing else about construction can fail.
+   *
+   * @example
+   *   ```typescript
+   *   const decoder = yield* EntityDecoder.make({ numericAllowed: false });
+   *   yield* decoder.decode('caf&eacute;'); // 'café'
+   *   ```;
+   *
+   * @param options - Configuration. See {@link EntityDecoderOptions}. Defaults to every field's own default.
+   *
+   * @returns An effect producing the decoder. Fails with {@link XmlError} and the `MissingOptions` reason for a `null`.
+   */
+  static make = (options: EntityDecoderOptions = {}): Effect.Effect<EntityDecoder, XmlError> =>
+    options === null || options === undefined
+      ? Effect.fail(
+          new XmlErrorCtor({
+            reason: { _tag: 'MissingOptions', parameter: 'options' },
+            message: 'EntityDecoder.make: options is required. Use make({}) for a decoder with every default.',
+          })
+        )
+      : Effect.succeed(new EntityDecoder(options));
+
+  /**
    * @description Create a decoder. Every option is resolved here into the flat fields the decode loop reads, so nothing per-reference has to re-derive it.
    *
-   * @param options - Configuration. See {@link EntityDecoderOptions}.
-   *
-   *   A `null` is read as an empty options object rather than faulting on the first property read. The original threw a `TypeError` naming
-   *   `options.limit`, preserved because a caller's error path depended on where it failed; with a typed error channel that dependency is a cost with
-   *   no remaining benefit, and a decoder built from `null` is indistinguishable from one built from `{}`.
+   * @param resolved - Configuration, already checked. See {@link EntityDecoderOptions}.
    */
-  constructor(options: EntityDecoderOptions = {}) {
-    const resolved = options ?? {};
-    // `options.limit` is read first, deliberately: with a `null` `options` the resulting TypeError names
-    // this property, and a consumer matching on the message is entitled to the same one. The option stays
-    // a local — every value the decode loop needs is flattened out of it below, so retaining it on the
-    // instance would only be a way to observe the option back.
+  private constructor(resolved: EntityDecoderOptions) {
+    // `options.limit` is read first, deliberately: it is the first property the original touched, so
+    // the property a `null` would have faulted on, and keeping that order means the reason still
+    // names it. The option stays a local — every value the decode loop needs is flattened out of it
+    // below, so retaining it on the instance would only be a way to observe the option back.
     const limit = resolved.limit ?? {};
     this.#maxTotalExpansions = limit.maxTotalExpansions || 0;
     this.#maxExpandedLength = limit.maxExpandedLength || 0;
@@ -787,11 +808,13 @@ export class EntityDecoder {
    *
    * @returns This decoder, so a call can be chained onto the document it ends.
    */
-  reset(): this {
-    this.#inputMap = Object.create(null);
-    this.#totalExpansions = 0;
-    this.#expandedLength = 0;
-    return this;
+  reset(): Effect.Effect<this, XmlError> {
+    return Effect.sync(() => {
+      this.#inputMap = Object.create(null);
+      this.#totalExpansions = 0;
+      this.#expandedLength = 0;
+      return this;
+    });
   }
 
   /**
@@ -799,9 +822,13 @@ export class EntityDecoder {
    * selects XML 1.1; `1.0`, `1.15`, `'1.1'` and `NaN` all become `1.0`, so the stricter classification is the default rather than the looser one.
    *
    * @param version - The declared version.
+   *
+   * @returns An effect that records the version. Infallible; the channel is empty because the package has one shape for its public surface.
    */
-  setXmlVersion(version: number): void {
-    this.#ncrXmlVersion = version === 1.1 ? 1.1 : 1.0;
+  setXmlVersion(version: number): Effect.Effect<void, XmlError> {
+    return Effect.sync(() => {
+      this.#ncrXmlVersion = version === 1.1 ? 1.1 : 1.0;
+    });
   }
 
   /**
