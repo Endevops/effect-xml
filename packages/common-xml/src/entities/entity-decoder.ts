@@ -517,107 +517,100 @@ function parseNCRConfig(ncr: EntityDecoderNCROptions | undefined): { xmlVersion:
  */
 export class EntityDecoder {
   /**
-   * @description The `limit` option exactly as given, or `{}`. Kept for parity with the original's field; every value the decode loop needs has already been
-   * flattened out of it.
-   */
-  readonly _limit: EntityDecoderLimitOptions;
-
-  /**
    * @description {@link EntityDecoderLimitOptions.maxTotalExpansions}, or `0` for unlimited. A negative number or `NaN` is also unlimited, since the decode loop
    * tests `> 0`.
    */
-  readonly _maxTotalExpansions: number;
+  readonly #maxTotalExpansions: number;
 
   /**
-   * @description {@link EntityDecoderLimitOptions.maxExpandedLength}, or `0` for unlimited, read the same way as {@link EntityDecoder._maxTotalExpansions}.
+   * @description {@link EntityDecoderLimitOptions.maxExpandedLength}, or `0` for unlimited, read the same way as `#maxTotalExpansions`.
    */
-  readonly _maxExpandedLength: number;
+  readonly #maxExpandedLength: number;
 
   /**
    * @description {@link EntityDecoderOptions.postCheck}, or the identity function — so the decode loop can call it unconditionally on the path that actually
    * scanned, and never on the two fast paths that return early.
    */
-  readonly _postCheck: (resolved: string, original: string) => string;
+  readonly #postCheck: (resolved: string, original: string) => string;
 
   /**
    * @description The resolved tier filter. See {@link parseLimitTiers}.
    */
-  readonly _limitTiers: ReadonlySet<LimitTier>;
+  readonly #limitTiers: ReadonlySet<LimitTier>;
 
   /**
    * @description {@link EntityDecoderOptions.numericAllowed}. Only an explicit `false` turns it off, so an absent option cannot disable it.
    */
-  readonly _numericAllowed: boolean;
+  readonly #numericAllowed: boolean;
 
   /**
    * @description The five XML predefined entities plus `namedEntities`, merged once at construction and never written again. The built-ins lose to a
    * `namedEntities` entry of the same name, since it is merged second.
    */
-  readonly _baseMap: Record<string, string>;
+  readonly #baseMap: Record<string, string>;
 
   /**
    * @description Persistent external entities, as a null-prototype object. Replaced wholesale by {@link EntityDecoder.setExternalEntities} and added to by
    * {@link EntityDecoder.addExternalEntity}, and never touched by {@link EntityDecoder.reset} — that is the whole distinction from the input map.
    */
-  _externalMap: Record<string, string>;
+  #externalMap: Record<string, string>;
 
   /**
    * @description DOCTYPE entities for the document being processed, as a null-prototype object. Wiped by both {@link EntityDecoder.reset} and
    * {@link EntityDecoder.addInputEntities}.
    */
-  _inputMap: Record<string, string>;
+  #inputMap: Record<string, string>;
 
   /**
    * @description Tracked expansions since the last reset. Cumulative across {@link EntityDecoder.decode} calls, which is what makes a limit a per-document budget
    * rather than a per-call one. Deliberately not reset by a thrown limit error, so the over-limit count is what the error message reports.
    */
-  _totalExpansions: number;
+  #totalExpansions: number;
 
   /**
-   * @description Characters _added_ by expansion since the last reset, accumulated the same way as {@link EntityDecoder._totalExpansions}. Only positive
-   * contributions are counted.
+   * @description Characters _added_ by expansion since the last reset, accumulated the same way as `#totalExpansions`. Only positive contributions are counted.
    */
-  _expandedLength: number;
+  #expandedLength: number;
 
   /**
    * @description {@link EntityDecoderOptions.remove} as a set, or empty. Checked before every other classification, so a name in here is deleted without the name
    * ever being resolved.
    */
-  readonly _removeSet: ReadonlySet<string>;
+  readonly #removeSet: ReadonlySet<string>;
 
   /**
    * @description {@link EntityDecoderOptions.leave} as a set, or empty. Checked after `remove` and before the numeric test, so a name in here is emitted as the
    * original `&name;` text.
    */
-  readonly _leaveSet: ReadonlySet<string>;
+  readonly #leaveSet: ReadonlySet<string>;
 
   /**
    * @description The XML version governing numeric classification. Mutable, because a `<?xml version?>` declaration is normally only known after the decoder
    * exists; see {@link EntityDecoder.setXmlVersion}.
    */
-  _ncrXmlVersion: XmlVersion;
+  #ncrXmlVersion: XmlVersion;
 
   /**
    * @description {@link EntityDecoderNCROptions.onNCR} as a level from {@link NCR_LEVEL}. A floor, not an override: the resolver takes the maximum of this and
    * whatever minimum a codepoint range imposes.
    */
-  readonly _ncrOnLevel: number;
+  readonly #ncrOnLevel: number;
 
   /**
    * @description {@link EntityDecoderNCROptions.nullNCR} as a level from {@link NCR_LEVEL}, already clamped to `remove` or stricter.
    */
-  readonly _ncrNullLevel: number;
+  readonly #ncrNullLevel: number;
 
   /**
    * @description {@link EntityDecoderOptions.onExternalEntity}, or `null` when absent or not a function. A non-function is dropped rather than rejected, so a
    * mistyped option disables the hook instead of failing the construction.
    */
-  readonly _onExternalEntity: EntityRegistrationHook | null;
+  readonly #onExternalEntity: EntityRegistrationHook | null;
 
   /**
-   * @description {@link EntityDecoderOptions.onInputEntity}, or `null`, under the same non-function rule as {@link EntityDecoder._onExternalEntity}.
+   * @description {@link EntityDecoderOptions.onInputEntity}, or `null`, under the same non-function rule as `#onExternalEntity`.
    */
-  readonly _onInputEntity: EntityRegistrationHook | null;
+  readonly #onInputEntity: EntityRegistrationHook | null;
 
   /**
    * @description Create a decoder. Every option is resolved here into the flat fields the decode loop reads, so nothing per-reference has to re-derive it.
@@ -629,30 +622,32 @@ export class EntityDecoder {
    */
   constructor(options: EntityDecoderOptions = {}) {
     // `options.limit` is read first, deliberately: with a `null` `options` the resulting TypeError names
-    // this property, and a consumer matching on the message is entitled to the same one.
-    this._limit = options.limit ?? {};
-    this._maxTotalExpansions = this._limit.maxTotalExpansions || 0;
-    this._maxExpandedLength = this._limit.maxExpandedLength || 0;
-    this._postCheck = typeof options.postCheck === 'function' ? options.postCheck : resolved => resolved;
-    this._limitTiers = parseLimitTiers(this._limit.applyLimitsTo ?? LIMIT_TIER_EXTERNAL);
-    this._numericAllowed = options.numericAllowed ?? true;
-    this._baseMap = mergeEntityMaps(DEFAULT_XML_ENTITIES, options.namedEntities || null);
+    // this property, and a consumer matching on the message is entitled to the same one. The option stays
+    // a local — every value the decode loop needs is flattened out of it below, so retaining it on the
+    // instance would only be a way to observe the option back.
+    const limit = options.limit ?? {};
+    this.#maxTotalExpansions = limit.maxTotalExpansions || 0;
+    this.#maxExpandedLength = limit.maxExpandedLength || 0;
+    this.#postCheck = typeof options.postCheck === 'function' ? options.postCheck : resolved => resolved;
+    this.#limitTiers = parseLimitTiers(limit.applyLimitsTo ?? LIMIT_TIER_EXTERNAL);
+    this.#numericAllowed = options.numericAllowed ?? true;
+    this.#baseMap = mergeEntityMaps(DEFAULT_XML_ENTITIES, options.namedEntities || null);
 
-    this._externalMap = Object.create(null);
-    this._inputMap = Object.create(null);
-    this._totalExpansions = 0;
-    this._expandedLength = 0;
+    this.#externalMap = Object.create(null);
+    this.#inputMap = Object.create(null);
+    this.#totalExpansions = 0;
+    this.#expandedLength = 0;
 
-    this._removeSet = new Set(Array.isArray(options.remove) ? options.remove : []);
-    this._leaveSet = new Set(Array.isArray(options.leave) ? options.leave : []);
+    this.#removeSet = new Set(Array.isArray(options.remove) ? options.remove : []);
+    this.#leaveSet = new Set(Array.isArray(options.leave) ? options.leave : []);
 
     const ncrConfig = parseNCRConfig(options.ncr);
-    this._ncrXmlVersion = ncrConfig.xmlVersion;
-    this._ncrOnLevel = ncrConfig.onLevel;
-    this._ncrNullLevel = ncrConfig.nullLevel;
+    this.#ncrXmlVersion = ncrConfig.xmlVersion;
+    this.#ncrOnLevel = ncrConfig.onLevel;
+    this.#ncrNullLevel = ncrConfig.nullLevel;
 
-    this._onExternalEntity = typeof options.onExternalEntity === 'function' ? options.onExternalEntity : null;
-    this._onInputEntity = typeof options.onInputEntity === 'function' ? options.onInputEntity : null;
+    this.#onExternalEntity = typeof options.onExternalEntity === 'function' ? options.onExternalEntity : null;
+    this.#onInputEntity = typeof options.onInputEntity === 'function' ? options.onInputEntity : null;
   }
 
   /**
@@ -693,19 +688,19 @@ export class EntityDecoder {
         validateEntityName(key);
       }
     }
-    if (!this._onExternalEntity) {
-      this._externalMap = mergeEntityMaps(map);
+    if (!this.#onExternalEntity) {
+      this.#externalMap = mergeEntityMaps(map);
       return;
     }
     // With a hook, values are flattened first and the hook sees what will actually be stored.
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(flat)) {
-      if (this.#applyRegistrationHook(this._onExternalEntity, name, value, 'external')) {
+      if (this.#applyRegistrationHook(this.#onExternalEntity, name, value, 'external')) {
         filtered[name] = value;
       }
     }
-    this._externalMap = filtered;
+    this.#externalMap = filtered;
   }
 
   /**
@@ -724,8 +719,8 @@ export class EntityDecoder {
     // The two guards are unreachable from typed code — `value` is a `string` — and are kept for
     // untyped callers, which is the only way to reach them.
     if (typeof value === 'string' && value.indexOf('&') === -1) {
-      if (this.#applyRegistrationHook(this._onExternalEntity, key, value, 'external')) {
-        this._externalMap[key] = value;
+      if (this.#applyRegistrationHook(this.#onExternalEntity, key, value, 'external')) {
+        this.#externalMap[key] = value;
       }
     }
   }
@@ -742,20 +737,20 @@ export class EntityDecoder {
   addInputEntities(map: Record<string, string | { regx: RegExp; val: string | EntityValFn } | { regex: RegExp; val: string | EntityValFn }>): void {
     // Cleared first and unconditionally, so registering entities is itself the start of a new
     // document's budget — including when the call goes on to fail.
-    this._totalExpansions = 0;
-    this._expandedLength = 0;
-    if (!this._onInputEntity) {
-      this._inputMap = mergeEntityMaps(map);
+    this.#totalExpansions = 0;
+    this.#expandedLength = 0;
+    if (!this.#onInputEntity) {
+      this.#inputMap = mergeEntityMaps(map);
       return;
     }
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(flat)) {
-      if (this.#applyRegistrationHook(this._onInputEntity, name, value, 'input')) {
+      if (this.#applyRegistrationHook(this.#onInputEntity, name, value, 'input')) {
         filtered[name] = value;
       }
     }
-    this._inputMap = filtered;
+    this.#inputMap = filtered;
   }
 
   /**
@@ -765,9 +760,9 @@ export class EntityDecoder {
    * @returns This decoder, so a call can be chained onto the document it ends.
    */
   reset(): this {
-    this._inputMap = Object.create(null);
-    this._totalExpansions = 0;
-    this._expandedLength = 0;
+    this.#inputMap = Object.create(null);
+    this.#totalExpansions = 0;
+    this.#expandedLength = 0;
     return this;
   }
 
@@ -778,7 +773,7 @@ export class EntityDecoder {
    * @param version - The declared version.
    */
   setXmlVersion(version: number): void {
-    this._ncrXmlVersion = version === 1.1 ? 1.1 : 1.0;
+    this.#ncrXmlVersion = version === 1.1 ? 1.1 : 1.0;
   }
 
   /**
@@ -806,8 +801,8 @@ export class EntityDecoder {
     let last = 0; // start of the next unprocessed literal run
     let i = 0;
 
-    const limitExpansions = this._maxTotalExpansions > 0;
-    const limitLength = this._maxExpandedLength > 0;
+    const limitExpansions = this.#maxTotalExpansions > 0;
+    const limitLength = this.#maxExpandedLength > 0;
     const checkLimits = limitExpansions || limitLength;
 
     while (i < len) {
@@ -836,7 +831,7 @@ export class EntityDecoder {
       let replacement: string | undefined;
       let tier: LimitTier | undefined;
 
-      if (this._removeSet.has(token)) {
+      if (this.#removeSet.has(token)) {
         // Deleted without being resolved, so the name need not exist.
         replacement = '';
         // Upstream guards this with `if (tier === undefined)`, and `tier` is declared without an
@@ -845,7 +840,7 @@ export class EntityDecoder {
         if (tier === undefined) {
           tier = LIMIT_TIER_EXTERNAL;
         }
-      } else if (this._leaveSet.has(token)) {
+      } else if (this.#leaveSet.has(token)) {
         // Emitted as the original `&token;`. Advancing only past the `&` leaves the `;` to be
         // copied by the next literal run, which is what makes the text come back unchanged.
         i++;
@@ -879,9 +874,9 @@ export class EntityDecoder {
 
       if (checkLimits && this.#tierCounts(tier)) {
         if (limitExpansions) {
-          this._totalExpansions++;
-          if (this._totalExpansions > this._maxTotalExpansions) {
-            throw new Error(`[EntityReplacer] Entity expansion count limit exceeded: ${this._totalExpansions} > ${this._maxTotalExpansions}`);
+          this.#totalExpansions++;
+          if (this.#totalExpansions > this.#maxTotalExpansions) {
+            throw new Error(`[EntityReplacer] Entity expansion count limit exceeded: ${this.#totalExpansions} > ${this.#maxTotalExpansions}`);
           }
         }
         if (limitLength) {
@@ -889,9 +884,9 @@ export class EntityDecoder {
           // contribute, so `maxExpandedLength` is a bound on growth and not on document size.
           const delta = replacement.length - (token.length + 2);
           if (delta > 0) {
-            this._expandedLength += delta;
-            if (this._expandedLength > this._maxExpandedLength) {
-              throw new Error(`[EntityReplacer] Expanded content length limit exceeded: ${this._expandedLength} > ${this._maxExpandedLength}`);
+            this.#expandedLength += delta;
+            if (this.#expandedLength > this.#maxExpandedLength) {
+              throw new Error(`[EntityReplacer] Expanded content length limit exceeded: ${this.#expandedLength} > ${this.#maxExpandedLength}`);
             }
           }
         }
@@ -903,7 +898,7 @@ export class EntityDecoder {
     // `chunks` is empty exactly when nothing was replaced, in which case the input is its own result.
     const result = chunks.length === 0 ? str : chunks.join('');
 
-    return this._postCheck(result, original);
+    return this.#postCheck(result, original);
   }
 
   /**
@@ -915,8 +910,8 @@ export class EntityDecoder {
    *   non-member would give.
    */
   #tierCounts(tier: LimitTier | undefined): boolean {
-    if (this._limitTiers.has(LIMIT_TIER_ALL)) return true;
-    return tier !== undefined && this._limitTiers.has(tier);
+    if (this.#limitTiers.has(LIMIT_TIER_ALL)) return true;
+    return tier !== undefined && this.#limitTiers.has(tier);
   }
 
   /**
@@ -930,13 +925,13 @@ export class EntityDecoder {
   #resolveName(name: string): ResolvedEntity | undefined {
     // Input and external share the `external` tier: both are injected at runtime, and that is the
     // surface the limits exist to bound.
-    const fromInput = ownEntity(this._inputMap, name);
+    const fromInput = ownEntity(this.#inputMap, name);
     if (fromInput !== undefined) return { value: fromInput, tier: LIMIT_TIER_EXTERNAL };
 
-    const fromExternal = ownEntity(this._externalMap, name);
+    const fromExternal = ownEntity(this.#externalMap, name);
     if (fromExternal !== undefined) return { value: fromExternal, tier: LIMIT_TIER_EXTERNAL };
 
-    const fromBase = ownEntity(this._baseMap, name);
+    const fromBase = ownEntity(this.#baseMap, name);
     if (fromBase !== undefined) return { value: fromBase, tier: LIMIT_TIER_BASE };
 
     return undefined;
@@ -956,11 +951,11 @@ export class EntityDecoder {
    * @returns The minimum level from {@link NCR_LEVEL}, or {@link NO_MINIMUM_LEVEL} when the codepoint carries none.
    */
   #classifyNCR(cp: number): number {
-    if (cp === 0) return this._ncrNullLevel;
+    if (cp === 0) return this.#ncrNullLevel;
 
     if (cp >= 0xd800 && cp <= 0xdfff) return NCR_LEVEL.remove;
 
-    if (this._ncrXmlVersion === 1.0 && cp >= 0x01 && cp <= 0x1f && !XML10_ALLOWED_C0.has(cp)) {
+    if (this.#ncrXmlVersion === 1.0 && cp >= 0x01 && cp <= 0x1f && !XML10_ALLOWED_C0.has(cp)) {
       return NCR_LEVEL.remove;
     }
 
@@ -1030,9 +1025,9 @@ export class EntityDecoder {
 
     const minimum = this.#classifyNCR(cp);
 
-    if (!this._numericAllowed && minimum < NCR_LEVEL.remove) return undefined;
+    if (!this.#numericAllowed && minimum < NCR_LEVEL.remove) return undefined;
 
-    const effective = minimum === NO_MINIMUM_LEVEL ? this._ncrOnLevel : Math.max(this._ncrOnLevel, minimum);
+    const effective = minimum === NO_MINIMUM_LEVEL ? this.#ncrOnLevel : Math.max(this.#ncrOnLevel, minimum);
 
     return this.#applyNCRAction(effective, token, cp);
   }

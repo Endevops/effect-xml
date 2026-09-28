@@ -356,9 +356,10 @@ describe('leave and remove', () => {
   });
 
   it('never charges a left reference to a limit, however many there are', () => {
+    // A budget of one leaves room for exactly one charged expansion, so `&lt;` getting through is the
+    // evidence that the four `&amp;` in front of it were charged nothing.
     const decoder = new EntityDecoder({ leave: ['amp'], limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
-    expect(decoder.decode('&amp;&amp;&amp;&amp;')).toBe('&amp;&amp;&amp;&amp;');
-    expect(decoder._totalExpansions).toBe(0);
+    expect(decoder.decode('&amp;&amp;&amp;&amp;&lt;')).toBe('&amp;&amp;&amp;&amp;<');
   });
 
   it('treats a bare ampersand as text rather than as a malformed reference', () => {
@@ -483,7 +484,9 @@ describe('expansion limits', () => {
   it('allows a growing reference whose surplus is exactly the limit', () => {
     const decoder = new EntityDecoder({ namedEntities: { x: 'abcdefghijkl' }, limit: { maxExpandedLength: 9, applyLimitsTo: 'all' } });
     expect(decoder.decode('&x;')).toBe('abcdefghijkl');
-    expect(decoder._expandedLength).toBe(9);
+    // A second `&x;` adds another nine, and the message reports the total — which is only eighteen if the
+    // first call left exactly nine on the counter.
+    expect(() => decoder.decode('&x;')).toThrow('[EntityReplacer] Expanded content length limit exceeded: 18 > 9');
   });
 
   it('treats a limit of zero, a negative limit, and a NaN limit as unlimited', () => {
@@ -495,27 +498,31 @@ describe('expansion limits', () => {
   });
 
   it('accumulates across decode calls, which is what makes a limit a per-document budget', () => {
+    // Three calls of one expansion each, then a fourth that is one too many. Nothing resets the budget
+    // between them, so the throw is only reachable if all three landed on the same counter.
     const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 3, applyLimitsTo: 'all' } });
-    decoder.decode('&amp;');
-    decoder.decode('&amp;');
-    expect(decoder._totalExpansions).toBe(2);
-    decoder.decode('&amp;');
-    expect(decoder._totalExpansions).toBe(3);
+    expect(decoder.decode('&amp;')).toBe('&');
+    expect(decoder.decode('&amp;')).toBe('&');
+    expect(decoder.decode('&amp;')).toBe('&');
+    expect(() => decoder.decode('&amp;')).toThrow('[EntityReplacer] Entity expansion count limit exceeded: 4 > 3');
   });
 
   it('leaves the counter above the limit after it throws, so the message can report how far over it went', () => {
     const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 3, applyLimitsTo: 'all' } });
     decoder.decode('&amp;&amp;&amp;');
+    // The reported count includes the expansion that breached, and the throw did not hand the budget back:
+    // the next call carries on from four rather than starting over.
     expect(() => decoder.decode('&amp;')).toThrow('[EntityReplacer] Entity expansion count limit exceeded: 4 > 3');
-    expect(decoder._totalExpansions).toBe(4);
+    expect(() => decoder.decode('&amp;')).toThrow('[EntityReplacer] Entity expansion count limit exceeded: 5 > 3');
   });
 
   it('clears the count on reset, which is where a new document gets a new budget', () => {
+    // A budget of one: the second expansion of the first document breaches it, and the first expansion of
+    // the second document does not, which it could not do unless `reset` put the counter back to zero.
     const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
-    decoder.decode('&amp;');
-    expect(decoder._totalExpansions).toBe(1);
+    expect(decoder.decode('&amp;')).toBe('&');
+    expect(() => decoder.decode('&amp;')).toThrow('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
     decoder.reset();
-    expect(decoder._totalExpansions).toBe(0);
     expect(decoder.decode('&amp;')).toBe('&');
   });
 });
@@ -540,11 +547,10 @@ describe('which tiers count against the limits', () => {
   });
 
   it('takes an array naming one tier as a filter over that tier alone', () => {
-    // `&externalName;` is charged to `external` and does not count, so only the one base reference lands on the budget and the limit of one is not
-    // reached.
+    // `&externalName;` is charged to `external` and does not count, so the limit of one is not reached by
+    // the two references together — which it would be if the array named both tiers.
     const decoder = decoderWithBothTiers({ limit: { maxTotalExpansions: 1, applyLimitsTo: ['base'] } });
     expect(decoder.decode('&externalName;&amp;')).toBe('EXTERNAL&');
-    expect(decoder._totalExpansions).toBe(1);
   });
 
   it('counts both tiers from an array naming both', () => {
@@ -586,7 +592,6 @@ describe('preserved upstream quirk: the limit check is greater-than, not greater
   it('allows exactly the configured number of expansions', () => {
     const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 2, applyLimitsTo: 'all' } });
     expect(decoder.decode('&amp;&lt;')).toBe('&<');
-    expect(decoder._totalExpansions).toBe(2);
   });
 
   it('throws on the one after it, and names the count it reached', () => {
@@ -707,11 +712,13 @@ describe('preserved upstream quirk: a throwing hook and a throwing input registr
   });
 
   it('clears both counters before the input hook can throw', () => {
+    // A full budget, then a second breach to show it is full, then the throwing registration. The budget
+    // being available again afterwards is only reachable if the counters were cleared before the hook ran.
     const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 3, applyLimitsTo: 'all' }, onInputEntity: () => ENTITY_ACTION.THROW });
     decoder.decode('&amp;&amp;&amp;');
-    expect(decoder._totalExpansions).toBe(3);
+    expect(() => decoder.decode('&amp;')).toThrow('[EntityReplacer] Entity expansion count limit exceeded: 4 > 3');
     expect(() => decoder.addInputEntities({ x: 'Y' })).toThrow(/was rejected by hook/);
-    expect(decoder._totalExpansions).toBe(0);
+    expect(decoder.decode('&amp;&amp;&amp;')).toBe('&&&');
   });
 });
 
@@ -745,8 +752,7 @@ describe('reset', () => {
     const decoder = new EntityDecoder();
     decoder.setXmlVersion(1.1);
     decoder.reset();
-    expect(decoder._ncrXmlVersion).toBe(1.1);
-    // And with it, the looser C0 classification.
+    // The C0 control surviving is what says the version survived: under 1.0 the same reference is deleted.
     expect(decoder.decode('a&#x1;b')).toBe('a\u0001b');
   });
 });
@@ -785,9 +791,11 @@ describe('preserved upstream quirk: decode returns a non-string argument unchang
   });
 
   it('leaves the counters alone, because the guard is before every increment', () => {
+    // A budget of one, spent on nothing yet: the rejected value charged no expansion, or the `&amp;` after
+    // it would be the second and would have thrown.
     const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
-    decodeValue(decoder, 123);
-    expect(decoder._totalExpansions).toBe(0);
+    expect(decodeValue(decoder, 123)).toBe(123);
+    expect(decoder.decode('&amp;')).toBe('&');
   });
 });
 
@@ -1074,7 +1082,6 @@ describe('preserved upstream quirk: only the exact number 1.1 selects XML 1.1', 
   it('selects XML 1.1 for the number 1.1, and keeps the C0 controls', () => {
     const decoder = new EntityDecoder();
     setXmlVersionWith(decoder, 1.1);
-    expect(decoder._ncrXmlVersion).toBe(1.1);
     expect(decoder.decode('a&#x1;b')).toBe('a\u0001b');
   });
 
@@ -1088,9 +1095,11 @@ describe('preserved upstream quirk: only the exact number 1.1 selects XML 1.1', 
     ['NaN', Number.NaN],
   ] as const) {
     it(`normalises ${label} to XML 1.0`, () => {
+      // XML 1.0 deletes the prohibited C0 controls and 1.1 keeps them, so the classification is how a spec
+      // reads back which version the decoder settled on.
       const decoder = new EntityDecoder();
       setXmlVersionWith(decoder, value);
-      expect(decoder._ncrXmlVersion).toBe(1.0);
+      expect(decoder.decode('a&#x1;b')).toBe('ab');
     });
   }
 
@@ -1112,18 +1121,16 @@ describe('preserved upstream quirk: a nullNCR weaker than remove is raised to re
   // Not endorsed: silently accepting a value the type forbids is the kind of thing that hides a bug at the call site.
   it('clamps allow up to remove', () => {
     const decoder = new EntityDecoder({ ncr: { nullNCR: 'allow' as never } });
-    expect(decoder._ncrNullLevel).toBe(2);
     expect(decoder.decode('a&#0;b')).toBe('ab');
   });
 
   it('clamps leave up to remove, with the same result', () => {
     const decoder = new EntityDecoder({ ncr: { nullNCR: 'leave' as never } });
-    expect(decoder._ncrNullLevel).toBe(2);
     expect(decoder.decode('a&#0;b')).toBe('ab');
   });
 
   it('keeps remove as remove, and throw as throw', () => {
-    expect(new EntityDecoder({ ncr: { nullNCR: 'remove' } })._ncrNullLevel).toBe(2);
+    expect(new EntityDecoder({ ncr: { nullNCR: 'remove' } }).decode('a&#0;b')).toBe('ab');
     expect(() => new EntityDecoder({ ncr: { nullNCR: 'throw' } }).decode('&#0;')).toThrow(/U\+0000/);
   });
 
@@ -1195,16 +1202,14 @@ describe('preserved upstream quirk: &constructor;, &toString; and &__proto__; ar
     expect(decoder.decode('&__proto__;')).toBe('&__proto__;');
   });
 
-  it('does let a caller register &__proto__; under a computed key, so the reachability is the map’s own doing', () => {
+  it('does let a caller register &__proto__; under a computed key, as a plain own entry', () => {
+    // Resolving at all is the discriminator. A null-prototype map has no inherited `__proto__` accessor to
+    // intercept the key, so the entry is stored where the lookup — which asks `Object.hasOwn` — finds it. A
+    // map that treated the key as a prototype assignment would have lost it, and the reference would come
+    // back as text, which is what the object-literal test above gets.
     const decoder = new EntityDecoder();
     decoder.setExternalEntities({ ['__proto__']: 'P' });
     expect(decoder.decode('&__proto__;')).toBe('P');
-  });
-
-  it('registers the computed &__proto__; as a plain own entry rather than as a prototype', () => {
-    const decoder = new EntityDecoder();
-    decoder.setExternalEntities({ ['__proto__']: 'P' });
-    expect(Object.getPrototypeOf(decoder._externalMap)).toBeNull();
   });
 });
 
@@ -1265,21 +1270,26 @@ describe('preserved upstream quirk: addInputEntities validates no entity name', 
   });
 
   it('stores the #-prefixed name, and never reaches it, because # routes to the numeric pipeline first', () => {
+    // Only reachability is observable from outside, and reachability is exactly what is denied here: the
+    // token never becomes a name, so `&#a;` is left as written whether or not an entry was kept. The pair
+    // of assertions is the whole contract — registration is silent, and the reference never fires.
     const decoder = new EntityDecoder();
-    decoder.addInputEntities({ '#a': 'W' });
-    expect(decoder._inputMap['#a']).toBe('W');
+    expect(() => {
+      decoder.addInputEntities({ '#a': 'W' });
+    }).not.toThrow();
     expect(decoder.decode('&#a;')).toBe('&#a;');
   });
 
   it('replaces the previous input set and clears the counters, so a second call is a new document', () => {
-    const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 5, applyLimitsTo: 'all' } });
+    // A budget of one: the budget is available again after the second registration, and only one reference
+    // resolves into it, so the counters were cleared rather than merely carried.
+    const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
     decoder.addInputEntities({ first: '1' });
-    decoder.decode('&first;');
-    expect(decoder._totalExpansions).toBe(1);
+    expect(decoder.decode('&first;')).toBe('1');
     decoder.addInputEntities({ second: '2' });
     expect(decoder.decode('&first;')).toBe('&first;');
     expect(decoder.decode('&second;')).toBe('2');
-    expect(decoder._totalExpansions).toBe(1);
+    expect(() => decoder.decode('&second;')).toThrow('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
   });
 
   it('clears the input set from a nullish map, without validating anything', () => {
@@ -1304,17 +1314,11 @@ describe('construction', () => {
     expect(() => new EntityDecoder(null as never)).toThrow(/reading 'limit'/);
   });
 
-  it('keeps the limit option as given, for parity with the original’s field', () => {
-    const limit = { maxTotalExpansions: 3 };
-    expect(new EntityDecoder({ limit })._limit).toEqual(limit);
-    expect(new EntityDecoder()._limit).toEqual({});
-  });
-
   it('reads a limit of an explicit undefined as unlimited rather than as an error', () => {
-    // `this._limit.maxTotalExpansions || 0`, so an explicit `undefined` and an absent key land on the same `0`.
-    const decoder = new EntityDecoder(withExplicitUndefined({ limit: { maxTotalExpansions: undefined } }));
-    expect(decoder._maxTotalExpansions).toBe(0);
-    expect(decoder.decode('&amp;&amp;&amp;')).toBe('&&&');
+    // `limit.maxTotalExpansions || 0` in the constructor, so an explicit `undefined` and an absent key land
+    // on the same unlimited. Fifty expansions under `applyLimitsTo: 'all'` is what shows no ceiling landed.
+    const decoder = new EntityDecoder(withExplicitUndefined({ limit: { maxTotalExpansions: undefined, applyLimitsTo: 'all' } }));
+    expect(decoder.decode('&amp;'.repeat(50))).toBe('&'.repeat(50));
   });
 
   it('reads a missing remove or leave list as empty rather than as an error', () => {
@@ -1323,7 +1327,10 @@ describe('construction', () => {
   });
 
   it('builds the base map once, from the built-ins and the caller table together', () => {
+    // The five XML predefined entities plus the caller's own, and nothing else: every one of the six
+    // resolves, and a name that is in no table at all still comes back as text.
     const decoder = new EntityDecoder({ namedEntities: { brand: 'Acme' } });
-    expect(Object.keys(decoder._baseMap).sort()).toEqual(['amp', 'apos', 'brand', 'gt', 'lt', 'quot']);
+    expect(decoder.decode('&amp;&apos;&lt;&gt;&quot;&brand;')).toBe('&\'<>"Acme');
+    expect(decoder.decode('&nbsp;')).toBe('&nbsp;');
   });
 });
