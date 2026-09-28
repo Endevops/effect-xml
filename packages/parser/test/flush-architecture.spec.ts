@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { parseDoc, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
  * @description Regression coverage for the flush-architecture fix. Background: updateBufferBoundary() used to gate flush() behind an "anyMarkActive" check. Since
@@ -11,19 +10,19 @@ import XMLParser from '#/xml-parser.ts';
  */
 describe('FeedableSource flush architecture', () => {
   it('trims the buffer below flushThreshold repeatedly across many feed() calls', () => {
-    const parser = new XMLParser({ feedable: { flushThreshold: 200, bufferSize: 50 } });
+    const parser = makeParser({ feedable: { flushThreshold: 200, bufferSize: 50 } });
     let xml = '<root>';
     for (let i = 0; i < 50; i++) xml += `<item id="${i}">padding text here</item>`;
     xml += '</root>';
 
     let sawShrinkBelowThreshold = false;
     for (let i = 0; i < xml.length; i += 30) {
-      parser.feed(xml.slice(i, i + 30));
-      if ((parser.getFeedBufferLength() as number) < 200) sawShrinkBelowThreshold = true;
+      runParser(parser.feed(xml.slice(i, i + 30)));
+      if ((runParser(parser.getFeedBufferLength()) as number) < 200) sawShrinkBelowThreshold = true;
     }
 
     expect(sawShrinkBelowThreshold).toBe(true);
-    expect(parser.getFeedBufferLength() as number).toBeLessThan(xml.length);
+    expect(runParser(parser.getFeedBufferLength()) as number).toBeLessThan(xml.length);
   });
 
   it('keeps peak buffer size bounded (not ~= full document) on a large document', () => {
@@ -36,21 +35,21 @@ describe('FeedableSource flush architecture', () => {
     }
     const xml = '<root>' + parts.join('') + '</root>';
 
-    const parser = new XMLParser({ feedable: { flushThreshold: 1024, maxBufferSize: 200 * 1024 * 1024 } });
+    const parser = makeParser({ feedable: { flushThreshold: 1024, maxBufferSize: 200 * 1024 * 1024 } });
     let peakBuffer = 0;
     for (let i = 0; i < xml.length; i += 4096) {
-      parser.feed(xml.slice(i, i + 4096));
-      peakBuffer = Math.max(peakBuffer, parser.getFeedBufferLength() as number);
+      runParser(parser.feed(xml.slice(i, i + 4096)));
+      peakBuffer = Math.max(peakBuffer, runParser(parser.getFeedBufferLength()) as number);
     }
-    parser.end();
+    runParser(parser.end());
 
     expect(peakBuffer).toBeLessThan(xml.length / 2);
   });
 
   it('still produces the correct parsed result after flush is applied (correctness, not just size)', () => {
-    const parser = new XMLParser({ feedable: { flushThreshold: 50, bufferSize: 20 } });
+    const parser = makeParser({ feedable: { flushThreshold: 50, bufferSize: 20 } });
     const xml = '<root><a>1</a><b>2</b><c>3</c></root>';
-    for (let i = 0; i < xml.length; i += 7) parser.feed(xml.slice(i, i + 7));
+    for (let i = 0; i < xml.length; i += 7) runParser(parser.feed(xml.slice(i, i + 7)));
     const result = endDoc(parser);
     expect(result.root.a).toBe(1);
     expect(result.root.b).toBe(2);
@@ -63,11 +62,11 @@ describe('FeedableSource flush architecture', () => {
   // has no prior coverage anywhere else in the suite.
 
   it('correctly resumes a CDATA section split across a feed() boundary, with a low flushThreshold active', () => {
-    const parser = new XMLParser({ feedable: { flushThreshold: 10, bufferSize: 10 } });
+    const parser = makeParser({ feedable: { flushThreshold: 10, bufferSize: 10 } });
     const cdataContent = 'x'.repeat(200) + 'SPLIT_MARKER' + 'y'.repeat(200);
     const xml = `<root><data><![CDATA[${cdataContent}]]></data></root>`;
 
-    for (let i = 0; i < xml.length; i += 5) parser.feed(xml.slice(i, i + 5));
+    for (let i = 0; i < xml.length; i += 5) runParser(parser.feed(xml.slice(i, i + 5)));
     const result = endDoc(parser);
 
     const text = typeof result.root.data === 'string' ? result.root.data : JSON.stringify(result.root.data);
@@ -76,14 +75,14 @@ describe('FeedableSource flush architecture', () => {
   });
 
   it('correctly resumes an opening tag with attributes split across a feed() boundary, with a low flushThreshold active', () => {
-    const parser = new XMLParser({ feedable: { flushThreshold: 15, bufferSize: 8 }, skip: { attributes: false } });
+    const parser = makeParser({ feedable: { flushThreshold: 15, bufferSize: 8 }, skip: { attributes: false } });
     let xml = '<root>';
     for (let i = 0; i < 30; i++) {
       xml += `<item id="${i}" label="item-number-${i}" flag="true">value-${i}</item>`;
     }
     xml += '</root>';
 
-    for (let i = 0; i < xml.length; i += 3) parser.feed(xml.slice(i, i + 3));
+    for (let i = 0; i < xml.length; i += 3) runParser(parser.feed(xml.slice(i, i + 3)));
     const result = endDoc(parser);
 
     const items = result.root.item;
@@ -93,7 +92,7 @@ describe('FeedableSource flush architecture', () => {
   });
 
   it('correctly resumes a DOCTYPE internal subset split across a feed() boundary, with a low flushThreshold active', () => {
-    const parser = new XMLParser({ feedable: { flushThreshold: 12, bufferSize: 8 }, doctypeOptions: { enabled: true } });
+    const parser = makeParser({ feedable: { flushThreshold: 12, bufferSize: 8 }, doctypeOptions: { enabled: true } });
     const xml = `<!DOCTYPE root [
       <!ENTITY foo "bar">
       <!ELEMENT root (child)>
@@ -101,14 +100,14 @@ describe('FeedableSource flush architecture', () => {
     ]>
     <root><child>ok</child></root>`;
 
-    for (let i = 0; i < xml.length; i += 4) parser.feed(xml.slice(i, i + 4));
+    for (let i = 0; i < xml.length; i += 4) runParser(parser.feed(xml.slice(i, i + 4)));
     const result = endDoc(parser);
 
     expect(result.root.child).toBe('ok');
   });
 
   it('StringSource (one-shot parse()) also flushes — sanity check the same fix applies there', () => {
-    const parser = new XMLParser({ feedable: {} }); // n/a to parse(), StringSource has its own defaults
+    const parser = makeParser({ feedable: {} }); // n/a to parse(), StringSource has its own defaults
     const chunk = '<item>padding text here</item>';
     let xml = '<root>' + chunk.repeat(200) + '</root>';
     const result = parseDoc(parser, xml);
@@ -133,32 +132,32 @@ describe('FeedableSource _batchThreshold reset', () => {
     // feed() call (progress was made on <root>, even though <item> stalled)
     // — didAdvance would wrongly read true. Only a stall before any '>' at
     // all guarantees zero net advance.
-    const parser = new XMLParser({ feedable: { bufferSize: 8, flushThreshold: 1024 } });
-    const baseline = parser.getFeedBatchThreshold();
+    const parser = makeParser({ feedable: { bufferSize: 8, flushThreshold: 1024 } });
+    const baseline = runParser(parser.getFeedBatchThreshold());
 
-    parser.feed('<root id="12345678901234567890');
+    runParser(parser.feed('<root id="12345678901234567890'));
 
-    expect(parser.getFeedBatchThreshold()).toBeGreaterThan(baseline);
+    expect(runParser(parser.getFeedBatchThreshold())).toBeGreaterThan(baseline);
   });
 
   it('resets _batchThreshold back to options.feedable.bufferSize once progress resumes', () => {
     const bufferSize = 8;
-    const parser = new XMLParser({ feedable: { bufferSize, flushThreshold: 1024 } });
+    const parser = makeParser({ feedable: { bufferSize, flushThreshold: 1024 } });
 
     // Stall on the very first tag (zero net advance for this feed call).
-    parser.feed('<root id="12345');
-    expect(parser.getFeedBatchThreshold()).toBeGreaterThan(bufferSize);
+    runParser(parser.feed('<root id="12345'));
+    expect(runParser(parser.getFeedBatchThreshold())).toBeGreaterThan(bufferSize);
 
     // Now supply enough to let the parser actually advance past <root ...>.
-    parser.feed('67890"><item>text</item></root>');
+    runParser(parser.feed('67890"><item>text</item></root>'));
 
-    expect(parser.getFeedBatchThreshold()).toBe(bufferSize);
+    expect(runParser(parser.getFeedBatchThreshold())).toBe(bufferSize);
   });
 
   it('does not let _batchThreshold escalate toward maxBufferSize across many alternating stall/recover cycles', () => {
     const bufferSize = 8;
     const maxBufferSize = 4096; // deliberately small so a runaway would be easy to detect
-    const parser = new XMLParser({ feedable: { bufferSize, maxBufferSize, flushThreshold: 256 } });
+    const parser = makeParser({ feedable: { bufferSize, maxBufferSize, flushThreshold: 256 } });
 
     let xml = '<root>';
     for (let i = 0; i < 200; i++) {
@@ -168,10 +167,10 @@ describe('FeedableSource _batchThreshold reset', () => {
     }
     xml += '</root>';
 
-    let maxObservedThreshold = parser.getFeedBatchThreshold();
+    let maxObservedThreshold = runParser(parser.getFeedBatchThreshold());
     for (let i = 0; i < xml.length; i += 3) {
-      parser.feed(xml.slice(i, i + 3));
-      maxObservedThreshold = Math.max(maxObservedThreshold, parser.getFeedBatchThreshold());
+      runParser(parser.feed(xml.slice(i, i + 3)));
+      maxObservedThreshold = Math.max(maxObservedThreshold, runParser(parser.getFeedBatchThreshold()));
     }
     const result = endDoc(parser);
 
@@ -186,7 +185,7 @@ describe('FeedableSource _batchThreshold reset', () => {
   it('parses a large, heavily-chunked document to completion without hitting maxBufferSize (integration-level check for the reported hang)', () => {
     const bufferSize = 16;
     const maxBufferSize = 64 * 1024; // small ceiling to make a runaway fail fast if the bug is present
-    const parser = new XMLParser({ feedable: { bufferSize, maxBufferSize, flushThreshold: 512 } });
+    const parser = makeParser({ feedable: { bufferSize, maxBufferSize, flushThreshold: 512 } });
 
     const chunk = `<record id="ID" attr="some attribute value padding">payload text padding here</record>\n`;
     let parts = [];
@@ -203,29 +202,29 @@ describe('FeedableSource _batchThreshold reset', () => {
     let step = 5;
     expect(() => {
       while (i < xml.length) {
-        parser.feed(xml.slice(i, i + step));
+        runParser(parser.feed(xml.slice(i, i + step)));
         i += step;
         step = step === 5 ? 7 : 5; // vary chunk size across the loop
       }
-      parser.end();
+      runParser(parser.end());
     }).not.toThrow();
   });
 
   it('resets to the configured bufferSize even after multiple consecutive stalls compound the growth before recovery', () => {
     const bufferSize = 8;
-    const parser = new XMLParser({ feedable: { bufferSize, flushThreshold: 1024 } });
+    const parser = makeParser({ feedable: { bufferSize, flushThreshold: 1024 } });
 
     // Multiple tiny feeds in a row, each individually incomplete, all still
     // inside the FIRST tag (no '>' seen yet) — so every one of them is a
     // true zero-net-advance stall, doubling _batchThreshold more than once
     // before real progress is made.
-    parser.feed('<root id="12345');
-    parser.feed('67890123456789012345');
-    parser.feed('67890');
-    expect(parser.getFeedBatchThreshold()).toBeGreaterThan(bufferSize);
+    runParser(parser.feed('<root id="12345'));
+    runParser(parser.feed('67890123456789012345'));
+    runParser(parser.feed('67890'));
+    expect(runParser(parser.getFeedBatchThreshold())).toBeGreaterThan(bufferSize);
 
-    parser.feed('"><item>text</item></root>');
+    runParser(parser.feed('"><item>text</item></root>'));
 
-    expect(parser.getFeedBatchThreshold()).toBe(bufferSize);
+    expect(runParser(parser.getFeedBatchThreshold())).toBe(bufferSize);
   });
 });

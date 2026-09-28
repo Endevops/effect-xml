@@ -54,7 +54,8 @@
   },
   "dependencies": {
     "@endevops/builder": "workspace:^",
-    "@endevops/common-xml": "workspace:^"
+    "@endevops/common-xml": "workspace:^",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "vite": "catalog:",

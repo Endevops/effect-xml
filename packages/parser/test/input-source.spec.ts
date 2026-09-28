@@ -2,13 +2,12 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import BufferSource from '#/input-source/buffer-source.ts';
 import FeedableSource from '#/input-source/feedable-source.ts';
-import { parseDoc, bytesDoc, endDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { parseDoc, bytesDoc, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 describe('Input Sources', function () {
   it('should parse from string', function () {
     const xmlString = '<root><tag>value</tag></root>';
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = parseDoc(parser, xmlString);
 
     expect(result.root.tag).toBe('value');
@@ -17,7 +16,7 @@ describe('Input Sources', function () {
   it('should parse from Buffer', function () {
     const xmlString = '<root><tag>123</tag></root>';
     const buffer = Buffer.from(xmlString);
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = parseDoc(parser, buffer);
 
     expect(result.root.tag).toBe(123);
@@ -26,7 +25,7 @@ describe('Input Sources', function () {
   it('should parse from Uint8Array using parseBytesArr', function () {
     const xmlString = '<root><tag>test</tag></root>';
     const uint8Array = new Uint8Array(Buffer.from(xmlString));
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = bytesDoc(parser, uint8Array);
 
     expect(result.root.tag).toBe('test');
@@ -34,28 +33,30 @@ describe('Input Sources', function () {
 
   it('should handle UTF-8 encoded content', function () {
     const xmlString = '<root><tag>Hello 世界 🌍</tag></root>';
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = parseDoc(parser, xmlString);
 
     expect(result.root.tag).toBe('Hello 世界 🌍');
   });
 
   it('should use feed/end API for streaming', function () {
-    const parser = new XMLParser();
+    const parser = makeParser();
 
-    parser.feed('<root>');
-    parser.feed('<tag>value</tag>');
-    parser.feed('</root>');
+    runParser(parser.feed('<root>'));
+    runParser(parser.feed('<tag>value</tag>'));
+    runParser(parser.feed('</root>'));
     const result = endDoc(parser);
 
     expect(result.root.tag).toBe('value');
   });
 
   it('should handle chunked streaming data', function () {
-    const parser = new XMLParser();
+    const parser = makeParser();
     const chunks = ['<root>', '<items>', '<item>first</item>', '<item>second</item>', '</items>', '</root>'];
 
-    chunks.forEach(chunk => parser.feed(chunk));
+    chunks.forEach(chunk => {
+      runParser(parser.feed(chunk));
+    });
     const result = endDoc(parser);
 
     expect(Array.isArray(result.root.items.item)).toBe(true);
@@ -126,7 +127,7 @@ describe('FeedableSource autoFlush', function () {
     // Same scenario as before, through the public API, so it can't be
     // dismissed as an artifact of calling FeedableSource methods in an
     // unrealistic order.
-    const parser = new XMLParser({ feedable: { flushThreshold: 64 } });
+    const parser = makeParser({ feedable: { flushThreshold: 64 } });
 
     const item = '<item><name>value</name></item>';
     const chunkSize = 8; // small chunks to force many feed()/parseXml() cycles
@@ -136,13 +137,13 @@ describe('FeedableSource autoFlush', function () {
     for (let n = 0; n < 200; n++) {
       for (let i = 0; i < item.length; i += chunkSize) {
         const chunk = item.slice(i, i + chunkSize);
-        parser.feed(chunk);
+        runParser(parser.feed(chunk));
         totalFed += chunk.length;
-        peakBuffer = Math.max(peakBuffer, parser.getFeedBufferLength() as number);
+        peakBuffer = Math.max(peakBuffer, runParser(parser.getFeedBufferLength()) as number);
       }
     }
-    const bufferLenBeforeEnd = parser.getFeedBufferLength() as number;
-    parser.end();
+    const bufferLenBeforeEnd = runParser(parser.getFeedBufferLength()) as number;
+    runParser(parser.end());
 
     // With autoFlush working, the live buffer should stay well below the
     // total fed across the whole 200-repetition session, not track it 1:1.

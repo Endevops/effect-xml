@@ -10,14 +10,20 @@ CDATA, comments, stopnodes are not processed by any value parser.
 
 ## Configuring the Pipeline
 
+A builder factory is configured rather than allocated — resolving its options compiles every
+`alwaysArray` pattern — so it is built with `CompactBuilderFactory.make` and run for its value.
+
 ```javascript
+import { Effect } from 'effect';
 import { CompactBuilderFactory } from '@endevops/builder';
 
-const builder = new CompactBuilderFactory({
-  tags: { valueParsers: ['ws', 'entity', 'boolean', 'number'] }, // default
-  attributes: { valueParsers: ['entity', 'number', 'boolean'] }, // default
-});
-const parser = new XMLParser({ OutputBuilder: builder });
+const builder = Effect.runSync(
+  CompactBuilderFactory.make({
+    tags: { valueParsers: ['ws', 'entity', 'boolean', 'number'] }, // default
+    attributes: { valueParsers: ['entity', 'number', 'boolean'] }, // default
+  })
+);
+const parser = Effect.runSync(XMLParser.make({ OutputBuilder: builder }));
 ```
 
 Each entry is either a **string name** (built-in or registered custom) or a **parser instance** with a `parse(val, context?)` method.
@@ -25,7 +31,7 @@ Each entry is either a **string name** (built-in or registered custom) or a **pa
 To disable all transformation:
 
 ```javascript
-const builder = new CompactBuilderFactory({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } });
+const builder = Effect.runSync(CompactBuilderFactory.make({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } }));
 // All values come out as raw strings
 ```
 
@@ -40,6 +46,7 @@ Expands XML entity references (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`), opt
 Which sources are active is controlled by `EntitiesValueParser` from `@endevops/builder`:
 
 ```javascript
+import { Effect } from 'effect';
 import { XML, COMMON_HTML, ENTITY_ACTION } from '@nodable/entities';
 import { EntitiesValueParser } from '@endevops/builder';
 import { CompactBuilderFactory } from '@endevops/builder';
@@ -50,9 +57,12 @@ const evp = new EntitiesValueParser({
   //limit: {},
   onInputEntity: (name, value) => (isUnsafe(value, [VALID_CONTEXTS.XML]) ? ENTITY_ACTION.BLOCK : ENTITY_ACTION.ALLOW),
 });
-const builder = new CompactBuilderFactory();
-builder.registerValueParser('entity', evp);
+const builder = Effect.runSync(CompactBuilderFactory.make());
+Effect.runSync(builder.registerValueParser('entity', evp));
 ```
+
+`registerValueParser` runs the registration checks immediately, so a parser the registry will refuse is
+reported while you are configuring the builder rather than halfway through a document.
 
 Check '@nodable/entities' for more details on configuration.
 
@@ -61,7 +71,7 @@ DOCTYPE entity collection is controlled separately by `doctypeOptions.enabled` o
 Remove `'entity'` from the chain to leave all references unexpanded:
 
 ```javascript
-const builder = new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'number'] } });
+const builder = Effect.runSync(CompactBuilderFactory.make({ tags: { valueParsers: ['boolean', 'number'] } }));
 // &lt; stays as the literal string "&lt;"
 ```
 
@@ -70,10 +80,11 @@ const builder = new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'n
 Converts `"true"` and `"false"` (case-insensitive) to JavaScript `true`/`false`. All other values pass through unchanged. You can pass list of true and false values.
 
 ```javascript
+import { Effect } from 'effect';
 import { BooleanParser } from '@endevops/builder';
 
-const builder = new CompactBuilderFactory();
-builder.registerValueParser('boolean', new BooleanParser({ trueList: ['yes', 'y'], falseList: ['no', 'n'] }));
+const builder = Effect.runSync(CompactBuilderFactory.make());
+Effect.runSync(builder.registerValueParser('boolean', new BooleanParser({ trueList: ['yes', 'y'], falseList: ['no', 'n'] })));
 // "yes" becomes true, "no" becomes false, "true" and "false" stay as strings
 ```
 
@@ -93,10 +104,11 @@ Converts numeric strings to JS numbers using the [`strnum`](https://www.npmjs.co
 Check `strnum` package for more details. To customise, import and register directly:
 
 ```javascript
+import { Effect } from 'effect';
 import { NumberValueParser } from '@endevops/builder';
 
-const builder = new CompactBuilderFactory();
-builder.registerValueParser('number', new NumberValueParser({ leadingZeros: false }));
+const builder = Effect.runSync(CompactBuilderFactory.make());
+Effect.runSync(builder.registerValueParser('number', new NumberValueParser({ leadingZeros: false })));
 // "007" stays as "007"; 9.99 converts normally
 ```
 
@@ -125,37 +137,45 @@ Normalization is automatically skipped when:
 - The tag path matches a user-supplied exclusion list
 
 ```javascript
+import { Effect } from 'effect';
 import { WSNormalizer } from '@endevops/builder';
 
-const ws = new WSNormalizer({
-  exclude: ['..pre', '..code', '..script'], // leave whitespace untouched in these
-});
-factory.registerValueParser('ws', ws);
+const ws = Effect.runSync(
+  WSNormalizer.make({
+    exclude: ['..pre', '..code', '..script'], // leave whitespace untouched in these
+  })
+);
+Effect.runSync(factory.registerValueParser('ws', ws));
 ```
+
+The constructor is private because compiling the exclusion paths can fail. `WSNormalizer.make` is the
+way in, exactly like `XMLParser.make`.
 
 ---
 
 ## Custom Value Parsers
 
-Any object with a `parse(val, context?)` and `reset()` method works as a value parser:
+Any object with a `parse(val, context?)` method works as a value parser. `parse` returns an `Effect`:
+a chain is a sequence of fallible transforms, which is what an `Effect` is for, and it lets a parser
+reject one value without failing the whole document.
 
-```javascript
+```typescript
+import { Effect } from 'effect';
+import { BaseValueParser } from '@endevops/builder';
+
 class UpperCaseParser extends BaseValueParser {
-  constructor(options, isfinal) {
-    super(isfinal);
-  }
   parse(val) {
-    return typeof val === 'string' ? val.toUpperCase() : val;
+    return Effect.succeed(typeof val === 'string' ? val.toUpperCase() : val);
   }
 }
 
-const builder = new CompactBuilderFactory({ tags: { valueParsers: ['entity', new UpperCaseParser(), 'boolean', 'number'] } });
+const builder = Effect.runSync(CompactBuilderFactory.make({ tags: { valueParsers: ['entity', new UpperCaseParser(), 'boolean', 'number'] } }));
 ```
 
 Register by name to reference in multiple chains:
 
 ```javascript
-factory.registerValueParser('upper', new UpperCaseParser());
+Effect.runSync(factory.registerValueParser('upper', new UpperCaseParser()));
 // now usable by name in any valueParsers array
 ```
 
@@ -176,14 +196,15 @@ Each parser receives a `context` as its second argument. It is a `Context` insta
 
 `isAttribute` is how you tell a tag's text apart from an attribute's value. There is no `ElementType` enum to compare against:
 
-```javascript
+```typescript
+import { Effect } from 'effect';
 import { BaseValueParser } from '@endevops/builder';
 
 class TagOnlyParser extends BaseValueParser {
   parse(val, context) {
-    if (context?.isAttribute) return val;
+    if (context?.isAttribute) return Effect.succeed(val);
     // only process tag values
-    return doSomething(val);
+    return Effect.succeed(doSomething(val));
   }
 }
 ```
@@ -205,10 +226,15 @@ Recommended order: `[`ws`, 'entity', 'boolean', 'number']` for tags. `[`ws`, 'en
 ## Separate Pipelines for Tags vs Attributes
 
 ```javascript
-const builder = new CompactBuilderFactory({
-  tags: { valueParsers: ['entity', 'trim', 'boolean', 'number'] },
-  attributes: { valueParsers: ['entity', 'number'] }, // no booleans in attrs
-});
+import { Effect } from 'effect';
+import { CompactBuilderFactory } from '@endevops/builder';
+
+const builder = Effect.runSync(
+  CompactBuilderFactory.make({
+    tags: { valueParsers: ['entity', 'trim', 'boolean', 'number'] },
+    attributes: { valueParsers: ['entity', 'number'] }, // no booleans in attrs
+  })
+);
 ```
 
 ---

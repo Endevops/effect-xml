@@ -1,8 +1,12 @@
-import type { Matcher, MatcherView } from '@endevops/common-xml';
+import type { BuilderError } from '@endevops/builder';
+import type { Matcher, MatcherView, MemoizedValidator } from '@endevops/common-xml';
+import type { Effect } from 'effect';
 
 import type { InputSourceLike } from '../input-source/input-source.ts';
 import type { ResolvedOptions } from '../options.ts';
 import type { TagExpressionConfig } from './tag-expression.ts';
+
+export type { ExitIfPredicate } from '../options.ts';
 
 /**
  * @description Structural view of an open tag: where it is, what it is called, and where its expression ended. The synthetic root node and the real `TagDetail`
@@ -130,9 +134,11 @@ export interface OutputBuilderLike {
    */
   addElement(tag: TagDetailLike, matcher: MatcherView): void;
   /**
-   * @description Announce a closing tag. `closeMeta` is a plain `{ name }` when there was no real closing token to report a position for.
+   * @description Announce a closing tag. `closeMeta` is a plain `{ name }` when there was no real closing token to report a position for. Returns an `Effect`
+   * because closing a tag is where a builder runs the value-parser chain over everything under it, and that can fail — on an entity expansion limit,
+   * or a value processor the caller supplied. The parser runs it.
    */
-  closeElement(matcher: MatcherView, closeMeta: CloseMeta): void;
+  closeElement(matcher: MatcherView, closeMeta?: CloseMeta): Effect.Effect<void, BuilderError>;
   /**
    * @description Append a text run to the current node, to be run through the builder's value-parser chain.
    */
@@ -158,9 +164,10 @@ export interface OutputBuilderLike {
    */
   addInputEntities(entities: Record<string, unknown>): void;
   /**
-   * @description Append one attribute to the current tag. `meta` is absent when the tag expression's start offset was unavailable.
+   * @description Append one attribute to the current tag. `meta` is absent when the tag expression's start offset was unavailable. Returns an `Effect` for the
+   * same reason {@link closeElement} does: the attribute's value goes through the value-parser chain on the way in, and that can fail.
    */
-  addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: AttributeMeta): void;
+  addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: AttributeMeta): Effect.Effect<void, BuilderError>;
   /**
    * @description Called once a stop node's raw content has been collected, before it is added to the tree. Optional. The tag detail is declared permissively (`{
    * name: string } & object`) rather than as `TagDetailLike`: `@nodable/compact-builder` types its own `onStopNode` with a detail carrying
@@ -187,9 +194,10 @@ export interface OutputBuilderLike {
  */
 export interface OutputBuilderFactoryLike {
   /**
-   * @description Obtain a fresh builder instance. Called by the parser before each parse run.
+   * @description Obtain a fresh builder instance. Called by the parser before each parse run. Returns an `Effect` because a builder can be refused at construction
+   * — a value-parser registration that is wrong, or a pattern that will not compile.
    */
-  getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): OutputBuilderLike;
+  getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): Effect.Effect<OutputBuilderLike, BuilderError>;
 }
 
 /**
@@ -305,9 +313,11 @@ export interface NameCache {
 }
 
 /**
- * @description A name validator produced by `xml-naming`'s `createValidator()`.
+ * @description A name validator produced by `@endevops/common-xml`'s `createValidator()`. Named separately so the signature reads at each use site without
+ * repeating the `MemoizedValidator` import. It answers with an `Effect`, as every validator in `common-xml` does — the parser runs it per name it has
+ * not seen before.
  */
-export type NameValidator = (str: string) => boolean;
+export type NameValidator = MemoizedValidator;
 
 /**
  * @description The parser surface the readers need — attribute processing, tag expressions, and the special tags (`readCdata`, `readPiTag`, `readComment`).

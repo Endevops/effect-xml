@@ -10,16 +10,17 @@ Upstream released `@nodable/flexible-xml-parser` as the scoped successor to the 
 
 ## What this fork changes
 
-The parser behaviour is the same. The changes are in how the code is written and built.
+The parsing behaviour is the same. The changes are in how the code is written, built, and called.
 
-| Change                                               | Why                                                                    |
-| ---------------------------------------------------- | ---------------------------------------------------------------------- |
-| Every file and directory renamed to dash-case        | The upstream names were PascalCase and SCREAMING_CASE in the same tree |
-| Static types across all of `src/`                    | Upstream shipped types only on the public entry points                 |
-| Test suite and benchmark fully typed                 | The specs are now checked by the compiler, which surfaced real bugs    |
-| Built with Vite+ (`vp pack`, `vp test`, `vp check`)  | Replaces the previous ad-hoc build setup                               |
-| Latent bugs fixed in specs and entity handling       | Found while typing, listed in the commit history                       |
-| Path matching and name validation are workspace pkgs | The `path-expression-matcher` type augmentations are gone; see below   |
+| Change                                               | Why                                                                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Every file and directory renamed to dash-case        | The upstream names were PascalCase and SCREAMING_CASE in the same tree                           |
+| Static types across all of `src/`                    | Upstream shipped types only on the public entry points                                           |
+| Every entry point returns an `Effect`                | Construction and parsing can fail, so they report failure on a typed channel instead of throwing |
+| Test suite and benchmark fully typed                 | The specs are now checked by the compiler, which surfaced real bugs                              |
+| Built with Vite+ (`vp pack`, `vp test`, `vp check`)  | Replaces the previous ad-hoc build setup                                                         |
+| Latent bugs fixed in specs and entity handling       | Found while typing, listed in the commit history                                                 |
+| Path matching and name validation are workspace pkgs | The `path-expression-matcher` type augmentations are gone; see below                             |
 
 Two known differences worth calling out: `test/compact-builder-force.spec.ts` is fork-local.
 
@@ -42,46 +43,60 @@ pnpm install
 pnpm build
 ```
 
-Its runtime dependencies are the two workspace packages `@endevops/common-xml` and `@endevops/builder`.
+Its runtime dependencies are `effect` and the two workspace packages `@endevops/common-xml` and `@endevops/builder`.
 
 ## Quick start
 
+Every entry point returns an `Effect`, so these examples run one to get a value back. In real code
+prefer `Effect.runPromise` or a runtime.
+
 ```javascript
+import { Effect } from 'effect';
 import XMLParser from '@endevops/parser';
 
-const parser = new XMLParser();
-parser.parse('<root><count>3</count><active>true</active></root>');
+const parser = Effect.runSync(XMLParser.make());
+Effect.runSync(parser.parse('<root><count>3</count><active>true</active></root>'));
 // { root: { count: 3, active: true } }
 ```
 
 Attributes are skipped by default. Turn them on to see them:
 
 ```javascript
-const parser = new XMLParser({ skip: { attributes: false } });
-parser.parse('<item id="1">hello</item>');
+const parser = Effect.runSync(XMLParser.make({ skip: { attributes: false } }));
+Effect.runSync(parser.parse('<item id="1">hello</item>'));
 // { item: { '@_id': 1, '#text': 'hello' } }
 ```
+
+A `ParseError` — with a machine-readable `code` and, where the failure has a position, an `index` —
+is the only thing that can fail. Recover from a code you can handle with `Effect.catchIf`; a code
+you do not handle re-fails unchanged.
 
 ## Input modes
 
 ```javascript
-parser.parse('<root/>'); // string
-parser.parse(Buffer.from('<root/>')); // buffer
-parser.parseBytesArr(new Uint8Array([...])); // typed array
-await parser.parseStream(fs.createReadStream('big.xml')); // Node.js readable
+const parser = Effect.runSync(XMLParser.make());
 
-// Incremental feed
-parser.feed('<root>');
-parser.feed('<item>1</item>');
-const result = parser.end();
+Effect.runSync(parser.parse('<root/>')); // string
+Effect.runSync(parser.parse(Buffer.from('<root/>'))); // buffer
+Effect.runSync(parser.parseBytesArr(new Uint8Array([...]))); // typed array
+await Effect.runPromise(parser.parseStream(fs.createReadStream('big.xml'))); // Node.js readable
+
+// Incremental feed — feed() yields the parser back, end() produces the result
+const streamed = Effect.runSync(XMLParser.make());
+Effect.runSync(streamed.feed('<root>'));
+Effect.runSync(streamed.feed('<item>1</item>'));
+Effect.runSync(streamed.feed('</root>'));
+const result = Effect.runSync(streamed.end());
+// { root: { item: 1 } }
 ```
 
 ## Options
 
-Everything is optional.
+Everything is optional. `XMLParser.make` resolves and validates them, so this object literal is its
+argument:
 
 ```javascript
-new XMLParser({
+XMLParser.make({
   skip: {
     // What to leave out of the output
     attributes: true, // Skip all attributes
@@ -103,7 +118,7 @@ new XMLParser({
     prefix: '@_',
     suffix: '',
     groupBy: '', // Group attributes under one key, '' keeps them inline
-    booleanType: false, // Allow valueless attributes, read as true
+    booleanType: 'allow', // 'allow' reads valueless attributes as true, 'ignore' drops them, 'throw' rejects
   },
   tags: {
     unpaired: [], // Self-closing tags written without a slash
@@ -115,7 +130,7 @@ new XMLParser({
   exitIf: null,
   feedable: { maxBufferSize: 10 * 1024 * 1024, autoFlush: true, flushThreshold: 1024 },
   autoClose: null, // null is strict, 'html' recovers and collects errors
-  OutputBuilder: null, // Defaults to CompactBuilder
+  // OutputBuilder is omitted, not set to null — omit it to get CompactBuilder
 });
 ```
 
@@ -124,14 +139,17 @@ new XMLParser({
 Value parsing belongs to the output builder, so tag text and attribute values get independent chains.
 
 ```javascript
-import { CompactBuilderFactory } from '@nodable/compact-builder';
+import { Effect } from 'effect';
+import { CompactBuilderFactory } from '@endevops/builder';
 
-const builder = new CompactBuilderFactory({
-  tags: { valueParsers: ['entity', 'boolean', 'number'] },
-  attributes: { valueParsers: ['entity', 'number', 'boolean'] },
-});
+const builder = Effect.runSync(
+  CompactBuilderFactory.make({
+    tags: { valueParsers: ['entity', 'boolean', 'number'] },
+    attributes: { valueParsers: ['entity', 'number', 'boolean'] },
+  })
+);
 
-const parser = new XMLParser({ OutputBuilder: builder });
+const parser = Effect.runSync(XMLParser.make({ OutputBuilder: builder }));
 ```
 
 ## Documentation

@@ -11,17 +11,12 @@
  * every number reported here.
  */
 
+import { Effect } from 'effect';
 import { afterAll, expect, test } from 'vite-plus/test';
 
 import type { X2jOptions } from '#/options.ts';
 
 import XMLParser from '#/xml-parser.ts';
-
-/**
- * @description The parser class, bound to a local. Reading an imported binding inside the benchmarked closure would otherwise go through the module runner's
- * export getter on every call, which is measurable at this iteration count.
- */
-const Parser = XMLParser;
 
 /**
  * @description Generate a catalog document with `n` items.
@@ -88,16 +83,24 @@ afterAll(() => {
   expect(observed).toBeGreaterThan(0);
 });
 
+// Both entry points answer with an `Effect` now, and the benchmark has to run it to
+// get at the parsed tree. `Effect.runSync` is the honest cost here: the walk is
+// synchronous underneath, so the effect is a wrapper around work the benchmark is
+// already measuring, and adding a runtime to the numbers would measure the runtime
+// rather than the parser.
+const makeParser = (): XMLParser => Effect.runSync(XMLParser.make(options));
+const runSync = <A>(effect: Effect.Effect<A, unknown>): A => Effect.runSync(effect);
+
 test('parse() — whole document', async ({ bench }) => {
   await bench('20k-item catalog', () => {
-    observed += rootKeyCount(new Parser(options).parse(doc));
+    observed += rootKeyCount(runSync(makeParser().parse(doc)));
   }).run();
 });
 
 test('feed()/end() — chunked', async ({ bench }) => {
   await bench(`4KB chunks (${Math.ceil(doc.length / CHUNK_SIZE)} feed calls)`, () => {
-    const parser = new Parser(options);
-    for (let offset = 0; offset < doc.length; offset += CHUNK_SIZE) parser.feed(doc.slice(offset, offset + CHUNK_SIZE));
-    observed += rootKeyCount(parser.end());
+    const parser = makeParser();
+    for (let offset = 0; offset < doc.length; offset += CHUNK_SIZE) runSync(parser.feed(doc.slice(offset, offset + CHUNK_SIZE)));
+    observed += rootKeyCount(runSync(parser.end()));
   }).run();
 });

@@ -1,11 +1,11 @@
 import { NumberValueParser, type Context, type ValueParser } from '@endevops/builder';
-import { CompactBuilderFactory } from '@endevops/builder';
+import { CompactBuilderFactory, type BuilderError } from '@endevops/builder';
 import { COMMON_HTML, CURRENCY } from '@endevops/common-xml';
+import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import EntityParser from '#/test/helpers/custom-entity-parser.ts';
-import { parseDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { makeParser, parseDoc, runParser } from '#/test/helpers/test-runner.ts';
 
 describe('Value Parsers', function () {
   // ── Default chain behaviour ───────────────────────────────────────────────
@@ -19,7 +19,7 @@ describe('Value Parsers', function () {
         <hex>0x1F</hex>
       </root>`;
 
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = parseDoc(parser, xmlData);
 
     expect(result.root.integer).toBe(42);
@@ -36,7 +36,7 @@ describe('Value Parsers', function () {
         <notBoolean>maybe</notBoolean>
       </root>`;
 
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = parseDoc(parser, xmlData);
 
     expect(result.root.trueVal).toBe(true);
@@ -50,7 +50,7 @@ describe('Value Parsers', function () {
         <tag>  padded  </tag>
       </root>`;
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'number'] } }) });
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['boolean', 'number'] } })) });
     const result = parseDoc(parser, xmlData);
 
     // No 'trim' in the default chain — whitespace is preserved
@@ -63,7 +63,7 @@ describe('Value Parsers', function () {
         <tag>  trimmed  </tag>
       </root>`;
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['trim', 'boolean', 'number'] } }) });
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['trim', 'boolean', 'number'] } })) });
     const result = parseDoc(parser, xmlData);
 
     expect(result.root.tag).toBe('trimmed');
@@ -74,17 +74,17 @@ describe('Value Parsers', function () {
 
 describe('Entity Parser', function () {
   it("should expand XML entities via the 'entity' ValueParser (default)", function () {
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = parseDoc(parser, `<root><tag>&lt;hello&gt;</tag></root>`);
     expect(result.root.tag).toBe('<hello>');
   });
 
   it("should expand DOCTYPE entities via the 'entity' ValueParser (default)", function () {
     const evp = new EntityParser();
-    const builder = new CompactBuilderFactory();
-    builder.registerValueParser('entity', evp);
+    const builder = runParser(CompactBuilderFactory.make());
+    runParser(builder.registerValueParser('entity', evp));
 
-    const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+    const parser = makeParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
     const result = parseDoc(
       parser,
       `<!DOCTYPE root [
@@ -95,23 +95,25 @@ describe('Entity Parser', function () {
   });
 
   it("should leave entities unexpanded when 'entity' is removed from valueParsers", function () {
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'number'] } }) });
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['boolean', 'number'] } })) });
     const result = parseDoc(parser, `<root><tag>&lt;raw&gt;</tag></root>`);
     expect(result.root.tag).toBe('&lt;raw&gt;');
   });
 
   it('should expand HTML entities when entityParseOptions.html is true', function () {
     const evp = new EntityParser({ namedEntities: { ...COMMON_HTML, ...CURRENCY } });
-    const builder = new CompactBuilderFactory({
-      // attributes: { valueParsers: ['entity'] }
-      tags: { valueParsers: [evp, 'number'] },
-      // tags: { valueParsers: ["entity", "number"] }
-    });
+    const builder = runParser(
+      CompactBuilderFactory.make({
+        // attributes: { valueParsers: ['entity'] }
+        tags: { valueParsers: [evp, 'number'] },
+        // tags: { valueParsers: ["entity", "number"] }
+      })
+    );
 
     //this is need so that doctype entities can be set and xml version at runtime
-    builder.registerValueParser('entity', evp);
+    runParser(builder.registerValueParser('entity', evp));
 
-    const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
+    const parser = makeParser({ skip: { attributes: false }, OutputBuilder: builder });
     const result = parseDoc(parser, `<root><c>&copy;</c><p>&pound;</p></root>`);
     // console.log(result)
     expect(result.root.c).toBe('©');
@@ -120,14 +122,16 @@ describe('Entity Parser', function () {
 
   it('should expand HTML entities in attributes when entityParseOptions.html is true', function () {
     const evp = new EntityParser({ namedEntities: { ...COMMON_HTML, ...CURRENCY } });
-    const builder = new CompactBuilderFactory({
-      // attributes: { valueParsers: ['entity'] }
-      attributes: { valueParsers: [evp] },
-    });
+    const builder = runParser(
+      CompactBuilderFactory.make({
+        // attributes: { valueParsers: ['entity'] }
+        attributes: { valueParsers: [evp] },
+      })
+    );
 
     // builder.registerValueParser("entity", evp);
 
-    const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
+    const parser = makeParser({ skip: { attributes: false }, OutputBuilder: builder });
     const result = parseDoc(parser, `<root label="&copy; 2024"/>`);
     expect(result.root['@_label']).toBe('© 2024');
   });
@@ -136,14 +140,16 @@ describe('Entity Parser', function () {
     // U+0001 is an illegal character in XML 1.0, so an NCR that decodes to it
     // must be dropped, leaving only the rest of the attribute value.
     const evp = new EntityParser({ ncr: { xmlVersion: 1.0, onNCR: 'allow' } });
-    const builder = new CompactBuilderFactory({
-      // attributes: { valueParsers: ['entity'] }
-      attributes: { valueParsers: [evp] },
-    });
+    const builder = runParser(
+      CompactBuilderFactory.make({
+        // attributes: { valueParsers: ['entity'] }
+        attributes: { valueParsers: [evp] },
+      })
+    );
 
-    builder.registerValueParser('entity', evp);
+    runParser(builder.registerValueParser('entity', evp));
 
-    const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
+    const parser = makeParser({ skip: { attributes: false }, OutputBuilder: builder });
     const result = parseDoc(parser, `<?xml version="1.0"?><root label="&#x1;2024"/>`);
     expect(result.root['@_label']).toBe('2024');
   });
@@ -151,14 +157,16 @@ describe('Entity Parser', function () {
   it('should expand NCR entities as per XML version 1.1', function () {
     // The same NCR under XML 1.1 is legal, so it survives verbatim.
     const evp = new EntityParser({ ncr: { xmlVersion: 1.1, onNCR: 'allow' } });
-    const builder = new CompactBuilderFactory({
-      // attributes: { valueParsers: ['entity'] }
-      attributes: { valueParsers: [evp] },
-    });
+    const builder = runParser(
+      CompactBuilderFactory.make({
+        // attributes: { valueParsers: ['entity'] }
+        attributes: { valueParsers: [evp] },
+      })
+    );
 
-    builder.registerValueParser('entity', evp);
+    runParser(builder.registerValueParser('entity', evp));
 
-    const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: builder });
+    const parser = makeParser({ skip: { attributes: false }, OutputBuilder: builder });
     const result = parseDoc(parser, `<?xml version="1.1"?><root label="&#x1;2024"/>`);
 
     expect((result.root['@_label'] as unknown as string).charCodeAt(0)).toBe(1); // U+0001 (SOH)
@@ -175,7 +183,7 @@ describe('Custom chain', () => {
         <val3>text</val3>
       </root>`;
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['entity', 'boolean', 'number'] } }) });
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['entity', 'boolean', 'number'] } })) });
     const result = parseDoc(parser, xmlData);
 
     expect(result.root.val1).toBe(42);
@@ -191,10 +199,10 @@ describe('Custom chain', () => {
         <eNotation>1.5e3</eNotation>
       </root>`;
 
-    const parser = new XMLParser({
-      OutputBuilder: new CompactBuilderFactory({
-        tags: { valueParsers: [new NumberValueParser({ hex: true, leadingZeros: false, eNotation: true })] },
-      }),
+    const parser = makeParser({
+      OutputBuilder: runParser(
+        CompactBuilderFactory.make({ tags: { valueParsers: [new NumberValueParser({ hex: true, leadingZeros: false, eNotation: true })] } })
+      ),
     });
     const result = parseDoc(parser, xmlData);
 
@@ -204,7 +212,9 @@ describe('Custom chain', () => {
   });
 
   it('should disable all value parsing with an empty valueParsers array', function () {
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } }) });
+    const parser = makeParser({
+      OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } })),
+    });
     const result = parseDoc(parser, `<root><n>42</n></root>`);
     expect(result.root.n).toBe('42');
     expect(typeof result.root.n).toBe('string');
@@ -213,7 +223,7 @@ describe('Custom chain', () => {
   it('should parse attribute values with the default chain', function () {
     const xmlData = `<root><tag num="42" bool="true" text="hello">value</tag></root>`;
 
-    const parser = new XMLParser({ skip: { attributes: false } });
+    const parser = makeParser({ skip: { attributes: false } });
     const result = parseDoc(parser, xmlData);
 
     expect(result.root.tag['@_num']).toBe(42);
@@ -222,9 +232,9 @@ describe('Custom chain', () => {
   });
 
   it('should parse attribute values with a custom chain', function () {
-    const parser = new XMLParser({
+    const parser = makeParser({
       skip: { attributes: false },
-      OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: ['number'] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: ['number'] } })),
     });
     const result = parseDoc(parser, `<root><tag n="42" s="hello"/></root>`);
     expect(result.root.tag['@_n']).toBe(42);
@@ -239,17 +249,17 @@ describe('Custom chain', () => {
     const seenContexts: (Record<string, unknown> & { hasMatcher: boolean })[] = [];
 
     class ContextCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context) {
           const { matcher, ...rest } = context;
           seenContexts.push({ ...rest, hasMatcher: matcher != null });
         }
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new ContextCapture()] } }) });
-    parser.parse(`<root><price>9.99</price></root>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new ContextCapture()] } })) });
+    runParser(parser.parse(`<root><price>9.99</price></root>`));
 
     expect(seenContexts.length).toBeGreaterThan(0);
     // New context shape
@@ -262,16 +272,16 @@ describe('Custom chain', () => {
 
   it('should support registering and referencing a named custom parser', function () {
     class UpperCaseParser implements ValueParser {
-      parse(val: unknown): unknown {
-        return typeof val === 'string' ? val.toUpperCase() : val;
+      parse(val: unknown): Effect.Effect<unknown, BuilderError> {
+        return Effect.succeed(typeof val === 'string' ? val.toUpperCase() : val);
       }
       reset(): void {}
     }
 
-    const builder = new CompactBuilderFactory({ tags: { valueParsers: ['uppercase'] } });
-    builder.registerValueParser('uppercase', new UpperCaseParser());
+    const builder = runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['uppercase'] } }));
+    runParser(builder.registerValueParser('uppercase', new UpperCaseParser()));
 
-    const parser = new XMLParser({ OutputBuilder: builder });
+    const parser = makeParser({ OutputBuilder: builder });
     const result = parseDoc(parser, `<root><tag>hello world</tag></root>`);
     expect(result.root.tag).toBe('HELLO WORLD');
   });

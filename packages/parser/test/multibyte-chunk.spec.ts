@@ -2,8 +2,7 @@ import { Readable } from 'stream';
 import { describe, it, expect } from 'vite-plus/test';
 
 import FeedableSource from '#/input-source/feedable-source.ts';
-import { endDoc, streamDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { endDoc, streamDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,12 +106,12 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
     it('parses correctly when a multi-byte char is split across feed() Buffer chunks', () => {
       const full = `<root><val>${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}</val></root>`;
       const buf = Buffer.from(full, 'utf8');
-      const parser = new XMLParser();
+      const parser = makeParser();
 
       // Feed one byte at a time — the worst case, guarantees every
       // multi-byte character gets split across chunk boundaries.
       for (let i = 0; i < buf.length; i++) {
-        parser.feed(buf.subarray(i, i + 1));
+        runParser(parser.feed(buf.subarray(i, i + 1)));
       }
       const result = endDoc(parser);
       expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
@@ -131,7 +130,7 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
         chunks.push(buf.subarray(i, i + 3));
       }
 
-      const parser = new XMLParser();
+      const parser = makeParser();
       const result = await streamDoc(parser, makeBufferStream(chunks));
       expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
     });

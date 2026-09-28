@@ -2,8 +2,7 @@ import { WSNormalizer } from '@endevops/builder';
 import { CompactBuilderFactory } from '@endevops/builder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { parseDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { parseDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 describe('White Space', function () {
   it("should preserve whitespace when xml:space='preserve' and strip it when xml:space='default' and skipping NS", function () {
@@ -33,10 +32,10 @@ describe('White Space', function () {
         comments: false,
       },
       nameFor: { cdata: '#cdata', comment: '#comment' },
-      OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['ws', 'boolean', 'number'] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['ws', 'boolean', 'number'] } })),
       tags: { stopNodes: ['root.stop'] },
     };
-    const parser = new XMLParser(options);
+    const parser = makeParser(options);
     const result = parseDoc(parser, xmlData);
 
     const expected = {
@@ -83,10 +82,10 @@ describe('White Space', function () {
         comments: false,
       },
       nameFor: { cdata: '#cdata', comment: '#comment' },
-      OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['ws', 'boolean', 'number'] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['ws', 'boolean', 'number'] } })),
       tags: { stopNodes: ['root.stop'] },
     };
-    const parser = new XMLParser(options);
+    const parser = makeParser(options);
     const result = parseDoc(parser, xmlData);
 
     const expected = {
@@ -129,10 +128,10 @@ describe('White Space', function () {
         comments: false,
       },
       nameFor: { cdata: '#cdata', comment: '#comment' },
-      OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: ['ws', 'boolean', 'number'] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['ws', 'boolean', 'number'] } })),
       tags: { stopNodes: ['root.stop'] },
     };
-    const parser = new XMLParser(options);
+    const parser = makeParser(options);
     const result = parseDoc(parser, xmlData);
 
     const expected = {
@@ -171,10 +170,12 @@ describe('White Space', function () {
         comments: false,
       },
       nameFor: { cdata: '#cdata', comment: '#comment' },
-      OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new WSNormalizer({ exclude: ['root.stop'] }), 'boolean', 'number'] } }),
+      OutputBuilder: runParser(
+        CompactBuilderFactory.make({ tags: { valueParsers: [runParser(WSNormalizer.make({ exclude: ['root.stop'] })), 'boolean', 'number'] } })
+      ),
       // tags: { stopNodes: ["root.stop"] }
     };
-    const parser = new XMLParser(options);
+    const parser = makeParser(options);
     const result = parseDoc(parser, xmlData);
 
     const expected = {

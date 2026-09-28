@@ -1,4 +1,5 @@
-import type { Expression, ExpressionSet, MatcherView } from '@endevops/common-xml';
+import type { Expression, ExpressionSet, MatcherView, XmlError } from '@endevops/common-xml';
+import type { Effect } from 'effect';
 
 import type EncodingRegistry from './encoding/encoding-registry.ts';
 import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
@@ -315,11 +316,14 @@ export interface AutoCloseOptions {
  * 'closeAll'`, `onMismatch: 'discard'`, `collectErrors: true`, plus the standard HTML void elements appended to `tags.unpaired`.
  */
 /**
- * @description The `exitIf` callback: given the read-only matcher positioned at a closing tag, return `true` to stop the parse immediately. On `true` the parser
+ * @description The `exitIf` callback: given the read-only matcher positioned at a closing tag, answer `true` to stop the parse immediately. On `true` the parser
  * finalizes the output, unwinds every open ancestor with a synthetic close, and attaches a non-enumerable `__exitInfo` to the result. Any other value
- * — including `undefined` — continues parsing. See {@link Xml2JsOptions.exitIf} for the option itself.
+ * — including `undefined` — continues parsing. See {@link X2jOptions.exitIf} for the option itself. The answer is an `Effect`, for the same reason
+ * every matcher question in `@endevops/common-xml` is: a predicate that asks the matcher anything — a tag name, an attribute value, a position
+ * counter — has nothing to return but an effect now, and a predicate typed to return `boolean` could not be written against the matcher it is handed.
+ * The parser runs it per opening tag.
  */
-export type ExitIfPredicate = (matcher: MatcherView) => boolean;
+export type ExitIfPredicate = (matcher: MatcherView) => Effect.Effect<boolean, XmlError>;
 
 export type AutoCloseInput = 'html' | 'closeAll' | Partial<AutoCloseOptions> | null;
 
@@ -484,25 +488,29 @@ export interface X2jOptions {
   onStopNode?: (tagDetail: { name: string; index: number }, rawContent: string, matcher: any) => void;
 
   /**
-   * @description Predicate evaluated after each non-self-closing, non-stop, non-skip opening tag is pushed onto the parser stack. When the function returns `true`
+   * @description Predicate evaluated after each non-self-closing, non-stop, non-skip opening tag is pushed onto the parser stack. When the function answers `true`
    * the parser immediately stops reading further input and returns a partial-but- consistent output object. At the moment of evaluation the read-only
    * `matcher` is positioned at the tag that triggered the exit. All tags that were open before it are cleanly closed (innermost first) so the output
-   * builder can finalise its tree. The output builder's `onExit()` method is then called with the exit context. No error is thrown — the normal
-   * return value of `parse()` / `feed()+end()` / `parseStream()` is returned as usual. Must be a function. Passing any other truthy value raises a
-   * `ParseError` with code `INVALID_INPUT` at construction time.
+   * builder can finalise its tree. The output builder's `onExit()` method is then called with the exit context. No error is raised — the normal
+   * return value of `parse()` / `feed()+end()` / `parseStream()` is returned as usual. Must be a function. Passing any other truthy value fails
+   * `XMLParser.make` with a `ParseError` and code `INVALID_INPUT`.
    *
    * @example
    *   // Stop after the first <item> whose @id attribute equals 'stop-here'
-   *   const parser = new XMLParser({
-   *     skip: { attributes: false },
-   *     exitIf(matcher) {
-   *       return matcher.getTagName() === 'item' && matcher.getAttribute('@_id') === 'stop-here';
-   *     },
-   *   });
+   *   const parser =
+   *     yield *
+   *     XMLParser.make({
+   *       skip: { attributes: false },
+   *       exitIf: matcher =>
+   *         Effect.map(matcher.getCurrentTag(), tag => tag === 'item').pipe(
+   *           Effect.andThen(matcher.getAttrValue('id')),
+   *           (b, id) => b && id === 'stop-here'
+   *         ),
+   *     });
    *
    * @param matcher - Read-only path matcher positioned at the triggering tag.
    *
-   * @returns `true` to stop parsing now; any other value to continue.
+   * @returns An effect answering `true` to stop parsing now; any other value to continue.
    */
   exitIf?: ExitIfPredicate | null | undefined;
 }
@@ -588,9 +596,9 @@ export interface ResolvedOptions {
    */
   feedable: Required<FeedableOptions>;
   /**
-   * @description Resolved exitIf predicate. Never `null` after resolution — an unset predicate is `() => false`.
+   * @description Resolved exitIf predicate. Never `null` after resolution — an unset predicate answers `false` without asking the matcher.
    */
-  exitIf: (matcher: any) => boolean;
+  exitIf: ExitIfPredicate;
   /**
    * @description Output builder factory, defaults applied. `getInstance()` is called once per parse run.
    */

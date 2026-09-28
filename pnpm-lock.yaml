@@ -208,6 +208,9 @@ importers:
       '@endevops/common-xml':
         specifier: workspace:^
         version: link:../common-xml
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
     devDependencies:
       fast-xml-parser:
         specifier: ^5.11.1
@@ -268,6 +271,9 @@ importers:
       '@endevops/common-xml':
         specifier: workspace:^
         version: link:../common-xml
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
     devDependencies:
       vite:
         specifier: 'catalog:'

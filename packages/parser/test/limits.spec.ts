@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vite-plus/test';
 import type { ErrorCodeValue, LimitsOptions } from '#/options.ts';
 
 import { ParseError, ErrorCode } from '#/parse-error.ts';
-import XMLParser from '#/xml-parser.ts';
+import { makeParser, makeParserOrThrow, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -48,49 +48,49 @@ function expectParseError(fn: () => unknown, code?: ErrorCodeValue): void {
 
 describe('limits option — constructor validation', function () {
   it('should accept limits: null (no limits)', function () {
-    expect(() => new XMLParser({ limits: null })).not.toThrow();
+    expect(() => makeParser({ limits: null })).not.toThrow();
   });
 
   it('should accept limits: {} (empty object, uses defaults)', function () {
-    expect(() => new XMLParser({ limits: {} })).not.toThrow();
+    expect(() => makeParser({ limits: {} })).not.toThrow();
   });
 
   it('should accept valid maxNestedTags', function () {
-    expect(() => new XMLParser({ limits: { maxNestedTags: 1 } })).not.toThrow();
-    expect(() => new XMLParser({ limits: { maxNestedTags: 1000 } })).not.toThrow();
+    expect(() => makeParser({ limits: { maxNestedTags: 1 } })).not.toThrow();
+    expect(() => makeParser({ limits: { maxNestedTags: 1000 } })).not.toThrow();
   });
 
   it('should accept valid maxAttributesPerTag', function () {
-    expect(() => new XMLParser({ limits: { maxAttributesPerTag: 0 } })).not.toThrow();
-    expect(() => new XMLParser({ limits: { maxAttributesPerTag: 500 } })).not.toThrow();
+    expect(() => makeParser({ limits: { maxAttributesPerTag: 0 } })).not.toThrow();
+    expect(() => makeParser({ limits: { maxAttributesPerTag: 500 } })).not.toThrow();
   });
 
   it('should reject maxNestedTags: 0 (must be >= 1)', function () {
-    expectParseError(() => new XMLParser({ limits: { maxNestedTags: 0 } }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => makeParserOrThrow({ limits: { maxNestedTags: 0 } }), ErrorCode.INVALID_INPUT);
   });
 
   it('should reject maxNestedTags: -1', function () {
-    expectParseError(() => new XMLParser({ limits: { maxNestedTags: -1 } }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => makeParserOrThrow({ limits: { maxNestedTags: -1 } }), ErrorCode.INVALID_INPUT);
   });
 
   it('should reject maxNestedTags: 1.5 (must be integer)', function () {
-    expectParseError(() => new XMLParser({ limits: { maxNestedTags: 1.5 } }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => makeParserOrThrow({ limits: { maxNestedTags: 1.5 } }), ErrorCode.INVALID_INPUT);
   });
 
   it("should reject maxNestedTags: '10' (must be number)", function () {
-    expectParseError(() => new XMLParser({ limits: { maxNestedTags: '10' } as unknown as LimitsOptions }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => makeParserOrThrow({ limits: { maxNestedTags: '10' } as unknown as LimitsOptions }), ErrorCode.INVALID_INPUT);
   });
 
   it('should reject maxAttributesPerTag: -1', function () {
-    expectParseError(() => new XMLParser({ limits: { maxAttributesPerTag: -1 } }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => makeParserOrThrow({ limits: { maxAttributesPerTag: -1 } }), ErrorCode.INVALID_INPUT);
   });
 
   it('should reject maxAttributesPerTag: 2.5 (must be integer)', function () {
-    expectParseError(() => new XMLParser({ limits: { maxAttributesPerTag: 2.5 } }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => makeParserOrThrow({ limits: { maxAttributesPerTag: 2.5 } }), ErrorCode.INVALID_INPUT);
   });
 
   it('should reject limits as a non-object (string)', function () {
-    expectParseError(() => new XMLParser({ limits: '50' as unknown as LimitsOptions }), ErrorCode.INVALID_INPUT);
+    expectParseError(() => makeParserOrThrow({ limits: '50' as unknown as LimitsOptions }), ErrorCode.INVALID_INPUT);
   });
 });
 
@@ -98,26 +98,26 @@ describe('limits option — constructor validation', function () {
 
 describe('limits.maxNestedTags — enforcement', function () {
   it('should parse successfully when depth equals limit', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 3 } });
+    const parser = makeParser({ limits: { maxNestedTags: 3 } });
     // depth 3: <n0><n1><n2>x</n2></n1></n0>
-    expect(() => parser.parse(nested(3))).not.toThrow();
+    expect(() => runParser(parser.parse(nested(3)))).not.toThrow();
   });
 
   it('should throw ParseError when depth exceeds limit by one', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 3 } });
-    expectParseError(() => parser.parse(nested(4)), ErrorCode.LIMIT_MAX_NESTED_TAGS);
+    const parser = makeParser({ limits: { maxNestedTags: 3 } });
+    expectParseError(() => runParser(parser.parse(nested(4))), ErrorCode.LIMIT_MAX_NESTED_TAGS);
   });
 
   it('should throw ParseError when depth far exceeds limit', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 5 } });
-    expectParseError(() => parser.parse(nested(20)), ErrorCode.LIMIT_MAX_NESTED_TAGS);
+    const parser = makeParser({ limits: { maxNestedTags: 5 } });
+    expectParseError(() => runParser(parser.parse(nested(20))), ErrorCode.LIMIT_MAX_NESTED_TAGS);
   });
 
   it('should include tag name in the error message', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 2 } });
+    const parser = makeParser({ limits: { maxNestedTags: 2 } });
     let err: ParseError | undefined;
     try {
-      parser.parse(nested(3));
+      runParser(parser.parse(nested(3)));
     } catch (e) {
       err = e as ParseError;
     }
@@ -127,10 +127,10 @@ describe('limits.maxNestedTags — enforcement', function () {
   });
 
   it('ParseError should carry position info (index)', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 2 } });
+    const parser = makeParser({ limits: { maxNestedTags: 2 } });
     let err: ParseError | undefined;
     try {
-      parser.parse(nested(3));
+      runParser(parser.parse(nested(3)));
     } catch (e) {
       err = e as ParseError;
     }
@@ -139,35 +139,35 @@ describe('limits.maxNestedTags — enforcement', function () {
   });
 
   it('should allow limit: 1 (only root tag)', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 1 } });
-    expect(() => parser.parse('<root>text</root>')).not.toThrow();
+    const parser = makeParser({ limits: { maxNestedTags: 1 } });
+    expect(() => runParser(parser.parse('<root>text</root>'))).not.toThrow();
   });
 
   it('should throw for limit: 1 with one level of nesting', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 1 } });
-    expectParseError(() => parser.parse('<root><child>text</child></root>'), ErrorCode.LIMIT_MAX_NESTED_TAGS);
+    const parser = makeParser({ limits: { maxNestedTags: 1 } });
+    expectParseError(() => runParser(parser.parse('<root><child>text</child></root>')), ErrorCode.LIMIT_MAX_NESTED_TAGS);
   });
 
   it('should not limit depth when maxNestedTags is null (default)', function () {
-    const parser = new XMLParser();
+    const parser = makeParser();
     // 50 levels deep should be fine without a limit
-    expect(() => parser.parse(nested(50))).not.toThrow();
+    expect(() => runParser(parser.parse(nested(50)))).not.toThrow();
   });
 
   it('depth limit applies to multiple sibling branches independently', function () {
     // Each sibling resets depth — only deeper nesting should fail
-    const parser = new XMLParser({ limits: { maxNestedTags: 2 } });
+    const parser = makeParser({ limits: { maxNestedTags: 2 } });
     const xml = `<root><a><b/></a><c><d/></c></root>`;
-    expect(() => parser.parse(xml)).not.toThrowError("[LIMIT_MAX_NESTED_TAGS] at index 9: Nesting depth 3 exceeds limit of 2 (tag: 'b')");
+    expect(() => runParser(parser.parse(xml))).not.toThrowError("[LIMIT_MAX_NESTED_TAGS] at index 9: Nesting depth 3 exceeds limit of 2 (tag: 'b')");
   });
 
   it('should throw on feed/end (feedable source) when depth exceeded', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 3 } });
+    const parser = makeParser({ limits: { maxNestedTags: 3 } });
     const xml = nested(4);
     expectParseError(() => {
       const chunk = 20;
-      for (let i = 0; i < xml.length; i += chunk) parser.feed(xml.slice(i, i + chunk));
-      parser.end();
+      for (let i = 0; i < xml.length; i += chunk) runParser(parser.feed(xml.slice(i, i + chunk)));
+      runParser(parser.end());
     }, ErrorCode.LIMIT_MAX_NESTED_TAGS);
   });
 });
@@ -176,20 +176,20 @@ describe('limits.maxNestedTags — enforcement', function () {
 
 describe('limits.maxAttributesPerTag — enforcement', function () {
   it('should parse successfully when attribute count equals limit', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
-    expect(() => parser.parse(tagWithAttrs(3))).not.toThrow();
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
+    expect(() => runParser(parser.parse(tagWithAttrs(3)))).not.toThrow();
   });
 
   it('should throw ParseError when attribute count exceeds limit by one', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
-    expectParseError(() => parser.parse(tagWithAttrs(4)), ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
+    expectParseError(() => runParser(parser.parse(tagWithAttrs(4))), ErrorCode.LIMIT_MAX_ATTRIBUTES);
   });
 
   it('should include tag name and counts in error message', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
     let err: ParseError | undefined;
     try {
-      parser.parse(tagWithAttrs(5));
+      runParser(parser.parse(tagWithAttrs(5)));
     } catch (e) {
       err = e as ParseError;
     }
@@ -199,41 +199,41 @@ describe('limits.maxAttributesPerTag — enforcement', function () {
   });
 
   it('should enforce limit: 0 (no attributes allowed)', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
-    expectParseError(() => parser.parse(`<root a="1"></root>`), ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
+    expectParseError(() => runParser(parser.parse(`<root a="1"></root>`)), ErrorCode.LIMIT_MAX_ATTRIBUTES);
   });
 
   it('should not throw for limit: 0 when tag has no attributes', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
-    expect(() => parser.parse('<root></root>')).not.toThrow();
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
+    expect(() => runParser(parser.parse('<root></root>'))).not.toThrow();
   });
 
   it('should apply limit per-tag, not globally across all tags', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
     // Two tags each with 2 attrs: fine
     const xml = `<root a="1" b="2"><child c="3" d="4"/></root>`;
-    expect(() => parser.parse(xml)).not.toThrow();
+    expect(() => runParser(parser.parse(xml))).not.toThrow();
   });
 
   it('should throw when any single tag exceeds the limit', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
     const xml = `<root a="1" b="2"><child c="3" d="4" e="5"/></root>`;
-    expectParseError(() => parser.parse(xml), ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    expectParseError(() => runParser(parser.parse(xml)), ErrorCode.LIMIT_MAX_ATTRIBUTES);
   });
 
   it('should not check attributes when skip.attributes is true (default)', function () {
     // With attributes skipped, flushAttributes is never called — limit is irrelevant
-    const parser = new XMLParser({
+    const parser = makeParser({
       // skip.attributes defaults to true
       limits: { maxAttributesPerTag: 0 },
     });
     // Even though limit is 0, attributes are skipped entirely — no throw
-    expect(() => parser.parse(`<root a="1" b="2"></root>`)).not.toThrow();
+    expect(() => runParser(parser.parse(`<root a="1" b="2"></root>`))).not.toThrow();
   });
 
   it('should not limit attributes when maxAttributesPerTag is null (default)', function () {
-    const parser = new XMLParser({ skip: { attributes: false } });
-    expect(() => parser.parse(tagWithAttrs(50))).not.toThrow();
+    const parser = makeParser({ skip: { attributes: false } });
+    expect(() => runParser(parser.parse(tagWithAttrs(50)))).not.toThrow();
   });
 });
 
@@ -241,20 +241,20 @@ describe('limits.maxAttributesPerTag — enforcement', function () {
 
 describe('limits — combined maxNestedTags + maxAttributesPerTag', function () {
   it('should enforce both limits simultaneously', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxNestedTags: 3, maxAttributesPerTag: 2 } });
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxNestedTags: 3, maxAttributesPerTag: 2 } });
     // Depth-first: nesting limit fires first before attrs on the deep tag
-    expectParseError(() => parser.parse(nested(4)), ErrorCode.LIMIT_MAX_NESTED_TAGS);
+    expectParseError(() => runParser(parser.parse(nested(4))), ErrorCode.LIMIT_MAX_NESTED_TAGS);
   });
 
   it('attributes limit fires on a shallow tag with too many attrs', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxNestedTags: 10, maxAttributesPerTag: 2 } });
-    expectParseError(() => parser.parse(tagWithAttrs(5)), ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxNestedTags: 10, maxAttributesPerTag: 2 } });
+    expectParseError(() => runParser(parser.parse(tagWithAttrs(5))), ErrorCode.LIMIT_MAX_ATTRIBUTES);
   });
 
   it('valid XML passes both limits', function () {
-    const parser = new XMLParser({ skip: { attributes: false }, limits: { maxNestedTags: 5, maxAttributesPerTag: 3 } });
+    const parser = makeParser({ skip: { attributes: false }, limits: { maxNestedTags: 5, maxAttributesPerTag: 3 } });
     const xml = `<a x="1" y="2"><b z="3"><c/></b></a>`;
-    expect(() => parser.parse(xml)).not.toThrow();
+    expect(() => runParser(parser.parse(xml))).not.toThrow();
   });
 });
 
@@ -264,11 +264,11 @@ describe('ParseError — general error contract', function () {
   it('all parser errors should be instanceof ParseError', function () {
     const cases = [
       // Invalid input type
-      () => new XMLParser().parse(12345),
+      () => runParser(makeParser().parse(12345)),
       // Unclosed tag (no autoClose)
-      () => new XMLParser().parse('<root>'),
+      () => runParser(makeParser().parse('<root>')),
       // Mismatched closing tag
-      () => new XMLParser().parse('<root></other>'),
+      () => runParser(makeParser().parse('<root></other>')),
     ];
 
     for (const fn of cases) {
@@ -301,10 +301,10 @@ describe('ParseError — general error contract', function () {
   });
 
   it('limit errors carry position info', function () {
-    const parser = new XMLParser({ limits: { maxNestedTags: 2 } });
+    const parser = makeParser({ limits: { maxNestedTags: 2 } });
     let err: ParseError | undefined;
     try {
-      parser.parse(nested(3));
+      runParser(parser.parse(nested(3)));
     } catch (e) {
       err = e as ParseError;
     }

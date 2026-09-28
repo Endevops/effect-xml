@@ -1,13 +1,15 @@
+import type { BuilderError } from '@endevops/builder';
 import type { Expression as PathExpression } from '@endevops/common-xml';
 
 import { CompactBuilderFactory } from '@endevops/builder';
 import { Expression, ExpressionSet } from '@endevops/common-xml';
+import { Effect } from 'effect';
 
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, X2jOptions } from './options.ts';
 
-import { ParseError, ErrorCode } from './parse-error.js';
+import { ParseError, ErrorCode, fromUpstreamError, runBuilder } from './parse-error.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
 
 /**
@@ -22,9 +24,9 @@ type ConfigExpression = PathExpression<TagExpressionConfig>;
  * shape at runtime, but `@nodable/compact-builder`'s published typings declare `onStopNode()` and `onExit()` as taking `{ name, line, col, index }`
  * while FXP reports positions index-only and never produces `line` / `col` (see `BufferSource`'s doc on why line/column tracking was dropped).
  * Nominal compatibility is therefore unattainable without changing the dependency, so the adaptation is done once, here, where it can be explained —
- * rather than at every builder call site.
+ * rather than at every builder call site. `make` rather than a constructor because resolving a factory's own options can fail.
  */
-const DefaultOutputBuilderFactory = CompactBuilderFactory as unknown as new (options?: unknown) => OutputBuilderFactoryLike;
+const DefaultOutputBuilderFactory = CompactBuilderFactory as unknown as { make: () => Effect.Effect<OutputBuilderFactoryLike, BuilderError> };
 
 /**
  * @description Default rename applied to a dangerous (but not prototype-polluting) property name. Anything not on the list is returned unchanged, so this is safe
@@ -192,8 +194,9 @@ export const defaultOptions: ResolvedOptions = {
   // No error is thrown.
   //
   // An explicit `null` from the caller means "no predicate"; the default here
-  // is the always-false one so the hot path never tests for null.
-  exitIf: () => false,
+  // is the always-false one so the hot path never tests for null. It answers as
+  // an effect like any other, so the parser's call site has one shape.
+  exitIf: () => Effect.succeed(false),
 
   //onStopNode(tagDetail, rawContent, matcher)
   // --- output ---
@@ -227,121 +230,151 @@ export { ALL_RESERVED as RESERVED_JS_NAMES };
  * @description Reject an option value that would become a reserved JavaScript property key in the output object. Silently ignored for anything that isn't a
  * non-empty string, so an absent option (`undefined`) never trips it.
  *
- * @throws {ParseError} `SECURITY_RESERVED_OPTION` when the value is a reserved name.
+ * @param value - The option value to check.
+ * @param optionName - The option's name, as it appears in the error message.
+ *
+ * @returns An effect that fails with `SECURITY_RESERVED_OPTION` when the value is a reserved name. Infallible otherwise, so the common case — an
+ *   absent option — is a call that cannot do anything.
  */
-function validatePropertyName(value: unknown, optionName: string): void {
-  if (typeof value !== 'string' || value === '') return;
+const validatePropertyName = (value: unknown, optionName: string): Effect.Effect<void, ParseError> => {
+  if (typeof value !== 'string' || value === '') return Effect.void;
   if (ALL_RESERVED.has(value)) {
-    throw new ParseError(
-      `SECURITY: '${value}' is a reserved JavaScript keyword and cannot be used as ${optionName}`,
-      ErrorCode.SECURITY_RESERVED_OPTION
+    return Effect.fail(
+      new ParseError(`SECURITY: '${value}' is a reserved JavaScript keyword and cannot be used as ${optionName}`, ErrorCode.SECURITY_RESERVED_OPTION)
     );
   }
-}
+  return Effect.void;
+};
 
 /**
  * @description Validate, merge, and normalize the caller's options into the {@link ResolvedOptions} the parser reads. Three things happen here that the parser must
  * not have to do per-document: security-sensitive values are rejected, every default is filled in, and stop-node / skip-tag patterns are compiled
- * once into sealed `ExpressionSet`s.
+ * once into sealed `ExpressionSet`s. All of that can fail — a reserved option name, a malformed `limits`, a stop-node pattern that will not compile —
+ * and all of it happens once, at construction. That is why construction itself is an effect (`XMLParser.make`) rather than a constructor: a
+ * configuration the parser cannot honour is a typed failure, and a constructor has nowhere to put one.
  *
  * @param options - Caller options. Omit for pure defaults.
  *
- * @returns A fresh options object. Never the same reference as `defaultOptions`, and never shared between parsers.
- *
- * @throws {ParseError} `SECURITY_RESERVED_OPTION`, `INVALID_INPUT` for a malformed `limits`, `exitIf`, or stop-node entry.
+ * @returns An effect producing a fresh options object. Never the same reference as `defaultOptions`, and never shared between parsers. Fails with
+ *   `SECURITY_RESERVED_OPTION` for a reserved option name, `INVALID_INPUT` for a malformed `limits`, `exitIf`, or stop-node entry, and
+ *   `DEPENDENCY_ERROR` for a path expression `common-xml` refuses to compile.
  */
-export const buildOptions = function (options?: X2jOptions | null): ResolvedOptions {
-  // Validate security-sensitive option values BEFORE merging
-  if (options) {
-    if (options.nameFor?.text) validatePropertyName(options.nameFor.text, 'nameFor.text');
-    if (options.nameFor?.cdata) validatePropertyName(options.nameFor.cdata, 'nameFor.cdata');
-    if (options.nameFor?.comment) validatePropertyName(options.nameFor.comment, 'nameFor.comment');
-    if (options.attributes?.prefix) validatePropertyName(options.attributes.prefix, 'attributes.prefix');
-    if (options.attributes?.groupBy) validatePropertyName(options.attributes.groupBy, 'attributes.groupBy');
+export const buildOptions = (options?: X2jOptions | null): Effect.Effect<ResolvedOptions, ParseError> =>
+  Effect.gen(function* () {
+    // Validate security-sensitive option values BEFORE merging
+    if (options) {
+      if (options.nameFor?.text) yield* validatePropertyName(options.nameFor.text, 'nameFor.text');
+      if (options.nameFor?.cdata) yield* validatePropertyName(options.nameFor.cdata, 'nameFor.cdata');
+      if (options.nameFor?.comment) yield* validatePropertyName(options.nameFor.comment, 'nameFor.comment');
+      if (options.attributes?.prefix) yield* validatePropertyName(options.attributes.prefix, 'attributes.prefix');
+      if (options.attributes?.groupBy) yield* validatePropertyName(options.attributes.groupBy, 'attributes.groupBy');
 
-    // Validate limits option
-    if (options.limits !== undefined && options.limits !== null) {
-      if (typeof options.limits !== 'object') {
-        throw new ParseError(`'limits' must be an object, got ${typeof options.limits}`, ErrorCode.INVALID_INPUT);
-      }
-      const { maxNestedTags, maxAttributesPerTag } = options.limits;
-      if (
-        maxNestedTags !== undefined &&
-        maxNestedTags !== null &&
-        (typeof maxNestedTags !== 'number' || !Number.isInteger(maxNestedTags) || maxNestedTags < 1)
-      ) {
-        throw new ParseError(`'limits.maxNestedTags' must be a positive integer, got ${maxNestedTags}`, ErrorCode.INVALID_INPUT);
-      }
-      if (
-        maxAttributesPerTag !== undefined &&
-        maxAttributesPerTag !== null &&
-        (typeof maxAttributesPerTag !== 'number' || !Number.isInteger(maxAttributesPerTag) || maxAttributesPerTag < 0)
-      ) {
-        throw new ParseError(`'limits.maxAttributesPerTag' must be a non-negative integer, got ${maxAttributesPerTag}`, ErrorCode.INVALID_INPUT);
+      // Validate limits option
+      if (options.limits !== undefined && options.limits !== null) {
+        if (typeof options.limits !== 'object') {
+          return yield* Effect.fail(new ParseError(`'limits' must be an object, got ${typeof options.limits}`, ErrorCode.INVALID_INPUT));
+        }
+        const { maxNestedTags, maxAttributesPerTag } = options.limits;
+        if (
+          maxNestedTags !== undefined &&
+          maxNestedTags !== null &&
+          (typeof maxNestedTags !== 'number' || !Number.isInteger(maxNestedTags) || maxNestedTags < 1)
+        ) {
+          return yield* Effect.fail(
+            new ParseError(`'limits.maxNestedTags' must be a positive integer, got ${maxNestedTags}`, ErrorCode.INVALID_INPUT)
+          );
+        }
+        if (
+          maxAttributesPerTag !== undefined &&
+          maxAttributesPerTag !== null &&
+          (typeof maxAttributesPerTag !== 'number' || !Number.isInteger(maxAttributesPerTag) || maxAttributesPerTag < 0)
+        ) {
+          return yield* Effect.fail(
+            new ParseError(`'limits.maxAttributesPerTag' must be a non-negative integer, got ${maxAttributesPerTag}`, ErrorCode.INVALID_INPUT)
+          );
+        }
       }
     }
-  }
 
-  const finalOptions = deepClone(defaultOptions) as ResolvedOptions;
+    const finalOptions = deepClone(defaultOptions) as ResolvedOptions;
 
-  if (options) {
-    copyProperties(finalOptions as unknown as Record<string, unknown>, options as unknown as Record<string, unknown>);
-  }
-
-  if (!finalOptions.OutputBuilder) {
-    finalOptions.OutputBuilder = new DefaultOutputBuilderFactory();
-  }
-
-  // Normalize stopNodes and skip.tags entries into Expression objects with config embedded
-  // in Expression.data as { nested, skipEnclosures }. Build a sealed ExpressionSet for
-  // O(1) hot-path matching in the parser.
-  //
-  // Accepted entry forms (identical for both stopNodes and skip.tags):
-  //   "..script"
-  //     → Expression("..script", {}, { nested: false, skipEnclosures: [] })
-  //
-  //   Expression instance
-  //     → re-wrapped with { nested: false, skipEnclosures: [] } in data
-  //
-  //   { expression: "..script", nested?: boolean, skipEnclosures?: [] }
-  //   { expression: Expression,  nested?: boolean, skipEnclosures?: [] }
-  //     → Expression with the given config embedded in .data
-  //
-  // `nested` defaults to false; `skipEnclosures` defaults to [].
-  // The two flags are fully independent — any combination is valid.
-  //
-  // Normalizing every form into one shape here is what lets the parser's hot
-  // path be a single findMatch() followed by `.data` — no per-entry branch.
-  if (Array.isArray(finalOptions.tags?.stopNodes)) {
-    const stopSet = new ExpressionSet<TagExpressionConfig>();
-    finalOptions.tags.stopNodes = finalOptions.tags.stopNodes.map(entry => normalizeTagEntry(entry, 'stopNodes', stopSet));
-    stopSet.seal();
-    finalOptions.tags.stopNodesSet = stopSet;
-  }
-
-  if (Array.isArray(finalOptions.skip?.tags)) {
-    const skipSet = new ExpressionSet<TagExpressionConfig>();
-    finalOptions.skip.tags = finalOptions.skip.tags.map(entry => normalizeTagEntry(entry, 'skip.tags', skipSet));
-    skipSet.seal();
-    finalOptions.skip.tagsSet = skipSet;
-  }
-
-  if (finalOptions.onDangerousProperty === null) {
-    finalOptions.onDangerousProperty = defaultOnDangerousProperty;
-  }
-
-  // Validate exitIf
-  if (finalOptions.exitIf !== null && finalOptions.exitIf !== undefined) {
-    if (typeof finalOptions.exitIf !== 'function') {
-      throw new ParseError(`'exitIf' must be a function, got ${typeof finalOptions.exitIf}`, ErrorCode.INVALID_INPUT);
+    if (options) {
+      copyProperties(finalOptions as unknown as Record<string, unknown>, options as unknown as Record<string, unknown>);
     }
-  }
 
-  // Resolve autoClose: expand the 'html' preset and normalise to an object
-  finalOptions.autoClose = resolveAutoClose(finalOptions.autoClose, finalOptions);
+    if (!finalOptions.OutputBuilder) {
+      // `CompactBuilderFactory.make` rather than `new CompactBuilderFactory`:
+      // the factory resolves its own options — a value-parser chain, an
+      // `alwaysArray` pattern — on the way in, and that can fail, so its
+      // constructor is private. Constructing one here with no arguments left
+      // `builderOptions` undefined, which surfaced much later as a missing
+      // `forceTextNode` on the first tag rather than as the configuration
+      // failure it was.
+      finalOptions.OutputBuilder = runBuilder(DefaultOutputBuilderFactory.make());
+    }
 
-  return finalOptions;
-};
+    // Normalize stopNodes and skip.tags entries into Expression objects with config embedded
+    // in Expression.data as { nested, skipEnclosures }. Build a sealed ExpressionSet for
+    // O(1) hot-path matching in the parser.
+    //
+    // Accepted entry forms (identical for both stopNodes and skip.tags):
+    //   "..script"
+    //     → Expression("..script", {}, { nested: false, skipEnclosures: [] })
+    //
+    //   Expression instance
+    //     → re-wrapped with { nested: false, skipEnclosures: [] } in data
+    //
+    //   { expression: "..script", nested?: boolean, skipEnclosures?: [] }
+    //   { expression: Expression,  nested?: boolean, skipEnclosures?: [] }
+    //     → Expression with the given config embedded in .data
+    //
+    // `nested` defaults to false; `skipEnclosures` defaults to [].
+    // The two flags are fully independent — any combination is valid.
+    //
+    // Normalizing every form into one shape here is what lets the parser's hot
+    // path be a single findMatch() followed by `.data` — no per-entry branch.
+    //
+    // A caller-supplied `Expression` is re-wrapped rather than reused: its payload
+    // is `unknown` and only this parser's config by convention, and `readTagConfig`
+    // checks the shape rather than trusting it.
+    if (Array.isArray(finalOptions.tags?.stopNodes)) {
+      const stopSet = new ExpressionSet<TagExpressionConfig>();
+      const entries: ConfigExpression[] = [];
+      for (const entry of finalOptions.tags.stopNodes) {
+        entries.push(yield* normalizeTagEntry(entry, 'stopNodes', stopSet));
+      }
+      finalOptions.tags.stopNodes = entries;
+      yield* Effect.mapError(stopSet.seal(), fromUpstreamError);
+      finalOptions.tags.stopNodesSet = stopSet;
+    }
+
+    if (Array.isArray(finalOptions.skip?.tags)) {
+      const skipSet = new ExpressionSet<TagExpressionConfig>();
+      const entries: ConfigExpression[] = [];
+      for (const entry of finalOptions.skip.tags) {
+        entries.push(yield* normalizeTagEntry(entry, 'skip.tags', skipSet));
+      }
+      finalOptions.skip.tags = entries;
+      yield* Effect.mapError(skipSet.seal(), fromUpstreamError);
+      finalOptions.skip.tagsSet = skipSet;
+    }
+
+    if (finalOptions.onDangerousProperty === null) {
+      finalOptions.onDangerousProperty = defaultOnDangerousProperty;
+    }
+
+    // Validate exitIf
+    if (finalOptions.exitIf !== null && finalOptions.exitIf !== undefined) {
+      if (typeof finalOptions.exitIf !== 'function') {
+        return yield* Effect.fail(new ParseError(`'exitIf' must be a function, got ${typeof finalOptions.exitIf}`, ErrorCode.INVALID_INPUT));
+      }
+    }
+
+    // Resolve autoClose: expand the 'html' preset and normalise to an object
+    finalOptions.autoClose = resolveAutoClose(finalOptions.autoClose, finalOptions);
+
+    return finalOptions;
+  });
 
 /**
  * @description Standard HTML void elements — never have a closing tag.
@@ -383,63 +416,70 @@ function resolveAutoClose(raw: AutoCloseInput, opts: ResolvedOptions): AutoClose
 /**
  * @description Normalize one entry from `tags.stopNodes` or `skip.tags` into an `Expression` whose `.data` carries `{ nested, skipEnclosures }`, and register it
  * in `set`. Accepted forms: a plain string pattern, a pre-compiled `Expression` (re-wrapped with the defaults, keeping any config it already
- * carried), or a `{ expression, nested?, skipEnclosures? }` object whose `expression` may be either a string or an `Expression`.
+ * carried), or a `{ expression, nested?, skipEnclosures? }` object whose `expression` may be either a string or an `Expression`. A caller's
+ * `Expression` is read through its `pattern` field rather than `toString()`. The two held the same value before `common-xml` made every question
+ * answerable an effect; the field is still a plain `readonly string`, and reading it needs no run.
  *
  * @param entry - The caller's entry, in any accepted form.
  * @param optionName - Used in error messages (`'stopNodes'` or `'skip.tags'`).
  * @param set - The set to register the resulting expression into.
  *
- * @returns The compiled expression.
- *
- * @throws {ParseError} `INVALID_INPUT` for an empty pattern or an unrecognised entry form.
+ * @returns An effect producing the compiled expression. Fails with `INVALID_INPUT` for an empty pattern or an unrecognised entry form, and with
+ *   `DEPENDENCY_ERROR` for a pattern `common-xml` will not compile.
  */
-function normalizeTagEntry(
+const normalizeTagEntry = (
   entry: string | Expression | { expression: string | Expression; nested?: boolean; skipEnclosures?: TagExpressionConfig['skipEnclosures'] },
   optionName: string,
   set: ExpressionSet<TagExpressionConfig>
-): ConfigExpression {
-  let pattern: string;
-  let nested: boolean;
-  let skipEnclosures: TagExpressionConfig['skipEnclosures'];
+): Effect.Effect<ConfigExpression, ParseError> =>
+  Effect.gen(function* () {
+    let pattern: string;
+    let nested: boolean;
+    let skipEnclosures: TagExpressionConfig['skipEnclosures'];
 
-  if (typeof entry === 'string') {
-    if (entry.length === 0) throw new ParseError(`${optionName} expression cannot be empty`, ErrorCode.INVALID_INPUT);
-    pattern = entry;
-    nested = false;
-    skipEnclosures = [];
-  } else if (entry instanceof Expression) {
-    // Bare Expression — keep its pattern, apply defaults for missing data fields.
-    // A caller-supplied Expression is `Expression<unknown>`, so its payload is
-    // this parser's config only by convention. readTagConfig checks the shape
-    // rather than trusting it, which is also what a caller who attached
-    // something else entirely needs.
-    pattern = entry.toString();
-    const carried = readTagConfig(entry.data);
-    nested = carried.nested;
-    skipEnclosures = carried.skipEnclosures;
-  } else if (entry && typeof entry === 'object' && entry.expression !== undefined) {
-    const raw = entry.expression;
-    if (typeof raw === 'string') {
-      if (raw.length === 0) throw new ParseError(`${optionName} expression cannot be empty`, ErrorCode.INVALID_INPUT);
-      pattern = raw;
-    } else if (raw instanceof Expression) {
-      pattern = raw.toString();
+    if (typeof entry === 'string') {
+      if (entry.length === 0) return yield* Effect.fail(new ParseError(`${optionName} expression cannot be empty`, ErrorCode.INVALID_INPUT));
+      pattern = entry;
+      nested = false;
+      skipEnclosures = [];
+    } else if (entry instanceof Expression) {
+      // Bare Expression — keep its pattern, apply defaults for missing data fields.
+      // A caller-supplied Expression is `Expression<unknown>`, so its payload is
+      // this parser's config only by convention. readTagConfig checks the shape
+      // rather than trusting it, which is also what a caller who attached
+      // something else entirely needs.
+      pattern = entry.pattern;
+      const carried = readTagConfig(entry.data);
+      nested = carried.nested;
+      skipEnclosures = carried.skipEnclosures;
+    } else if (entry && typeof entry === 'object' && entry.expression !== undefined) {
+      const raw = entry.expression;
+      if (typeof raw === 'string') {
+        if (raw.length === 0) return yield* Effect.fail(new ParseError(`${optionName} expression cannot be empty`, ErrorCode.INVALID_INPUT));
+        pattern = raw;
+      } else if (raw instanceof Expression) {
+        pattern = raw.pattern;
+      } else {
+        return yield* Effect.fail(new ParseError(`${optionName} expression must be a string or Expression instance`, ErrorCode.INVALID_INPUT));
+      }
+      nested = entry.nested === true;
+      skipEnclosures = Array.isArray(entry.skipEnclosures) ? entry.skipEnclosures : [];
     } else {
-      throw new ParseError(`${optionName} expression must be a string or Expression instance`, ErrorCode.INVALID_INPUT);
+      return yield* Effect.fail(
+        new ParseError(
+          `Invalid ${optionName} entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.`,
+          ErrorCode.INVALID_INPUT
+        )
+      );
     }
-    nested = entry.nested === true;
-    skipEnclosures = Array.isArray(entry.skipEnclosures) ? entry.skipEnclosures : [];
-  } else {
-    throw new ParseError(
-      `Invalid ${optionName} entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.`,
-      ErrorCode.INVALID_INPUT
-    );
-  }
 
-  const expr: ConfigExpression = new Expression(pattern, {}, { nested, skipEnclosures });
-  set.add(expr);
-  return expr;
-}
+    const expr: ConfigExpression = yield* Effect.mapError(
+      Expression.make<TagExpressionConfig>(pattern, {}, { nested, skipEnclosures }),
+      fromUpstreamError
+    );
+    yield* Effect.mapError(set.add(expr), fromUpstreamError);
+    return expr;
+  });
 
 /**
  * @description Read a caller-supplied `Expression`'s payload as this parser's stop-node config, falling back to the defaults field by field. A bare `Expression`

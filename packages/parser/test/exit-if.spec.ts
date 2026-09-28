@@ -1,10 +1,10 @@
 import { Expression } from '@endevops/common-xml';
+import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { ExitIfPredicate } from '#/options.ts';
 
-import { runAcrossAllInputSources, parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { endDoc, makeParser, makeParserOrThrow, parseDoc, runAcrossAllInputSources, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic exitIf — stop on tag name
@@ -26,7 +26,7 @@ describe('exitIf — basic tag-name matching', function () {
     },
     {
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     }
   );
@@ -50,7 +50,7 @@ describe('exitIf — basic tag-name matching', function () {
     },
     {
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.d'));
+        return matcher.matches(runParser(Expression.make('root.d')));
       },
     }
   );
@@ -67,7 +67,7 @@ describe('exitIf — basic tag-name matching', function () {
     },
     {
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.nonexistent'));
+        return matcher.matches(runParser(Expression.make('root.nonexistent')));
       },
     }
   );
@@ -78,45 +78,45 @@ describe('exitIf — basic tag-name matching', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('exitIf — wasExited reflection', function () {
   it('wasExited returns true when exitIf fired', function () {
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     });
-    parser.parse(`<root><before>ok</before><stop>here</stop><after>never</after></root>`);
+    runParser(parser.parse(`<root><before>ok</before><stop>here</stop><after>never</after></root>`));
     expect(parser.wasExited).toBe(true);
   });
 
   it('wasExited returns false when exitIf never fires', function () {
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf() {
-        return false;
+        return Effect.succeed(false);
       },
     });
-    parser.parse(`<root><a>ok</a></root>`);
+    runParser(parser.parse(`<root><a>ok</a></root>`));
     expect(parser.wasExited).toBe(false);
   });
 
   it('wasExited returns false when exitIf is not configured', function () {
-    const parser = new XMLParser();
-    parser.parse(`<root><a>ok</a></root>`);
+    const parser = makeParser();
+    runParser(parser.parse(`<root><a>ok</a></root>`));
     expect(parser.wasExited).toBe(false);
   });
 
   it('wasExited resets between consecutive parse() calls', function () {
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     });
-    parser.parse(`<root><stop/></root>`);
+    runParser(parser.parse(`<root><stop/></root>`));
     // Self-closing — exitIf not called on self-closing tags.
     // Parse a doc that actually triggers:
-    parser.parse(`<root><stop>x</stop></root>`);
+    runParser(parser.parse(`<root><stop>x</stop></root>`));
     expect(parser.wasExited).toBe(true);
 
     // Second parse with a doc that doesn't trigger
-    parser.parse(`<root><a>ok</a></root>`);
+    runParser(parser.parse(`<root><a>ok</a></root>`));
     expect(parser.wasExited).toBe(false);
   });
 });
@@ -145,7 +145,7 @@ describe('exitIf — nested tags', function () {
     },
     {
       exitIf(matcher) {
-        return matcher.matches(new Expression('..level3'));
+        return matcher.matches(runParser(Expression.make('..level3')));
       },
     }
   );
@@ -166,7 +166,7 @@ describe('exitIf — nested tags', function () {
     },
     {
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.item:nth(1)'));
+        return matcher.matches(runParser(Expression.make('root.item:nth(1)')));
       },
     }
   );
@@ -192,7 +192,7 @@ describe('exitIf — matching on attributes', function () {
     {
       skip: { attributes: false },
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.item[id=stop]'));
+        return matcher.matches(runParser(Expression.make('root.item[id=stop]')));
       },
     }
   );
@@ -218,7 +218,7 @@ describe('exitIf — coexistence with other features', function () {
     {
       skip: { tags: ['root.drop'] },
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     }
   );
@@ -237,7 +237,7 @@ describe('exitIf — coexistence with other features', function () {
     {
       tags: { stopNodes: ['root.script'] },
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     }
   );
@@ -256,7 +256,7 @@ describe('exitIf — coexistence with other features', function () {
     {
       autoClose: { onEof: 'closeAll', onMismatch: 'discard', collectErrors: false },
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     }
   );
@@ -268,14 +268,14 @@ describe('exitIf — coexistence with other features', function () {
 describe('exitIf — feedable input source', function () {
   it('exits correctly when fed character by character', function () {
     const xml = `<root><before>ok</before><stop>here</stop><after>never</after></root>`;
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     });
 
     for (let i = 0; i < xml.length; i++) {
-      parser.feed(xml[i]);
+      runParser(parser.feed(xml[i]));
     }
     const result = endDoc(parser);
 
@@ -286,15 +286,15 @@ describe('exitIf — feedable input source', function () {
 
   it('exits correctly when fed in random-size chunks', function () {
     const xml = `<root><a>one</a><b>two</b><exit>stop</exit><c>three</c></root>`;
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.exit'));
+        return matcher.matches(runParser(Expression.make('root.exit')));
       },
     });
 
     // Feed in chunks of 7 chars
     for (let i = 0; i < xml.length; i += 7) {
-      parser.feed(xml.slice(i, i + 7));
+      runParser(parser.feed(xml.slice(i, i + 7)));
     }
     const result = endDoc(parser);
 
@@ -311,9 +311,9 @@ describe('exitIf — feedable input source', function () {
 describe.skip('exitIf — onExit builder callback', function () {
   //TODO: create a custom output builder inherit CompactBuilder and add onExit callback
   it.skip('attaches non-enumerable __exitInfo to output root', function () {
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     });
     const result = parseDoc(parser, `<root><before>ok</before><stop>here</stop><after>never</after></root>`);
@@ -328,9 +328,9 @@ describe.skip('exitIf — onExit builder callback', function () {
   });
 
   it.skip('__exitInfo does not appear in JSON.stringify output', function () {
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.stop'));
+        return matcher.matches(runParser(Expression.make('root.stop')));
       },
     });
     const result = parseDoc(parser, `<root><stop>x</stop></root>`);
@@ -339,9 +339,9 @@ describe.skip('exitIf — onExit builder callback', function () {
   });
 
   it.skip('depth in __exitInfo reflects nesting level at exit', function () {
-    const parser = new XMLParser({
+    const parser = makeParser({
       exitIf(matcher) {
-        return matcher.matches(new Expression('..inner'));
+        return matcher.matches(runParser(Expression.make('..inner')));
       },
     });
     const result = parseDoc(parser, `<root><outer><inner>deep</inner></outer></root>`);
@@ -356,28 +356,30 @@ describe.skip('exitIf — onExit builder callback', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('exitIf — OptionsBuilder validation', function () {
   it('accepts a function as exitIf', function () {
-    expect(() => new XMLParser({ exitIf: () => false })).not.toThrow();
+    expect(() => makeParser({ exitIf: () => Effect.succeed(false) })).not.toThrow();
   });
 
   it('accepts null as exitIf (feature disabled)', function () {
-    expect(() => new XMLParser({ exitIf: null })).not.toThrow();
+    expect(() => makeParser({ exitIf: null })).not.toThrow();
   });
 
   it('accepts undefined / omitted exitIf (feature disabled)', function () {
-    expect(() => new XMLParser({})).not.toThrow();
-    expect(() => new XMLParser({ exitIf: undefined })).not.toThrow();
+    expect(() => makeParser({})).not.toThrow();
+    expect(() => makeParser({ exitIf: undefined })).not.toThrow();
   });
 
   it('throws INVALID_INPUT when exitIf is a non-function truthy value', function () {
-    expect(() => new XMLParser({ exitIf: 'root.stop' as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
+    expect(() => makeParserOrThrow({ exitIf: 'root.stop' as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
   });
 
   it('throws INVALID_INPUT when exitIf is a number', function () {
-    expect(() => new XMLParser({ exitIf: 1 as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
+    expect(() => makeParserOrThrow({ exitIf: 1 as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
   });
 
   it('throws INVALID_INPUT when exitIf is a plain object', function () {
-    expect(() => new XMLParser({ exitIf: { expression: 'root.stop' } as unknown as ExitIfPredicate })).toThrowError(/exitIf.*must be a function/i);
+    expect(() => makeParserOrThrow({ exitIf: { expression: 'root.stop' } as unknown as ExitIfPredicate })).toThrowError(
+      /exitIf.*must be a function/i
+    );
   });
 });
 
@@ -399,7 +401,7 @@ describe('exitIf — self-closing tags are not exit candidates', function () {
     },
     {
       exitIf(matcher) {
-        return matcher.matches(new Expression('root.self-close'));
+        return matcher.matches(runParser(Expression.make('root.self-close')));
       },
     }
   );
@@ -419,7 +421,7 @@ describe('exitIf — exit on very first tag', function () {
     },
     {
       exitIf(matcher) {
-        return matcher.matches(new Expression('root'));
+        return matcher.matches(runParser(Expression.make('root')));
       },
     }
   );

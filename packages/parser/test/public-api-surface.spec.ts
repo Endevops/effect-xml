@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import XMLParser, {
@@ -25,6 +26,7 @@ import XMLParser, {
   type TagOptions,
   type X2jOptions,
 } from '#/index.ts';
+import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
  * @description Guards the public entry point. The type half of this spec is checked by the compiler rather than by Vitest, which does not type check, so a dropped
@@ -53,7 +55,7 @@ describe('Public API surface', function () {
     const limits: LimitsOptions = { maxNestedTags: 10 };
     const feedable: FeedableOptions = { autoFlush: true };
     const autoClose: AutoCloseInput = 'html';
-    const exitIf: ExitIfPredicate = () => false;
+    const exitIf: ExitIfPredicate = () => Effect.succeed(false);
 
     const options: X2jOptions = { skip, nameFor, attributes, tags, doctypeOptions, limits, feedable, autoClose, exitIf };
 
@@ -78,12 +80,31 @@ describe('Public API surface', function () {
   });
 
   it('types the return value of getParseErrors, which was previously unnameable', function () {
-    const parser = new XMLParser({ autoClose: 'html' });
-    parser.parse('<a><b></a>');
+    const parser = makeParser({ autoClose: 'html' });
+    runParser(parser.parse('<a><b></a>'));
 
-    const errors: ParseErrorEntry[] = parser.getParseErrors();
+    const errors: ParseErrorEntry[] = runParser(parser.getParseErrors());
 
     expect(Array.isArray(errors)).toBe(true);
+  });
+
+  it('exposes construction and parsing as effects, which is the package contract', function () {
+    // The compile-time half: `XMLParser.make` and every entry point answer with an
+    // `Effect` whose only failure is a `ParseError`. A dropped `E` would widen a
+    // caller's error channel to `never` and make every recovery below unreachable,
+    // so the assertion is on the type, not on a value.
+    const made: Effect.Effect<XMLParser, ParseError> = XMLParser.make({ autoClose: 'html' });
+    const parser: XMLParser = runParser(made);
+
+    const parsed: Effect.Effect<unknown, ParseError> = parser.parse('<root><a>1</a></root>');
+    const errors: Effect.Effect<ParseErrorEntry[], never> = parser.getParseErrors();
+    const buffered: Effect.Effect<number | null, never> = parser.getFeedBufferLength();
+    const threshold: Effect.Effect<number, never> = parser.getFeedBatchThreshold();
+
+    expect(runParser(parsed)).toEqual({ root: { a: 1 } });
+    expect(runParser(errors)).toEqual([]);
+    expect(runParser(buffered)).toBeNull();
+    expect(runParser(threshold)).toBeGreaterThan(0);
   });
 
   it('narrows ErrorCodeValue to real codes only', function () {

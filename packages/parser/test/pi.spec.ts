@@ -1,11 +1,11 @@
 import { CompactBuilderFactory, CompactBuilder } from '@endevops/builder';
+import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, XmlDeclaration } from '#/internal/parser-types.ts';
 
 import { asOutputBuilder } from '#/test/helpers/recording-builder.ts';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. XML declaration (<?xml ... ?>)
@@ -32,7 +32,7 @@ describe('Processing Instructions — XML declaration', function () {
     result => {
       expect(result['?xml']['@_version']).toBe('1.0');
     },
-    { skip: { attributes: false }, OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: [] } }) }
+    { skip: { attributes: false }, OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: [] } })) }
   );
 
   // NOTE: skip.declaration is currently not working as expected due to a bug
@@ -41,7 +41,7 @@ describe('Processing Instructions — XML declaration', function () {
   // fails — addDeclaration() is never called, addInstruction("?xml") is always used,
   // and skip.declaration: true has no effect. This test documents the BUG:
   it('BUG: skip.declaration: true should omit ?xml from output (currently broken)', function () {
-    const parser = new XMLParser({ skip: { declaration: true } });
+    const parser = makeParser({ skip: { declaration: true } });
     const result = parseDoc(parser, `<?xml version="1.0"?><root/>`);
     expect(result['?xml']).toBeUndefined();
     expect(result.root).toBe('');
@@ -58,21 +58,23 @@ describe('Processing Instructions — XML declaration', function () {
     const seen: XmlDeclaration[] = [];
     const factory: OutputBuilderFactoryLike = {
       getInstance(parserOpts, readonlyMatcher) {
-        const base = new CompactBuilderFactory();
-        return asOutputBuilder(
-          new (class extends CompactBuilder {
-            override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
-              if (xmlDef) seen.push(xmlDef);
-              super.addDeclaration(name, xmlDef);
-            }
-          })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
+        const base = runParser(CompactBuilderFactory.make());
+        return Effect.succeed(
+          asOutputBuilder(
+            new (class extends CompactBuilder {
+              override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
+                if (xmlDef) seen.push(xmlDef);
+                super.addDeclaration(name, xmlDef);
+              }
+            })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
+          )
         );
       },
     };
 
     const xmlData = `<?xml version="1.1"?><root/>`;
 
-    const parser = new XMLParser({ skip: { declaration: true, attributes: true }, OutputBuilder: factory });
+    const parser = makeParser({ skip: { declaration: true, attributes: true }, OutputBuilder: factory });
 
     const result = parseDoc(parser, xmlData);
     expect(seen).toEqual([]);
@@ -87,19 +89,21 @@ describe('Processing Instructions — XML declaration', function () {
     const seen: XmlDeclaration[] = [];
     const factory: OutputBuilderFactoryLike = {
       getInstance(parserOpts, readonlyMatcher) {
-        const base = new CompactBuilderFactory();
-        return asOutputBuilder(
-          new (class extends CompactBuilder {
-            override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
-              if (xmlDef) seen.push(xmlDef);
-              super.addDeclaration(name, xmlDef);
-            }
-          })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
+        const base = runParser(CompactBuilderFactory.make());
+        return Effect.succeed(
+          asOutputBuilder(
+            new (class extends CompactBuilder {
+              override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
+                if (xmlDef) seen.push(xmlDef);
+                super.addDeclaration(name, xmlDef);
+              }
+            })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
+          )
         );
       },
     };
 
-    const parser = new XMLParser({ skip: { attributes: false }, OutputBuilder: factory });
+    const parser = makeParser({ skip: { attributes: false }, OutputBuilder: factory });
     parseDoc(parser, `<?xml version="1.1"?><root/>`);
 
     expect(seen.length).toBe(1);

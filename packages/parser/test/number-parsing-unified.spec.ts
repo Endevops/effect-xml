@@ -4,14 +4,19 @@ import { describe, it, expect } from 'vite-plus/test';
 
 import type { InputSourceType } from '#/test/helpers/test-runner.ts';
 
-import { runAcrossAllInputSources, createInputSource, describeAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import {
+  runAcrossAllInputSources,
+  createInputSource,
+  describeAcrossAllInputSources,
+  makeParser as makeXMLParser,
+  runParser,
+} from '#/test/helpers/test-runner.ts';
 
 // Helper: build a parser with a custom NumberValueParser configuration.
 const makeParser = (numOpts = {}, parserOpts = {}) => {
-  const builder = new CompactBuilderFactory();
-  builder.registerValueParser('number', new NumberValueParser(numOpts));
-  return new XMLParser({ ...parserOpts, OutputBuilder: builder });
+  const builder = runParser(CompactBuilderFactory.make());
+  runParser(builder.registerValueParser('number', new NumberValueParser(numOpts)));
+  return makeXMLParser({ ...parserOpts, OutputBuilder: builder });
 };
 
 describe('Number Parsing - Unified Tests Across All Input Sources', function () {
@@ -152,9 +157,9 @@ describeAcrossAllInputSources('Advanced Number Parsing Scenarios', function (par
 
     // describeAcrossAllInputSources uses XMLParser directly via parse(), so we
     // can't inject a custom builder. Create a parser manually for this test.
-    const builder = new CompactBuilderFactory();
-    builder.registerValueParser('number', new NumberValueParser({ hex: true }));
-    const parser = new XMLParser({ OutputBuilder: builder });
+    const builder = runParser(CompactBuilderFactory.make());
+    runParser(builder.registerValueParser('number', new NumberValueParser({ hex: true })));
+    const parser = makeXMLParser({ OutputBuilder: builder });
     const result = createInputSource(xml, inputType as InputSourceType).parse(parser);
 
     expect(result.data.int).toBe(42);
@@ -166,7 +171,7 @@ describeAcrossAllInputSources('Advanced Number Parsing Scenarios', function (par
 
   it('should preserve strings that look like numbers when tags.valueParsers is empty', function () {
     const xml = '<root><num>123</num></root>';
-    const result = parse(xml, { OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [] } }) });
+    const result = parse(xml, { OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [] } })) });
     expect(result.root.num).toBe('123');
     expect(typeof result.root.num).toBe('string');
   });

@@ -5,26 +5,48 @@ FXP intelligently handles many different character encodings, not just UTF‑8.
 ## Quick usage
 
 ```js
+import { Effect } from 'effect';
+import XMLParser from '@endevops/parser';
+
+// Everything returns an Effect, so reading a buffer is a two-step program:
+// resolve the parser, then read the document.
+const parseBytes = (options, buffer) =>
+  Effect.gen(function* () {
+    const parser = yield* XMLParser.make(options);
+    return yield* parser.parseBytesArr(buffer);
+  });
+
 // Auto-detect (default) — sniffs a BOM or an <?xml ... encoding="..."?>
 // declaration; falls back to UTF-8 if neither is present.
-new XMLParser().parseBytesArr(buffer);
+Effect.runSync(parseBytes(undefined, buffer));
 
 // Explicit — skips detection entirely.
-new XMLParser({ decoding: { encoding: 'utf16le' } }).parseBytesArr(buffer);
+Effect.runSync(parseBytes({ decoding: { encoding: 'utf16le' } }, buffer));
 
 // Custom encoding FXP doesn't ship natively (e.g. Shift_JIS via iconv-lite).
-new XMLParser({
-  decoding: {
-    encoding: 'shift_jis',
-    customDecoders: {
-      shift_jis: {
-        createDecoder: () => iconv.getDecoder('shift_jis'),
-        selfSynchronizing: false, // see "Adding an encoding" below
+Effect.runSync(
+  parseBytes(
+    {
+      decoding: {
+        encoding: 'shift_jis',
+        customDecoders: {
+          shift_jis: {
+            name: 'shift_jis',
+            createDecoder: () => iconv.getDecoder('shift_jis'),
+            selfSynchronizing: false, // see "Adding an encoding" below
+          },
+        },
       },
     },
-  },
-});
+    buffer
+  )
+);
 ```
+
+Constructing a parser and parsing are separate effects — `make` resolves and validates the options,
+`parseBytesArr` reads the document — which is why they compose rather than nest. The failures come
+back as a `ParseError` on the same channel as any other parse; see
+[01 — Getting Started](./01-getting-started.md).
 
 ## 1. Default Behaviour: Auto‑Detection
 
@@ -37,8 +59,8 @@ If you don’t specify anything, the parser figures out the encoding for you:
 All of this happens automatically – you just call `.parse()` or `.parseBytesArr()` as usual.
 
 ```js
-const parser = new XMLParser();
-const result = parser.parseBytesArr(buffer); // auto‑detects
+const parser = Effect.runSync(XMLParser.make());
+const result = Effect.runSync(parser.parseBytesArr(buffer)); // auto‑detects
 ```
 
 ## 2. Explicitly Setting an Encoding
@@ -46,10 +68,12 @@ const result = parser.parseBytesArr(buffer); // auto‑detects
 You can skip auto‑detection and tell the parser which encoding to use. This is useful when you already know the encoding or want to force a specific one.
 
 ```js
-const parser = new XMLParser({
-  decoding: { encoding: 'utf16le' }, //'auto' (default)
-});
-const result = parser.parseBytesArr(buffer);
+const parser = Effect.runSync(
+  XMLParser.make({
+    decoding: { encoding: 'utf16le' }, //'auto' (default)
+  })
+);
+const result = Effect.runSync(parser.parseBytesArr(buffer));
 ```
 
 The parser then uses that encoding directly – no BOM/declaration sniffing.
@@ -66,17 +90,20 @@ You supply it via the `customDecoders` option, scoped to a single parser instanc
 ```js
 import iconv from 'iconv-lite';
 
-const parser = new XMLParser({
-  decoding: {
-    encoding: 'shift_jis',
-    customDecoders: {
-      shift_jis: {
-        createDecoder: () => iconv.getDecoder('shift_jis'),
-        selfSynchronizing: false, // important – read below
+const parser = Effect.runSync(
+  XMLParser.make({
+    decoding: {
+      encoding: 'shift_jis',
+      customDecoders: {
+        shift_jis: {
+          name: 'shift_jis',
+          createDecoder: () => iconv.getDecoder('shift_jis'),
+          selfSynchronizing: false, // important – read below
+        },
       },
     },
-  },
-});
+  })
+);
 ```
 
 The `selfSynchronizing` flag tells the parser whether it’s safe to scan the raw bytes for angle brackets (`<`, `>`, `"`, `'`).  
@@ -99,9 +126,9 @@ For streaming input (`feed()`/`end()` or `parseStream()`), the parser buffers a 
 
 ## 5. Important Limitations & Caveats
 
-- **BOM vs declared encoding mismatch** – If the BOM says UTF‑8 but the XML declaration says `encoding="UTF‑16"`, the parser throws a hard error (`ENCODING_MISMATCH`). It does not silently pick one – that would be ambiguous and error‑prone.
+- **BOM vs declared encoding mismatch** – If the BOM says UTF‑8 but the XML declaration says `encoding="UTF‑16"`, the parse fails with a `ParseError` carrying `ENCODING_MISMATCH`. It does not silently pick one – that would be ambiguous and error‑prone.
 - **Streaming auto‑detection** – The parser may hold back up to ~200 bytes of the stream until it has enough to detect the encoding. This is usually fine, but for very small documents (shorter than that) it resolves at `end()`.
-- **Custom encoders must be correctly implemented** – If your `createDecoder()` doesn’t return an object with `write` and `end`, the parser throws immediately during registration, not later during parsing.
+- **Custom encoders must be correctly implemented** – If your `createDecoder()` doesn’t return an object with `write` and `end`, `XMLParser.make` fails immediately with `INVALID_DECODER`, not later during parsing.
 - **`selfSynchronizing: true` is an advanced opt‑in** – Only set it if you are 100% sure that no byte that looks like `<`, `>`, `"`, or `'` can appear inside a multi‑byte character in that encoding. Getting it wrong will cause silent data corruption, not a crash.
 - **Input types** – The encoding features apply to `Buffer` or `Uint8Array` inputs. If you pass a JavaScript string already, no decoding is needed.
 - **Performance** – For UTF‑8/ASCII/Latin‑1, the byte‑scanning path is as fast as before (zero overhead). For other encodings, the parser decodes the whole document upfront (for buffer input) or decodes incrementally (for streams), which may be slower for very large documents.
@@ -118,7 +145,7 @@ For streaming input (`feed()`/`end()` or `parseStream()`), the parser buffers a 
 | **Fast path**                | Byte‑scanning for self‑synchronizing encodings (UTF‑8, ASCII, Latin‑1)  |
 | **Safe path**                | Char‑scanning for everything else (UTF‑16, Shift_JIS, etc.)             |
 | **Error/position reporting** | Index-only (absolute offset) — no line/column tracking                  |
-| **Conflict handling**        | BOM vs declared encoding mismatch → throws error                        |
+| **Conflict handling**        | BOM vs declared encoding mismatch → fails the parse                     |
 
 You can use the parser with any encoding you need, and the complexity is hidden behind a clean API. The default “just works” behaviour for UTF‑8 remains unchanged, while power users can plug in any encoding supported by the Node ecosystem.
 
@@ -228,8 +255,10 @@ into other `XMLParser`s in the same process.
 
 `createDecoder()` must return an object shaped like Node's own
 `StringDecoder`: `{ write(buf): string, end(): string }`. Validated at
-registration time — a broken shape throws immediately
-(`ErrorCode.INVALID_DECODER`), not on first use three parses later.
+registration time — a broken shape fails immediately
+(`ErrorCode.INVALID_DECODER`), not on first use three parses later. On the
+`decoding.customDecoders` path that failure arrives on `XMLParser.make`'s
+error channel; on the registry path above it is thrown directly.
 
 **`selfSynchronizing`**: only set this to `true` if you've actually verified
 an ASCII delimiter byte value can never appear as part of one of your

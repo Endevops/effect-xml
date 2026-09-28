@@ -26,7 +26,7 @@
 
 import XMLBuilder from '@endevops/builder';
 import { XMLParser } from '@endevops/parser';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
 import { afterAll, beforeAll, expect, test } from 'vite-plus/test';
@@ -147,9 +147,21 @@ const noteCodec = toCodecXml(Note, { rootName: NOTE_ROOT });
 const BUILDER_OPTIONS = { attributeNamePrefix: '@', ignoreAttributes: false, suppressEmptyNode: true, format: false } as const;
 
 /**
+ * @description Run one of the effects this comparison's own packages return, for its value. Both `@endevops/builder` and `@endevops/parser` answer with an
+ * `Effect` now — a builder resolves its options on the way in, a parser resolves its own and reports failures through one — and the benchmark has to
+ * get past both to reach the strings and trees it is timing. `Effect.runSync` is the honest cost: the work underneath is synchronous, so the effect
+ * is a wrapper around what is already being measured rather than a runtime charge on top of it.
+ *
+ * @param effect - The effect to run.
+ *
+ * @returns The successful value.
+ */
+const runSync = <A, E>(effect: Effect.Effect<A, E>): A => Effect.runSync(effect);
+
+/**
  * @description `@endevops/builder`, the fork maintained in this workspace.
  */
-const builder = new XMLBuilder({ ...BUILDER_OPTIONS });
+const builder = runSync(XMLBuilder.make({ ...BUILDER_OPTIONS }));
 
 /**
  * @description Upstream `fast-xml-builder` from npm, at the same version as the fork.
@@ -159,7 +171,7 @@ const upstreamBuilder = new UpstreamXMLBuilder({ ...BUILDER_OPTIONS });
 /**
  * @description `@endevops/parser`. Attributes are skipped by default, and the `@` prefix has to be set separately, so both are given.
  */
-const parser = new XMLParser({ skip: { attributes: false }, attributes: { prefix: '@' } });
+const parser = runSync(XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '@' } }));
 
 /**
  * @description Upstream `fast-xml-parser`. `parseAttributeValue: false` keeps attribute values as the strings they are in the document, which is what this codec's
@@ -212,9 +224,9 @@ const sizeOf = (value: unknown): number => (typeof value === 'object' && value !
 beforeAll(() => {
   // The equivalence the whole comparison rests on. If a change to the renderer, a builder's defaults, or a parser's options breaks it, the benchmark says
   // so here instead of reporting a speed-up over work that is not the same.
-  expect(builder.build({ [ROOT]: order })).toBe(orderDocument);
+  expect(runSync(builder.build({ [ROOT]: order }))).toBe(orderDocument);
   expect(upstreamBuilder.build({ [ROOT]: order })).toBe(orderDocument);
-  expect(JSON.stringify((parser.parse(orderDocument) as Record<string, unknown>)[ROOT])).toBe(JSON.stringify(order));
+  expect(JSON.stringify((runSync(parser.parse(orderDocument)) as Record<string, unknown>)[ROOT])).toBe(JSON.stringify(order));
   // Upstream's key order puts attributes last rather than first, so the check is that every field survives rather than that the serialisation matches.
   expect(JSON.stringify((upstream.parse(orderDocument) as Record<string, unknown>)[ROOT], Object.keys(order).reverse())).toBe(
     JSON.stringify(order, Object.keys(order).reverse())
@@ -234,7 +246,7 @@ test('encoding — a small document', async ({ bench }) => {
     ),
     bench(
       '@endevops/builder',
-      measure(() => builder.build({ [ROOT]: order }).length)
+      measure(() => runSync(builder.build({ [ROOT]: order })).length)
     ),
     bench(
       'fast-xml-builder',
@@ -252,7 +264,7 @@ test('encoding — a 500-row document', async ({ bench }) => {
     ),
     bench(
       '@endevops/builder',
-      measure(() => builder.build({ [REPORT_ROOT]: report }).length)
+      measure(() => runSync(builder.build({ [REPORT_ROOT]: report })).length)
     ),
     bench(
       'fast-xml-builder',
@@ -270,7 +282,7 @@ test('encoding — one large text node', async ({ bench }) => {
     ),
     bench(
       '@endevops/builder',
-      measure(() => builder.build({ [NOTE_ROOT]: note }).length)
+      measure(() => runSync(builder.build({ [NOTE_ROOT]: note })).length)
     ),
     bench(
       'fast-xml-builder',
@@ -288,7 +300,7 @@ test('decoding — a small document', async ({ bench }) => {
     ),
     bench(
       '@endevops/flexible-xml-parser',
-      measure(() => sizeOf((parser.parse(orderDocument) as Record<string, unknown>)[ROOT]))
+      measure(() => sizeOf((runSync(parser.parse(orderDocument)) as Record<string, unknown>)[ROOT]))
     ),
     bench(
       'fast-xml-parser',
@@ -306,7 +318,7 @@ test('decoding — a 500-row document', async ({ bench }) => {
     ),
     bench(
       '@endevops/flexible-xml-parser',
-      measure(() => sizeOf((parser.parse(reportDocument) as Record<string, unknown>)[REPORT_ROOT]))
+      measure(() => sizeOf((runSync(parser.parse(reportDocument)) as Record<string, unknown>)[REPORT_ROOT]))
     ),
     bench(
       'fast-xml-parser',
@@ -324,7 +336,7 @@ test('decoding — one large text node', async ({ bench }) => {
     ),
     bench(
       '@endevops/flexible-xml-parser',
-      measure(() => sizeOf((parser.parse(noteDocument) as Record<string, unknown>)[NOTE_ROOT]))
+      measure(() => sizeOf((runSync(parser.parse(noteDocument)) as Record<string, unknown>)[NOTE_ROOT]))
     ),
     bench(
       'fast-xml-parser',
@@ -346,7 +358,7 @@ test('a full round trip, both halves measured', async ({ bench }) => {
     ),
     bench(
       'then parser, both @endevops',
-      measure(() => sizeOf((parser.parse(builder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT]))
+      measure(() => sizeOf((runSync(parser.parse(runSync(builder.build({ [ROOT]: order })))) as Record<string, unknown>)[ROOT]))
     ),
     bench(
       'then parser, both from npm',

@@ -2,10 +2,9 @@ import { CompactBuilderFactory } from '@endevops/builder';
 import { Expression } from '@endevops/common-xml';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { runAcrossAllInputSources, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
-const rootItemExp = new Expression('root.item');
+const rootItemExp = runParser(Expression.make('root.item'));
 
 describe('Output Builder Options - forceArray and forceTextNode', function () {
   describe('forceArray option - CompactBuilder', function () {
@@ -21,11 +20,13 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         skip: { attributes: false },
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: matcher => {
-            return matcher.matches(rootItemExp);
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: matcher => {
+              return runParser(matcher.matches(rootItemExp));
+            },
+          })
+        ),
       }
     );
 
@@ -43,12 +44,14 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result).toEqual(expected);
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: matcher => {
-            // Force all tags under 'items' to be arrays
-            return matcher.matches(new Expression('root.items.*'));
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: matcher => {
+              // Force all tags under 'items' to be arrays
+              return runParser(matcher.matches(runParser(Expression.make('root.items.*'))));
+            },
+          })
+        ),
       }
     );
 
@@ -66,12 +69,14 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.complex)).toBe(false);
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: (_matcher, isLeafNode) => {
-            // Force only leaf nodes to be arrays
-            return isLeafNode === true;
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: (_matcher, isLeafNode) => {
+              // Force only leaf nodes to be arrays
+              return isLeafNode === true;
+            },
+          })
+        ),
       }
     );
 
@@ -91,11 +96,13 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item[2]).toBe('Third');
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: matcher => {
-            return matcher.matches(rootItemExp);
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: matcher => {
+              return runParser(matcher.matches(rootItemExp));
+            },
+          })
+        ),
       }
     );
 
@@ -114,12 +121,14 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         skip: { attributes: false },
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: matcher => {
-            // Force array only for items with type="special"
-            return matcher.matches(rootItemExp) && matcher.getAttrValue('type') === 'special';
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: matcher => {
+              // Force array only for items with type="special"
+              return runParser(matcher.matches(rootItemExp)) && runParser(matcher.getAttrValue('type')) === 'special';
+            },
+          })
+        ),
       }
     );
 
@@ -138,11 +147,13 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result).toEqual(expected);
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: matcher => {
-            return matcher.matches(new Expression('..target'));
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: matcher => {
+              return runParser(matcher.matches(runParser(Expression.make('..target'))));
+            },
+          })
+        ),
       }
     );
 
@@ -160,11 +171,13 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       },
       {
         skip: { attributes: false },
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: matcher => {
-            return matcher.matches(rootItemExp);
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: matcher => {
+              return runParser(matcher.matches(rootItemExp));
+            },
+          })
+        ),
       }
     );
   });
@@ -182,7 +195,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(typeof result.root.item).toBe('object');
         expect(result.root.item['#text']).toBe('Value');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceTextNode: true }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceTextNode: true })) }
     );
 
     runAcrossAllInputSources(
@@ -195,7 +208,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(typeof result.root.empty).toBe('object');
         expect(result.root.empty['#text']).toBe('');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceTextNode: true }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceTextNode: true })) }
     );
 
     runAcrossAllInputSources(
@@ -208,7 +221,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item['@_id']).toBe(1);
         expect(result.root.item['#text']).toBe('Value');
       },
-      { skip: { attributes: false }, OutputBuilder: new CompactBuilderFactory({ forceTextNode: true }) }
+      { skip: { attributes: false }, OutputBuilder: runParser(CompactBuilderFactory.make({ forceTextNode: true })) }
     );
 
     runAcrossAllInputSources(
@@ -225,7 +238,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.parent.child['#text']).toBe('Value');
         expect(result.root.parent['#text']).toBe('');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceTextNode: true }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceTextNode: true })) }
     );
 
     runAcrossAllInputSources(
@@ -238,7 +251,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.mixed['#text']).toBe('Text beforeText after');
         expect(result.root.mixed.child['#text']).toBe('Child value');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceTextNode: true }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceTextNode: true })) }
     );
 
     runAcrossAllInputSources(
@@ -252,7 +265,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         const expected = { root: { item: { textContent: 'Value' }, textContent: '' } };
         expect(result).toEqual(expected);
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceTextNode: true }), nameFor: { text: 'textContent' } }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceTextNode: true })), nameFor: { text: 'textContent' } }
     );
 
     runAcrossAllInputSources(
@@ -265,7 +278,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         const expected = { root: { item: { '@_id': 1, '#text': '' }, '#text': '' } };
         expect(result).toEqual(expected);
       },
-      { skip: { attributes: false }, OutputBuilder: new CompactBuilderFactory({ forceTextNode: true }) }
+      { skip: { attributes: false }, OutputBuilder: runParser(CompactBuilderFactory.make({ forceTextNode: true })) }
     );
   });
 
@@ -281,7 +294,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item.length).toBe(1);
         expect(result.root.item[0]['#text']).toBe('Single Value');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp), forceTextNode: true }) }
+      {
+        OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)), forceTextNode: true })),
+      }
     );
 
     runAcrossAllInputSources(
@@ -297,7 +312,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item[0]['#text']).toBe('First');
         expect(result.root.item[1]['#text']).toBe('Second');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp), forceTextNode: true }) }
+      {
+        OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)), forceTextNode: true })),
+      }
     );
   });
 
@@ -311,14 +328,16 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result).toEqual(expected);
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: () => {
-            // Deliberately a truthy non-boolean: the contract is
-            // boolean | undefined, so this is a type error by design and the
-            // builder must not be relied on to coerce it.
-            return 'true' as unknown as boolean;
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: () => {
+              // Deliberately a truthy non-boolean: the contract is
+              // boolean | undefined, so this is a type error by design and the
+              // builder must not be relied on to coerce it.
+              return 'true' as unknown as boolean;
+            },
+          })
+        ),
       }
     );
 
@@ -326,16 +345,18 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       const xmlData = `<root><item>Value</item></root>`;
 
       let capturedIsLeafNode;
-      const parser = new XMLParser({
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: (_matcher, isLeafNode) => {
-            capturedIsLeafNode = isLeafNode;
-            return false;
-          },
-        }),
+      const parser = makeParser({
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: (_matcher, isLeafNode) => {
+              capturedIsLeafNode = isLeafNode;
+              return false;
+            },
+          })
+        ),
       });
 
-      parser.parse(xmlData);
+      runParser(parser.parse(xmlData));
 
       // isLeafNode should be either true or false, not null in this case
       expect(typeof capturedIsLeafNode).toBe('boolean');
@@ -352,11 +373,13 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result).toEqual(expected);
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          forceArray: matcher => {
-            return matcher.matches(new Expression('root.a.b.c.d.e'));
-          },
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            forceArray: matcher => {
+              return runParser(matcher.matches(runParser(Expression.make('root.a.b.c.d.e'))));
+            },
+          })
+        ),
       }
     );
   });
@@ -379,7 +402,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
           expect(result.root.item[i]).toBe(i + 1);
         }
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp) }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)) })) }
     );
   });
 
@@ -394,7 +417,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.item)).toBe(true);
         expect(result.root.item[0]).toBe('Single');
       },
-      { OutputBuilder: new CompactBuilderFactory({ alwaysArray: ['..item'] }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ alwaysArray: ['..item'] })) }
     );
 
     runAcrossAllInputSources(
@@ -408,7 +431,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.item)).toBe(true);
         expect(result.root.item[0]).toBe('Single');
       },
-      { OutputBuilder: new CompactBuilderFactory({ alwaysArray: [new Expression('root.item')] }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ alwaysArray: [runParser(Expression.make('root.item'))] })) }
     );
 
     runAcrossAllInputSources(
@@ -424,7 +447,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.product)).toBe(true);
         expect(result.root.product[0]).toBe('Widget');
       },
-      { OutputBuilder: new CompactBuilderFactory({ alwaysArray: ['..item', new Expression('root.product')] }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ alwaysArray: ['..item', runParser(Expression.make('root.product'))] })) }
     );
 
     runAcrossAllInputSources(
@@ -439,7 +462,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.other).toBe('Normal');
         expect(Array.isArray(result.root.other)).toBe(false);
       },
-      { OutputBuilder: new CompactBuilderFactory({ alwaysArray: ['..item'] }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ alwaysArray: ['..item'] })) }
     );
 
     runAcrossAllInputSources(
@@ -454,10 +477,12 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item).toBe('Value');
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          alwaysArray: ['..item'],
-          forceArray: () => false, // explicit veto
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            alwaysArray: ['..item'],
+            forceArray: () => false, // explicit veto
+          })
+        ),
       }
     );
 
@@ -472,7 +497,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.item)).toBe(true);
         expect(result.root.item[0]).toBe('Value');
       },
-      { OutputBuilder: new CompactBuilderFactory({ forceArray: matcher => matcher.matches(rootItemExp) }) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)) })) }
     );
 
     runAcrossAllInputSources(
@@ -486,10 +511,12 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.item)).toBe(true);
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          alwaysArray: ['..item'],
-          forceArray: () => undefined, // abstain
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            alwaysArray: ['..item'],
+            forceArray: () => undefined, // abstain
+          })
+        ),
       }
     );
 
@@ -505,10 +532,12 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item).toBe('Value');
       },
       {
-        OutputBuilder: new CompactBuilderFactory({
-          alwaysArray: ['other'], // doesn't match 'item'
-          forceArray: () => undefined, // abstain
-        }),
+        OutputBuilder: runParser(
+          CompactBuilderFactory.make({
+            alwaysArray: ['other'], // doesn't match 'item'
+            forceArray: () => undefined, // abstain
+          })
+        ),
       }
     );
   });

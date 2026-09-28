@@ -1,6 +1,8 @@
 # 07 — Auto-Close (Lenient HTML Parsing)
 
-By default the parser throws on any structural problem. `autoClose` lets you recover gracefully from malformed or incomplete XML — useful for parsing real-world HTML fragments.
+By default the parser fails on any structural problem: the `parse` effect is a `Failure` carrying a
+`ParseError`. `autoClose` lets you recover gracefully from malformed or incomplete XML — useful for
+parsing real-world HTML fragments.
 
 ---
 
@@ -23,13 +25,17 @@ By default the parser throws on any structural problem. `autoClose` lets you rec
 ## Options
 
 ```javascript
-new XMLParser({
-  autoClose: {
-    onEof: 'throw', // 'throw' | 'closeAll'
-    onMismatch: 'throw', // 'throw' | 'recover' | 'discard'
-    collectErrors: false,
-  },
-});
+import { Effect } from 'effect';
+
+Effect.runSync(
+  XMLParser.make({
+    autoClose: {
+      onEof: 'throw', // 'throw' | 'closeAll'
+      onMismatch: 'throw', // 'throw' | 'recover' | 'discard'
+      collectErrors: false,
+    },
+  })
+);
 ```
 
 All three sub-options are independent and default to the strictest value.
@@ -38,12 +44,12 @@ All three sub-options are independent and default to the strictest value.
 
 | Value        | Behaviour                                               |
 | ------------ | ------------------------------------------------------- |
-| `'throw'`    | Throw an error (default)                                |
+| `'throw'`    | Fail with a `ParseError` (default)                      |
 | `'closeAll'` | Silently close all remaining open tags, innermost first |
 
 ```javascript
-const parser = new XMLParser({ autoClose: { onEof: 'closeAll' } });
-parser.parse('<root><a><b>hello</b>');
+const parser = Effect.runSync(XMLParser.make({ autoClose: { onEof: 'closeAll' } }));
+Effect.runSync(parser.parse('<root><a><b>hello</b>'));
 // → { root: { a: { b: 'hello' } } }
 ```
 
@@ -51,13 +57,13 @@ parser.parse('<root><a><b>hello</b>');
 
 | Value       | Behaviour                                                                   |
 | ----------- | --------------------------------------------------------------------------- |
-| `'throw'`   | Throw an error (default)                                                    |
+| `'throw'`   | Fail with a `ParseError` (default)                                          |
 | `'recover'` | Scan up the stack for a matching opener; close intermediate tags implicitly |
 | `'discard'` | Silently ignore the bad closing tag                                         |
 
 ```javascript
-const parser = new XMLParser({ autoClose: { onMismatch: 'recover' } });
-parser.parse('<root><outer><inner>text</outer></root>');
+const parser = Effect.runSync(XMLParser.make({ autoClose: { onMismatch: 'recover' } }));
+Effect.runSync(parser.parse('<root><outer><inner>text</outer></root>'));
 // → { root: { outer: { inner: 'text' } } }
 ```
 
@@ -65,24 +71,81 @@ A closing tag with no matching opener anywhere in the stack is called a **phanto
 
 ### `collectErrors`
 
-When `true`, structural problems are recorded rather than silently dropped. After parsing, retrieve the list with `parser.getParseErrors()`:
+When `true`, structural problems are recorded rather than silently dropped. After parsing, retrieve the list with `parser.getParseErrors()` — an effect, and an infallible one, so it never needs a handler:
 
 ```javascript
-const parser = new XMLParser({ autoClose: { onEof: 'closeAll', collectErrors: true } });
-parser.parse('<root><a><b>hi</b>');
+const parser = Effect.runSync(XMLParser.make({ autoClose: { onEof: 'closeAll', collectErrors: true } }));
+Effect.runSync(parser.parse('<root><a><b>hi</b>'));
 
-parser.getParseErrors();
-// [{ type: 'unclosed-eof', tag: 'a', expected: null, line: 1, col: 8, index: 7 }]
+Effect.runSync(parser.getParseErrors());
+// [{ type: 'unclosed-eof', tag: 'a', expected: null, index: 6 }]
 ```
 
 #### Error record fields
 
-| Field                  | Description                                                  |
-| ---------------------- | ------------------------------------------------------------ |
-| `type`                 | `'unclosed-eof'`, `'mismatched-close'`, or `'phantom-close'` |
-| `tag`                  | Name of the tag that caused the problem                      |
-| `expected`             | What the parser expected (`null` for `unclosed-eof`)         |
-| `line`, `col`, `index` | Position of the **opening** tag                              |
+| Field      | Description                                                                   |
+| ---------- | ----------------------------------------------------------------------------- |
+| `type`     | `'unclosed-eof'`, `'mismatched-close'`, `'phantom-close'`, or `'partial-tag'` |
+| `tag`      | Name of the tag that caused the problem                                       |
+| `expected` | What the parser expected (`null` for `unclosed-eof`)                          |
+| `index`    | Character offset of the **opening** tag, when available                       |
+
+These are records, not `ParseError`s. They report what recovery did; they do not fail anything.
+
+---
+
+## Recovering at the Effect Level
+
+`autoClose` is one recovery strategy — a policy the parser applies to itself. The other is to let
+the parse fail and handle the code at the call site, which is what `Effect.catchIf` is for:
+
+```typescript
+import { Effect } from 'effect';
+import XMLParser, { ErrorCode, ParseError } from '@endevops/parser';
+
+const program = Effect.gen(function* () {
+  const parser = yield* XMLParser.make();
+  return yield* parser.parse(html);
+});
+
+const lenient = Effect.catchIf(
+  program,
+  (e): e is ParseError => e.code === ErrorCode.MISMATCHED_CLOSE_TAG,
+  () => Effect.succeed({ truncated: true })
+);
+```
+
+`catchIf` matches one code and re-fails everything else, so the fallback cannot quietly swallow a
+security failure. When the recovery is itself more than one step, `Effect.matchEffect` takes the
+same shape with an `onFailure` branch that re-fails whatever it does not handle:
+
+```typescript
+const lenient = Effect.matchEffect(parser.parse(html), {
+  onFailure: (e): Effect.Effect<unknown, ParseError> =>
+    e.code === ErrorCode.MISMATCHED_CLOSE_TAG ? Effect.succeed({ truncated: true }) : Effect.fail(e),
+  onSuccess: value => Effect.succeed(value),
+});
+```
+
+`ParseError` is a plain `Error` subclass with no `_tag`, so `Effect.catchTag` does not apply to it —
+match on `code`. And note the asymmetry: `Effect.runSync` **throws** a failed effect's error while
+`Effect.runSyncExit` hands it back, so a parse expected to fail wants the latter rather than a
+`try` around the former:
+
+```typescript
+import { Effect, Result } from 'effect';
+import { type ParseError } from '@endevops/parser';
+
+const result = Effect.runSync(Effect.result(parser.parse(html)));
+
+if (Result.isFailure(result)) {
+  const error: ParseError = result.failure;
+  console.error(error.code, error.index, error.message);
+}
+```
+
+`autoClose` and this are not rivals. `autoClose: { collectErrors: true }` turns a hard failure into a
+result plus a list; `catchIf` decides what the caller does about whatever the parser could not fix.
 
 ---
 
@@ -91,23 +154,25 @@ parser.getParseErrors();
 The `'html'` shorthand enables all three relaxed behaviours and registers standard HTML void elements (`br`, `img`, `input`, `meta`, etc.) in `tags.unpaired`:
 
 ```javascript
-const parser = new XMLParser({ autoClose: 'html' });
+const parser = Effect.runSync(XMLParser.make({ autoClose: 'html' }));
 ```
 
 Equivalent to:
 
 ```javascript
-new XMLParser({
-  autoClose: { onEof: 'closeAll', onMismatch: 'discard', collectErrors: true },
-  tags: { unpaired: ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'] },
-});
+Effect.runSync(
+  XMLParser.make({
+    autoClose: { onEof: 'closeAll', onMismatch: 'discard', collectErrors: true },
+    tags: { unpaired: ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'] },
+  })
+);
 ```
 
 Any `tags.unpaired` values you add yourself are **merged** with the HTML void elements, not replaced.
 
 ```javascript
-const parser = new XMLParser({ autoClose: 'html', skip: { attributes: false } });
-parser.parse('<html><head><meta charset="UTF-8"></head><body><p>Line one<br>Line two</body></html>');
+const parser = Effect.runSync(XMLParser.make({ autoClose: 'html', skip: { attributes: false } }));
+Effect.runSync(parser.parse('<html><head><meta charset="UTF-8"></head><body><p>Line one<br>Line two</body></html>'));
 // Parses successfully
 ```
 
@@ -133,11 +198,18 @@ parser.parse('<html><head><meta charset="UTF-8"></head><body><p>Line one<br>Line
 `autoClose` works identically with `parse()`, `parseStream()`, and `feed()`/`end()`. Errors are attached to the result returned by `end()`.
 
 ```javascript
-parser.feed('<root><a>');
-parser.feed('<b>hello</b>');
-const result = parser.end();
+const result = Effect.runSync(
+  Effect.gen(function* () {
+    const parser = yield* XMLParser.make({ autoClose: { onEof: 'closeAll', collectErrors: true } });
+    yield* parser.feed('<root><a>');
+    yield* parser.feed('<b>hello</b>');
+    const result = yield* parser.end();
+    console.log(Effect.runSync(parser.getParseErrors()));
+    return result;
+  })
+);
 // result.root.a.b === 'hello'
-// parser.getParseErrors() → [{ type: 'unclosed-eof', tag: 'a', ... }]
+// [{ type: 'unclosed-eof', tag: 'a', expected: null, index: 6 }]
 ```
 
 ---

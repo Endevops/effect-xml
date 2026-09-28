@@ -1,8 +1,9 @@
+import { Effect } from 'effect';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser from '#/xml-parser.ts';
+import { makeParser } from '#/test/helpers/test-runner.ts';
 
 describe('XMLParser', () => {
   it('should parse when a readable stream is given as input', async () => {
@@ -17,8 +18,8 @@ describe('XMLParser', () => {
         ],
       },
     };
-    const parser = new XMLParser();
-    const result = await parser.parseStream(fs.createReadStream(fileNamePath));
+    const parser = makeParser();
+    const result = await Effect.runPromise(parser.parseStream(fs.createReadStream(fileNamePath)));
     expect(result).toEqual(expected);
   });
 });

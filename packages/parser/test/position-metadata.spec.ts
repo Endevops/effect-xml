@@ -14,11 +14,11 @@
 import type { MatcherView } from '@endevops/common-xml';
 
 import { CompactBuilder, CompactBuilderFactory } from '@endevops/builder';
+import { Effect } from 'effect';
 import { describe, expect } from 'vite-plus/test';
 
 import { asOutputBuilder, makeRecordingParser } from '#/test/helpers/recording-builder.ts';
-import { runAcrossAllInputSourcesWithFactory } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { runAcrossAllInputSourcesWithFactory, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 // ══════════════════════════════════════════════════════════════════════════════
 describe("Position metadata — TagDetail.index points at '<'", function () {
@@ -214,16 +214,29 @@ describe('Position metadata — addAttribute attrMeta', function () {
       // Deliberately NOT the recording builder: the point of this case is
       // that a builder written against the old 3-argument signature keeps
       // working now that the parser passes a 4th `attrMeta` argument.
-      const base = new CompactBuilderFactory();
-      class OldStyleBuilder extends CompactBuilder {
-        override addAttribute(name: string, value: unknown, matcher: MatcherView): void {
-          // no 4th param — must still work
-          super.addAttribute(name, value, matcher);
-        }
-      }
-      return new XMLParser({
+      //
+      // Built as a decorator over `asOutputBuilder` rather than as a
+      // `CompactBuilder` subclass: `addAttribute` is a class *field* on the
+      // builder base, so the base's own instance field would shadow a
+      // subclass's prototype method of the same name and the override would
+      // never run. Re-declaring the narrow signature on something that is not
+      // the base is what keeps this case testing what it says it tests.
+      const base = runParser(CompactBuilderFactory.make());
+      return makeParser({
         skip: { attributes: false },
-        OutputBuilder: { getInstance: (p, m) => asOutputBuilder(new OldStyleBuilder(p, base.builderOptions, m, base.registry)) },
+        OutputBuilder: {
+          getInstance: (p, m) => {
+            const inner = new CompactBuilder(p, base.builderOptions, m, base.registry);
+            return Effect.succeed({
+              ...asOutputBuilder(inner),
+              // Old 3-arg signature — no 4th param, so the `attrMeta` the
+              // parser passes is simply ignored by JS. Must still work.
+              addAttribute(name: string, value: unknown, matcher: MatcherView) {
+                return inner.addAttribute(name, value, matcher);
+              },
+            });
+          },
+        },
       });
     }
   );
@@ -285,14 +298,22 @@ describe('Position metadata — backward compatibility', function () {
     () => {
       // Same reasoning as the addAttribute case above: the old single-argument
       // closeElement() must still work when the parser passes a closeMeta.
-      const base = new CompactBuilderFactory();
-      class OldCloseBuilder extends CompactBuilder {
-        override closeElement(matcher: MatcherView): void {
-          super.closeElement(matcher);
-        } // ignores closeMeta — must still work
-      }
-      return new XMLParser({
-        OutputBuilder: { getInstance: (p, m) => asOutputBuilder(new OldCloseBuilder(p, base.builderOptions, m, base.registry)) },
+      // `closeElement` is a class field on the base for the same reason
+      // `addAttribute` is, so the narrow signature is re-declared here too.
+      const base = runParser(CompactBuilderFactory.make());
+      return makeParser({
+        OutputBuilder: {
+          getInstance: (p, m) => {
+            const inner = new CompactBuilder(p, base.builderOptions, m, base.registry);
+            return Effect.succeed({
+              ...asOutputBuilder(inner),
+              // Old single-arg signature — ignores closeMeta — must still work.
+              closeElement(matcher: MatcherView) {
+                return inner.closeElement(matcher);
+              },
+            });
+          },
+        },
       });
     }
   );
@@ -304,6 +325,6 @@ describe('Position metadata — backward compatibility', function () {
       expect(result.root.item['@_id']).toBe(1);
       expect(result.root.item['#text']).toBe('value');
     },
-    () => new XMLParser({ skip: { attributes: false } })
+    () => makeParser({ skip: { attributes: false } })
   );
 });

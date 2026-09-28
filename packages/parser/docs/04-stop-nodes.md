@@ -7,20 +7,24 @@
 A **stop node** is a tag whose inner content is captured as a raw string without any further XML parsing. Useful for `<script>`, `<style>`, embedded HTML, or any tag whose content isn't valid XML.
 
 ```javascript
-const parser = new XMLParser({
-  tags: {
-    stopNodes: [
-      '..script', // any <script> tag anywhere in the tree
-      'root.raw', // only <raw> directly inside <root>
-    ],
-  },
-  onStopNode(tagDetail, rawContent, matcher) {
-    console.log(tagDetail.name, rawContent);
-  },
-});
+import { Effect } from 'effect';
+
+const parser = Effect.runSync(
+  XMLParser.make({
+    tags: {
+      stopNodes: [
+        '..script', // any <script> tag anywhere in the tree
+        'root.raw', // only <raw> directly inside <root>
+      ],
+    },
+    onStopNode(tagDetail, rawContent, matcher) {
+      console.log(tagDetail.name, rawContent);
+    },
+  })
+);
 ```
 
-The `onStopNode` callback receives the tag details, the captured raw string, and a `ReadOnlyMatcher` for path inspection. The matcher is a `MatcherView` from `path-expression-matcher`, exported there under the alias `ReadOnlyMatcher`. If you don't provide a callback the raw content is still available in the output through the output builder.
+The `onStopNode` callback receives the tag details, the captured raw string, and a `ReadOnlyMatcher` for path inspection. The matcher is a `MatcherView` from `@endevops/common-xml`, which also exports it under the deprecated alias `ReadOnlyMatcher`. If you don't provide a callback the raw content is still available in the output through the output builder.
 
 ---
 
@@ -31,25 +35,28 @@ By default, stop-node collection ends at the **first matching close tag**, regar
 To control this, use the object form with `skipEnclosures`:
 
 ```javascript
+import { Effect } from 'effect';
 import { xmlEnclosures, quoteEnclosures } from '@endevops/parser';
 
-const parser = new XMLParser({
-  tags: {
-    stopNodes: [
-      // plain string — ends at first </script>
-      '..script',
+const parser = Effect.runSync(
+  XMLParser.make({
+    tags: {
+      stopNodes: [
+        // plain string — ends at first </script>
+        '..script',
 
-      // skip XML comments and CDATA when looking for the close tag
-      { expression: 'body..pre', skipEnclosures: [...xmlEnclosures] },
+        // skip XML comments and CDATA when looking for the close tag
+        { expression: 'body..pre', skipEnclosures: [...xmlEnclosures] },
 
-      // skip XML + quote enclosures (good for <style> with string literals)
-      { expression: 'head..style', skipEnclosures: [...xmlEnclosures, ...quoteEnclosures] },
+        // skip XML + quote enclosures (good for <style> with string literals)
+        { expression: 'head..style', skipEnclosures: [...xmlEnclosures, ...quoteEnclosures] },
 
-      // explicitly no skipping
-      { expression: 'root.raw', skipEnclosures: [] },
-    ],
-  },
-});
+        // explicitly no skipping
+        { expression: 'root.raw', skipEnclosures: [] },
+      ],
+    },
+  })
+);
 ```
 
 `xmlEnclosures` covers XML comments (`<!-- -->`) and CDATA (`<![CDATA[...]]>`).  
@@ -74,7 +81,7 @@ Eg
 </root>
 ```
 
-If `nested:false` then above XML will error until auto close is enabled. Because 2nd stopnode will be set to `stop node <raw>nested stop node`
+If `nested:false` then above XML will fail with a `ParseError` until auto close is enabled. Because 2nd stopnode will be set to `stop node <raw>nested stop node`
 
 If `nested:true` then above XML will be parsed as
 
@@ -91,14 +98,18 @@ If `nested:true` then above XML will be parsed as
 **Skip tags** drop a tag and its entire subtree from the output silently. Content is consumed but never forwarded to the output builder.
 
 ```javascript
-const parser = new XMLParser({
-  skip: {
-    tags: [
-      '..script', // drop all <script> tags anywhere
-      'root.debug', // drop <debug> only inside <root>
-    ],
-  },
-});
+import { Effect } from 'effect';
+
+const parser = Effect.runSync(
+  XMLParser.make({
+    skip: {
+      tags: [
+        '..script', // drop all <script> tags anywhere
+        'root.debug', // drop <debug> only inside <root>
+      ],
+    },
+  })
+);
 ```
 
 Like stop nodes, entries can be plain strings or objects with `skipEnclosures`:

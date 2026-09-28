@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
 
 import { makeRecordingParser } from '#/test/helpers/recording-builder.ts';
-import { runAcrossAllInputSourcesWithFactory, endDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { runAcrossAllInputSourcesWithFactory, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
  * @description Builds a document long enough to cross the default flush threshold.
@@ -62,17 +61,17 @@ describe('Flush position drift — absolute offsets across all input sources', (
 describe('Flush position drift — feedable batch‑threshold', () => {
   it('does not falsely report zero progress (batch-threshold check) once a flush rebases startIndex', () => {
     const xml = buildPaddedDoc(50);
-    const parser = new XMLParser({ feedable: { flushThreshold: 30, bufferSize: 64 } });
+    const parser = makeParser({ feedable: { flushThreshold: 30, bufferSize: 64 } });
     const thresholdsSeen: number[] = [];
 
     for (let i = 0; i < xml.length; i += 64) {
-      parser.feed(xml.slice(i, i + 64));
-      thresholdsSeen.push(parser.getFeedBatchThreshold());
+      runParser(parser.feed(xml.slice(i, i + 64)));
+      thresholdsSeen.push(runParser(parser.getFeedBatchThreshold()));
     }
     const result = endDoc(parser);
 
     expect(result.root.item.length).toBe(50);
-    expect(parser.getFeedBatchThreshold()).toBe(64);
+    expect(runParser(parser.getFeedBatchThreshold())).toBe(64);
   });
 });
 
@@ -86,10 +85,10 @@ describe('Flush position drift — autoClose error records stay absolute', () =>
     for (let i = 0; i < 100; i++) xml += `<item id="${i}">padding-${i}</item>`;
     xml += `</bogus></root>`;
 
-    const parser = new XMLParser({ autoClose: { onMismatch: 'recover', collectErrors: true } });
-    parser.parse(xml);
+    const parser = makeParser({ autoClose: { onMismatch: 'recover', collectErrors: true } });
+    runParser(parser.parse(xml));
 
-    const errs = parser.getParseErrors();
+    const errs = runParser(parser.getParseErrors());
     const phantom = errs.find(e => e.type === 'phantom-close');
     expect(phantom).toBeDefined();
     const expectedIndex = xml.indexOf('</bogus>') + '</bogus>'.length;

@@ -1,11 +1,14 @@
-import type { ValueParserRegistryLike } from '@endevops/builder';
+import type { BuilderError, ValueParserRegistryLike } from '@endevops/builder';
 import type { MatcherView } from '@endevops/common-xml';
 
 import { CompactBuilder, CompactBuilderFactory } from '@endevops/builder';
+import { Effect } from 'effect';
 
 import type { AttributeMeta, CloseMeta, OutputBuilderLike, TagDetailLike, XmlDeclaration } from '#/internal/parser-types.ts';
-import type { X2jOptions } from '#/options.ts';
+import type { ResolvedOptions, X2jOptions } from '#/options.ts';
 
+import { buildOptions } from '#/options-builder.ts';
+import { runParser } from '#/test/helpers/test-runner.ts';
 import XMLParser from '#/xml-parser.ts';
 
 /**
@@ -143,14 +146,14 @@ export class RecordingBuilder implements OutputBuilderLike {
     this.#inner.addElement(tag, matcher);
   }
 
-  closeElement(matcher: MatcherView, closeMeta?: CloseMeta): void {
+  closeElement(matcher: MatcherView, closeMeta?: CloseMeta): Effect.Effect<void, BuilderError> {
     this.events.closes.push({ name: closeMeta?.name as string, index: closeMeta?.index, closeEnd: closeMeta?.closeEnd });
-    this.#inner.closeElement(matcher, closeMeta);
+    return this.#inner.closeElement(matcher, closeMeta);
   }
 
-  addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: AttributeMeta): void {
+  addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: AttributeMeta): Effect.Effect<void, BuilderError> {
     this.events.attrs.push({ name, value, index: meta?.index });
-    this.#inner.addAttribute(name, value, matcher, meta);
+    return this.#inner.addAttribute(name, value, matcher, meta);
   }
 
   addValue(text: string, matcher: MatcherView): void {
@@ -214,19 +217,11 @@ export class RecordingXMLParser extends XMLParser {
   readonly _events: RecordingEvents;
 
   /**
-   * @param options - Parser options, merged ahead of the recording factory.
+   * @param resolved - Fully-resolved parser options, from `buildOptions()`.
    * @param events - Buckets to record into.
    */
-  constructor(options: X2jOptions, events: RecordingEvents) {
-    super({
-      ...options,
-      OutputBuilder: {
-        getInstance(parserOptions, readonlyMatcher) {
-          const base = new CompactBuilderFactory();
-          return new RecordingBuilder(events, parserOptions, base.builderOptions, readonlyMatcher, base.registry);
-        },
-      },
-    });
+  constructor(resolved: ResolvedOptions, events: RecordingEvents) {
+    super(resolved);
     this._events = events;
   }
 }
@@ -234,14 +229,27 @@ export class RecordingXMLParser extends XMLParser {
 /**
  * @description Build a parser that records everything the output builder sees. `events` is created fresh per call, so a test that runs across all three input
  * mechanisms never sees one run's records mixed into another's — the factory is invoked once per mechanism, and the test reads the parser it was
- * handed.
+ * handed. Three effects meet here, which is the honest shape of the thing rather than an accident: the parser's options are resolved by
+ * `buildOptions`, the wrapped builder's by `CompactBuilderFactory.make`, and the recording factory is installed into the already-resolved options.
+ * Each is run for its value, so a failure surfaces as the thrown `ParseError` / `BuilderError` a test can assert on.
  *
  * @param parserOptions - Options for this parser, merged ahead of the recording factory.
  *
  * @returns A parser whose `_events` holds this run's records.
  */
 export function makeRecordingParser(parserOptions: X2jOptions = {}): RecordingXMLParser {
-  return new RecordingXMLParser(parserOptions, { tags: [], closes: [], attrs: [], stopNodes: [] });
+  const events: RecordingEvents = { tags: [], closes: [], attrs: [], stopNodes: [] };
+  const base = runParser(CompactBuilderFactory.make());
+  const resolved = runParser(
+    buildOptions({
+      ...parserOptions,
+      OutputBuilder: {
+        getInstance: (builderParserOptions, readonlyMatcher) =>
+          Effect.succeed(new RecordingBuilder(events, builderParserOptions, base.builderOptions, readonlyMatcher, base.registry)),
+      },
+    })
+  );
+  return new RecordingXMLParser(resolved, events);
 }
 
 /**

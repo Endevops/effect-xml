@@ -41,7 +41,11 @@ function readCdata(parser) {
 For technical explanation
 
 ```js
-parser.feed(`<b>hel<![CDATA[lo`);
+import { Effect } from 'effect';
+import XMLParser from '@endevops/parser';
+
+const parser = Effect.runSync(XMLParser.make());
+Effect.runSync(parser.feed(`<b>hel<![CDATA[lo`));
 ```
 
 `parseXml()` runs:

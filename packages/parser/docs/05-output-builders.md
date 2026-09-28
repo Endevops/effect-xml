@@ -28,17 +28,24 @@ needs both.
 Produces a compact JS object. When a tag appears once it becomes a value; when it appears multiple times it becomes an array. This is the default when no `OutputBuilder` is specified.
 
 ```javascript
+import { Effect } from 'effect';
 import { CompactBuilderFactory } from '@endevops/builder';
 
-const builder = new CompactBuilderFactory({
-  alwaysArray: ['..item', '..book'], // always wrap these tags in arrays
-  forceArray: (matcher, isLeafNode) => matcher.path().endsWith('.product'),
-  forceTextNode: false, // when true, text-only tags always use { '#text': val }
-  textJoint: '', // join string for multiple text nodes in one tag
-});
+const builder = Effect.runSync(
+  CompactBuilderFactory.make({
+    alwaysArray: ['..item', '..book'], // always wrap these tags in arrays
+    forceArray: (matcher, isLeafNode) => Effect.runSync(matcher.toString()).endsWith('.product'),
+    forceTextNode: false, // when true, text-only tags always use { '#text': val }
+    textJoint: '', // join string for multiple text nodes in one tag
+  })
+);
 
-new XMLParser({ OutputBuilder: builder });
+Effect.runSync(XMLParser.make({ OutputBuilder: builder }));
 ```
+
+`forceArray` still answers with a plain boolean — the builder is already mid-document when it votes,
+so it runs the matcher's effect and unwraps it inline. `matcher.toString()` is a path question like
+any other; a predicate that can be written without one takes no matcher call at all.
 
 ### New Options
 
@@ -56,9 +63,10 @@ new XMLParser({ OutputBuilder: builder });
 Preserves full document order. Every element becomes an array entry. Useful for round-trip serialisation where element order matters.
 
 ```javascript
+import { Effect } from 'effect';
 import { SequentialBuilderFactory } from '@nodable/sequential-builder';
 
-new XMLParser({ OutputBuilder: new SequentialBuilderFactory() });
+Effect.runSync(XMLParser.make({ OutputBuilder: new SequentialBuilderFactory() }));
 ```
 
 Input:
@@ -83,9 +91,10 @@ Output:
 Produces a uniform AST-style node tree. Every node has a consistent structure with `tagname` and `child` properties, making tree traversal predictable.
 
 ```javascript
+import { Effect } from 'effect';
 import { NodeTreeBuilderFactory } from '@nodable/node-tree-builder';
 
-new XMLParser({ OutputBuilder: new NodeTreeBuilderFactory() });
+Effect.runSync(XMLParser.make({ OutputBuilder: new NodeTreeBuilderFactory() }));
 ```
 
 Output for `<root><child>hello</child></root>`:
@@ -106,11 +115,19 @@ Attributes are always grouped under `:@` (the `attributes.groupBy` option is ign
 
 The `OutputBuilder` option takes a **factory**, not a builder. The parser calls `getInstance()` on it before every parse, which is what gives each run a fresh builder. The factory's `parserOptions` and `readonlyMatcher` arguments are optional in your signature: a function that takes fewer parameters is assignable to one that takes more.
 
+`getInstance()` answers with an `Effect` — a builder can be refused at construction, and a
+constructor has nowhere to put an error channel. Two of the ten methods answer with effects too:
+`closeElement` and `addAttribute`, because closing a tag is where the builder runs the value-parser
+chain over everything under it, and an attribute's value goes through that same chain on the way in.
+The other eight are plain, and stay that way — an effect nobody can fail is an allocation per tag.
+
 Do not extend `BaseOutputBuilder` from `@endevops/builder` for this. Its shipped declarations and its shipped implementation both fall short: it declares `addElement` with one parameter where the parser passes two, and at runtime the class implements none of the four methods the parser calls (`addElement`, `closeElement`, `addValue`, `getOutput`). A subclass that defines only `addElement` and `getOutput` throws `TypeError: this.outputBuilder.closeElement is not a function` on the first closing tag.
 
 Implement the builder structurally instead. It needs no base class, no import and no cast:
 
 ```javascript
+import { Effect } from 'effect';
+
 class TagListBuilder {
   constructor() {
     this.tags = [];
@@ -121,14 +138,18 @@ class TagListBuilder {
   }
 
   // The parser calls all ten. This builder only wants names, so the rest are empty.
-  closeElement() {}
+  closeElement() {
+    return Effect.void; // an effect — the parser runs it
+  }
   addValue() {}
   addLiteral() {}
   addComment() {}
   addDeclaration() {}
   addInstruction() {}
   addInputEntities() {}
-  addAttribute() {}
+  addAttribute() {
+    return Effect.void;
+  }
 
   getOutput() {
     return this.tags;
@@ -137,11 +158,16 @@ class TagListBuilder {
 
 class TagListBuilderFactory {
   getInstance() {
-    return new TagListBuilder();
+    return Effect.succeed(new TagListBuilder());
   }
 }
 
-new XMLParser({ OutputBuilder: new TagListBuilderFactory() }).parse('<r><a><b/></a></r>');
+const program = Effect.gen(function* () {
+  const parser = yield* XMLParser.make({ OutputBuilder: new TagListBuilderFactory() });
+  return yield* parser.parse('<r><a><b/></a></r>');
+});
+
+Effect.runSync(program);
 // ['r', 'a', 'b']
 ```
 
@@ -167,35 +193,30 @@ class LowerCaseTagBuilder extends CompactBuilder {
 
 Parser sends position meta data to the builder since v1.5.0.
 
-`line`, `col`, and `index` always refer to the position of the relevant token's
-starting character (e.g. the `<` of an opening tag, the `</` of a closing tag) in the
-original source document:
+Positions are `index`-only: the parser does no line or column tracking, anywhere, so a builder
+gets an offset into the original source document and nothing else. Every `index` is 0-based and
+absolute, and refers to the start of the relevant token (the `<` of an opening tag, the `</` of a
+closing tag).
 
-| Field   | Meaning                                                                                                                                     |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `line`  | 1-based line number. Always starts at `1`; increments after every `\n`.                                                                     |
-| `col`   | 0-based column on the current line — number of characters consumed since the last `\n` (or document start). Resets to `0` on every newline. |
-| `index` | 0-based absolute character/byte offset from the start of the document. Line-independent.                                                    |
-
-These are accurate everywhere in the document, including across CDATA sections,
-comments, and DOCTYPE internal subsets containing embedded newlines, and across
-chunk boundaries when using `feed()`/`end()` (a token that fails mid-read and gets
-replayed on the next chunk does not double-count newlines it had already consumed).
+These are accurate everywhere in the document, including across CDATA sections, comments, and
+DOCTYPE internal subsets, and across chunk boundaries when using `feed()`/`end()` (a token that
+fails mid-read and gets replayed on the next chunk is measured from the same origin, so a
+replayed token does not shift the ones after it).
 
 #### addElement
 
 1st argument of `addElement` i.e. `tagDetail` has the following properties:
 
 - `name`: tag name
-- `index`, `line`, `col`: position of this tag's opening `<`
+- `index`: position of this tag's opening `<`
 - `openEnd`: absolute offset immediately after this opening tag's `>` (or `/>` for self-closing)
 
 #### closeElement
 
-`closeElement` receives `closeMeta` as its 2nd argument:
+`closeElement` receives `closeMeta` as its 2nd argument, and answers with an `Effect`:
 
 - `name`: the tag being closed (always provided)
-- `index`, `line`, `col`: position of `</` for a real closing tag
+- `index`: position of `</` for a real closing tag
 - `closeEnd`: absolute offset immediately after this closing tag's `>`
 
 For **unpaired/self-closing tags** (no real closing token), `closeMeta` reuses the
@@ -204,21 +225,20 @@ For **autoClose/exitIf synthetic closes**, only `{ name }` is provided.
 
 ### addAttribute
 
-`addAttribute` receives `attrMeta` as its 4th argument:
+`addAttribute` receives `attrMeta` as its 4th argument, and answers with an `Effect`:
 
 - `index`: the attribute's absolute offset (where its name starts)
 
 `attrMeta` is `undefined` (not an object with `undefined` fields) when no position was
-available. `line`/`col` are deliberately not included on attributes — computing them
-would mean re-scanning every tag's attribute string for newlines, for a field most
-builders never read.
+available. No line or column is reported on attributes — or anywhere else in this parser's
+output.
 
 ### onStopNode
 
 `onStopNode` receives `stopEnd` as its 4th argument — position right after the stop
 node's matched closing tag:
 
-- `index`, `line`, `col`
+- `index`
 
 ### Common patterns
 
@@ -245,21 +265,26 @@ addElement(tag, matcher) {
   }
   super.addElement(tag, matcher);
 }
-closeElement(matcher) {
-  if (this._skipDepth > 0) { this._skipDepth--; return; }
-  super.closeElement(matcher);
+closeElement(matcher, closeMeta) {
+  // an Effect: the parser runs whatever comes back, so a suppressed tag returns
+  // a completed no-op rather than nothing
+  if (this._skipDepth > 0) { this._skipDepth--; return Effect.void; }
+  return super.closeElement(matcher, closeMeta);
 }
 ```
 
 **Write to database instead of returning an object:**
 
 ```javascript
+import { Effect } from 'effect';
+
 class DbWriterBuilder {
   addElement(tag) {
     /* open record */
   }
   closeElement() {
     /* flush to DB */
+    return Effect.void;
   }
   addValue(v) {
     /* accumulate field */
@@ -269,7 +294,9 @@ class DbWriterBuilder {
   addDeclaration() {}
   addInstruction() {}
   addInputEntities() {}
-  addAttribute() {}
+  addAttribute() {
+    return Effect.void;
+  }
 
   getOutput() {
     return null;
@@ -278,11 +305,12 @@ class DbWriterBuilder {
 
 class DbWriterFactory {
   getInstance() {
-    return new DbWriterBuilder();
+    return Effect.succeed(new DbWriterBuilder());
   }
 }
 
-const result = await new XMLParser({ OutputBuilder: new DbWriterFactory() }).parseStream(createReadStream('huge.xml'));
+const parser = Effect.runSync(XMLParser.make({ OutputBuilder: new DbWriterFactory() }));
+const result = await Effect.runPromise(parser.parseStream(createReadStream('huge.xml')));
 // result === null; data is in the database
 ```
 

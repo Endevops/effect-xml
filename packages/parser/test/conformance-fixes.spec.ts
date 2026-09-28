@@ -1,16 +1,16 @@
 import { CompactBuilderFactory } from '@endevops/builder';
+import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue } from '#/options.ts';
 
 import { ErrorCode, ParseError } from '#/parse-error.ts';
-import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
+import { makeParser, runAcrossAllInputSources, runParser } from '#/test/helpers/test-runner.ts';
 import { sanitizeContent } from '#/util.ts';
-import XMLParser from '#/xml-parser.ts';
 
 // Builder with no value-parser pipeline at all, so assertions see exactly
 // what the parser core produced (no 'ws' collapsing, no entity decoding).
-const rawBuilder = () => new CompactBuilderFactory({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } });
+const rawBuilder = () => runParser(CompactBuilderFactory.make({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } }));
 
 function expectCode(fn: () => unknown, code: ErrorCodeValue): void {
   let thrown: ParseError | null = null;
@@ -141,43 +141,43 @@ describe('Attribute value whitespace folding', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Illegal literal control characters', function () {
   it('a raw NUL byte in element text throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => new XMLParser().parse(`<root>a\x00b</root>`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser().parse(`<root>a\x00b</root>`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 
   it('a raw ESC byte in element text throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => new XMLParser().parse(`<root>a\x1Bb</root>`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser().parse(`<root>a\x1Bb</root>`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 
   it('a raw control character in an attribute value throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => new XMLParser({ skip: { attributes: false } }).parse(`<e a="a\x01b"/>`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser({ skip: { attributes: false } }).parse(`<e a="a\x01b"/>`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 
   it('a raw control character in CDATA content throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => new XMLParser().parse(`<root><![CDATA[a\x02b]]></root>`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser().parse(`<root><![CDATA[a\x02b]]></root>`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 
   it('a raw control character in comment content throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => new XMLParser().parse(`<root><!--a\x03b--><x/></root>`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser().parse(`<root><!--a\x03b--><x/></root>`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 
   it('tab, LF, and CR do not throw', function () {
-    expect(() => new XMLParser().parse(`<root>a\tb\nc\rd</root>`)).not.toThrow();
+    expect(() => runParser(makeParser().parse(`<root>a\tb\nc\rd</root>`))).not.toThrow();
   });
 
   it('&#0; (a reference, not a literal byte) does not throw via this check', function () {
-    expect(() => new XMLParser().parse(`<root>a&#0;b</root>`)).not.toThrow();
+    expect(() => runParser(makeParser().parse(`<root>a&#0;b</root>`))).not.toThrow();
   });
 
   it('throws the same way for a document declared XML 1.0', function () {
-    expectCode(() => new XMLParser().parse(`<?xml version="1.0"?><root>a\x00b</root>`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser().parse(`<?xml version="1.0"?><root>a\x00b</root>`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 
   it('throws the same way for a document declared XML 1.1', function () {
-    expectCode(() => new XMLParser().parse(`<?xml version="1.1"?><root>a\x00b</root>`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser().parse(`<?xml version="1.1"?><root>a\x00b</root>`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 
   it('still throws even when the parser is configured for lenient/HTML parsing', function () {
-    expectCode(() => new XMLParser({ autoClose: 'html' }).parse(`<root>a\x00b`), ErrorCode.ILLEGAL_CHARACTER);
+    expectCode(() => runParser(makeParser({ autoClose: 'html' }).parse(`<root>a\x00b`)), ErrorCode.ILLEGAL_CHARACTER);
   });
 });
 
@@ -200,20 +200,22 @@ describe('Duplicate attributes — attributes.duplicate', function () {
 
   it("'ignore': the matcher itself sees the first value, not the second", function () {
     let seenValue;
-    new XMLParser({
-      skip: { attributes: false },
-      attributes: { duplicate: 'ignore' },
-      exitIf: matcher => {
-        seenValue = matcher.getAttrValue('a');
-        return false;
-      },
-    }).parse(`<e a="1" a="2"></e>`);
+    runParser(
+      makeParser({
+        skip: { attributes: false },
+        attributes: { duplicate: 'ignore' },
+        exitIf: matcher => {
+          seenValue = runParser(matcher.getAttrValue('a'));
+          return Effect.succeed(false);
+        },
+      }).parse(`<e a="1" a="2"></e>`)
+    );
     expect(seenValue).toBe('1');
   });
 
   it("'throw': rejects the document as soon as a repeat is found", function () {
     expectCode(
-      () => new XMLParser({ skip: { attributes: false }, attributes: { duplicate: 'throw' } }).parse(`<e a="1" a="2"/>`),
+      () => runParser(makeParser({ skip: { attributes: false }, attributes: { duplicate: 'throw' } }).parse(`<e a="1" a="2"/>`)),
       ErrorCode.DUPLICATE_ATTRIBUTE
     );
   });
@@ -229,7 +231,7 @@ describe('Duplicate attributes — attributes.duplicate', function () {
 
   it("three repeats — 'throw' still rejects on the second occurrence", function () {
     expectCode(
-      () => new XMLParser({ skip: { attributes: false }, attributes: { duplicate: 'throw' } }).parse(`<e a="1" a="2" a="3"/>`),
+      () => runParser(makeParser({ skip: { attributes: false }, attributes: { duplicate: 'throw' } }).parse(`<e a="1" a="2" a="3"/>`)),
       ErrorCode.DUPLICATE_ATTRIBUTE
     );
   });
@@ -260,19 +262,19 @@ describe('Duplicate attributes — attributes.duplicate', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Unquoted attribute values', function () {
   it('<e a=b/> throws UNQUOTED_ATTRIBUTE_VALUE', function () {
-    expectCode(() => new XMLParser().parse(`<e a=b/>`), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    expectCode(() => runParser(makeParser().parse(`<e a=b/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
   });
 
   it('<e a=b"c"/> throws UNQUOTED_ATTRIBUTE_VALUE', function () {
-    expectCode(() => new XMLParser().parse(`<e a=b"c"/>`), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    expectCode(() => runParser(makeParser().parse(`<e a=b"c"/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
   });
 
   it('<e a=b=c/> throws UNQUOTED_ATTRIBUTE_VALUE', function () {
-    expectCode(() => new XMLParser().parse(`<e a=b=c/>`), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    expectCode(() => runParser(makeParser().parse(`<e a=b=c/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
   });
 
   it('<e name=amit gupta/> throws immediately, no attribute reaches output', function () {
-    expectCode(() => new XMLParser({ skip: { attributes: false } }).parse(`<e name=amit gupta/>`), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    expectCode(() => runParser(makeParser({ skip: { attributes: false } }).parse(`<e name=amit gupta/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
   });
 
   runAcrossAllInputSources(
@@ -286,7 +288,7 @@ describe('Unquoted attribute values', function () {
   );
 
   it('still throws when the parser is configured for lenient/HTML parsing', function () {
-    expectCode(() => new XMLParser({ autoClose: 'html' }).parse(`<e a=b/>`), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    expectCode(() => runParser(makeParser({ autoClose: 'html' }).parse(`<e a=b/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
   });
 });
 
@@ -312,7 +314,7 @@ describe('attributes.booleanType', function () {
 
   it("'throw': rejects the document as soon as a valueless attribute is found", function () {
     expectCode(
-      () => new XMLParser({ skip: { attributes: false }, attributes: { booleanType: 'throw' } }).parse(`<e flag/>`),
+      () => runParser(makeParser({ skip: { attributes: false }, attributes: { booleanType: 'throw' } }).parse(`<e flag/>`)),
       ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED
     );
   });
@@ -340,7 +342,7 @@ describe('attributes.booleanType', function () {
 
   it("other attributes never reach the builder under 'throw' either (whole tag rejected)", function () {
     expectCode(
-      () => new XMLParser({ skip: { attributes: false }, attributes: { booleanType: 'throw' } }).parse(`<e a="1" flag b="2"/>`),
+      () => runParser(makeParser({ skip: { attributes: false }, attributes: { booleanType: 'throw' } }).parse(`<e a="1" flag b="2"/>`)),
       ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED
     );
   });
@@ -376,6 +378,6 @@ describe('Regression coverage — unaffected by the conformance fixes', function
   });
 
   it('an empty document parses without error', function () {
-    expect(() => new XMLParser().parse(``)).not.toThrow();
+    expect(() => runParser(makeParser().parse(``))).not.toThrow();
   });
 });

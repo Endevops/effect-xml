@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc } from '#/test/helpers/test-runner.ts';
+import {
+  makeParser,
+  makeParserOrThrow,
+  runAcrossAllInputSources,
+  runAcrossAllInputSourcesWithException,
+  parseDoc,
+  runParser,
+} from '#/test/helpers/test-runner.ts';
 import { criticalProperties, DANGEROUS_PROPERTY_NAMES } from '#/util.ts';
-import XMLParser from '#/xml-parser.ts';
 
 describe('Security - Prototype Pollution Prevention', function () {
   // ─── CRITICAL PROPERTIES ────────────────────────────────────────────────────
@@ -80,31 +86,31 @@ describe('Security - Prototype Pollution Prevention', function () {
 
   it('should reject a critical name as nameFor.text', function () {
     expect(() => {
-      new XMLParser({ nameFor: { text: '__proto__' } });
+      makeParserOrThrow({ nameFor: { text: '__proto__' } });
     }).toThrowError("SECURITY: '__proto__' is a reserved JavaScript keyword and cannot be used as nameFor.text");
   });
 
   it('should reject a dangerous name as nameFor.cdata', function () {
     expect(() => {
-      new XMLParser({ nameFor: { cdata: '__defineGetter__' } });
+      makeParserOrThrow({ nameFor: { cdata: '__defineGetter__' } });
     }).toThrowError("SECURITY: '__defineGetter__' is a reserved JavaScript keyword and cannot be used as nameFor.cdata");
   });
 
   it('should reject a dangerous name as nameFor.comment', function () {
     expect(() => {
-      new XMLParser({ nameFor: { comment: '__defineSetter__' } });
+      makeParserOrThrow({ nameFor: { comment: '__defineSetter__' } });
     }).toThrowError("SECURITY: '__defineSetter__' is a reserved JavaScript keyword and cannot be used as nameFor.comment");
   });
 
   it('should reject a critical name as attributes.prefix', function () {
     expect(() => {
-      new XMLParser({ attributes: { prefix: 'constructor' } });
+      makeParserOrThrow({ attributes: { prefix: 'constructor' } });
     }).toThrowError("SECURITY: 'constructor' is a reserved JavaScript keyword and cannot be used as attributes.prefix");
   });
 
   it('should reject a critical name as attributes.groupBy', function () {
     expect(() => {
-      new XMLParser({ attributes: { groupBy: 'prototype' } });
+      makeParserOrThrow({ attributes: { groupBy: 'prototype' } });
     }).toThrowError("SECURITY: 'prototype' is a reserved JavaScript keyword and cannot be used as attributes.groupBy");
   });
 
@@ -114,29 +120,29 @@ describe('Security - Prototype Pollution Prevention', function () {
 
   it('should throw when strictReservedNames is true and a tag name matches nameFor.text', function () {
     expect(() => {
-      const parser = new XMLParser({ strictReservedNames: true, nameFor: { text: 'abc' } });
-      parser.parse('<abc>normal</abc>');
+      const parser = makeParser({ strictReservedNames: true, nameFor: { text: 'abc' } });
+      runParser(parser.parse('<abc>normal</abc>'));
     }).toThrowError(/Restricted tag name: abc/);
   });
 
   it('should throw when strictReservedNames is true and a tag name matches nameFor.cdata', function () {
     expect(() => {
-      const parser = new XMLParser({ strictReservedNames: true, nameFor: { cdata: 'mydata' } });
-      parser.parse('<mydata><![CDATA[content]]></mydata>');
+      const parser = makeParser({ strictReservedNames: true, nameFor: { cdata: 'mydata' } });
+      runParser(parser.parse('<mydata><![CDATA[content]]></mydata>'));
     }).toThrowError(/Restricted tag name: mydata/);
   });
 
   it('should throw when strictReservedNames is true and a tag name matches nameFor.comment', function () {
     expect(() => {
-      const parser = new XMLParser({ strictReservedNames: true, nameFor: { comment: 'note' } });
-      parser.parse('<note>text</note>');
+      const parser = makeParser({ strictReservedNames: true, nameFor: { comment: 'note' } });
+      runParser(parser.parse('<note>text</note>'));
     }).toThrowError(/Restricted tag name: note/);
   });
 
   it('should throw when strictReservedNames is true and an attribute name matches attributes.groupBy', function () {
     expect(() => {
-      const parser = new XMLParser({ strictReservedNames: true, attributes: { groupBy: 'meta', prefix: '' }, skip: { attributes: false } });
-      parser.parse(`<root meta="value"></root>`);
+      const parser = makeParser({ strictReservedNames: true, attributes: { groupBy: 'meta', prefix: '' }, skip: { attributes: false } });
+      runParser(parser.parse(`<root meta="value"></root>`));
     }).toThrowError(/Restricted attribute name: meta/);
   });
 
@@ -145,26 +151,28 @@ describe('Security - Prototype Pollution Prevention', function () {
   // input. Must not touch strictReservedNames, a separate concern.
 
   it('should let a dangerous tag name through unprefixed when sanitizeNames is false', function () {
-    const parser = new XMLParser({ sanitizeNames: false });
+    const parser = makeParser({ sanitizeNames: false });
     const result = parseDoc(parser, '<hasOwnProperty>value</hasOwnProperty>');
     expect(Object.prototype.hasOwnProperty.call(result, 'hasOwnProperty')).toBe(true);
     expect(result['hasOwnProperty']).toBe('value');
   });
 
   it('should let a dangerous attribute name through unprefixed when sanitizeNames is false', function () {
-    const parser = new XMLParser({ sanitizeNames: false, attributes: { prefix: '' }, skip: { attributes: false } });
+    const parser = makeParser({ sanitizeNames: false, attributes: { prefix: '' }, skip: { attributes: false } });
     const result = parseDoc(parser, `<root hasOwnProperty="value"></root>`);
     expect(result.root['hasOwnProperty']).toBe('value');
   });
 
   it('should still throw on a critical name even when sanitizeNames is false (not skippable)', function () {
-    const parser = new XMLParser({ sanitizeNames: false });
-    expect(() => parser.parse('<__proto__>value</__proto__>')).toThrowError(/is a reserved JavaScript keyword that could cause prototype pollution/);
+    const parser = makeParser({ sanitizeNames: false });
+    expect(() => runParser(parser.parse('<__proto__>value</__proto__>'))).toThrowError(
+      /is a reserved JavaScript keyword that could cause prototype pollution/
+    );
   });
 
   it('should still enforce strictReservedNames when sanitizeNames is false', function () {
-    const parser = new XMLParser({ sanitizeNames: false, strictReservedNames: true, nameFor: { text: 'abc' } });
-    expect(() => parser.parse('<abc>normal</abc>')).toThrowError(/Restricted tag name: abc/);
+    const parser = makeParser({ sanitizeNames: false, strictReservedNames: true, nameFor: { text: 'abc' } });
+    expect(() => runParser(parser.parse('<abc>normal</abc>'))).toThrowError(/Restricted tag name: abc/);
   });
 
   // ─── name cache correctness ──────────────────────────────────────────────
@@ -172,41 +180,41 @@ describe('Security - Prototype Pollution Prevention', function () {
   // work. These guard against "only sanitized/validated on first sight".
 
   it('should sanitize a dangerous tag name identically on every repeated occurrence', function () {
-    const parser = new XMLParser();
+    const parser = makeParser();
     const result = parseDoc(parser, '<root><toString>a</toString><toString>b</toString><toString>c</toString></root>');
     expect(result.root.__toString).toEqual(['a', 'b', 'c']);
   });
 
   it('should keep throwing on a critical tag name across repeated parse() calls, not just the first', function () {
-    const parser = new XMLParser();
-    expect(() => parser.parse('<constructor>x</constructor>')).toThrowError(/prototype pollution/);
-    expect(() => parser.parse('<constructor>y</constructor>')).toThrowError(/prototype pollution/);
-    expect(() => parser.parse('<constructor>z</constructor>')).toThrowError(/prototype pollution/);
+    const parser = makeParser();
+    expect(() => runParser(parser.parse('<constructor>x</constructor>'))).toThrowError(/prototype pollution/);
+    expect(() => runParser(parser.parse('<constructor>y</constructor>'))).toThrowError(/prototype pollution/);
+    expect(() => runParser(parser.parse('<constructor>z</constructor>'))).toThrowError(/prototype pollution/);
   });
 
   it('should keep throwing on a strictReservedNames collision across repeated parse() calls', function () {
-    const parser = new XMLParser({ strictReservedNames: true, nameFor: { text: 'abc' } });
-    expect(() => parser.parse('<abc>1</abc>')).toThrowError(/Restricted tag name: abc/);
-    expect(() => parser.parse('<abc>2</abc>')).toThrowError(/Restricted tag name: abc/);
+    const parser = makeParser({ strictReservedNames: true, nameFor: { text: 'abc' } });
+    expect(() => runParser(parser.parse('<abc>1</abc>'))).toThrowError(/Restricted tag name: abc/);
+    expect(() => runParser(parser.parse('<abc>2</abc>'))).toThrowError(/Restricted tag name: abc/);
   });
 
   it('should reuse the same name cache across repeated parse() calls on one XMLParser instance', function () {
     // Not observable behavior per se, but pins down the documented design:
     // options._nameCache is created once and shared by every Xml2JsParser
     // this XMLParser instance spawns.
-    const parser = new XMLParser();
-    parser.parse('<root><a>1</a></root>');
+    const parser = makeParser();
+    runParser(parser.parse('<root><a>1</a></root>'));
     const cacheAfterFirst = parser.options._nameCache;
     expect(cacheAfterFirst).toBeDefined();
-    parser.parse('<root><a>2</a></root>');
+    runParser(parser.parse('<root><a>2</a></root>'));
     expect(parser.options._nameCache).toBe(cacheAfterFirst);
     expect(cacheAfterFirst.tags.has('root')).toBe(true);
     expect(cacheAfterFirst.tags.has('a')).toBe(true);
   });
 
   it('should give two separate XMLParser instances two separate name caches', function () {
-    const parserA = new XMLParser();
-    const parserB = new XMLParser();
+    const parserA = makeParser();
+    const parserB = makeParser();
     expect(parserA.options._nameCache).not.toBe(parserB.options._nameCache);
   });
 });

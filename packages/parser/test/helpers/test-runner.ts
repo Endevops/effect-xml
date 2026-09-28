@@ -1,8 +1,60 @@
+import type { Effect } from 'effect';
+
+import { Effect as Eff } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { X2jOptions } from '#/options.ts';
 
 import XMLParser from '#/xml-parser.ts';
+
+/**
+ * @description Run one of the parser's effects and get the value out, or the `ParseError` thrown. `Effect.runSync` would do the first half, but not the second in
+ * a usable way: on failure it throws a `FiberFailure` whose `message` is the rendered cause, not the `ParseError`'s own. Every error assertion in
+ * this suite — `toThrowError(/Mismatched closing tag/)`, `.code` checks, the per-input-mechanism message pairs in
+ * {@link runAcrossAllInputSourcesWithException} — is written against the real error, and all of them would stop matching the moment the parser started
+ * returning effects. So the failure is unpacked and the `ParseError` itself is thrown, which is what a test that asserts on a parse failure actually
+ * wants to see. A test that wants the effect rather than the value should use `Effect` directly; this is here for the ordinary case, where the test
+ * is about what the document parses to.
+ *
+ * @param effect - The effect to run.
+ *
+ * @returns The successful value.
+ *
+ * @throws The effect's own error, when it fails. Generic in the error type, because the same two lines are also how the tests reach a `BuilderError`
+ *   out of `CompactBuilderFactory.make` and a resolved options object out of `buildOptions`.
+ */
+export function runParser<A, E>(effect: Effect.Effect<A, E>): A {
+  const outcome = Eff.runSync(
+    Eff.match(effect, { onFailure: err => ({ ok: false as const, err }), onSuccess: value => ({ ok: true as const, value }) })
+  );
+  if (outcome.ok) return outcome.value;
+  throw outcome.err;
+}
+
+/**
+ * @description Build a parser for a test from the caller's options. `XMLParser.make` rather than `new XMLParser`, for the reason the library has: a parser is
+ * configured, and configuring one can fail. Tests that expect a configuration failure use {@link makeParserOrThrow}, which lets the failure out.
+ *
+ * @param options - Parser options. Omit for defaults.
+ *
+ * @returns The parser.
+ */
+export function makeParser(options?: X2jOptions): XMLParser {
+  return runParser(XMLParser.make(options));
+}
+
+/**
+ * @description Build a parser, letting a configuration failure escape as the thrown `ParseError`. This is what a test asserting on a rejected configuration wants
+ * — `expect(() => makeParserOrThrow({ limits: ... })).toThrowError(...)` — and it is why it is a separate function from {@link makeParser}: the
+ * difference is only visible when the options are bad, which is exactly when the distinction matters.
+ *
+ * @param options - Parser options.
+ *
+ * @returns The parser.
+ */
+export function makeParserOrThrow(options?: X2jOptions): XMLParser {
+  return runParser(XMLParser.make(options));
+}
 
 /**
  * @description The three ways a document can be handed to the parser, each of which must produce identical output. The suite runs most behavioural tests across
@@ -48,10 +100,10 @@ export interface InputSourceWrapper {
 export function createInputSource(xmlString: string, type: InputSourceType): InputSourceWrapper {
   switch (type) {
     case 'string':
-      return { type: 'string', parse: parser => parser.parse(xmlString) as ParsedNode };
+      return { type: 'string', parse: parser => runParser(parser.parse(xmlString)) as ParsedNode };
 
     case 'buffer':
-      return { type: 'buffer', parse: parser => parser.parse(Buffer.from(xmlString)) as ParsedNode };
+      return { type: 'buffer', parse: parser => runParser(parser.parse(Buffer.from(xmlString))) as ParsedNode };
 
     case 'feedable':
       return {
@@ -63,9 +115,9 @@ export function createInputSource(xmlString: string, type: InputSourceType): Inp
           // mark/rewind machinery is exercised on every single test.
           const chunkSize = 1;
           for (let i = 0; i < xmlString.length; i += chunkSize) {
-            parser.feed(xmlString.substring(i, i + chunkSize));
+            runParser(parser.feed(xmlString.substring(i, i + chunkSize)));
           }
-          return parser.end() as ParsedNode;
+          return runParser(parser.end()) as ParsedNode;
         },
       };
 
@@ -115,7 +167,7 @@ export function runAcrossAllInputSources(testName: string, xmlString: string, te
   INPUT_TYPES.forEach(inputType => {
     it(`${testName} [${inputType}]`, function () {
       const inputSource = createInputSource(xmlString, inputType);
-      const parser = new XMLParser(parserOptions);
+      const parser = makeParser(parserOptions);
       const result = inputSource.parse(parser);
       testFn(result, inputSource.type);
     });
@@ -141,7 +193,7 @@ export function frunAcrossAllInputSources(
   INPUT_TYPES.forEach(inputType => {
     it.only(`${testName} [${inputType}]`, function () {
       const inputSource = createInputSource(xmlString, inputType);
-      const parser = new XMLParser(parserOptions);
+      const parser = makeParser(parserOptions);
       const result = inputSource.parse(parser);
       testFn(result, parser);
     });
@@ -183,7 +235,7 @@ export function runAcrossAllInputSourcesWithException(
     it(`${testName} [${inputType}]`, function () {
       const inputSource = createInputSource(xmlString, inputType);
       expect(() => {
-        const parser = new XMLParser(parserOptions);
+        const parser = makeParserOrThrow(parserOptions);
         inputSource.parse(parser);
       }).toThrowError(inputType === 'feedable' ? feedableErrMsg : stringErrMsg);
     });
@@ -274,7 +326,7 @@ export function describeAcrossAllInputSources(description: string, fn: (parseWit
       // Bound to this iteration's mechanism, so each describe block parses
       // only through the input type named in its own title.
       const parseWithSource: ParseWithSource = (xmlString, parserOptions = {}) => {
-        const parser = new XMLParser(parserOptions);
+        const parser = makeParser(parserOptions);
         const inputSource = createInputSource(xmlString, inputType);
         return inputSource.parse(parser);
       };
@@ -295,7 +347,7 @@ export function describeAcrossAllInputSources(description: string, fn: (parseWit
  * @returns The parsed tree.
  */
 export function parseDoc(parser: XMLParser, xml: string | Buffer): ParsedNode {
-  return parser.parse(xml) as ParsedNode;
+  return runParser(parser.parse(xml)) as ParsedNode;
 }
 
 /**
@@ -307,7 +359,7 @@ export function parseDoc(parser: XMLParser, xml: string | Buffer): ParsedNode {
  * @returns The parsed tree.
  */
 export function endDoc(parser: XMLParser): ParsedNode {
-  return parser.end() as ParsedNode;
+  return runParser(parser.end()) as ParsedNode;
 }
 
 /**
@@ -320,7 +372,7 @@ export function endDoc(parser: XMLParser): ParsedNode {
  * @returns The parsed tree.
  */
 export function bytesDoc(parser: XMLParser, bytes: Uint8Array | ArrayBufferView): ParsedNode {
-  return parser.parseBytesArr(bytes) as ParsedNode;
+  return runParser(parser.parseBytesArr(bytes)) as ParsedNode;
 }
 
 /**
@@ -332,5 +384,5 @@ export function bytesDoc(parser: XMLParser, bytes: Uint8Array | ArrayBufferView)
  * @returns The parsed tree.
  */
 export async function streamDoc(parser: XMLParser, readable: NodeJS.ReadableStream): Promise<ParsedNode> {
-  return (await parser.parseStream(readable)) as ParsedNode;
+  return (await Eff.runPromise(parser.parseStream(readable))) as ParsedNode;
 }

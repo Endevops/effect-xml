@@ -1,6 +1,8 @@
 # 02 — Options Reference
 
-All options passed to `new XMLParser(options)`. Every option is optional.
+All options passed to `XMLParser.make(options)`, which returns an `Effect` producing the parser —
+resolving them compiles every path expression and validates every enum, and that can fail. Every
+option is optional.
 
 ---
 
@@ -58,7 +60,7 @@ Value parsers for attributes are configured on the **output builder**, not here.
 
 ```javascript
 // No prefix, grouped under '$'
-new XMLParser({ skip: { attributes: false }, attributes: { prefix: '', groupBy: '$' } });
+Effect.runSync(XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '', groupBy: '$' } }));
 ```
 
 ---
@@ -85,7 +87,7 @@ limits: {
 }
 ```
 
-Exceeding a limit throws a `ParseError` with the appropriate `ErrorCode`. See [08-security.md](./08-security.md) for recommended values for untrusted input.
+Exceeding a limit fails the effect with a `ParseError` carrying the appropriate `ErrorCode`. See [08-security.md](./08-security.md) for recommended values for untrusted input.
 
 ---
 
@@ -109,7 +111,7 @@ When `enabled: false` (default), the DOCTYPE block is read (cursor advances) but
 
 ```javascript
 feedable: {
-  maxBufferSize:  10 * 1024 * 1024,  // 10 MB; throw if exceeded
+  maxBufferSize:  10 * 1024 * 1024,  // 10 MB; feed() fails if exceeded
   autoFlush:      true,               // discard processed chars automatically
   flushThreshold: 1024,              // processed-char count that triggers flush
   bufferSize:     256,               // pending-byte threshold before attempting a parse pass
@@ -131,27 +133,30 @@ decoding: {
 }
 ```
 
-`'auto'` (default) looks for a byte-order mark first, then a `<?xml ... encoding="..."?>` declaration, then falls back to `'utf8'`. A BOM and a declared encoding that disagree throw `ENCODING_MISMATCH` rather than silently picking one. Set `encoding` explicitly to skip detection entirely.
+`'auto'` (default) looks for a byte-order mark first, then a `<?xml ... encoding="..."?>` declaration, then falls back to `'utf8'`. A BOM and a declared encoding that disagree fail the effect with `ENCODING_MISMATCH` rather than silently picking one. Set `encoding` explicitly to skip detection entirely.
 
 For an encoding not built in (e.g. Shift_JIS), register it under `customDecoders`, keyed by the name you'll use in `encoding`:
 
-```javascript
+```typescript
+import { Effect } from 'effect';
 import iconv from 'iconv-lite';
 
-new XMLParser({
-  decoding: {
-    encoding: 'shift_jis',
-    customDecoders: {
-      shift_jis: {
-        createDecoder: () => iconv.getDecoder('shift_jis'), // { write(buf): string, end(): string }
-        selfSynchronizing: false, // default and safe — see below
+Effect.runSync(
+  XMLParser.make({
+    decoding: {
+      encoding: 'shift_jis',
+      customDecoders: {
+        shift_jis: {
+          createDecoder: () => iconv.getDecoder('shift_jis'), // { write(buf): string, end(): string }
+          selfSynchronizing: false, // default and safe — see below
+        },
       },
     },
-  },
-});
+  })
+);
 ```
 
-`selfSynchronizing` — leave `false` unless you've verified an ASCII delimiter byte (`<`, `>`, `"`, `'`) can never appear as part of one of this encoding's multi-byte characters. Setting it `true` incorrectly causes wrong tag/attribute boundaries to be found, not a crash — this is a correctness switch, not a performance knob to flip speculatively. A malformed `createDecoder()` (missing `write`/`end`) throws immediately at registration, not later during parsing.
+`selfSynchronizing` — leave `false` unless you've verified an ASCII delimiter byte (`<`, `>`, `"`, `'`) can never appear as part of one of this encoding's multi-byte characters. Setting it `true` incorrectly causes wrong tag/attribute boundaries to be found, not a crash — this is a correctness switch, not a performance knob to flip speculatively. A malformed `createDecoder()` (missing `write`/`end`) is rejected while `XMLParser.make` is registering the decoder, not later during parsing.
 
 `customDecoders` is scoped to the one `XMLParser` instance it's passed to — it doesn't leak into other instances in the same process.
 
@@ -179,20 +184,27 @@ See [07-auto-close.md](./07-auto-close.md) for full details.
 
 ## `exitIf` — early exit
 
-A callback invoked after each opening tag. Return `true` to stop parsing immediately.
+A callback invoked after each opening tag. Answer `true` to stop parsing immediately.
 
-```javascript
-exitIf: (tagDetail, matcher) => {
-  return tagDetail.name === 'stopHere';
-};
+It is handed the `ReadOnlyMatcher` and answers with an `Effect`, not a `boolean` — every question the
+matcher can be asked is itself an effect (see [09-path-expressions.md](./09-path-expressions.md)), so a
+predicate typed to return a boolean could not be written against the matcher it is given.
+
+```typescript
+import { Effect } from 'effect';
+
+exitIf: matcher => Effect.map(matcher.getCurrentTag(), name => name === 'stopHere'),
 ```
+
+A predicate that needs no matcher at all wraps the boolean: `exitIf: () => Effect.succeed(true)` stops
+at the first tag.
 
 ---
 
 ## `strictReservedNames` / `onDangerousProperty` / `sanitizeNames`
 
 ```javascript
-strictReservedNames:  false,             // throw on reserved JS property names
+strictReservedNames:  false,             // fail on reserved JS property names
 onDangerousProperty:  defaultHandler,    // callback when a dangerous name is seen
 sanitizeNames:        true,              // set false to skip the dangerous-name rename step
 ```
@@ -210,9 +222,10 @@ See [08-security.md](./08-security.md).
 Plug in a different output builder. Accepts a builder factory or instance.
 
 ```javascript
+import { Effect } from 'effect';
 import { NodeTreeBuilderFactory } from '@nodable/node-tree-builder';
 
-new XMLParser({ OutputBuilder: new NodeTreeBuilderFactory() });
+Effect.runSync(XMLParser.make({ OutputBuilder: new NodeTreeBuilderFactory() }));
 ```
 
 See [05-output-builders.md](./05-output-builders.md).
@@ -227,22 +240,27 @@ See [05-output-builders.md](./05-output-builders.md).
 
 Callback fired when a stop node appears.
 
-```javascript
+```typescript
   onStopNode?: (
-    tagDetail: { name: string; line: number; col: number; index: number },
+    tagDetail: { name: string; index: number },
     rawContent: string,
     matcher: any,
   ) => void;
 ```
 
+Position is reported as an `index` only — this parser does no line or column tracking, anywhere. See
+[05-output-builders.md](./05-output-builders.md#position-meta-data).
+
 Example
 
 ```js
-const scripts: string[] = [];
-const parser = new XMLParser({
- tags: { stopNodes: ["..script"] },
- onStopNode(tagDetail, rawContent, matcher) {
-   scripts.push(rawContent);
- }
-});
+const scripts = [];
+const parser = Effect.runSync(
+  XMLParser.make({
+    tags: { stopNodes: ['..script'] },
+    onStopNode(tagDetail, rawContent, matcher) {
+      scripts.push(rawContent);
+    },
+  })
+);
 ```

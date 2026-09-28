@@ -7,18 +7,18 @@
  * 4. ReadOnlyMatcher — guards against mutation
  */
 
-import type { Context, ValueParser } from '@endevops/builder';
+import type { BuilderError, Context, ValueParser } from '@endevops/builder';
 import type { MatcherView } from '@endevops/common-xml';
 
 import { CompactBuilderFactory, CompactBuilder } from '@endevops/builder';
 import { Expression } from '@endevops/common-xml';
+import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, TagDetailLike } from '#/internal/parser-types.ts';
 
 import { asOutputBuilder } from '#/test/helpers/recording-builder.ts';
-import { parseDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { makeParser, parseDoc, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 type AnyCompactBuilderCtor = new (
@@ -31,8 +31,8 @@ type AnyCompactBuilderCtor = new (
 function makeFactory(BuilderSubclass: AnyCompactBuilderCtor): OutputBuilderFactoryLike {
   return {
     getInstance(parserOptions, readonlyMatcher) {
-      const base = new CompactBuilderFactory();
-      return asOutputBuilder(new BuilderSubclass(parserOptions, base.builderOptions, readonlyMatcher, base.registry));
+      const base = runParser(CompactBuilderFactory.make());
+      return Effect.succeed(asOutputBuilder(new BuilderSubclass(parserOptions, base.builderOptions, readonlyMatcher, base.registry)));
     },
   };
 }
@@ -43,7 +43,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should accept plain strings as stopNodes (existing behaviour preserved)', function () {
     const xml = `<root><raw><b>bold</b></raw><parsed>text</parsed></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: ['root.raw'] } });
+    const parser = makeParser({ tags: { stopNodes: ['root.raw'] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.raw).toBe('string');
@@ -53,7 +53,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should accept pre-compiled Expression objects in stopNodes', function () {
     const xml = `<root><raw><b>bold</b></raw><parsed>text</parsed></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [new Expression('root.raw')] } });
+    const parser = makeParser({ tags: { stopNodes: [runParser(Expression.make('root.raw'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.raw).toBe('string');
@@ -62,7 +62,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should accept mixed strings and Expression objects in the same array', function () {
     const xml = `<root><a><x/></a><b><x/></b></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: ['root.a', new Expression('root.b')] } });
+    const parser = makeParser({ tags: { stopNodes: ['root.a', runParser(Expression.make('root.b'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.a).toBe('string');
@@ -80,7 +80,7 @@ describe('PEM integration — stopNodes', function () {
           </div>
         </body>
       </html>`;
-    const parser = new XMLParser({ tags: { stopNodes: [new Expression('..script')] } });
+    const parser = makeParser({ tags: { stopNodes: [runParser(Expression.make('..script'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.html.body.div.section.script).toBe('string');
@@ -90,7 +90,7 @@ describe('PEM integration — stopNodes', function () {
   it('should support single-level wildcard (*.tag) matching exactly one parent', function () {
     const xml = `<root><script>alert(1)</script></root>`;
     // *.script means exactly: [any single parent].script — matches root.script
-    const parser = new XMLParser({ tags: { stopNodes: [new Expression('*.script')] } });
+    const parser = makeParser({ tags: { stopNodes: [runParser(Expression.make('*.script'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.script).toBe('string');
@@ -99,7 +99,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should stop at root-level tag when stopNode has no parent segment', function () {
     const xml = `<script>window.x = 1;</script>`;
-    const parser = new XMLParser({ tags: { stopNodes: [new Expression('..script')] } });
+    const parser = makeParser({ tags: { stopNodes: [runParser(Expression.make('..script'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.script).toBe('string');
@@ -112,7 +112,7 @@ describe('PEM integration — stopNodes', function () {
         <div class="raw"><inner>should be raw</inner></div>
         <div class="normal"><inner>should be parsed</inner></div>
       </root>`;
-    const parser = new XMLParser({ skip: { attributes: false }, tags: { stopNodes: [new Expression('..div[class=raw]')] } });
+    const parser = makeParser({ skip: { attributes: false }, tags: { stopNodes: [runParser(Expression.make('..div[class=raw]'))] } });
     const result = parseDoc(parser, xml);
 
     // First div: stop node — content is raw string
@@ -132,7 +132,7 @@ describe('PEM integration — stopNodes', function () {
         <item>parsed content</item>
         <item>also parsed</item>
       </root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [new Expression('root.item:first')] } });
+    const parser = makeParser({ tags: { stopNodes: [runParser(Expression.make('root.item:first'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.item[0]).toBe('string');
@@ -144,7 +144,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should capture content including nested tags of different names inside a stop node', function () {
     const xml = `<root><stop><a>one</a><b><c>two</c></b></stop><after>ok</after></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [new Expression('root.stop')] } });
+    const parser = makeParser({ tags: { stopNodes: [runParser(Expression.make('root.stop'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.stop).toBe('string');
@@ -155,7 +155,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should produce empty string for an empty stop node', function () {
     const xml = `<root><stop></stop></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: ['root.stop'] } });
+    const parser = makeParser({ tags: { stopNodes: ['root.stop'] } });
     const result = parseDoc(parser, xml);
 
     expect(result.root.stop).toBe('');
@@ -163,7 +163,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should produce empty string for a self-closing stop node', function () {
     const xml = `<root><stop/></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: ['root.stop'] } });
+    const parser = makeParser({ tags: { stopNodes: ['root.stop'] } });
     const result = parseDoc(parser, xml);
 
     expect(result.root.stop).toBe('');
@@ -171,7 +171,7 @@ describe('PEM integration — stopNodes', function () {
 
   it('should preserve attributes on a stop node that has them', function () {
     const xml = `<root><stop lang="en"><b>raw</b></stop></root>`;
-    const parser = new XMLParser({ skip: { attributes: false }, tags: { stopNodes: ['root.stop'] } });
+    const parser = makeParser({ skip: { attributes: false }, tags: { stopNodes: ['root.stop'] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.stop).toBe('object');
@@ -187,7 +187,7 @@ describe('PEM integration — stopNodes', function () {
           <pre>second pre</pre>
         </section>
       </root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [new Expression('..pre')] } });
+    const parser = makeParser({ tags: { stopNodes: [runParser(Expression.make('..pre'))] } });
     const result = parseDoc(parser, xml);
 
     expect(typeof result.root.pre).toBe('string');
@@ -205,14 +205,14 @@ describe('PEM integration — matcher in value parser context', function () {
     let capturedMatcher: MatcherView | null = null;
 
     class CaptureMatcher implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context && !context.isAttribute) capturedMatcher = context.matcher;
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new CaptureMatcher()] } }) });
-    parser.parse(`<root><item>hello</item></root>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new CaptureMatcher()] } })) });
+    runParser(parser.parse(`<root><item>hello</item></root>`));
 
     expect(capturedMatcher).not.toBeNull();
     const m = capturedMatcher!;
@@ -225,37 +225,40 @@ describe('PEM integration — matcher in value parser context', function () {
     let capturedMatcher: MatcherView | null = null;
 
     class CaptureMatcher implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context?.isAttribute) capturedMatcher = context.matcher;
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({
+    const parser = makeParser({
       skip: { attributes: false },
-      OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: [new CaptureMatcher()] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: [new CaptureMatcher()] } })),
     });
-    parser.parse(`<root><item id="1">hello</item></root>`);
+    runParser(parser.parse(`<root><item id="1">hello</item></root>`));
 
     expect(capturedMatcher).not.toBeNull();
     expect(typeof capturedMatcher!.matches).toBe('function');
   });
 
   it('should allow Expression matching in a value parser to transform selectively', function () {
-    const adminExpr = new Expression('..user[role=admin]');
+    const adminExpr = runParser(Expression.make('..user[role=admin]'));
 
     class AdminUpperParser implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
-        if (context?.matcher?.matches(adminExpr)) {
-          return typeof val === 'string' ? val.toUpperCase() : val;
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
+        // `matches` is an effect now, and a path question asked of a live
+        // matcher cannot fail — so it is run for its answer here rather than
+        // widening this parser's own `BuilderError` channel with `XmlError`.
+        if (context?.matcher && runParser(context.matcher.matches(adminExpr))) {
+          return Effect.succeed(typeof val === 'string' ? val.toUpperCase() : val);
         }
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({
+    const parser = makeParser({
       skip: { attributes: false },
-      OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new AdminUpperParser()] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new AdminUpperParser()] } })),
     });
     const result = parseDoc(
       parser,
@@ -274,18 +277,18 @@ describe('PEM integration — matcher in value parser context', function () {
     const types: string[] = [];
 
     class TypeCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         types.push(context?.isAttribute ? 'A' : 'E');
-        return val;
+        return Effect.succeed(val);
       }
     }
 
     const typeCapture = new TypeCapture();
-    const parser = new XMLParser({
+    const parser = makeParser({
       skip: { attributes: false },
-      OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [typeCapture] }, attributes: { valueParsers: [typeCapture] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [typeCapture] }, attributes: { valueParsers: [typeCapture] } })),
     });
-    parser.parse(`<root><item id="1">text</item></root>`);
+    runParser(parser.parse(`<root><item id="1">text</item></root>`));
 
     expect(types).toContain('E');
     expect(types).toContain('A');
@@ -295,16 +298,16 @@ describe('PEM integration — matcher in value parser context', function () {
     const leafFlags: { name: string; isLeaf: boolean | null }[] = [];
 
     class LeafCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context && !context.isAttribute) {
           leafFlags.push({ name: context.elementName, isLeaf: context.isLeafNode });
         }
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new LeafCapture()] } }) });
-    parser.parse(`<root><leaf>text</leaf></root>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new LeafCapture()] } })) });
+    runParser(parser.parse(`<root><leaf>text</leaf></root>`));
 
     const leaf = leafFlags.find(f => f.name === 'leaf')!;
     expect(leaf).toBeDefined();
@@ -315,17 +318,17 @@ describe('PEM integration — matcher in value parser context', function () {
     const leafFlags: { name: string; isLeaf: boolean | null }[] = [];
 
     class LeafCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context && !context.isAttribute) {
           leafFlags.push({ name: context.elementName, isLeaf: context.isLeafNode });
         }
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new LeafCapture()] } }) });
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new LeafCapture()] } })) });
     // "parent" has mixed content: text + child element — parseValue runs on the text portion
-    parser.parse(`<root><parent>intro <child>text</child></parent></root>`);
+    runParser(parser.parse(`<root><parent>intro <child>text</child></parent></root>`));
 
     const parent = leafFlags.find(f => f.name === 'parent')!;
     expect(parent).toBeDefined();
@@ -336,19 +339,19 @@ describe('PEM integration — matcher in value parser context', function () {
     const attrLeafFlags: (boolean | null)[] = [];
 
     class AttrLeafCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context?.isAttribute) {
           attrLeafFlags.push(context.isLeafNode);
         }
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({
+    const parser = makeParser({
       skip: { attributes: false },
-      OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: [new AttrLeafCapture()] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: [new AttrLeafCapture()] } })),
     });
-    parser.parse(`<root><item id="1" class="foo">text</item></root>`);
+    runParser(parser.parse(`<root><item id="1" class="foo">text</item></root>`));
 
     expect(attrLeafFlags.length).toBeGreaterThan(0);
     attrLeafFlags.forEach(flag => expect(flag).toBe(true));
@@ -358,14 +361,14 @@ describe('PEM integration — matcher in value parser context', function () {
     const names: string[] = [];
 
     class NameCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context && !context.isAttribute) names.push(context.elementName);
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new NameCapture()] } }) });
-    parser.parse(`<catalog><title>My Catalog</title><count>5</count></catalog>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new NameCapture()] } })) });
+    runParser(parser.parse(`<catalog><title>My Catalog</title><count>5</count></catalog>`));
 
     expect(names).toContain('title');
     expect(names).toContain('count');
@@ -375,40 +378,41 @@ describe('PEM integration — matcher in value parser context', function () {
     const attrNames: string[] = [];
 
     class AttrNameCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context?.isAttribute) attrNames.push(context.elementName);
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({
+    const parser = makeParser({
       skip: { attributes: false },
-      OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: [new AttrNameCapture()] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: [new AttrNameCapture()] } })),
     });
-    parser.parse(`<root><item id="1" type="foo"/></root>`);
+    runParser(parser.parse(`<root><item id="1" type="foo"/></root>`));
 
     expect(attrNames).toContain('id');
     expect(attrNames).toContain('type');
   });
 
   it('should allow path-based numeric parsing only for specific elements', function () {
-    const priceExpr = new Expression('..price');
-    const qtyExpr = new Expression('..qty');
+    const priceExpr = runParser(Expression.make('..price'));
+    const qtyExpr = runParser(Expression.make('..qty'));
 
     class SelectiveNumber implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
-        if (typeof val !== 'string') return val;
-        if (context?.matcher?.matches(priceExpr) || context?.matcher?.matches(qtyExpr)) {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
+        if (typeof val !== 'string') return Effect.succeed(val);
+        const matcher = context?.matcher;
+        if (matcher && (runParser(matcher.matches(priceExpr)) || runParser(matcher.matches(qtyExpr)))) {
           const n = parseFloat(val);
-          return isNaN(n) ? val : n;
+          return Effect.succeed(isNaN(n) ? val : n);
         }
-        return val; // leave as string
+        return Effect.succeed(val); // leave as string
       }
     }
 
-    const parser = new XMLParser({
+    const parser = makeParser({
       // Override default chain — no automatic number conversion
-      OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new SelectiveNumber()] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new SelectiveNumber()] } })),
     });
     const result = parseDoc(
       parser,
@@ -428,21 +432,21 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should allow attribute value transformation based on parent path', function () {
-    const productIdExpr = new Expression('catalog.product');
+    const productIdExpr = runParser(Expression.make('catalog.product'));
 
     class PrefixIdParser implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
-        if (!context?.isAttribute) return val;
-        if (context?.elementName === 'id' && context?.matcher?.matches(productIdExpr)) {
-          return 'PROD-' + val;
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
+        if (!context?.isAttribute) return Effect.succeed(val);
+        if (context.elementName === 'id' && context.matcher && runParser(context.matcher.matches(productIdExpr))) {
+          return Effect.succeed('PROD-' + val);
         }
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({
+    const parser = makeParser({
       skip: { attributes: false },
-      OutputBuilder: new CompactBuilderFactory({ attributes: { valueParsers: [new PrefixIdParser()] } }),
+      OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: [new PrefixIdParser()] } })),
     });
     const result = parseDoc(
       parser,
@@ -467,13 +471,13 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
 
     class CapturingBuilder extends CompactBuilder {
       override addElement(tag: TagDetailLike, matcher: MatcherView): void {
-        tagPaths.push(matcher.toString());
+        tagPaths.push(runParser(matcher.toString()));
         super.addElement(tag, matcher);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: makeFactory(CapturingBuilder) });
-    parser.parse(`<root><child>text</child></root>`);
+    const parser = makeParser({ OutputBuilder: makeFactory(CapturingBuilder) });
+    runParser(parser.parse(`<root><child>text</child></root>`));
 
     expect(tagPaths).toContain('root');
     expect(tagPaths).toContain('root.child');
@@ -483,14 +487,22 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     const closedPaths: string[] = [];
 
     class CapturingBuilder extends CompactBuilder {
-      override closeElement(matcher: MatcherView): void {
-        closedPaths.push(matcher.toString());
-        super.closeElement(matcher);
-      }
+      // `closeElement` is a class field on `CompactBuilder`, not a prototype
+      // method, so an override written as one is shadowed by the base's own
+      // field and never runs — and `super.closeElement` is unreachable for the
+      // same reason (TS2855). The base implementation is read off the instance
+      // right after `super()` has installed it and re-declared as a field, which
+      // is the only shape the parser's `builder.closeElement(…)` call can reach.
+      readonly #baseClose = (this as unknown as CompactBuilder).closeElement;
+
+      override closeElement = (matcher: MatcherView): Effect.Effect<void, BuilderError> => {
+        closedPaths.push(runParser(matcher.toString()));
+        return this.#baseClose(matcher);
+      };
     }
 
-    const parser = new XMLParser({ OutputBuilder: makeFactory(CapturingBuilder) });
-    parser.parse(`<root><a>1</a><b>2</b></root>`);
+    const parser = makeParser({ OutputBuilder: makeFactory(CapturingBuilder) });
+    runParser(parser.parse(`<root><a>1</a><b>2</b></root>`));
 
     expect(closedPaths).toContain('root.a');
     expect(closedPaths).toContain('root.b');
@@ -498,18 +510,18 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   });
 
   it('should rename a tag based on its path using Expression matching in addTag', function () {
-    const legacyExpr = new Expression('root.oldName');
+    const legacyExpr = runParser(Expression.make('root.oldName'));
 
     class RenameBuilder extends CompactBuilder {
       override addElement(tag: TagDetailLike, matcher: MatcherView): void {
-        if (matcher.matches(legacyExpr)) {
+        if (runParser(matcher.matches(legacyExpr))) {
           tag = { ...tag, name: 'newName' };
         }
         super.addElement(tag, matcher);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: makeFactory(RenameBuilder) });
+    const parser = makeParser({ OutputBuilder: makeFactory(RenameBuilder) });
     const result = parseDoc(parser, `<root><oldName>content</oldName></root>`);
 
     expect(result.root.newName).toBe('content');
@@ -520,16 +532,20 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     // Skipping a node requires both addTag AND closeTag to be suppressed together;
     // returning early from only one desynchronises the builder's internal stack.
     // The clean pattern is to set a flag in addTag and check it in closeTag.
-    const skipExpr = new Expression('root.internal');
+    const skipExpr = runParser(Expression.make('root.internal'));
 
     class SkipBuilder extends CompactBuilder {
       #skipDepth: number;
+      // Same reason as `CapturingBuilder` above: `closeElement` is a class field
+      // on the base, so the base implementation is read off the instance and
+      // re-declared as a field rather than reached through `super`.
+      readonly #baseClose = (this as unknown as CompactBuilder).closeElement;
       constructor(...args: ConstructorParameters<typeof CompactBuilder>) {
         super(...args);
         this.#skipDepth = 0;
       }
       override addElement(tag: TagDetailLike, matcher: MatcherView): void {
-        if (matcher.matches(skipExpr)) {
+        if (runParser(matcher.matches(skipExpr))) {
           this.#skipDepth++;
           return;
         }
@@ -539,16 +555,16 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
         }
         super.addElement(tag, matcher);
       }
-      override closeElement(matcher: MatcherView): void {
+      override closeElement = (matcher: MatcherView): Effect.Effect<void, BuilderError> => {
         if (this.#skipDepth > 0) {
           this.#skipDepth--;
-          return;
+          return Effect.void;
         }
-        super.closeElement(matcher);
-      }
+        return this.#baseClose(matcher);
+      };
     }
 
-    const parser = new XMLParser({ OutputBuilder: makeFactory(SkipBuilder) });
+    const parser = makeParser({ OutputBuilder: makeFactory(SkipBuilder) });
     const result = parseDoc(parser, `<root><public>visible</public><internal>hidden</internal></root>`);
 
     expect(result.root.public).toBe('visible');
@@ -564,14 +580,14 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     let roMatcher: MatcherView | null = null;
 
     class GrabMatcher implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context?.matcher) roMatcher = context.matcher;
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new GrabMatcher()] } }) });
-    parser.parse(`<root><tag>value</tag></root>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new GrabMatcher()] } })) });
+    runParser(parser.parse(`<root><tag>value</tag></root>`));
 
     expect(roMatcher).not.toBeNull();
     // `push` is deliberately absent from MatcherView — that absence IS what this test
@@ -585,14 +601,14 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     let roMatcher: MatcherView | null = null;
 
     class GrabMatcher implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context?.matcher) roMatcher = context.matcher;
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new GrabMatcher()] } }) });
-    parser.parse(`<root><tag>value</tag></root>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new GrabMatcher()] } })) });
+    runParser(parser.parse(`<root><tag>value</tag></root>`));
 
     expect(() => (roMatcher as unknown as { pop(): void }).pop()).toThrowError('roMatcher.pop is not a function');
   });
@@ -601,14 +617,14 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     let roMatcher: MatcherView | null = null;
 
     class GrabMatcher implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context?.matcher) roMatcher = context.matcher;
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new GrabMatcher()] } }) });
-    parser.parse(`<root><tag>value</tag></root>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new GrabMatcher()] } })) });
+    runParser(parser.parse(`<root><tag>value</tag></root>`));
 
     expect(() => (roMatcher as unknown as { reset(): void }).reset()).toThrowError('roMatcher.reset is not a function');
   });
@@ -617,14 +633,14 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     let roMatcher: MatcherView | null = null;
 
     class GrabMatcher implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context?.matcher) roMatcher = context.matcher;
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new GrabMatcher()] } }) });
-    parser.parse(`<root><tag>value</tag></root>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new GrabMatcher()] } })) });
+    runParser(parser.parse(`<root><tag>value</tag></root>`));
 
     expect(() => (roMatcher as unknown as { updateCurrent(v: unknown): void }).updateCurrent({ x: '1' })).toThrowError(
       'roMatcher.updateCurrent is not a function'
@@ -635,16 +651,16 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     const capturedPaths: string[] = [];
 
     class PathCapture implements ValueParser {
-      parse(val: unknown, context?: Context): unknown {
+      parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context && !context.isAttribute) {
-          capturedPaths.push(context.matcher!.toString());
+          capturedPaths.push(runParser(context.matcher!.toString()));
         }
-        return val;
+        return Effect.succeed(val);
       }
     }
 
-    const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ tags: { valueParsers: [new PathCapture()] } }) });
-    parser.parse(`<a><b><c>deep</c></b></a>`);
+    const parser = makeParser({ OutputBuilder: runParser(CompactBuilderFactory.make({ tags: { valueParsers: [new PathCapture()] } })) });
+    runParser(parser.parse(`<a><b><c>deep</c></b></a>`));
 
     expect(capturedPaths).toContain('a.b.c');
   });

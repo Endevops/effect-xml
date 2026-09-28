@@ -8,10 +8,11 @@ import {
   runAcrossAllInputSourcesWithException,
   runAcrossAllInputSourcesWithFactory,
   createInputSource,
+  makeParserOrThrow,
   parseDoc,
+  runParser,
   INPUT_TYPES,
 } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: XML with a DOCTYPE internal subset
@@ -25,11 +26,15 @@ const withDocType = (entities: Record<string, string>, body: string): string => 
 
 // Helper: build a parser with a custom EntityDecoder configuration.
 // Keeps test bodies concise — callers only specify what they care about.
+// Three effects meet here: the decoder is built by `EntityDecoder.make` inside
+// the helper, the output builder factory by `CompactBuilderFactory.make`, and
+// the parser itself by `XMLParser.make`. Each is run for its value, so a
+// refusal surfaces as the thrown error a test can assert on.
 const makeParser = (doctypeOpts = {}, entitiesOpts = {}, parserOpts = {}, builderOpts = {}) => {
   const evp = new EntityParser(entitiesOpts);
-  const factory = new CompactBuilderFactory(builderOpts);
-  factory.registerValueParser('entity', evp);
-  return new XMLParser({ ...parserOpts, doctypeOptions: { enabled: false, ...doctypeOpts }, OutputBuilder: factory });
+  const factory = runParser(CompactBuilderFactory.make(builderOpts));
+  runParser(factory.registerValueParser('entity', evp));
+  return makeParserOrThrow({ ...parserOpts, doctypeOptions: { enabled: false, ...doctypeOpts }, OutputBuilder: factory });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,8 +163,8 @@ describe('DOCTYPE — replaceEntities value parser gate', function () {
     },
     () => {
       // No EntityDecoder registered; chain has no 'entity'
-      const builder = new CompactBuilderFactory({ tags: { valueParsers: ['boolean', 'number'] } });
-      return new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+      const builder = runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['boolean', 'number'] } }));
+      return makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
     }
   );
 
@@ -252,9 +257,9 @@ describe('EntityDecoder.addExternalEntity() — external entities', function () 
   it('should replace a registered external entity', function () {
     const evp = new EntityParser();
     evp.addExternalEntity('copy2', '©©');
-    const builder = new CompactBuilderFactory();
-    builder.registerValueParser('entity', evp);
-    const parser = new XMLParser({ OutputBuilder: builder });
+    const builder = runParser(CompactBuilderFactory.make());
+    runParser(builder.registerValueParser('entity', evp));
+    const parser = makeParserOrThrow({ OutputBuilder: builder });
     const result = parseDoc(parser, '<root>&copy2;</root>');
     expect(result.root).toBe('©©');
   });
@@ -267,9 +272,9 @@ describe('EntityDecoder.addExternalEntity() — external entities', function () 
   it('external entity coexists with docType entity — both replaced', function () {
     const evp = new EntityParser();
     evp.addExternalEntity('ext', 'external');
-    const builder = new CompactBuilderFactory();
-    builder.registerValueParser('entity', evp);
-    const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+    const builder = runParser(CompactBuilderFactory.make());
+    runParser(builder.registerValueParser('entity', evp));
+    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
     const result = parseDoc(parser, withDocType({ dt: 'doctype' }, '<root>&dt; &ext;</root>'));
     expect(result.root).toBe('doctype external');
   });
@@ -380,10 +385,10 @@ describe('Security — maxTotalExpansions', function () {
   it('maxTotalExpansions counts external entity expansions too', function () {
     const evp = new EntityParser({ limit: { maxTotalExpansions: 2 } });
     evp.addExternalEntity('e', 'x');
-    const builder = new CompactBuilderFactory();
-    builder.registerValueParser('entity', evp);
-    const parser = new XMLParser({ OutputBuilder: builder });
-    expect(() => parser.parse('<root>&e;&e;&e;</root>')).toThrowError('[EntityReplacer] Entity expansion count limit exceeded: 3 > 2');
+    const builder = runParser(CompactBuilderFactory.make());
+    runParser(builder.registerValueParser('entity', evp));
+    const parser = makeParserOrThrow({ OutputBuilder: builder });
+    expect(() => runParser(parser.parse('<root>&e;&e;&e;</root>'))).toThrowError('[EntityReplacer] Entity expansion count limit exceeded: 3 > 2');
   });
 
   runAcrossAllInputSourcesWithFactory(
@@ -441,9 +446,9 @@ describe('Security — maxExpandedLength', function () {
 describe('Security — Billion Laughs mitigation', function () {
   it("entity values containing '&' are silently discarded (no recursive expansion)", function () {
     const evp = new EntityParser();
-    const builder = new CompactBuilderFactory();
-    builder.registerValueParser('entity', evp);
-    const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+    const builder = runParser(CompactBuilderFactory.make());
+    runParser(builder.registerValueParser('entity', evp));
+    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
     // lol2 references lol1 — would be the start of a Billion Laughs chain.
     // DocTypeReader skips any entity value containing '&', so lol2 is never stored.
     const result = parseDoc(
@@ -459,11 +464,11 @@ describe('Security — Billion Laughs mitigation', function () {
 
   it('flat repetition attack is caught by maxTotalExpansions', function () {
     const evp = new EntityParser({ limit: { maxTotalExpansions: 100 } });
-    const builder = new CompactBuilderFactory();
-    builder.registerValueParser('entity', evp);
-    const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+    const builder = runParser(CompactBuilderFactory.make());
+    runParser(builder.registerValueParser('entity', evp));
+    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
     const refs = '&e;'.repeat(200);
-    expect(() => parser.parse(`<!DOCTYPE root [<!ENTITY e "x">]><root>${refs}</root>`)).toThrowError(
+    expect(() => runParser(parser.parse(`<!DOCTYPE root [<!ENTITY e "x">]><root>${refs}</root>`))).toThrowError(
       '[EntityReplacer] Entity expansion count limit exceeded: 101 > 100'
     );
   });
@@ -475,9 +480,9 @@ describe('Security — Billion Laughs mitigation', function () {
 describe('Per-parse isolation', function () {
   it('expansion counters reset between parses — second parse should not carry over', function () {
     const evp = new EntityParser({ limit: { maxTotalExpansions: 5 } });
-    const builderFactory = new CompactBuilderFactory();
-    builderFactory.registerValueParser('entity', evp);
-    const parser = new XMLParser({ doctypeOptions: { enabled: true }, OutputBuilder: builderFactory });
+    const builderFactory = runParser(CompactBuilderFactory.make());
+    runParser(builderFactory.registerValueParser('entity', evp));
+    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builderFactory });
     const xml = `<!DOCTYPE root [<!ENTITY e "x">]><root>&e;&e;&e;&e;&e;</root>`;
     const r1 = parseDoc(parser, xml);
     expect(r1.root).toBe('xxxxx');

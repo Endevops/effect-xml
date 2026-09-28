@@ -1,6 +1,6 @@
 import type { AttributeMeta, ParsedAttribute, RawAttributeMatch, TagExpressionParser } from './internal/parser-types.ts';
 
-import { ParseError, ErrorCode } from './parse-error.js';
+import { ParseError, ErrorCode, runBuilder } from './parse-error.js';
 import { isSpaceCode, errorPositionOf } from './util.js';
 
 /**
@@ -304,6 +304,9 @@ export function flushAttributes(
   for (let i = 0; i < len; i++) {
     const a = parsedAttrs[i] as ParsedAttribute;
     const attrMeta: AttributeMeta | undefined = attrsExpStart !== undefined ? { index: attrsExpStart + a.index } : undefined;
-    parser.outputBuilder.addAttribute(a.name, a.value, parser.readonlyMatcher, attrMeta);
+    // The builder's attribute pipeline can fail — an entity expansion limit, a
+    // caller-supplied value processor — so this runs the effect rather than
+    // discarding it.
+    runBuilder(parser.outputBuilder.addAttribute(a.name, a.value, parser.readonlyMatcher, attrMeta));
   }
 }

@@ -1,8 +1,7 @@
 'use strict';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import { runAcrossAllInputSources, parseDoc, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 // Regression coverage for the tag-end scanner sharing quote positions with
 // AttributeProcessor.parseAttributes() instead of re-scanning for quotes.
@@ -76,7 +75,7 @@ describe('quote-pair reuse in attribute parsing', function () {
 
   it('latin1-encoded buffer input (fixed-width byte scan) reuses quote pairs correctly', function () {
     const xml = `<root a="hello" b='world'/>`;
-    const parser = new XMLParser({ skip: { attributes: false }, decoding: { encoding: 'latin1' } });
+    const parser = makeParser({ skip: { attributes: false }, decoding: { encoding: 'latin1' } });
     const result = parseDoc(parser, Buffer.from(xml, 'latin1'));
     expect(result.root['@_a']).toBe('hello');
     expect(result.root['@_b']).toBe('world');
@@ -84,12 +83,12 @@ describe('quote-pair reuse in attribute parsing', function () {
 
   it('a value split exactly at the closing quote across feed() chunks still parses correctly', function () {
     const xml = `<root a="hello world" b="second"/>`;
-    const parser = new XMLParser({ skip: { attributes: false } });
+    const parser = makeParser({ skip: { attributes: false } });
     // Split right after the opening quote of `a`, and again mid-value, to
     // force UNEXPECTED_END + rewind while quote pairs were being collected.
     const splitAt = xml.indexOf('"hello') + 4;
-    parser.feed(xml.slice(0, splitAt));
-    parser.feed(xml.slice(splitAt));
+    runParser(parser.feed(xml.slice(0, splitAt)));
+    runParser(parser.feed(xml.slice(splitAt)));
     const result = endDoc(parser);
     expect(result.root['@_a']).toBe('hello world');
     expect(result.root['@_b']).toBe('second');

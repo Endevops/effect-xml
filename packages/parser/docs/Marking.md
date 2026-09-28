@@ -29,7 +29,7 @@ Each source maintains **two independent mark slots**:
 
 ## How Rewind Handles Chunk Boundaries
 
-When a reader tries to read beyond the available buffer (e.g. `canRead()` returns `false` or a scan function returns `-1`), it throws `UNEXPECTED_END`. The parser catches this error in `XMLParser.feed()` (or `StreamSource.onChunk`) and calls `source.rewindToMark()`.
+When a reader tries to read beyond the available buffer (e.g. `canRead()` returns `false` or a scan function returns `-1`), it throws `UNEXPECTED_END`. The parser catches this error in `XMLParser.feed()` (or `StreamSource.onChunk`) and calls `source.rewindToMark()`. That throw is internal — the readers still raise it rather than returning it, and the public `feed()` is what converts anything that escapes into its `ParseError` channel, so a mid-token `UNEXPECTED_END` is caught here and never surfaces to the caller.
 
 - `rewindToMark()` restores `startIndex` (and line/col) to the outer mark (level 0).
 - The source’s buffer still contains the incomplete token because **flushing** never crosses an active mark.
@@ -38,11 +38,14 @@ When a reader tries to read beyond the available buffer (e.g. `canRead()` return
 **Example:**
 
 ```javascript
-const parser = new XMLParser();
-parser.feed('<root>'); // buffer now "<root>"
-parser.feed('<tag>value'); // "value" is incomplete (no closing </tag>)
-parser.feed('</tag></root>'); // completes
-parser.end();
+import { Effect } from 'effect';
+import XMLParser from '@endevops/parser';
+
+const parser = Effect.runSync(XMLParser.make());
+Effect.runSync(parser.feed('<root>')); // buffer now "<root>"
+Effect.runSync(parser.feed('<tag>value')); // "value" is incomplete (no closing </tag>)
+Effect.runSync(parser.feed('</tag></root>')); // completes
+Effect.runSync(parser.end()); // { root: { tag: 'value' } }
 ```
 
 When the second `feed()` (`<tag>value`) arrives, the reader for the opening tag succeeds, then `readUpto` for `</tag>` throws `UNEXPECTED_END` because the closing tag isn’t there yet. The source is rewound to the outer mark set at the `<` of the opening tag, so on the third `feed()` the parser re‑reads `<tag>value` and then continues to `</tag>` successfully.

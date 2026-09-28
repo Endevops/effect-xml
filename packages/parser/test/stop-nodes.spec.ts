@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vite-plus/test';
 
 import { xmlEnclosures, quoteEnclosures } from '#/stop-node-processor.ts';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc, endDoc } from '#/test/helpers/test-runner.ts';
-import XMLParser from '#/xml-parser.ts';
+import {
+  makeParser,
+  runAcrossAllInputSources,
+  runAcrossAllInputSourcesWithException,
+  parseDoc,
+  endDoc,
+  runParser,
+} from '#/test/helpers/test-runner.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic stop node functionality
@@ -539,10 +545,10 @@ describe('Stop Nodes — feedable input source', function () {
 
     const options = { tags: { stopNodes: ['root.section2', 'root.section3'] } };
 
-    const parser = new XMLParser(options);
+    const parser = makeParser(options);
     for (let i = 0; i < xmlData.length; i++) {
       const ch = xmlData[i];
-      parser.feed(ch);
+      runParser(parser.feed(ch));
     }
     const result = endDoc(parser);
 
@@ -555,9 +561,9 @@ describe('Stop Nodes — feedable input source', function () {
     const xmlData = `<root><s>text <!-- </s> fake --> real</s><after>ok</after></root>`;
     const options = { tags: { stopNodes: [{ expression: 'root.s', skipEnclosures: [...xmlEnclosures] }] } };
 
-    const parser = new XMLParser(options);
+    const parser = makeParser(options);
     for (let i = 0; i < xmlData.length; i++) {
-      parser.feed(xmlData[i]);
+      runParser(parser.feed(xmlData[i]));
     }
     const result = endDoc(parser);
 
@@ -739,7 +745,7 @@ describe('Stop Nodes — skipEnclosures', function () {
   it('onStopNode callback receives raw content, tagDetail and matcher', function () {
     const collected: { name: string; content: string }[] = [];
     const xml = `<root><script>alert(1)</script><style>body{}</style></root>`;
-    const parser = new XMLParser({
+    const parser = makeParser({
       tags: {
         stopNodes: [
           { expression: 'root.script', skipEnclosures: [...quoteEnclosures] },
@@ -751,7 +757,7 @@ describe('Stop Nodes — skipEnclosures', function () {
       },
     });
 
-    parser.parse(xml);
+    runParser(parser.parse(xml));
 
     expect(collected.length).toBe(2);
     expect(collected[0].name).toBe('script');
@@ -763,7 +769,7 @@ describe('Stop Nodes — skipEnclosures', function () {
   it('onStopNode fires before content is added to output tree (CompactObjBuilder)', function () {
     const order = [];
     const xml = `<root><s>content</s></root>`;
-    const parser = new XMLParser({
+    const parser = makeParser({
       tags: { stopNodes: [{ expression: 'root.s', skipEnclosures: [] }] },
       onStopNode() {
         order.push('callback');
@@ -781,7 +787,7 @@ describe('Stop Nodes — skipEnclosures', function () {
 describe('Stop Nodes — nested', function () {
   it('should determine nested stop node', function () {
     const xml = `<root><code>safe <code>nested</code> still raw</code></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
+    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
 
     const expected = { root: { code: 'safe <code>nested</code> still raw' } };
     const result = parseDoc(parser, xml);
@@ -792,7 +798,7 @@ describe('Stop Nodes — nested', function () {
 
   it('should determine nested stop node with namespace when nsPrefix is not skipped', function () {
     const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] } });
+    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] } });
 
     const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
 
@@ -803,7 +809,7 @@ describe('Stop Nodes — nested', function () {
 
   it('should determine nested stop node with namespace when nsPrefix is not skipped and namespace is not used in expression', function () {
     const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
+    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
 
     const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
 
@@ -813,7 +819,7 @@ describe('Stop Nodes — nested', function () {
   });
   it('should determine nested stop node with namespace when nsPrefix is skipped', function () {
     const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] }, skip: { nsPrefix: true } });
+    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] }, skip: { nsPrefix: true } });
 
     const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
     const result = parseDoc(parser, xml);
@@ -822,7 +828,7 @@ describe('Stop Nodes — nested', function () {
   });
   it('should determine nested stop node with namespace when nsPrefix is skipped and namespace is not used in expression', function () {
     const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = new XMLParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] }, skip: { nsPrefix: true } });
+    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] }, skip: { nsPrefix: true } });
 
     const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
     const result = parseDoc(parser, xml);

@@ -6,43 +6,67 @@
 
 ## ParseError
 
-Every error thrown by the parser is a `ParseError` (subclass of `Error`), so you can distinguish parser errors from unexpected runtime bugs with a single `instanceof` check:
+`ParseError` is the one type in the error channel of every effect this package returns, so you can
+distinguish parser errors from unexpected runtime bugs with a single `instanceof` check. It is a plain
+`Error` subclass with no `_tag`, which is why `Effect.catchTag` does not apply to it — match on
+`code`.
 
-```javascript
-import XMLParser, { ParseError, ErrorCode } from '@endevops/parser';
+Inspect a failure without catching a throw, using `Effect.runSyncExit` (which hands the failure back,
+where `Effect.runSync` would throw it):
 
-try {
-  parser.parse(xmlInput);
-} catch (e) {
-  if (e instanceof ParseError) {
-    console.error(`[${e.code}] line ${e.line}, col ${e.col}: ${e.message}`);
-  } else {
-    throw e; // unexpected bug — rethrow
-  }
+```typescript
+import { Effect, Result } from 'effect';
+import XMLParser from '@endevops/parser';
+
+const result = Effect.runSync(Effect.result(parser.parse(xmlInput)));
+
+if (Result.isFailure(result)) {
+  // `ParseError` is the only type in the channel, so there is no `instanceof`
+  // to write and nothing to rethrow.
+  const error = result.failure;
+  console.error(`[${error.code}] index ${error.index}: ${error.message}`);
 }
+```
+
+Or handle it as a recoverable branch of the program, with `Effect.catchIf`:
+
+```typescript
+import { Effect } from 'effect';
+import { ErrorCode, ParseError } from '@endevops/parser';
+
+const rejected = Effect.catchIf(
+  parser.parse(xmlInput),
+  (e): e is ParseError => e.code === ErrorCode.SECURITY_PROTOTYPE_POLLUTION,
+  () => Effect.succeed(null) // anything not matched is re-failed
+);
 ```
 
 ### ParseError properties
 
-| Property  | Type                  | Description                |
-| --------- | --------------------- | -------------------------- |
-| `message` | `string`              | Human-readable description |
-| `code`    | `ErrorCodeValue`      | Machine-readable code      |
-| `line`    | `number \| undefined` | 1-based line number        |
-| `col`     | `number \| undefined` | 1-based column             |
-| `index`   | `number \| undefined` | 0-based character offset   |
+| Property  | Type                  | Description                                      |
+| --------- | --------------------- | ------------------------------------------------ |
+| `message` | `string`              | Human-readable description                       |
+| `code`    | `ErrorCodeValue`      | Machine-readable code                            |
+| `index`   | `number \| undefined` | 0-based character offset from the document start |
+
+There is no `line` and no `col`. This parser does no line or column tracking, so a position is an
+offset into the source document or nothing at all. See [05-output-builders.md](./05-output-builders.md#position-meta-data).
 
 ---
 
 ## Structural Limits (DoS Prevention)
 
 ```javascript
-new XMLParser({
-  limits: {
-    maxNestedTags: 100, // max tag nesting depth
-    maxAttributesPerTag: 50, // max attributes on any single tag
-  },
-});
+import { Effect } from 'effect';
+
+Effect.runSync(
+  XMLParser.make({
+    limits: {
+      maxNestedTags: 100, // max tag nesting depth
+      maxAttributesPerTag: 50, // max attributes on any single tag
+    },
+  })
+);
 ```
 
 Both default to `null` (no limit). **For untrusted input, always set both.**
@@ -72,57 +96,58 @@ The Billion Laughs attack uses recursive entity references to produce exponentia
 DOCTYPE entity expansion is **disabled by default** (`doctypeOptions.enabled: false`). If you need it, enable it only for trusted input and tighten both layers:
 
 ```javascript
+import { Effect } from 'effect';
 import { EntitiesValueParser } from '@endevops/builder';
 import { CompactBuilderFactory } from '@endevops/builder';
 
 const evp = new EntitiesValueParser({ default: true, maxTotalExpansions: 200, maxExpandedLength: 10000 });
-const builder = new CompactBuilderFactory();
-builder.registerValueParser('entity', evp);
+const builder = Effect.runSync(CompactBuilderFactory.make());
+Effect.runSync(builder.registerValueParser('entity', evp));
 
-new XMLParser({ doctypeOptions: { enabled: true, maxEntityCount: 20, maxEntitySize: 1000 }, OutputBuilder: builder });
+Effect.runSync(XMLParser.make({ doctypeOptions: { enabled: true, maxEntityCount: 20, maxEntitySize: 1000 }, OutputBuilder: builder }));
 ```
 
 ---
 
 ## Prototype Pollution Prevention
 
-Property names that could corrupt the JavaScript prototype (`__proto__`, `constructor`, `prototype`) are **always rejected** — they throw `ParseError` with code `SECURITY_PROTOTYPE_POLLUTION` regardless of options.
+Property names that could corrupt the JavaScript prototype (`__proto__`, `constructor`, `prototype`) are **always rejected** — the effect fails with a `ParseError` whose code is `SECURITY_PROTOTYPE_POLLUTION`, regardless of options.
 
 Dangerous but non-critical names (`hasOwnProperty`, `toString`, `valueOf`, etc.) are sanitised by default: the name is prefixed with `__` in the output. Use `onDangerousProperty` to customise this behaviour.
 
-Option values that would place reserved names into output keys are rejected at construction time with code `SECURITY_RESERVED_OPTION`.
+Option values that would place reserved names into output keys are rejected when the options are resolved, which means `XMLParser.make` fails with code `SECURITY_RESERVED_OPTION` — before a document is read.
 
-When `strictReservedNames: true`, tag or attribute names that collide with any configured `nameFor.*` or `attributes.groupBy` value throw `ParseError` with code `SECURITY_RESTRICTED_NAME`.
+When `strictReservedNames: true`, tag or attribute names that collide with any configured `nameFor.*` or `attributes.groupBy` value fail with a `ParseError` whose code is `SECURITY_RESTRICTED_NAME`.
 
 ---
 
 ## Recommended Configuration for Untrusted Input
 
-```javascript
+```typescript
+import { Effect } from 'effect';
 import XMLParser, { ParseError } from '@endevops/parser';
 import { EntitiesValueParser } from '@endevops/builder';
 import { CompactBuilderFactory } from '@endevops/builder';
 
 const evp = new EntitiesValueParser({ default: true, maxTotalExpansions: 500, maxExpandedLength: 50000 });
-const builder = new CompactBuilderFactory();
-builder.registerValueParser('entity', evp);
+const builder = Effect.runSync(CompactBuilderFactory.make());
+Effect.runSync(builder.registerValueParser('entity', evp));
 
-const parser = new XMLParser({
-  limits: { maxNestedTags: 100, maxAttributesPerTag: 50 },
-  doctypeOptions: { enabled: false }, // never expand DOCTYPE from untrusted input
-  strictReservedNames: true,
-  OutputBuilder: builder,
+const parser = Effect.runSync(
+  XMLParser.make({
+    limits: { maxNestedTags: 100, maxAttributesPerTag: 50 },
+    doctypeOptions: { enabled: false }, // never expand DOCTYPE from untrusted input
+    strictReservedNames: true,
+    OutputBuilder: builder,
+  })
+);
+
+// Reject the document, log it, and carry on — an async caller catches the promise
+const result = await Effect.runPromise(parser.parse(untrustedXml)).catch((e: unknown) => {
+  const error = e as ParseError;
+  console.warn('XML rejected', { code: error.code, index: error.index });
+  return null;
 });
-
-try {
-  const result = parser.parse(untrustedXml);
-} catch (e) {
-  if (e instanceof ParseError) {
-    console.warn('XML rejected', { code: e.code, line: e.line, col: e.col });
-  } else {
-    throw e;
-  }
-}
 ```
 
 ### ErrorCode Quick Reference
