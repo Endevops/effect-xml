@@ -19,29 +19,55 @@ export function scanTagExpEnd(this: CharScanContext) {
   const len = buf.length;
   const start = this.startIndex;
   const pairs = (this as { _quotePairs: Int32Array })._quotePairs;
-  const capacity = pairs.length;
   let pairsLen = 0;
-  let inSingle = false;
-  let inDouble = false;
+  // The delimiter of the quoted value being scanned, or null outside one. Two
+  // booleans (`inSingle` / `inDouble`) said the same thing and needed two
+  // near-identical record blocks; one character needs one.
+  let quote: string | null = null;
+
   for (let i = start; i < len; i++) {
     const c = buf[i];
-    if (c === "'") {
-      if (!inDouble) {
-        inSingle = !inSingle;
-        if (pairsLen < capacity) pairs[pairsLen++] = i - start;
-      }
-    } else if (c === '"') {
-      if (!inSingle) {
-        inDouble = !inDouble;
-        if (pairsLen < capacity) pairs[pairsLen++] = i - start;
-      }
-    } else if (c === '>' && !inSingle && !inDouble) {
+    // Flat guards, kept out of an `else if` chain so this loop — which runs
+    // once per character of every tag expression — carries no nested branches.
+    // A quote of the other kind inside a value is content, not a delimiter, so
+    // it falls through to the next check, which is what the old inner `if` did
+    // by doing nothing.
+    if (c === "'" && quote !== '"') {
+      quote = flipQuote(quote, "'");
+      pairsLen = recordQuote(pairs, pairsLen, i - start);
+      continue;
+    }
+    if (c === '"' && quote !== "'") {
+      quote = flipQuote(quote, '"');
+      pairsLen = recordQuote(pairs, pairsLen, i - start);
+      continue;
+    }
+    if (c === '>' && quote === null) {
       (this as { _quotePairsLen: number })._quotePairsLen = pairsLen;
       return i - start;
     }
   }
   (this as { _quotePairsLen: number })._quotePairsLen = pairsLen;
   return -1;
+}
+
+/**
+ * @description The quote state after reading one occurrence of `delimiter`. An occurrence matching what is already open closes it; any other occurrence while
+ * nothing is open opens it. The caller has already excluded the case where this delimiter is inert.
+ */
+function flipQuote(open: string | null, delimiter: string): string | null {
+  return open === delimiter ? null : delimiter;
+}
+
+/**
+ * @description Append one quote boundary to the pair array, or drop it if the array is full. Overflow is dropped rather than grown, and the offset returned is
+ * `pairsLen` unchanged, so a tag with more than `capacity` quoted values simply records the ones that fit and `parseAttributes()` falls back to
+ * scanning the rest. Both scanners reuse one fixed-capacity array across every tag, so it cannot be per-document sized.
+ */
+function recordQuote(pairs: Int32Array, pairsLen: number, at: number): number {
+  if (pairsLen >= pairs.length) return pairsLen;
+  pairs[pairsLen] = at;
+  return pairsLen + 1;
 }
 
 /**

@@ -206,17 +206,21 @@ export function readPiExp(parser: TagExpressionParser): TagExp {
     const currentChar = parser.source.readChAt(i);
     const nextChar = parser.source.readChAt(i + 1);
 
+    // Flat guards, so a character is classified by the first thing it matches.
+    // A quote cannot also be the `?` of `?>`, so continuing past a quote toggle
+    // skips a check that could not have fired.
     if (currentChar === "'" && !inDoubleQuotes) {
       inSingleQuotes = !inSingleQuotes;
-    } else if (currentChar === '"' && !inSingleQuotes) {
-      inDoubleQuotes = !inDoubleQuotes;
+      continue;
     }
-
-    if (!inSingleQuotes && !inDoubleQuotes) {
-      if (currentChar === '?' && nextChar === '>') {
-        EOE = true;
-        break;
-      }
+    if (currentChar === '"' && !inSingleQuotes) {
+      inDoubleQuotes = !inDoubleQuotes;
+      continue;
+    }
+    // `?>` ends the instruction only outside quotes — inside one it is content.
+    if (currentChar === '?' && nextChar === '>' && !inSingleQuotes && !inDoubleQuotes) {
+      EOE = true;
+      break;
     }
   }
 
@@ -267,32 +271,18 @@ function buildTagExpObj(
 ): TagExp {
   const tagExp = new TagExp();
 
-  const expLen = exp.length;
-
-  if (exp[expLen - 1] === '/') {
+  if (exp[exp.length - 1] === '/') {
     tagExp.selfClosing = true;
     exp = exp.slice(0, -1); // Remove the trailing slash
   }
 
-  // Separate tag name from attribute expression
-  let attrsExp = '';
-  let i = 0;
-  let attrsLocalOffset: number | undefined; // exp-relative offset where attrsExp begins — rebases quotePairs
-
-  for (; i < exp.length; i++) {
-    const c = exp[i];
-    if (isSpace(c)) {
-      tagExp.tagName = exp.substring(0, i);
-      attrsExp = exp.substring(i + 1);
-      attrsLocalOffset = i + 1;
-      if (expStart !== undefined) tagExp._attrsExpStart = expStart + i + 1;
-      break;
-    }
-  }
-  //only tag
-  if (tagExp.tagName.length === 0 && i === exp.length) tagExp.tagName = exp;
-  tagExp.tagName = tagExp.tagName.trimEnd();
-  tagExp._attrsExp = attrsExp;
+  const split = splitNameFromAttrs(exp);
+  tagExp.tagName = split.name;
+  tagExp._attrsExp = split.attrsExp;
+  // Absolute document offset of the attribute expression, for each attribute's
+  // `index`. Optional so callers that have no position for `exp` can omit it —
+  // the metadata is then unavailable, not an error.
+  if (expStart !== undefined) tagExp._attrsExpStart = expStart + split.attrsOffset;
 
   if (!parser.isValidQName(tagExp.tagName)) {
     throw new InvalidTagName({ name: tagExp.tagName, message: 'Invalid tag name' });
@@ -308,9 +298,27 @@ function buildTagExpObj(
   // (unquoted values, illegal duplicates, illegal control characters) is a
   // document-validity problem, not an output-shaping one, so skip.attributes
   // must not be able to silently let broken markup through.
-  if (forceToReadAttrs || attrsExp.length > 0) {
-    collectRawAttributes(attrsExp, parser, tagExp, quotePairs, attrsLocalOffset, quotePairsLen);
+  if (forceToReadAttrs || split.attrsExp.length > 0) {
+    collectRawAttributes(split.attrsExp, parser, tagExp, quotePairs, split.attrsOffset, quotePairsLen);
   }
-  // console.log(tagExp)
+
   return tagExp;
+}
+
+/**
+ * @description Split a raw tag expression into its tag name and its attribute expression, which the first whitespace separates. A tag with no whitespace has no
+ * attributes, so the whole expression is the name.
+ *
+ * @param exp - Everything between `<` and `>` (exclusive), already stripped of a trailing `/`.
+ *
+ * @returns The tag name as written, trailing whitespace trimmed, plus the attribute expression and the offset it starts at within `exp`. The offset
+ *   rebases the quote-pair positions `scanTagExpEnd` recorded against the whole expression, so `parseAttributes` can reuse them.
+ */
+function splitNameFromAttrs(exp: string): { name: string; attrsExp: string; attrsOffset: number } {
+  for (let i = 0; i < exp.length; i++) {
+    if (!isSpace(exp[i])) continue;
+    return { name: exp.substring(0, i).trimEnd(), attrsExp: exp.substring(i + 1), attrsOffset: i + 1 };
+  }
+
+  return { name: exp, attrsExp: '', attrsOffset: 0 };
 }

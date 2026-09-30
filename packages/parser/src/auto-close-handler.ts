@@ -121,7 +121,7 @@ export default class AutoCloseHandler {
    * of the parser; same shape as `handleEof()`. @throws {ParseError} `MISMATCHED_CLOSE_TAG` when `onMismatch` is `'throw'`.
    */
   handleMismatch(closingTagName: string, parserState: ParserState): AutoCloseDecision {
-    const { tagsStack, currentTagDetail, source } = parserState;
+    const { currentTagDetail, source } = parserState;
 
     if (this.onMismatch === 'throw') {
       throw new MismatchedCloseTag({
@@ -141,17 +141,23 @@ export default class AutoCloseHandler {
       return { action: 'discard' };
     }
 
-    // onMismatch === 'recover'
-    // Scan the stack (top → bottom) for the closest matching opener.
-    // tagsStack holds ancestors with index 0 = root, last = parent of current.
-    // currentTagDetail is the open tag at the top that didn't match.
+    return this.#recoverMismatch(closingTagName, parserState);
+  }
 
-    // Build a unified view: [root...ancestors, current] — we check current first
-    // (it's the top), then walk down toward the root.
+  /**
+   * @description `'recover'` mode: close the mismatched tag's ancestors down to the nearest enclosing tag it names. `tagsStack` holds ancestors with index 0 =
+   * root and last = parent of `currentTagDetail`, which is the open tag at the top that did not match. The search runs top-down over `[...tagsStack,
+   * currentTagDetail]` so the closest opener wins; a closing tag matching nothing anywhere is a phantom and is dropped.
+   *
+   * @returns `{ action: 'discard' }` for a phantom closing tag, otherwise `{ action: 'close-matched' }` with `parserState.currentTagDetail` left
+   *   pointing at the matched tag so the caller's normal close path applies.
+   */
+  #recoverMismatch(closingTagName: string, parserState: ParserState): AutoCloseDecision {
+    const { tagsStack, currentTagDetail, source } = parserState;
     const stackSnapshot = [...tagsStack, currentTagDetail];
+    const stackSnapshotLength = stackSnapshot.length;
 
     let matchIndex = -1;
-    const stackSnapshotLength = stackSnapshot.length;
     for (let i = stackSnapshotLength - 1; i >= 0; i--) {
       if (stackSnapshot[i]?.name === closingTagName) {
         matchIndex = i;
