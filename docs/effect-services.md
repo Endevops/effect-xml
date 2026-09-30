@@ -74,15 +74,27 @@ constructor.
    built-ins are factory-produced values; `BaseValueParser` is gone.
 2. **builder XML builder** — done (`e8df40c`): `XMLBuilder` is a
    `Context.Service` with `make` and `layer`, over per-build state.
-3. **builder output builder** — `BaseOutputBuilder`/`BaseOutputBuilderFactory`
-   and `CompactBuilder`/`CompactBuilderFactory` → an `OutputBuilder` service
-   whose `getInstance` returns a per-document builder value; migrate the
-   parser's builder wiring.
-4. **parser input layer** — encoding registry, input sources (string/buffer/
-   feedable/stream), readers.
-5. **parser core** — `Parser` service, walk state, auto-close, stop nodes.
-6. **docs** — rewrite the READMEs, `docs/*.md` examples, and the codec package's
-   internal use of the builder.
+3. **builder output builder** — done (`46cde7e`): `BaseOutputBuilder` /
+   `BaseOutputBuilderFactory` / `CompactBuilder` / `CompactBuilderFactory`
+   became `makeBaseOutputBuilder`, `makeCompactBuilder` and the
+   `CompactBuilderFactory` service.
+4. **parser encoding registry** — done (`837ac40`): `makeEncodingRegistry`, an
+   interface and a value, with the module-level default built by the same
+   factory.
+5. **parser entry point** — done (`5880070`): `XMLParser` is an interface plus a
+   same-named `Context.Service` tag, with `make`, `layer` and `fromResolved`.
+6. **parser input sources** — pending: `StringSource`, `BufferSource`,
+   `FeedableSource`, `StreamSource` → interfaces plus `make*` factories.
+   (4 source call sites, 22 test call sites.)
+7. **parser core engine** — pending: `Xml2JsParser` and its internal `TagDetail`
+   data holder, `StopNodeProcessor`, `AutoCloseHandler`, `TagExp` → per-call
+   state values built by factories. These are hot, mutation-heavy state
+   machines, so this is the highest-risk step and wants its own commit.
+8. **docs** — pending: rewrite the READMEs and `docs/*.md` examples that show
+   `new`-based construction.
+
+Error classes stay `Schema.TaggedError`; that is the Effect-idiomatic shape for
+a typed failure and is not part of the "class → service" change.
 
 Each phase is one green commit: `vp check` clean and `vp test` green. Note that
 `tsc` resolves the workspace `@endevops/builder` through its built `dist`, so a
