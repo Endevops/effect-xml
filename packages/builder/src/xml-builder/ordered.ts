@@ -1,16 +1,33 @@
+/**
+ * @description The ordered form of the walk: an array of single-key objects, walked in document order with no key sorting and no lookahead. Kept beside the
+ * plain-object walk in `xml-builder.ts` rather than folded into it, because the two emit genuinely different output — this one writes a node's
+ * attributes in place, the other hoists a level's attributes ahead of the tag's `>` — and because the ordered form is a parser's own output shape,
+ * which a caller reproducing it by hand has no reason to learn. The decisions the two share live in `walk.ts`.
+ */
 import type { Expression, Matcher } from '@endevops/common-xml';
 import type { XmlVersion } from '@endevops/common-xml';
 
-import { Expression as CompiledExpression } from '@endevops/common-xml';
 import { Matcher as PathMatcher } from '@endevops/common-xml';
-import { createValidator } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
 import type { BuilderError } from '../errors.ts';
 import type { ResolvedXmlBuilderOptions } from './options.ts';
+import type { NameValidator } from './walk.ts';
 
-import { compilePattern, fromPatternError, liftXml, nestingExceeded, runValueProcessor, tryResolveName } from '../errors.ts';
-import { escapeAttribute, safeCdata, safeComment, valToStr } from './util.ts';
+import { liftXml, nestingExceeded, runValueProcessor } from '../errors.ts';
+import { safeCdata, safeComment, valToStr } from './util.ts';
+import {
+  attributePair,
+  checkStopNode,
+  collectAttributeValues,
+  compileStopNodes,
+  nameValidatorFor,
+  renderRawTag,
+  renderStopNodeAttributes,
+  resolveTagName,
+  stripAttributePrefix,
+  substituteEntities,
+} from './walk.ts';
 
 const EOL = '\n';
 
@@ -21,12 +38,55 @@ const EOL = '\n';
  */
 export type OrderedTag = Record<string, unknown>;
 
+// The QName validator and the factory that builds it now live in `walk.ts`, which both walks import
+// directly. Re-exported here so this module keeps exporting the names it did — `xml-builder.ts` reads
+// them from here, and `walk.ts` holds the implementation rather than this module's surface.
+export type { NameValidator };
+export { nameValidatorFor };
+
 /**
- * @description A memoized QName validator. It returns an effect, as every validator in `common-xml` does, and the walk runs it before deciding a name needs
- * repairing — so a name the validator rejects is the one that reaches `sanitizeName`, the same rule as before with one more `yield*`. Exported
- * because {@link nameValidatorFor} returns one.
+ * @description What one level of the walk carries down to each node. The options are threaded through unchanged, so what is worth naming is the live path, the
+ * pre-compiled patterns, and the validator — three arguments that never vary within a build, bundled so a per-node renderer takes one argument for
+ * all of them.
  */
-export type NameValidator = (name: string) => Effect.Effect<boolean, BuilderError>;
+interface OrderedWalkContext {
+  /**
+   * @description The resolved options.
+   */
+  options: ResolvedXmlBuilderOptions;
+  /**
+   * @description Line separator, or `''` when not formatting.
+   */
+  indentation: string;
+  /**
+   * @description The live path.
+   */
+  matcher: Matcher;
+  /**
+   * @description The pre-compiled stop-node patterns.
+   */
+  stopNodeExpressions: Expression[];
+  /**
+   * @description The memoized QName validator.
+   */
+  qNameValidator: NameValidator;
+}
+
+/**
+ * @description One node's contribution to a level of the ordered form: what it appends, and what the caller's "was the previous node an element" flag becomes.
+ * Carried as a pair rather than written straight into the level's string because each form decides differently whether a line break belongs before it
+ * — and because the flag, not the string, is what the next node reads.
+ */
+interface OrderedNodeOutput {
+  /**
+   * @description What this node appends to the level's output.
+   */
+  xmlStr: string;
+  /**
+   * @description The value the caller's flag takes after this node.
+   */
+  isPreviousElementTag: boolean;
+}
 
 /**
  * @description Detect the XML version from the first element of the ordered array input. Only the first element can carry a declaration, and only if it is a
@@ -52,36 +112,6 @@ function detectXmlVersionFromArray(jArray: unknown, options: ResolvedXmlBuilderO
 }
 
 /**
- * @description Resolve a tag or attribute name through `sanitizeName` if one is configured. QName validation runs first, so the resolver is only invoked for names
- * that actually need work. With no resolver configured the name is returned untouched and no validation happens at all.
- *
- * @param name - The raw name from the input.
- * @param isAttribute - Whether an attribute name is being resolved.
- * @param options - The resolved options.
- * @param matcher - The current path, for the resolver's context.
- * @param qNameValidator - The memoized QName validator.
- *
- * @returns The name to write.
- */
-function resolveTagName(
-  name: string,
-  isAttribute: boolean,
-  options: ResolvedXmlBuilderOptions,
-  matcher: Matcher,
-  qNameValidator: NameValidator
-): Effect.Effect<string, BuilderError> {
-  return Effect.gen(function* () {
-    const resolve = options.sanitizeName;
-    if (!resolve) return name;
-    if (yield* qNameValidator(name)) return name;
-    // `readOnly` is an effect, so the view is built before the callback runs rather than inside
-    // it — the callback is a plain function, and a plain function cannot run an effect.
-    const view = yield* liftXml(matcher.readOnly());
-    return yield* tryResolveName(name, () => resolve(name, { isAttribute, matcher: view }));
-  });
-}
-
-/**
  * @description Build an XML string from the ordered array form. Every node arrives already in document order, so this walk is a single pass with no key sorting
  * and no lookahead — the reason `preserveOrder` exists.
  *
@@ -99,17 +129,7 @@ export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOption
     }
 
     // Pre-compile stopNode expressions for pattern matching
-    const stopNodeExpressions: Expression[] = [];
-    if (options.stopNodes && Array.isArray(options.stopNodes)) {
-      for (let i = 0; i < options.stopNodes.length; i++) {
-        const node = options.stopNodes[i];
-        if (typeof node === 'string') {
-          stopNodeExpressions.push(yield* compilePattern(node));
-        } else if (node instanceof CompiledExpression) {
-          stopNodeExpressions.push(node);
-        }
-      }
-    }
+    const stopNodeExpressions = yield* compileStopNodes(options.stopNodes);
 
     // Detect XML version for use in name validation
     const xmlVersion = detectXmlVersionFromArray(jArray, options);
@@ -120,21 +140,6 @@ export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOption
     return yield* arrToStr(jArray, options, indentation, matcher, stopNodeExpressions, qNameValidator);
   });
 }
-
-/**
- * @description Build the memoized QName validator for an XML version. `createValidator` reports an unknown production through `common-xml`'s error channel,
- * unreachable for the literal `'qName'` here. Mapping rather than falling back to a stub, so a production that is not what this claims would fail
- * loudly instead of silently validating nothing.
- *
- * @param xmlVersion - The version detected from the document.
- *
- * @returns An effect producing the validator.
- */
-export const nameValidatorFor = (xmlVersion: XmlVersion): Effect.Effect<NameValidator, BuilderError> =>
-  Effect.gen(function* () {
-    const validate = yield* Effect.mapError(createValidator('qName', { xmlVersion }), cause => fromPatternError('qName', cause));
-    return (name: string) => Effect.mapError(validate(name), cause => fromPatternError(name, cause));
-  });
 
 /**
  * @description Render one level of the ordered form.
@@ -158,20 +163,19 @@ function arrToStr(
   qNameValidator: NameValidator
 ): Effect.Effect<string, BuilderError> {
   return Effect.gen(function* () {
-    let xmlStr = '';
-    let isPreviousElementTag = false;
-
     if (options.maxNestedTags && (yield* liftXml(matcher.getDepth())) > options.maxNestedTags) {
       return yield* nestingExceeded(options.maxNestedTags, yield* liftXml(matcher.getDepth()));
     }
 
     if (!Array.isArray(arr)) {
       // Non-array values (e.g. string tag values) should be treated as text content
-      if (arr !== undefined && arr !== null) {
-        return valToStr(replaceEntitiesValue(valToStr(arr), options));
-      }
-      return '';
+      return renderOrderedTextValue(arr, options);
     }
+
+    const ctx: OrderedWalkContext = { options, indentation, matcher, stopNodeExpressions, qNameValidator };
+
+    let xmlStr = '';
+    let isPreviousElementTag = false;
 
     for (let i = 0; i < arr.length; i++) {
       const tagObj = arr[i];
@@ -179,109 +183,265 @@ function arrToStr(
       const rawTagName = propName(tagObj as OrderedTag);
       if (rawTagName === undefined) continue;
 
-      // Special names are exempt from sanitizeName: internal conventions and PI tags
-      // are not user-supplied XML element names.
-      const isSpecialName =
-        rawTagName === options.textNodeName ||
-        rawTagName === options.cdataPropName ||
-        rawTagName === options.commentPropName ||
-        rawTagName[0] === '?';
+      // Annotated because the walk is mutually recursive: this level calls `renderOrderedNode`, which
+      // calls back into `arrToStr` for an element's body, and inference cannot close that loop.
+      const emitted: OrderedNodeOutput | null = yield* renderOrderedNode(tagObj as OrderedTag, rawTagName, isPreviousElementTag, ctx);
+      // A node the renderer skipped contributes nothing and leaves the flag as it found it.
+      if (emitted === null) continue;
 
-      // Resolve tag name (may transform it; may throw for invalid names)
-      const tagName = isSpecialName ? rawTagName : yield* resolveTagName(rawTagName, false, options, matcher, qNameValidator);
-
-      // Extract attributes from ":@" property
-      const attrValues = extractAttributeValues((tagObj as OrderedTag)[':@'], options);
-
-      // Push resolved tag to matcher WITH attributes
-      yield* liftXml(matcher.push(tagName, attrValues));
-
-      // Check if this is a stop node using Expression matching
-      const isStopNode = yield* checkStopNode(matcher, stopNodeExpressions);
-
-      if (tagName === options.textNodeName) {
-        let tagText = (tagObj as OrderedTag)[rawTagName];
-        if (!isStopNode) {
-          const processed = yield* runValueProcessor('tagValueProcessor', tagName, () => options.tagValueProcessor!(tagName, tagText));
-          tagText = replaceEntitiesValue(processed, options);
-        }
-        tagText = valToStr(tagText);
-        if (isPreviousElementTag) {
-          xmlStr += indentation;
-        }
-        xmlStr += tagText;
-        isPreviousElementTag = false;
-        yield* liftXml(matcher.pop());
-        continue;
-      } else if (tagName === options.cdataPropName) {
-        if (isPreviousElementTag) {
-          xmlStr += indentation;
-        }
-        const val = firstTextChild(tagObj as OrderedTag, rawTagName, options);
-        const safeVal = safeCdata(val);
-        xmlStr += `<![CDATA[${safeVal}]]>`;
-        isPreviousElementTag = false;
-        yield* liftXml(matcher.pop());
-        continue;
-      } else if (tagName === options.commentPropName) {
-        const val = firstTextChild(tagObj as OrderedTag, rawTagName, options);
-        const safeVal = safeComment(val);
-        xmlStr += indentation + `<!--${safeVal}-->`;
-        isPreviousElementTag = true;
-        yield* liftXml(matcher.pop());
-        continue;
-      } else if (tagName[0] === '?') {
-        const attStr = yield* attrToStr((tagObj as OrderedTag)[':@'], options, isStopNode, matcher, qNameValidator);
-        const tempInd = tagName === '?xml' ? '' : indentation;
-        // Text node content on PI/XML declaration tags is intentionally ignored.
-        // Only attributes are valid on these tags per the XML spec.
-        xmlStr += tempInd + `<${tagName}${attStr}?>`;
-        isPreviousElementTag = true;
-        yield* liftXml(matcher.pop());
-        continue;
-      }
-
-      let newIdentation = indentation;
-      if (newIdentation !== '') {
-        newIdentation += options.indentBy;
-      }
-
-      // Pass isStopNode to attr_to_str so attributes are also not processed for stopNodes
-      const attStr = yield* attrToStr((tagObj as OrderedTag)[':@'], options, isStopNode, matcher, qNameValidator);
-      const tagStart = indentation + '<' + tagName + attStr;
-
-      // If this is a stopNode, get raw content without processing
-      let tagValue: string;
-      if (isStopNode) {
-        tagValue = getRawContent((tagObj as OrderedTag)[rawTagName], options);
-      } else {
-        tagValue = yield* arrToStr((tagObj as OrderedTag)[rawTagName], options, newIdentation, matcher, stopNodeExpressions, qNameValidator);
-      }
-
-      if (options.unpairedTags.indexOf(tagName) !== -1) {
-        if (options.suppressUnpairedNode) xmlStr += tagStart + '>';
-        else xmlStr += tagStart + '/>';
-      } else if ((!tagValue || tagValue.length === 0) && options.suppressEmptyNode) {
-        xmlStr += tagStart + '/>';
-      } else if (tagValue && tagValue.endsWith('>')) {
-        xmlStr += tagStart + `>${tagValue}${indentation}</${tagName}>`;
-      } else {
-        xmlStr += tagStart + '>';
-        if (tagValue && indentation !== '' && (tagValue.includes('/>') || tagValue.includes('</'))) {
-          xmlStr += indentation + options.indentBy + tagValue + indentation;
-        } else {
-          xmlStr += tagValue;
-        }
-        xmlStr += `</${tagName}>`;
-      }
-      isPreviousElementTag = true;
-
-      // Pop tag from matcher
-      yield* liftXml(matcher.pop());
+      xmlStr += emitted.xmlStr;
+      isPreviousElementTag = emitted.isPreviousElementTag;
     }
 
     return xmlStr;
   });
+}
+
+/**
+ * @description A non-array level of the ordered form. A bare string child arrives this way rather than as a list, and is text content in its own right: its
+ * entities still need substituting, which is what distinguishes it from a stop node's copy-through.
+ *
+ * @param value - The non-array level.
+ * @param options - The resolved options.
+ *
+ * @returns The text content, or `''` for `undefined` and `null`.
+ */
+function renderOrderedTextValue(value: unknown, options: ResolvedXmlBuilderOptions): string {
+  if (value !== undefined && value !== null) {
+    return valToStr(substituteEntities(valToStr(value), options));
+  }
+  return '';
+}
+
+/**
+ * @description Render one node of the ordered form: resolve its name, put it on the path, and dispatch on what kind of node it is. Every branch leaves the path
+ * balanced — pushed once above, popped once on the way out — so a sibling never inherits the previous sibling's position.
+ *
+ * @param tagObj - The node.
+ * @param rawTagName - The node's tag name as written, before resolution.
+ * @param isPreviousElementTag - Whether the node before this one was an element, which decides whether a line break precedes a text or CDATA node.
+ * @param ctx - The level's walk context.
+ *
+ * @returns An effect producing what the node appends and what the flag becomes next, or `null` for a node with nothing to write.
+ */
+const renderOrderedNode = Effect.fnUntraced(function* (
+  tagObj: OrderedTag,
+  rawTagName: string,
+  isPreviousElementTag: boolean,
+  ctx: OrderedWalkContext
+): Effect.fn.Return<OrderedNodeOutput | null, BuilderError> {
+  const { options, matcher } = ctx;
+
+  // Resolve tag name (may transform it; may throw for invalid names)
+  const tagName = yield* resolveOrderedName(rawTagName, ctx);
+
+  // Extract attributes from ":@" property
+  const attrValues = extractAttributeValues(tagObj[':@'], options);
+
+  // Push resolved tag to matcher WITH attributes
+  yield* liftXml(matcher.push(tagName, attrValues));
+
+  // Check if this is a stop node using Expression matching
+  const isStopNode = yield* checkStopNode(matcher, ctx.stopNodeExpressions);
+
+  // Text, CDATA, comment and processing-instruction nodes stand outside the element form: they write into
+  // the flow of the output and leave no element for a body to be wrapped in.
+  const standalone = yield* renderOrderedStandalone(tagObj, rawTagName, tagName, isStopNode, isPreviousElementTag, ctx);
+  if (standalone !== null) {
+    yield* liftXml(matcher.pop());
+    return standalone;
+  }
+
+  const xmlStr = yield* renderOrderedElement(tagObj, rawTagName, tagName, isStopNode, ctx);
+  yield* liftXml(matcher.pop());
+  return { xmlStr, isPreviousElementTag: true };
+});
+
+/**
+ * @description A node's tag name, resolved through `sanitizeName` unless the name is one of the ordered form's own conventions. Special names are exempt: internal
+ * conventions and PI tags are not user-supplied XML element names, and a resolver cannot repair a name it was never meant to see.
+ *
+ * @param rawTagName - The node's tag name as written.
+ * @param ctx - The level's walk context.
+ *
+ * @returns An effect producing the name to write. Fails with the `NameResolutionFailed` reason when a configured `sanitizeName` throws.
+ */
+const resolveOrderedName = Effect.fnUntraced(function* (rawTagName: string, ctx: OrderedWalkContext): Effect.fn.Return<string, BuilderError> {
+  const { options, matcher } = ctx;
+  const isSpecialName =
+    rawTagName === options.textNodeName || rawTagName === options.cdataPropName || rawTagName === options.commentPropName || rawTagName[0] === '?';
+
+  return isSpecialName ? rawTagName : yield* resolveTagName(rawTagName, false, options, matcher, ctx.qNameValidator);
+});
+
+/**
+ * @description Render the four node kinds that stand outside the element form. Text and CDATA are the two that sit inline, sharing the rule that a line break
+ * precedes them only when the previous node was an element; a comment and a processing instruction each always start their own line. A comment and a
+ * processing instruction each leave the flag set, because both are block-shaped to whatever follows.
+ *
+ * @param tagObj - The node.
+ * @param rawTagName - The node's tag name as written, which is the key its content lives under.
+ * @param tagName - The node's resolved tag name, which selects the form.
+ * @param isStopNode - Whether the node is copied through verbatim.
+ * @param isPreviousElementTag - Whether the node before this one was an element.
+ * @param ctx - The level's walk context.
+ *
+ * @returns An effect producing what the node appends and what the flag becomes next, or `null` when the node is an element after all. Fails with the
+ *   `ValueProcessingFailed` or `NameResolutionFailed` reason, propagated from whichever branch it takes.
+ */
+const renderOrderedStandalone = Effect.fnUntraced(function* (
+  tagObj: OrderedTag,
+  rawTagName: string,
+  tagName: string,
+  isStopNode: boolean,
+  isPreviousElementTag: boolean,
+  ctx: OrderedWalkContext
+): Effect.fn.Return<OrderedNodeOutput | null, BuilderError> {
+  const { options, indentation, matcher } = ctx;
+
+  if (tagName === options.textNodeName) {
+    const text = yield* renderOrderedText(tagObj[rawTagName], tagName, isStopNode, options);
+    return { xmlStr: lineBreakBefore(isPreviousElementTag, indentation) + text, isPreviousElementTag: false };
+  }
+
+  if (tagName === options.cdataPropName) {
+    const val = firstTextChild(tagObj, rawTagName, options);
+    return { xmlStr: lineBreakBefore(isPreviousElementTag, indentation) + `<![CDATA[${safeCdata(val)}]]>`, isPreviousElementTag: false };
+  }
+
+  if (tagName === options.commentPropName) {
+    const val = firstTextChild(tagObj, rawTagName, options);
+    return { xmlStr: indentation + `<!--${safeComment(val)}-->`, isPreviousElementTag: true };
+  }
+
+  if (tagName[0] === '?') {
+    const attStr = yield* attrToStr(tagObj[':@'], options, isStopNode, matcher, ctx.qNameValidator);
+    const tempInd = tagName === '?xml' ? '' : indentation;
+    // Text node content on PI/XML declaration tags is intentionally ignored.
+    // Only attributes are valid on these tags per the XML spec.
+    return { xmlStr: tempInd + `<${tagName}${attStr}?>`, isPreviousElementTag: true };
+  }
+
+  return null;
+});
+
+/**
+ * @description The line break that precedes a node rendered in the flow of the output, or nothing when the previous node was not an element. Text and CDATA share
+ * the rule; an element and a comment always have something before them.
+ *
+ * @param isPreviousElementTag - Whether the previous node was an element.
+ * @param indentation - Line separator, or `''` when not formatting.
+ *
+ * @returns The indentation to prepend, or `''`.
+ */
+function lineBreakBefore(isPreviousElementTag: boolean, indentation: string): string {
+  return isPreviousElementTag ? indentation : '';
+}
+
+/**
+ * @description A text node of the ordered form, through the configured `tagValueProcessor` and entity substitution unless the node is a stop node copied through
+ * verbatim. Nothing encloses it, so the value goes into the stream as it stands.
+ *
+ * @param value - The node's text.
+ * @param tagName - The node's resolved tag name, which is what the processor is handed.
+ * @param isStopNode - Whether the node is copied through verbatim.
+ * @param options - The resolved options.
+ *
+ * @returns An effect producing the text. Fails with the `ValueProcessingFailed` reason if the configured `tagValueProcessor` does.
+ */
+const renderOrderedText = Effect.fnUntraced(function* (
+  value: unknown,
+  tagName: string,
+  isStopNode: boolean,
+  options: ResolvedXmlBuilderOptions
+): Effect.fn.Return<string, BuilderError> {
+  let tagText = value;
+  if (!isStopNode) {
+    const processed = yield* runValueProcessor('tagValueProcessor', tagName, () => options.tagValueProcessor!(tagName, tagText));
+    tagText = substituteEntities(processed, options);
+  }
+  return valToStr(tagText);
+});
+
+/**
+ * @description An element node of the ordered form: its opening half, its body, and its closing half.
+ *
+ * @param tagObj - The node.
+ * @param rawTagName - The node's tag name as written, which is the key its children live under.
+ * @param tagName - The resolved tag name.
+ * @param isStopNode - Whether the whole node is copied through verbatim.
+ * @param ctx - The level's walk context.
+ *
+ * @returns An effect producing the rendered element. Fails with the `MaxNestingExceeded` or `NameResolutionFailed` reason, propagated from the
+ *   recursion into the body.
+ */
+const renderOrderedElement = Effect.fnUntraced(function* (
+  tagObj: OrderedTag,
+  rawTagName: string,
+  tagName: string,
+  isStopNode: boolean,
+  ctx: OrderedWalkContext
+): Effect.fn.Return<string, BuilderError> {
+  const { options, indentation, matcher } = ctx;
+
+  let newIdentation = indentation;
+  if (newIdentation !== '') {
+    newIdentation += options.indentBy;
+  }
+
+  // Pass isStopNode to attr_to_str so attributes are also not processed for stopNodes
+  const attStr = yield* attrToStr(tagObj[':@'], options, isStopNode, matcher, ctx.qNameValidator);
+  const tagStart = indentation + '<' + tagName + attStr;
+
+  // If this is a stopNode, get raw content without processing
+  let tagValue: string;
+  if (isStopNode) {
+    tagValue = getRawContent(tagObj[rawTagName], options);
+  } else {
+    tagValue = yield* arrToStr(tagObj[rawTagName], options, newIdentation, matcher, ctx.stopNodeExpressions, ctx.qNameValidator);
+  }
+
+  return closeOrderedElement(tagStart, tagName, tagValue, options, indentation);
+});
+
+/**
+ * @description The closing half of an element: unpaired, empty, or wrapping a body. Three outcomes rather than one because the body decides two of them, and the
+ * body is not known until the level under it has been walked.
+ *
+ * @param tagStart - Everything up to and including the tag name and its attributes.
+ * @param tagName - The resolved tag name.
+ * @param tagValue - The rendered body.
+ * @param options - The resolved options.
+ * @param indentation - Line separator, or `''` when not formatting.
+ *
+ * @returns The closing half, appended to `tagStart`.
+ */
+function closeOrderedElement(tagStart: string, tagName: string, tagValue: string, options: ResolvedXmlBuilderOptions, indentation: string): string {
+  if (options.unpairedTags.indexOf(tagName) !== -1) {
+    if (options.suppressUnpairedNode) return tagStart + '>';
+    else return tagStart + '/>';
+  }
+  if ((!tagValue || tagValue.length === 0) && options.suppressEmptyNode) return tagStart + '/>';
+  // A body that already ends in a closing bracket is a subtree, not text: it stays where it was written.
+  if (tagValue && tagValue.endsWith('>')) return tagStart + `>${tagValue}${indentation}</${tagName}>`;
+  return tagStart + '>' + indentOrderedBody(tagValue, options, indentation) + `</${tagName}>`;
+}
+
+/**
+ * @description Where a nested body sits on its own element's line. A body that itself contains markup is indented onto its own line rather than inlined after the
+ * tag, because inlining it would produce output no parser reads back the same way.
+ *
+ * @param tagValue - The rendered body.
+ * @param options - The resolved options.
+ * @param indentation - Line separator, or `''` when not formatting.
+ *
+ * @returns The body, indented if it contains markup and formatting is on.
+ */
+function indentOrderedBody(tagValue: string, options: ResolvedXmlBuilderOptions, indentation: string): string {
+  if (tagValue && indentation !== '' && (tagValue.includes('/>') || tagValue.includes('</'))) {
+    return indentation + options.indentBy + tagValue + indentation;
+  }
+  return tagValue;
 }
 
 /**
@@ -304,7 +464,8 @@ function firstTextChild(tagObj: OrderedTag, tagName: string, options: ResolvedXm
 }
 
 /**
- * @description Extract the `:@` attributes of an ordered node into the plain, escaped shape the path matcher wants.
+ * @description Extract the `:@` attributes of an ordered node into the plain, escaped shape the path matcher wants. The `':@'` map is by definition all prefixed
+ * keys, so its resolver can strip the prefix unconditionally.
  *
  * @param attrMap - The `:@` object, or absent.
  * @param options - The resolved options.
@@ -314,18 +475,7 @@ function firstTextChild(tagObj: OrderedTag, tagName: string, options: ResolvedXm
 function extractAttributeValues(attrMap: unknown, options: ResolvedXmlBuilderOptions): Record<string, string> | null {
   if (!attrMap || typeof attrMap !== 'object' || options.ignoreAttributes) return null;
 
-  const attrValues: Record<string, string> = {};
-  let hasAttrs = false;
-
-  for (const attr in attrMap as Record<string, unknown>) {
-    if (!Object.prototype.hasOwnProperty.call(attrMap, attr)) continue;
-    // Remove the attribute prefix to get clean attribute name
-    const cleanAttrName = attr.startsWith(options.attributeNamePrefix) ? attr.substring(options.attributeNamePrefix.length) : attr;
-    attrValues[cleanAttrName] = escapeAttribute((attrMap as Record<string, unknown>)[attr]);
-    hasAttrs = true;
-  }
-
-  return hasAttrs ? attrValues : null;
+  return collectAttributeValues(attrMap as Record<string, unknown>, key => stripAttributePrefix(key, options.attributeNamePrefix));
 }
 
 /**
@@ -338,11 +488,7 @@ function extractAttributeValues(attrMap: unknown, options: ResolvedXmlBuilderOpt
  */
 function getRawContent(arr: unknown, options: ResolvedXmlBuilderOptions): string {
   if (!Array.isArray(arr)) {
-    // Non-array values return as-is
-    if (arr !== undefined && arr !== null) {
-      return valToStr(arr);
-    }
-    return '';
+    return renderRawTextValue(arr);
   }
 
   let content = '';
@@ -351,32 +497,56 @@ function getRawContent(arr: unknown, options: ResolvedXmlBuilderOptions): string
     if (!item || typeof item !== 'object') continue;
     const itemNode = item as OrderedTag;
     const tagName = propName(itemNode);
+    if (tagName === undefined) continue;
 
-    if (tagName === options.textNodeName) {
-      // Raw text content - NO processing, NO entity replacement
-      content += valToStr(itemNode[tagName]);
-    } else if (tagName === options.cdataPropName) {
-      // CDATA content
-      content += valToStr(firstTextChild(itemNode, tagName, options));
-    } else if (tagName === options.commentPropName) {
-      // Comment content
-      content += valToStr(firstTextChild(itemNode, tagName, options));
-    } else if (tagName && tagName[0] === '?') {
-      // Processing instruction - skip for stopNodes
-      continue;
-    } else if (tagName) {
-      // Nested tags within stopNode — no sanitizeName, content is raw
-      const attStr = attrToStrRaw((itemNode as OrderedTag)[':@'], options);
-      const nestedContent = getRawContent(itemNode[tagName], options);
-
-      if (!nestedContent || nestedContent.length === 0) {
-        content += `<${tagName}${attStr}/>`;
-      } else {
-        content += `<${tagName}${attStr}>${nestedContent}</${tagName}>`;
-      }
-    }
+    content += renderRawOrderedChild(itemNode, tagName, options);
   }
+
   return content;
+}
+
+/**
+ * @description A non-array stop node's body: whatever is there, as it stands. Nothing is escaped, so this is the `undefined`/`null` guard the array walk opens
+ * with, and nothing more.
+ *
+ * @param value - The non-array body.
+ *
+ * @returns The raw text, or `''` for `undefined` and `null`.
+ */
+function renderRawTextValue(value: unknown): string {
+  // Non-array values return as-is
+  if (value !== undefined && value !== null) {
+    return valToStr(value);
+  }
+  return '';
+}
+
+/**
+ * @description One child of a stop node, verbatim. The content kinds are read at the depth the parser wrote them, and a processing instruction is dropped rather
+ * than re-emitted: the subtree is already XML, and a `?`-tag inside it would be a second declaration of something the outer stop node declared.
+ *
+ * @param itemNode - The child node.
+ * @param tagName - The child's tag name.
+ * @param options - The resolved options.
+ *
+ * @returns The raw content this child contributes, or `''` when it contributes none.
+ */
+function renderRawOrderedChild(itemNode: OrderedTag, tagName: string, options: ResolvedXmlBuilderOptions): string {
+  if (tagName === options.textNodeName) {
+    // Raw text content - NO processing, NO entity replacement
+    return valToStr(itemNode[tagName]);
+  }
+
+  if (tagName === options.cdataPropName || tagName === options.commentPropName) {
+    // CDATA and comment content, which the parser nests one level deeper than text
+    return valToStr(firstTextChild(itemNode, tagName, options));
+  }
+
+  // Processing instruction - skip for stopNodes
+  if (tagName[0] === '?') return '';
+
+  // Nested tags within stopNode — no sanitizeName, content is raw
+  return renderRawTag(tagName, attrToStrRaw(itemNode[':@'], options), getRawContent(itemNode[tagName], options));
 }
 
 /**
@@ -388,20 +558,9 @@ function getRawContent(arr: unknown, options: ResolvedXmlBuilderOptions): string
  * @returns The attribute string.
  */
 function attrToStrRaw(attrMap: unknown, options: ResolvedXmlBuilderOptions): string {
-  let attrStr = '';
-  if (attrMap && typeof attrMap === 'object' && !options.ignoreAttributes) {
-    for (const attr in attrMap as Record<string, unknown>) {
-      if (!Object.prototype.hasOwnProperty.call(attrMap, attr)) continue;
-      // For stopNodes, use raw value without processing
-      const attrVal = (attrMap as Record<string, unknown>)[attr];
-      if (attrVal === true && options.suppressBooleanAttributes) {
-        attrStr += ` ${attr.substring(options.attributeNamePrefix.length)}`;
-      } else {
-        attrStr += ` ${attr.substring(options.attributeNamePrefix.length)}="${escapeAttribute(attrVal)}"`;
-      }
-    }
-  }
-  return attrStr;
+  if (!attrMap || typeof attrMap !== 'object' || options.ignoreAttributes) return '';
+
+  return renderStopNodeAttributes(attrMap as Record<string, unknown>, key => stripAttributePrefix(key, options.attributeNamePrefix), options);
 }
 
 /**
@@ -433,88 +592,38 @@ function propName(obj: OrderedTag): string | undefined {
  *
  * @returns The attribute string.
  */
-function attrToStr(
+const attrToStr = Effect.fnUntraced(function* (
   attrMap: unknown,
   options: ResolvedXmlBuilderOptions,
   isStopNode: boolean,
   matcher: Matcher,
   qNameValidator: NameValidator
-): Effect.Effect<string, BuilderError> {
-  return Effect.gen(function* () {
-    let attrStr = '';
-    if (attrMap && typeof attrMap === 'object' && !options.ignoreAttributes) {
-      for (const attr in attrMap as Record<string, unknown>) {
-        if (!Object.prototype.hasOwnProperty.call(attrMap, attr)) continue;
+): Effect.fn.Return<string, BuilderError> {
+  if (!attrMap || typeof attrMap !== 'object' || options.ignoreAttributes) return '';
 
-        // Strip prefix to get the clean XML attribute name, then optionally sanitize it
-        const cleanAttrName = attr.substring(options.attributeNamePrefix.length);
-        const resolvedAttrName = isStopNode
-          ? cleanAttrName // stopNodes are raw — skip sanitizeName for attr names too
-          : yield* resolveTagName(cleanAttrName, true, options, matcher, qNameValidator);
+  const entries = attrMap as Record<string, unknown>;
+  let attrStr = '';
 
-        let attrVal: unknown;
-        if (isStopNode) {
-          // For stopNodes, use raw value without any processing
-          attrVal = (attrMap as Record<string, unknown>)[attr];
-        } else {
-          // Normal processing: apply attributeValueProcessor and entity replacement
-          const processed = yield* runValueProcessor('attributeValueProcessor', attr, () =>
-            options.attributeValueProcessor!(attr, (attrMap as Record<string, unknown>)[attr])
-          );
-          attrVal = replaceEntitiesValue(processed, options);
-        }
+  for (const attr in entries) {
+    if (!Object.prototype.hasOwnProperty.call(entries, attr)) continue;
 
-        if (attrVal === true && options.suppressBooleanAttributes) {
-          attrStr += ` ${resolvedAttrName}`;
-        } else {
-          attrStr += ` ${resolvedAttrName}="${escapeAttribute(attrVal)}"`;
-        }
-      }
-    }
-    return attrStr;
-  });
-}
+    // Strip prefix to get the clean XML attribute name, then optionally sanitize it
+    const cleanAttrName = attr.substring(options.attributeNamePrefix.length);
+    // stopNodes are raw — skip sanitizeName for attr names too
+    const resolvedAttrName = isStopNode ? cleanAttrName : yield* resolveTagName(cleanAttrName, true, options, matcher, qNameValidator);
 
-/**
- * @description Whether the matcher's current position matches any stop-node pattern.
- *
- * @param matcher - The live path.
- * @param stopNodeExpressions - The pre-compiled patterns.
- *
- * @returns Whether this node should be copied through verbatim.
- */
-function checkStopNode(matcher: Matcher, stopNodeExpressions: Expression[]): Effect.Effect<boolean, BuilderError> {
-  return Effect.gen(function* () {
-    if (!stopNodeExpressions || stopNodeExpressions.length === 0) return false;
+    const rawValue = entries[attr];
+    // For stopNodes, use raw value without any processing; otherwise apply
+    // attributeValueProcessor and entity replacement
+    const attrVal = isStopNode
+      ? rawValue
+      : substituteEntities(
+          yield* runValueProcessor('attributeValueProcessor', attr, () => options.attributeValueProcessor!(attr, rawValue)),
+          options
+        );
 
-    for (let i = 0; i < stopNodeExpressions.length; i++) {
-      const expression = stopNodeExpressions[i];
-      if (expression !== undefined && (yield* liftXml(matcher.matches(expression)))) {
-        return true;
-      }
-    }
-    return false;
-  });
-}
-
-/**
- * @description Apply the configured entity substitutions to a value, leaving a non-string untouched. Only strings are substituted, and the return type mirrors the
- * input: a boolean stays a boolean. That is load-bearing rather than incidental — the boolean-attribute check downstream is `value === true`, so
- * stringifying here first would make `suppressBooleanAttributes` dead on this path. Callers that want text stringify with {@link valToStr} themselves.
- *
- * @param textValue - The value.
- * @param options - The resolved options.
- *
- * @returns The substituted string, or `textValue` unchanged.
- */
-function replaceEntitiesValue(textValue: unknown, options: ResolvedXmlBuilderOptions): unknown {
-  if (typeof textValue === 'string' && textValue.length > 0 && options.processEntities) {
-    let result = textValue;
-    for (let i = 0; i < options.entities.length; i++) {
-      const entity = options.entities[i];
-      if (entity) result = result.replace(entity.regex, entity.val);
-    }
-    return result;
+    attrStr += attributePair(resolvedAttrName, attrVal, options);
   }
-  return textValue;
-}
+
+  return attrStr;
+});
