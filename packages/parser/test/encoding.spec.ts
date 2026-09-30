@@ -62,12 +62,18 @@ describe('Encoding support', () => {
     expect(result.root).toBe('hi');
   });
 
-  it('index for multi-byte content reflects raw byte offset (no char correction)', () => {
-    // Position reporting is index-only now, and for BufferSource that index
-    // is a byte offset — "café" (4 chars/5 bytes) and "cafe" (4 chars/4
-    // bytes) are expected to report indices that differ by exactly the
-    // extra byte the accented character takes, not the same corrected
-    // "character column" the old line/col system used to produce.
+  it('index for byte input is a character offset, so it lines up with the decoded text', () => {
+    // Position reporting is index-only, and that index is now a CHARACTER
+    // offset for every input — string, bytes or fed chunks — because the bytes
+    // are decoded before scanning begins. "café" and "cafe" are both four
+    // characters, so a mismatch at the same place reports the same index.
+    //
+    // This used to be a byte offset, and the two documents differed by one
+    // because 'é' occupies two bytes. That was a trap rather than a feature: a
+    // byte offset into a UTF-8 document cannot be used to slice that document,
+    // so any caller who tried to point at the reported position got a character
+    // boundary in the wrong place, or a replacement character. The index is now
+    // directly usable against the decoded text.
     const parseAndCatch = (xml: string): ParseError | null => {
       const parser = makeParser();
       try {
@@ -81,10 +87,23 @@ describe('Encoding support', () => {
     const withAsciiOnly = parseAndCatch(`<root>cafe</wrong></root>`);
     expect(withMultiByte).not.toBeNull();
     expect(withAsciiOnly).not.toBeNull();
-    // Both documents must fail with the same error; only the reported byte
-    // offset differs, by exactly the one extra byte the accented char takes.
+    // Both documents must fail with the same error at the same character
+    // position, regardless of how many bytes that position spans.
     expect(withMultiByte!.code).toBe(withAsciiOnly!.code);
-    expect(withMultiByte!.index).toBe(withAsciiOnly!.index! + 1);
+    expect(withMultiByte!.index).toBe(withAsciiOnly!.index);
+    // And byte input now reports the same index the string path reports, which
+    // is the property that makes the offset usable.
+    const parser = makeParser();
+    const strError = (() => {
+      try {
+        runParser(parser.parse(`<root>café</wrong></root>`));
+        return null;
+      } catch (e) {
+        return e as ParseError;
+      }
+    })();
+    expect(strError).not.toBeNull();
+    expect(withMultiByte!.index).toBe(strError!.index);
   });
 
   it('supports a custom-registered encoding via decoding.customDecoders', () => {

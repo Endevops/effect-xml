@@ -1,14 +1,12 @@
-import type { Readable } from 'node:stream';
-
 import { Effect } from 'effect';
-import { Buffer } from 'node:buffer';
 
+import type { ReadableLike } from './input-source/stream-source.ts';
 import type { ParseErrorEntry } from './internal/parser-types.ts';
 import type { ResolvedOptions, X2jOptions } from './options.ts';
 
 import EncodingRegistry, { defaultEncodingRegistry } from './encoding/encoding-registry.js';
 import FeedableSource from './input-source/feedable-source.js';
-import StreamSource from './input-source/stream-source.js';
+import StreamSource, { isReadableStream } from './input-source/stream-source.js';
 import { buildOptions } from './options-builder.js';
 import { ErrorCode, InvalidInput, InvalidStream, NotStreaming, type ParseError, isParseError, toParseError } from './parse-error.js';
 import { absolutePosition } from './util.js';
@@ -130,25 +128,25 @@ export default class XMLParser {
   }
 
   /**
-   * @description Parse an XML string or Buffer and produce a JS object.
+   * @description Parse an XML string or byte array and produce a JS object.
    *
    * @param xmlData - The document, as a string or as bytes. Bytes are routed through the encoding-aware path so a configured `decoding.encoding`
    *   isn't silently ignored.
    *
    * @returns An effect producing the built output. Fails with a `ParseError` on any well-formedness or limit violation.
    */
-  parse(xmlData: string | Buffer | ArrayBufferView | { toString(): string }): Effect.Effect<unknown, ParseError> {
-    if (Buffer.isBuffer(xmlData) || ArrayBuffer.isView(xmlData)) {
+  parse(xmlData: string | ArrayBufferView | { toString(): string }): Effect.Effect<unknown, ParseError> {
+    if (ArrayBuffer.isView(xmlData)) {
       // Route through the encoding-aware path (auto-detect / configured
-      // `decoding.encoding`) instead of an unconditional utf8 toString() —
+      // `decoding.encoding`) instead of an unconditional utf8 decode —
       // otherwise a non-utf8 `decoding.encoding` option would silently be
-      // ignored for Buffer input given directly to parse().
+      // ignored for byte input given directly to parse().
       return this.parseBytesArr(xmlData);
     } else if (typeof xmlData !== 'string') {
       if (xmlData && typeof xmlData.toString === 'function') {
         xmlData = xmlData.toString();
       } else {
-        return new InvalidInput({ option: 'xmlData', received: typeof xmlData, message: 'XML data must be a string or Buffer.' });
+        return new InvalidInput({ option: 'xmlData', received: typeof xmlData, message: 'XML data must be a string or a byte array.' });
       }
     }
 
@@ -175,7 +173,11 @@ export default class XMLParser {
     if (!ArrayBuffer.isView(xmlData)) {
       return new InvalidInput({ option: 'xmlData', received: typeof xmlData, message: 'XML data must be a Uint8Array or ArrayBufferView.' });
     }
-    const bytes = Buffer.from(xmlData.buffer, xmlData.byteOffset, xmlData.byteLength);
+    // A view, not a copy: `Buffer.from(buffer, offset, length)` used to do the same
+    // thing, and `new Uint8Array(...)` over the same three arguments is the identical
+    // zero-copy window onto the caller's memory. `BufferSource` decodes it
+    // immediately and never retains it, so there is no aliasing hazard.
+    const bytes = new Uint8Array(xmlData.buffer, xmlData.byteOffset, xmlData.byteLength);
 
     return Effect.try({
       try: () => {
@@ -201,7 +203,7 @@ export default class XMLParser {
    * @returns An effect producing the built output. Fails with `INVALID_STREAM` if the argument is not a Node.js Readable stream, and with any parse
    *   error the stream path hits.
    */
-  parseStream(readable: NodeJS.ReadableStream): Effect.Effect<unknown, ParseError> {
+  parseStream(readable: ReadableLike): Effect.Effect<unknown, ParseError> {
     if (!isReadableStream(readable)) {
       return new InvalidStream({ message: 'parseStream() requires a Node.js Readable stream.' });
     }
@@ -219,7 +221,7 @@ export default class XMLParser {
       const fail = (err: unknown) => {
         if (!settled) {
           settled = true;
-          readable.destroy(); // stop further data/end events and free the handle
+          readable.destroy?.(); // stop further data/end events and free the handle
           resume(Effect.fail(toParseError(err)));
         }
       };
@@ -312,10 +314,10 @@ export default class XMLParser {
    *
    * @param data - The next chunk, as a string or as bytes.
    *
-   * @returns An effect producing `this`, for chaining. Fails with `DATA_MUST_BE_STRING` if data is not a string or Buffer, and with any parse error
-   *   the pass over the accumulated input hit.
+   * @returns An effect producing `this`, for chaining. Fails with `DATA_MUST_BE_STRING` if data is not a string or a byte array, and with any parse
+   *   error the pass over the accumulated input hit.
    */
-  feed(data: string | Buffer): Effect.Effect<XMLParser, ParseError> {
+  feed(data: string | Uint8Array): Effect.Effect<XMLParser, ParseError> {
     return Effect.try({
       try: () => {
         if (!this.#isFeeding) {
@@ -323,10 +325,10 @@ export default class XMLParser {
         }
         const source = this.#feedSource as FeedableSource;
 
-        // Pass raw data straight through — do NOT pre-convert Buffers to string
-        // here. FeedableSource.feed() decodes Buffers via a persistent stateful
-        // decoder so a multi-byte UTF-8 character split across two feed()
-        // calls decodes correctly; converting each chunk with .toString() first
+        // Pass raw data straight through — do NOT pre-convert byte chunks to
+        // string here. FeedableSource.feed() decodes them via a persistent
+        // stateful decoder so a multi-byte UTF-8 character split across two
+        // feed() calls decodes correctly; converting each chunk on its own
         // (as this used to do) decodes each chunk in isolation and corrupts a
         // split character. feed() itself validates the type and reports
         // DATA_MUST_BE_STRING for anything unsupported.
@@ -473,18 +475,6 @@ export default class XMLParser {
   }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * @description Structural check for "is this a Node.js Readable stream", done by capability rather than `instanceof` so a duck-typed stream (or one from a
- * duplicated `node:stream` copy) is still accepted.
- */
-function isReadableStream(value: unknown): value is Readable {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof (value as Readable).read === 'function' &&
-    typeof (value as Readable).on === 'function' &&
-    typeof (value as Readable).readableEnded === 'boolean'
-  );
-}
+// `isReadableStream` now lives in `input-source/stream-source.ts`, next to the
+// `ReadableLike` type it narrows to, so the runtime check and the type it
+// produces are read together rather than drifting apart across two files.

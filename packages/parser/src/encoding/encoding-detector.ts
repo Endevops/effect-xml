@@ -46,7 +46,7 @@ export interface BomMatch {
  *
  * @throws {ParseError} `ENCODING_MISMATCH` when the BOM and the declaration disagree.
  */
-export function sniff(bytes: Buffer, registry: EncodingRegistry): EncodingDetection {
+export function sniff(bytes: Uint8Array, registry: EncodingRegistry): EncodingDetection {
   const bomMatch = matchBom(bytes, registry);
   const declaredEncoding = sniffDeclaration(bytes, bomMatch ? bomMatch.bomLength : 0);
 
@@ -67,20 +67,27 @@ export function sniff(bytes: Buffer, registry: EncodingRegistry): EncodingDetect
   return { encoding: 'utf8', bomLength: 0, declaredEncoding: null };
 }
 
-function matchBom(bytes: Buffer, registry: EncodingRegistry): BomMatch | null {
+function matchBom(bytes: Uint8Array, registry: EncodingRegistry): BomMatch | null {
   for (const descriptor of registry.bomCandidates()) {
-    const sig = descriptor.bomBytes as Buffer;
-    if (bytes.length >= sig.length && sig.equals(bytes.subarray(0, sig.length))) {
-      return { descriptor, bomLength: sig.length };
-    }
+    const sig = descriptor.bomBytes as Uint8Array;
+    if (bytes.length < sig.length) continue;
+    // Byte-by-byte compare. A BOM is at most 4 bytes, so this runs at most a
+    // handful of times per parse and the loop is not worth optimising further.
+    let i = 0;
+    while (i < sig.length && sig[i] === bytes[i]) i++;
+    if (i === sig.length) return { descriptor, bomLength: sig.length };
   }
   return null;
 }
 
-function sniffDeclaration(bytes: Buffer, offset: number): string | null {
+function sniffDeclaration(bytes: Uint8Array, offset: number): string | null {
   // ASCII-decode a bounded prefix; non-ASCII-safe encodings (UTF-16 etc.) are
-  // already handled via BOM before we'd ever reach here without one.
-  const prefix = bytes.subarray(offset, Math.min(bytes.length, offset + DECL_PEEK_BYTES)).toString('latin1');
+  // already handled via BOM before we'd ever reach here without one. The
+  // declaration's own bytes are ASCII in every encoding that reaches this
+  // function, so latin1 (a byte-preserving decode) is exactly right.
+  const end = Math.min(bytes.length, offset + DECL_PEEK_BYTES);
+  const decoder = new TextDecoder('iso-8859-1');
+  const prefix = decoder.decode(bytes.subarray(offset, end));
   const declMatch = prefix.match(/^\s*<\?xml\s+[^?]*\?>/);
   if (!declMatch) return null;
   const encMatch = declMatch[0].match(/encoding\s*=\s*["']([^"']+)["']/i);

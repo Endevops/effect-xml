@@ -98,7 +98,7 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
     it('throws DATA_MUST_BE_STRING for unsupported input', () => {
       const source = new FeedableSource();
       const noToString = Object.create(null); // no .toString at all
-      expect(() => source.feed(noToString)).toThrowError(/string or Buffer/);
+      expect(() => source.feed(noToString)).toThrowError(/string or a byte array/);
     });
   });
 

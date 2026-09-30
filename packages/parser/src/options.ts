@@ -277,10 +277,11 @@ export interface FeedableOptions {
 }
 
 /**
- * @description Shape a custom decoder must satisfy — matches Node's own StringDecoder.
+ * @description Shape a custom decoder must satisfy. A `Buffer` is a `Uint8Array`, so a decoder written for one satisfies this type, and the built-in decoders are
+ * built on the global `TextDecoder` rather than Node's `StringDecoder` so they work in a browser too.
  */
 export interface EncodingDecoder {
-  write(chunk: Buffer): string;
+  write(chunk: Uint8Array): string;
   end(): string;
 }
 
@@ -341,8 +342,9 @@ export interface EncodingDescriptor {
    */
   createDecoder: () => EncodingDecoder;
   /**
-   * @description Set to true only if an ASCII delimiter byte (<,>,",') can never occur as part of one of this encoding's multi-byte sequences. Getting this wrong
-   * causes BufferSource to misread tag/attribute boundaries. Default: false (safe, slightly slower decode-first path).
+   * @description True if an ASCII delimiter byte (<,>,",') can never occur as part of one of this encoding's multi-byte sequences. Retained as descriptive
+   * metadata; it no longer changes how the document is read, because every encoding is decoded before scanning regardless (see
+   * `encoding-profile.ts`). Default: false.
    */
   selfSynchronizing?: boolean;
   /**
@@ -353,7 +355,7 @@ export interface EncodingDescriptor {
    * @description Byte-order-mark signature for auto-detection. Omit (or pass `null`) for an encoding that has none — it is then never auto-detected, only selected
    * by name.
    */
-  bomBytes?: Buffer | null;
+  bomBytes?: Uint8Array | null;
   aliases?: string[];
 }
 

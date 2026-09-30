@@ -160,7 +160,7 @@ export class NotStreaming extends Schema.TaggedError<NotStreaming>()('NOT_STREAM
 }
 
 /**
- * @description `feed()` was handed something that is neither a string nor a `Buffer`.
+ * @description `feed()` was handed something that is neither a string nor a byte array.
  */
 export class DataMustBeString extends Schema.TaggedError<DataMustBeString>()('DATA_MUST_BE_STRING', {
   /**

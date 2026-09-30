@@ -3,55 +3,56 @@ import type { BufferSourceOptions } from '#/input-source/buffer-source-options.t
 import type { EncodingProfile } from '../encoding/encoding-profile.ts';
 import type { InputSourceLike } from './input-source.ts';
 
-import { createByteScanStrategy, decodeCharAtUtf8 } from '../encoding/scan-strategy/byte-scan-strategy.js';
+import { createCharScanStrategy } from '../encoding/scan-strategy/char-scan-strategy.js';
+import { createTextDecoderAdapter } from '../encoding/text-decoder-adapter.js';
 import { QUOTE_PAIRS_CAPACITY } from '../util.js';
 
-// Zero-config default when no profile is supplied (e.g. tests/callers that
-// construct BufferSource directly rather than through XMLParser): UTF-8
-// byte-scan. Identical output/cost to the pre-encoding-feature code for pure
-// ASCII content (the common case) and correctly decodes multi-byte UTF-8,
-// which the old raw fromCharCode() path did not.
-const DEFAULT_SCAN_STRATEGY = createByteScanStrategy(decodeCharAtUtf8, 'utf8');
-
 /**
- * @description BufferSource — input source backed by a Node.js Buffer (byte array).
+ * @description BufferSource — input source backed by a byte array.
+ *
+ * ### Bytes in, string out
+ *
+ * The bytes are decoded once, in the constructor, and every read after that works on a JS string — the same `CharScanStrategy` `StringSource` uses.
+ * This used to take a byte-scan fast path for self-synchronizing encodings, avoiding the decoded string, but it measured slower than decoding up
+ * front (588 ms vs 508 ms on a 4.5 MiB document) because it needed 2.5M tiny per-token decodes to avoid one. See `encoding-profile.ts`'s doc for the
+ * full reasoning. The decoded string means every reader, mark and flush rule is the string implementation, and this class holds no `Buffer`.
  *
  * ### Memory reclamation
  *
  * The full document is available from the start, so there is no chunk-boundary risk and `rewindToMark()` is a safe no-op. However, the parsed prefix
- * of the Buffer is held in memory until the parse finishes. `flush()` reclaims it by slicing the Buffer and resetting `startIndex` to 0. The same
- * mark/flush protocol used by `FeedableSource` is implemented here so all reader functions work without source-type conditionals: `markTokenStart()`
- * — save current read position at the start of a token; `rewindToMark()` — no-op for `BufferSource` (full doc always present); `flush()` — drop the
- * already-parsed prefix to free memory. Auto-flush fires inside `updateBufferBoundary()` whenever the processed portion exceeds `flushThreshold` and
- * no token checkpoint is active.
+ * of the decoded string is held in memory until the parse finishes. `flush()` reclaims it by slicing the string and resetting `startIndex` to 0. The
+ * same mark/flush protocol used by `FeedableSource` is implemented here so all reader functions work without source-type conditionals:
+ * `markTokenStart()` — save current read position at the start of a token; `rewindToMark()` — no-op for `BufferSource` (full doc always present);
+ * `flush()` — drop the already-parsed prefix to free memory. Auto-flush fires inside `updateBufferBoundary()` whenever the processed portion exceeds
+ * `flushThreshold` and no token checkpoint is active.
  *
  * ### Index units
  *
- * `startIndex` is a BYTE offset, not a character offset, on the byte-scan path. Callers report positions through `util.absolutePosition()` and never
- * interpret the raw index themselves.
+ * `startIndex` is a CHARACTER offset into the decoded string, not a byte offset. Callers report positions through `util.absolutePosition()` and never
+ * interpret the raw index themselves. A byte-offset reading of this field predates the decode-first design and no longer applies.
  *
  * @implements {InputSourceLike}
  */
 export default class BufferSource implements InputSourceLike {
   /**
-   * @description The live buffer, or — when the profile required decoding first — the decoded string. A prefix is trimmed by `flush()` as the document is
-   * consumed.
+   * @description The decoded document. The input bytes are decoded once in the constructor and this string is what every read scans; `flush()` trims a prefix of
+   * it as the document is consumed.
    */
-  buffer: Buffer | string;
+  buffer: string;
   /**
-   * @description Byte offset into {@link buffer} of the next character to read. Rebased downward by `flush()`.
+   * @description Character offset into {@link buffer} of the next character to read. Rebased downward by `flush()`.
    */
   startIndex: number;
   /**
-   * @description Running total of bytes/chars trimmed off the front by `flush()` so far — the other half of `util.absolutePosition()`.
+   * @description Running total of characters trimmed off the front by `flush()` so far — the other half of `util.absolutePosition()`.
    */
   _baseOffset: number;
   /**
-   * @description Whether already-processed bytes are discarded automatically past {@link flushThreshold}.
+   * @description Whether already-processed characters are discarded automatically past {@link flushThreshold}.
    */
   autoFlush: boolean;
   /**
-   * @description Processed-byte count that triggers an automatic {@link flush}.
+   * @description Processed-character count that triggers an automatic {@link flush}.
    */
   flushThreshold: number;
   /**
@@ -67,11 +68,6 @@ export default class BufferSource implements InputSourceLike {
    * @description How many {@link _quotePairs} slots hold valid data.
    */
   _quotePairsLen: number;
-  /**
-   * @description Whether `_quotePairs` offsets can be reused as indices into the decoded attribute string. `false` for byte-scan + utf8, where a byte offset can
-   * land mid-character once decoded. Set from the profile; see `EncodingProfile.buildProfileForBuffer()`'s doc for the full reasoning.
-   */
-  _quotePairsUsable: boolean;
   /**
    * @description Resolved encoding name, for diagnostics. Set from the profile's descriptor.
    */
@@ -95,24 +91,24 @@ export default class BufferSource implements InputSourceLike {
   declare canRead: (n?: number) => boolean;
 
   /**
-   * @param bytesArr - The full XML document as a Node.js Buffer.
+   * @param bytesArr - The full XML document as a byte array. Accepts a `Buffer`, a `Uint8Array`, or any `ArrayBufferView`; the parser's own entry
+   *   points narrow to those before calling this.
    * @param options.autoFlush - Enable automatic flushing. Default is `true`
-   * @param options.flushThreshold - Flush after this many processed bytes. Default is `1024`
+   * @param options.flushThreshold - Flush after this many processed characters. Default is `1024`
    * @param profile - Resolved encoding profile from `encoding/encoding-profile.ts#buildProfileForBuffer`. Omit for the zero-config UTF-8 default
    *   (used directly by tests/callers that don't go through `XMLParser`).
    */
-  constructor(bytesArr: Buffer, options: BufferSourceOptions = {}, profile: EncodingProfile | null = null) {
+  constructor(bytesArr: Uint8Array, options: BufferSourceOptions = {}, profile: EncodingProfile | null = null) {
     // BOM bytes (if any) are detection artifacts, not content — strip them
     // and exclude from the index.
-    this.buffer = profile?.bomLength ? bytesArr.subarray(profile.bomLength) : bytesArr;
-    if (profile?.decodeFirst) {
-      // Not self-synchronizing (UTF-16, or a custom encoding that didn't
-      // assert selfSynchronizing) — byte-level delimiter scanning is unsafe,
-      // so decode the whole buffer once up front and hand off to
-      // CharScanStrategy, which then behaves exactly like StringSource.
-      const decoder = profile.descriptor.createDecoder();
-      this.buffer = decoder.write(this.buffer as Buffer) + decoder.end();
-    }
+    const body = profile?.bomLength ? bytesArr.subarray(profile.bomLength) : bytesArr;
+
+    // Decode once, up front, and scan the resulting string. Every encoding
+    // takes this path; there is no byte-scan alternative (see the class doc).
+    // The fallback covers a directly-constructed BufferSource with no profile,
+    // which has always meant plain UTF-8.
+    const decoder = profile?.descriptor?.createDecoder() ?? createTextDecoderAdapter('utf-8');
+    this.buffer = decoder.write(body) + decoder.end();
     this.startIndex = 0;
     // Running total of bytes/chars trimmed off the front by flush() so far.
     // See string-source.js's copy of this field / util.js#absolutePosition —
@@ -126,21 +122,16 @@ export default class BufferSource implements InputSourceLike {
     this._tokenStart = -1;
 
     // Reused across every scanTagExpEnd() call, never reallocated. See
-    // string-source.js's copy of this field for the full doc. Populated by
-    // whichever ScanStrategy (byte or char) is assigned below.
+    // string-source.js's copy of this field for the full doc (fixed-capacity
+    // typed array + manual length, not push()).
     this._quotePairs = new Int32Array(QUOTE_PAIRS_CAPACITY);
     this._quotePairsLen = 0;
 
     // Resolve once, dispatch polymorphically from here on — no encoding
     // branching anywhere else in this class. See encoding-profile.js.
-    const strategy = profile?.scanStrategy ?? DEFAULT_SCAN_STRATEGY;
+    const strategy = profile?.scanStrategy ?? createCharScanStrategy();
     Object.assign(this, strategy);
     this.encodingName = profile?.descriptor?.name ?? 'utf8';
-    // See encoding-profile.js's buildProfileForBuffer() doc — false only for
-    // ByteScanStrategy+utf8, where a raw byte offset can land mid-character
-    // once decoded. DEFAULT_SCAN_STRATEGY (used when no profile is supplied)
-    // is itself utf8 byte-scan, so the no-profile default must also be false.
-    this._quotePairsUsable = profile ? profile.quotePairsUsable !== false : false;
   }
 
   // ─── Token-start checkpoint ───────────────────────────────────────────────
@@ -163,16 +154,14 @@ export default class BufferSource implements InputSourceLike {
   }
 
   /**
-   * @description Discard the already-processed prefix of the buffer to free memory. Uses `Buffer.subarray()` (zero-copy view) rather than `Buffer.slice()` for
-   * clarity, then copies to a fresh Buffer so the original allocation can be GC'd. If a token checkpoint is active, the flush origin is moved back to
-   * the checkpoint so the in-progress token is preserved.
+   * @description Discard the already-processed prefix of the buffer to free memory. Slices the decoded string, leaving the original allocation for the GC once no
+   * other references remain. If a token checkpoint is active, the flush origin is moved back to the checkpoint so the in-progress token is
+   * preserved.
    */
   flush() {
     const origin = this._tokenStart >= 0 ? this._tokenStart : this.startIndex;
     if (origin > 0) {
-      // Buffer.from(subarray) copies the bytes so the original large Buffer
-      // can be released by the GC once no other references remain.
-      this.buffer = Buffer.from((this.buffer as Buffer).subarray(origin));
+      this.buffer = this.buffer.slice(origin);
       if (this._tokenStart >= 0) {
         this.startIndex -= origin;
         this._tokenStart = 0;

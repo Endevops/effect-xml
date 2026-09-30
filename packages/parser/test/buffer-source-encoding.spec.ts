@@ -8,7 +8,7 @@ import FeedableSource from '#/input-source/feedable-source.ts';
 import StringSource from '#/input-source/string-source.ts';
 
 describe('BufferSource + EncodingProfile wiring', () => {
-  it('readCh and readStr agree on multi-byte UTF-8 at character boundaries', () => {
+  it('decodes before scanning, so readCh and readStr agree on multi-byte UTF-8', () => {
     const xml = 'café'; // 4 characters, 5 bytes
     const buf = Buffer.from(xml, 'utf8');
     const profile = buildProfileForBuffer(buf, { encoding: 'utf8' });
@@ -23,6 +23,11 @@ describe('BufferSource + EncodingProfile wiring', () => {
     while (source.canRead()) chars.push(source.readCh());
     expect(chars.join('')).toBe('café');
 
+    // The source is a string once constructed, so `startIndex` and every
+    // length argument are CHARACTER counts. Over-long reads clamp rather than
+    // run off the end, which is why the byte count is still safe to pass here.
+    expect(source.buffer).toBe('café');
+    expect(source.buffer.length).toBe(4);
     source.startIndex = 0;
     expect(source.readStr(buf.length)).toBe('café');
 
@@ -31,10 +36,20 @@ describe('BufferSource + EncodingProfile wiring', () => {
     source.readCh();
     source.readCh(); // 'c','a','f'
     const startOfE = source.startIndex;
+    expect(startOfE).toBe(3);
+    // 'é' is one character, so it advances the cursor by ONE — not by the two
+    // bytes it occupies. The byte-scan path this replaced advanced by two and
+    // left startIndex pointing mid-character relative to the decoded text.
     expect(source.readCh()).toBe('é');
-    expect(source.startIndex).toBe(5);
+    expect(source.startIndex).toBe(4);
 
+    // readStr counts characters too. 'é' is the last character, so an
+    // over-long read clamps at the end — which is precisely the proof that the
+    // length is a character count and not a byte count: under the old byte-scan
+    // path readStr(2) from here consumed two BYTES and returned 'é' only because
+    // it had to stop at a character boundary.
     source.startIndex = startOfE;
+    expect(source.readStr(1)).toBe('é');
     expect(source.readStr(2)).toBe('é');
   });
 
@@ -102,28 +117,27 @@ describe('canRead(n) formula — all sources agree, relative to current position
     }
     expect(chars.join('')).toBe('café');
 
-    // 2. Reset and read the same string via readStr with the full byte length
+    // 2. Reset and read the same string via readStr with the full byte length.
+    //    Over-long reads clamp, so passing a byte count is safe even though the
+    //    buffer is now a 4-character string.
     source.startIndex = 0;
-    const fullString = source.readStr(buf.length); // 5 bytes
+    const fullString = source.readStr(buf.length); // 5 bytes requested, 4 available
     expect(fullString).toBe('café');
 
-    // 3. Test a single multi-byte character: 'é' (2 bytes)
+    // 3. A single multi-byte character advances the cursor by ONE, because the
+    //    source decoded to a string before scanning began.
     source.startIndex = 0; // reset
-    // Read first three single-byte chars: 'c', 'a', 'f'
     source.readCh(); // 'c'
     source.readCh(); // 'a'
     source.readCh(); // 'f'
-    // Now at byte offset 3 (after 'caf')
-    const startOfE = source.startIndex; // should be 3
-    // Read 'é' with readCh() – it returns 'é' and advances startIndex by 2
-    const charFromReadCh = source.readCh();
-    expect(charFromReadCh).toBe('é');
-    expect(source.startIndex).toBe(5); // byte offset after é
+    const startOfE = source.startIndex;
+    expect(startOfE).toBe(3);
+    expect(source.readCh()).toBe('é');
+    expect(source.startIndex).toBe(4);
 
-    // Reset to start of é and read via readStr(2)
+    // Reset to start of é and read it back by character count
     source.startIndex = startOfE;
-    const charFromReadStr = source.readStr(2); // 2 bytes = 'é'
-    expect(charFromReadStr).toBe('é');
+    expect(source.readStr(1)).toBe('é');
     // readStr does NOT update startIndex, so it remains at startOfE
     // (but we don't care; we verified the string)
   });

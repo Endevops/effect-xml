@@ -106,21 +106,13 @@ const parser = Effect.runSync(
 );
 ```
 
-The `selfSynchronizing` flag tells the parser whether it’s safe to scan the raw bytes for angle brackets (`<`, `>`, `"`, `'`).  
-**Most multi‑byte encodings are NOT self‑synchronizing** – an ASCII delimiter byte can accidentally appear inside a multi‑byte character, causing the parser to mis‑identify tag boundaries.  
-**Only set `selfSynchronizing: true` if you are absolutely sure** – the default `false` is safe (it decodes everything first, which is slightly slower but correct).
+The `selfSynchronizing` flag describes whether an ASCII delimiter byte can appear inside a multi‑byte character in this encoding. It is **descriptive metadata only** — every encoding is decoded before scanning regardless, so setting it wrong can no longer corrupt tag boundaries. It is kept on `EncodingDescriptor` because callers legitimately want to ask the question; the parser no longer branches on it.
 
-## 4. How It Works Internally (Two Scanning Strategies)
+## 4. How It Works Internally (Decode Once, Then Scan)
 
-The parser has two completely different ways to read your XML, chosen once per document based on the encoding:
+Byte input is decoded to a JavaScript string **once**, at the start of the parse, and all scanning runs over that string. This is the same algorithm the string input path uses, so there is one scanner, not two.
 
-- **Byte‑scanning (fast)** – used for self‑synchronizing encodings (UTF‑8, ASCII, Latin‑1).  
-  It walks through the raw bytes, looking for delimiter bytes (`<`, `>`, etc.). This is extremely fast, but only works because we know those byte values can never appear as part of a longer character.
-
-- **Character‑scanning (slower but safe)** – used for encodings that are _not_ self‑synchronizing (UTF‑16, custom multi‑byte).  
-  The parser first decodes the entire input into a JavaScript string, then scans that string character‑by‑character. This is the same algorithm used for `StringSource` input, so it’s proven correct.
-
-You don’t have to choose – FXP picks the right one based on the encoding you’ve set or auto‑detected.
+There was previously a byte‑scanning path for self‑synchronizing encodings (UTF‑8, ASCII, Latin‑1) that walked the raw bytes and decoded each token on demand. It was removed after measuring that it was **slower**, not faster: on a 4.5 MiB / 20k‑item catalog it took 889 ms against 751 ms for decode‑first, because avoiding one whole‑document decode required 2,537,787 individual `Buffer#toString(enc, i, j)` calls averaging 2.6 bytes each. Swapping those for a reused `TextDecoder` did not rescue it either — measured ~1.4x the cost of `Buffer#toString` on a 20‑byte read — so "keep the bytes and decode per token" has no fast version. `parseBytesArr` is now ~15% faster than it was.
 
 For streaming input (`feed()`/`end()` or `parseStream()`), the parser buffers a small amount of raw bytes until it can determine the encoding, then decodes and continues. This ensures auto‑detection works even when the declaration is split across chunks.
 
@@ -129,9 +121,8 @@ For streaming input (`feed()`/`end()` or `parseStream()`), the parser buffers a 
 - **BOM vs declared encoding mismatch** – If the BOM says UTF‑8 but the XML declaration says `encoding="UTF‑16"`, the parse fails with a `ParseError` carrying `ENCODING_MISMATCH`. It does not silently pick one – that would be ambiguous and error‑prone.
 - **Streaming auto‑detection** – The parser may hold back up to ~200 bytes of the stream until it has enough to detect the encoding. This is usually fine, but for very small documents (shorter than that) it resolves at `end()`.
 - **Custom encoders must be correctly implemented** – If your `createDecoder()` doesn’t return an object with `write` and `end`, `XMLParser.make` fails immediately with `INVALID_DECODER`, not later during parsing.
-- **`selfSynchronizing: true` is an advanced opt‑in** – Only set it if you are 100% sure that no byte that looks like `<`, `>`, `"`, or `'` can appear inside a multi‑byte character in that encoding. Getting it wrong will cause silent data corruption, not a crash.
-- **Input types** – The encoding features apply to `Buffer` or `Uint8Array` inputs. If you pass a JavaScript string already, no decoding is needed.
-- **Performance** – For UTF‑8/ASCII/Latin‑1, the byte‑scanning path is as fast as before (zero overhead). For other encodings, the parser decodes the whole document upfront (for buffer input) or decodes incrementally (for streams), which may be slower for very large documents.
+- **Input types** – The encoding features apply to `Uint8Array` / `Buffer` / any `ArrayBufferView` input. If you pass a JavaScript string already, no decoding is needed. `Buffer` is a `Uint8Array` subclass, so a `Buffer` is accepted everywhere a `Uint8Array` is, but the package itself never references the type — nothing here needs Node.
+- **Custom decoders are your Node dependency** – The built‑in encodings are built on the global `TextDecoder`, which exists natively in Node _and_ in every modern browser, so the package runs unchanged in a browser. A `customDecoders` entry that reaches for e.g. `iconv-lite` or `node:string_decoder` reintroduces a Node dependency _of your own making_; that is a choice, and it is not the package's default.
 
 ---
 
@@ -142,18 +133,18 @@ For streaming input (`feed()`/`end()` or `parseStream()`), the parser buffers a 
 | **Auto‑detect**              | BOM → XML declaration → UTF‑8                                           |
 | **Explicit**                 | Set `decoding.encoding` to any supported/custom name                    |
 | **Custom**                   | Register via `customDecoders` with a `StringDecoder`‑compatible factory |
-| **Fast path**                | Byte‑scanning for self‑synchronizing encodings (UTF‑8, ASCII, Latin‑1)  |
-| **Safe path**                | Char‑scanning for everything else (UTF‑16, Shift_JIS, etc.)             |
-| **Error/position reporting** | Index-only (absolute offset) — no line/column tracking                  |
+| **Scanning**                 | Decode once, then character‑scan — one strategy for every encoding      |
+| **Runtime deps**             | `Uint8Array` + global `TextDecoder`; no Node builtin is imported        |
+| **Error/position reporting** | Index-only, a **character** offset for every input — no line/column     |
 | **Conflict handling**        | BOM vs declared encoding mismatch → fails the parse                     |
 
-You can use the parser with any encoding you need, and the complexity is hidden behind a clean API. The default “just works” behaviour for UTF‑8 remains unchanged, while power users can plug in any encoding supported by the Node ecosystem.
+You can use the parser with any encoding you need, and the complexity is hidden behind a clean API. The default “just works” behaviour for UTF‑8 remains unchanged, while power users can plug in any encoding.
 
 ---
 
-Buffer/typed-array input to `parse()` is routed through the same encoding-aware
+Typed-array input to `parse()` is routed through the same encoding-aware
 path as `parseBytesArr()` — it no longer does an unconditional UTF-8
-`toString()` before FXP ever sees it.
+decode before FXP ever sees it.
 
 ## Why this needed more than "pick a decoder"
 
@@ -161,19 +152,21 @@ FXP has three input sources, and they don't all work the same way underneath:
 
 - **`StringSource`** — input is already a JS string. Nothing to decode.
 - **`FeedableSource` / `StreamSource`** — bytes are decoded to a JS string
-  incrementally (`node:string_decoder`) _before_ any scanning happens. All
-  tag/attribute/text scanning already runs on decoded characters.
-- **`BufferSource`** — scans the raw `Buffer` directly, byte by byte, for
-  speed (`scanTagExpEnd`, `readUpto*`). This is only safe for
-  **self-synchronizing** encodings — ones where an ASCII delimiter byte
-  (`<`, `>`, `"`, `'`) can never occur as part of a different character's
-  bytes. That's true for UTF-8 and any single-byte encoding, but **false**
-  for UTF-16 and several legacy multi-byte encodings (Shift_JIS, GBK/GB18030,
-  Big5, EUC-JP/KR all have byte ranges that collide with ASCII delimiter
-  values).
+  incrementally (via the global `TextDecoder`) _before_ any scanning happens.
+  All tag/attribute/text scanning already runs on decoded characters.
+- **`BufferSource`** — decodes the whole document once in its constructor and
+  then scans the resulting string, exactly like `StringSource`.
 
-So this isn't just a decoder swap — `BufferSource` has two genuinely different
-ways to scan, chosen once per document, not per character.
+So this isn't just a decoder swap: getting it right is what lets the package
+carry no Node dependency. The decoders are built on the global `TextDecoder`
+rather than `node:string_decoder` (Node‑only, and bundling it for a browser
+target fails outright because no browser polyfill is registered by default),
+and the byte type is `Uint8Array` rather than `Buffer` — which works because
+Node's `Buffer` _is_ a `Uint8Array` subclass, so `Uint8Array` is the strict
+universal subset of what both runtimes accept.
+
+`test/browser-compat.spec.ts` enforces this: it scans `src/` for any `node:`
+import or `Buffer` reference and fails the build if one reappears.
 
 ## Architecture (`src/encoding/`)
 
@@ -181,14 +174,11 @@ ways to scan, chosen once per document, not per character.
 encoding-registry.js       — descriptors (utf8/ascii/latin1/utf16le/utf16be by
                              default) + register()/resolve(), fail-fast validated
 encoding-detector.js       — pure function: sniff(bytes, registry) -> {encoding, bomLength}
-encoding-profile.js        — the one place that turns "which encoding" into
-                             concrete strategy objects, for BufferSource
+encoding-profile.js        — the one place that turns "which encoding" into a
+                             resolved descriptor + scan strategy, for BufferSource
 scan-strategy/
-  byte-scan-strategy.js      — byte-indexed scanning, for self-synchronizing
-                             encodings (utf8/ascii/latin1)
-  char-scan-strategy.js      — char-indexed scanning on an eagerly-decoded
-                             string, for everything else (utf16le/be, or a
-                             custom encoding that isn't self-synchronizing)
+  char-scan-strategy.js      — the only strategy: character-indexed scanning on
+                             the decoded string, used for every encoding
 ```
 
 `BufferSource` never branches on an encoding name. At construction it's handed
@@ -197,7 +187,7 @@ a resolved `profile` (from `EncodingProfile.buildProfileForBuffer`) and does
 `scanTagExpEnd`/etc. call afterward just runs whichever strategy was assigned,
 with zero per-call overhead or branching.
 
-`FeedableSource`/`StreamSource` don't need a scan-strategy fork at all (they're
+`FeedableSource`/`StreamSource` don't use a scan strategy at all (they're
 always decode-first) — they just need the right decoder, resolved the same way
 via the registry, or via the auto-detect state machine described below.
 
@@ -222,10 +212,15 @@ resolved one way.
 ## Position reporting (index-only)
 
 FXP does not track line/column anywhere. Every source exposes a single
-`startIndex` — a character offset for `StringSource`/`FeedableSource`/
-`StreamSource`, or a byte offset for `BufferSource` (bytes, not characters,
-since that source scans the raw buffer directly for speed). `errorPositionOf()`
+`startIndex`, and for every source it is a **character** offset. `errorPositionOf()`
 in `util.js` just reads that field; there is no per-encoding correction step.
+
+`BufferSource` used to report a _byte_ offset, because it scanned the raw
+buffer and advanced by bytes. It now decodes first, so it reports a character
+offset like everything else. That is a deliberate fix rather than a cosmetic
+one: a byte offset into a UTF-8 document cannot be used to slice that document,
+so a caller who pointed at the reported position landed mid-character. Byte
+input now reports exactly what string input reports for the same document.
 
 This used to be a two-counter system (`cols` counted in bytes, a second
 `_charCol` counter maintained incrementally to correct it for multi-byte
@@ -260,25 +255,17 @@ registration time — a broken shape fails immediately
 `decoding.customDecoders` path that failure arrives on `XMLParser.make`'s
 error channel; on the registry path above it is thrown directly.
 
-**`selfSynchronizing`**: only set this to `true` if you've actually verified
-an ASCII delimiter byte value can never appear as part of one of your
-encoding's multi-byte sequences. Getting this wrong makes `BufferSource`
-misidentify tag/attribute boundaries — a correctness bug, not a crash, which
-is exactly why the default is `false` (safe, slightly slower decode-first
-path) and speed is opt-in, not assumed.
+**`selfSynchronizing`**: descriptive metadata, retained because callers may want
+to ask the question, but it no longer selects a read strategy. Every encoding
+is decoded before scanning, so a wrong value here can no longer cause
+`BufferSource` to misidentify tag/attribute boundaries.
 
 ## What this does _not_ cover yet
 
-- No dedicated regression spec isolating the `BufferSource` prerequisite fix
-  (readCh/readChAt disagreeing with readStr on multi-byte content) — it's
-  covered indirectly by the general encoding specs, but a standalone spec
-  would pin it down more precisely if it ever regresses.
 - `readPiExp()` (processing instructions) and `doc-type-reader.js` were
   investigated as a possible gap and found to already be encoding-safe: both
   only ever call `source.readCh()/.readChAt()/.canRead()`, never index the
-  raw buffer directly, so whichever scan strategy `BufferSource` was
-  constructed with already applies to them automatically. No changes were
-  needed there. (A separate, encoding-_independent_ inconsistency in
-  `canRead(n)`'s offset formula on `BufferSource`/`StringSource` — unrelated
-  to this feature — has since been fixed; see the main project map's
-  architecture notes.)
+  raw buffer directly. No changes were needed there. (A separate,
+  encoding-_independent_ inconsistency in `canRead(n)`'s offset formula on
+  `BufferSource`/`StringSource` — unrelated to this feature — has since been
+  fixed; see the main project map's architecture notes.)

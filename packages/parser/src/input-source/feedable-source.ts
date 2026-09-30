@@ -15,6 +15,47 @@ import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 const SNIFF_CAP = 200;
 
 /**
+ * @description `?>` — the end of an XML declaration, searched for in the sniff buffer to decide whether enough has arrived to read an `encoding="…"` attribute. A
+ * module-level constant so the byte search does not rebuild it on every `feed()`.
+ */
+const DECLARATION_END = new Uint8Array([0x3f, 0x3e]); // '?' '>'
+
+/**
+ * @description Narrow any byte-array view to a `Uint8Array` over exactly its own bytes, without copying. `ArrayBufferView` is wider than `Uint8Array` (a
+ * `DataView` or an `Int8Array` would satisfy `isView` but not be decodable as text), and this is the one place the package has to accept a view it
+ * was handed rather than one it constructed, so the byteOffset/byteLength window is respected rather than assumed.
+ *
+ * @param view - A byte array or any `ArrayBufferView`.
+ *
+ * @returns A `Uint8Array` viewing the same memory, offset and length preserved.
+ */
+function toBytes(view: ArrayBufferView): Uint8Array {
+  return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+}
+
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+/**
+ * @description Whether `haystack` contains `needle` as a contiguous byte run. `Uint8Array.prototype.includes` compares element identity, not byte value, so it
+ * cannot answer this — hence the explicit loop over a 2-byte needle.
+ */
+function containsBytes(haystack: Uint8Array, needle: Uint8Array): boolean {
+  const limit = haystack.length - needle.length;
+  outer: for (let i = 0; i <= limit; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * @description Decoding inputs a `FeedableSource` / `StreamSource` can be constructed with. Internal — `XMLParser` builds this from the user's `feedable` and
  * `decoding` options; tests may pass `createDecoder` directly.
  */
@@ -40,8 +81,8 @@ export interface FeedableSourceOptions extends FeedableOptions {
 }
 
 /**
- * @description FeedableSource — input source for the feed()/end() API. Accepts incremental string/Buffer chunks via feed(), accumulates them in a single string
- * buffer, and exposes the same read interface as `StringSource` so `Xml2JsParser` can use it without modification.
+ * @description FeedableSource — input source for the feed()/end() API. Accepts incremental string/byte-array chunks via feed(), accumulates them in a single
+ * string buffer, and exposes the same read interface as `StringSource` so `Xml2JsParser` can use it without modification.
  *
  * ### Incremental parsing
  *
@@ -105,7 +146,7 @@ export default class FeedableSource implements InputSourceLike {
   /**
    * @description `'auto'` mode only. Raw undecoded bytes held back until there is enough to decide an encoding.
    */
-  _sniffBuffer: Buffer | null;
+  _sniffBuffer: Uint8Array | null;
   /**
    * @description Two-level mark stack. `null` means "not set" for that level.
    */
@@ -123,11 +164,10 @@ export default class FeedableSource implements InputSourceLike {
   #decodingOptions: FeedableSourceOptions['decoding'] | null;
   #detecting: boolean;
   /**
-   * @description Lazily-created and persistent for the whole `feed()` session. Buffer chunks must go through this rather than `Buffer#toString()` per chunk —
-   * `toString()` decodes each chunk in isolation, so a multi-byte UTF-8 character whose bytes straddle a chunk boundary gets corrupted (each half
-   * independently replaced with U+FFFD). The decoder holds back an incomplete trailing sequence internally and prepends it to the next `write()`, so
-   * a split character decodes correctly once the rest of its bytes arrive. Only created if Buffer input is ever fed — string-only callers never pay
-   * for it.
+   * @description Lazily-created and persistent for the whole `feed()` session. Byte chunks must go through this rather than a per-chunk decode — decoding each
+   * chunk in isolation corrupts a multi-byte UTF-8 character whose bytes straddle a chunk boundary (each half independently replaced with U+FFFD).
+   * The decoder holds back an incomplete trailing sequence internally and prepends it to the next `write()`, so a split character decodes correctly
+   * once the rest of its bytes arrive. Only created if byte input is ever fed — string-only callers never pay for it.
    */
   #decoder: EncodingDecoder | null;
 
@@ -160,7 +200,7 @@ export default class FeedableSource implements InputSourceLike {
     const decodingOptions = this.#decodingOptions;
     const requestedEncoding = decodingOptions?.encoding;
     this.#detecting = requestedEncoding === 'auto';
-    this._sniffBuffer = this.#detecting ? Buffer.alloc(0) : null;
+    this._sniffBuffer = this.#detecting ? new Uint8Array(0) : null;
     if (!this.#detecting && requestedEncoding && decodingOptions?.registry) {
       const registry = decodingOptions.registry;
       this._createDecoder = () => registry.resolve(requestedEncoding).createDecoder();
@@ -176,11 +216,10 @@ export default class FeedableSource implements InputSourceLike {
     this._marks = [null, null];
 
     /**
-     * @description Lazily-created, persistent across the whole feed() session. Buffer chunks must go through this rather than Buffer#toString() per chunk —
-     * toString() decodes each chunk in isolation, so a multi-byte UTF-8 character whose bytes straddle a chunk boundary gets corrupted (each half
-     * independently replaced with U+FFFD). The decoder holds back an incomplete trailing sequence internally and prepends it to the next write(), so
-     * a split character decodes correctly once the rest of its bytes arrive. Only created if Buffer input is ever fed — string-only callers never pay
-     * for it.
+     * @description Lazily-created, persistent across the whole feed() session. Byte chunks must go through this rather than a per-chunk decode — decoding each
+     * chunk in isolation corrupts a multi-byte UTF-8 character whose bytes straddle a chunk boundary (each half independently replaced with U+FFFD).
+     * The decoder holds back an incomplete trailing sequence internally and prepends it to the next write(), so a split character decodes correctly
+     * once the rest of its bytes arrive. Only created if byte input is ever fed — string-only callers never pay for it.
      */
     this.#decoder = null;
 
@@ -197,28 +236,29 @@ export default class FeedableSource implements InputSourceLike {
    * @description Append a data chunk to the buffer. `maxBufferSize` is checked against the live unprocessed portion (`buffer.length - startIndex`) plus the
    * incoming data length. Data that has already been parsed and is waiting to be flushed does not count against the limit.
    *
-   * @param data - Next chunk. A `Buffer` is decoded through the session's stateful decoder; a string is assumed to be already decoded.
+   * @param data - Next chunk. A `Buffer` or any `Uint8Array` is decoded through the session's stateful decoder; a string is assumed to be already
+   *   decoded.
    *
    * @returns Number of characters appended to the buffer (after decoding) — callers that track fed-byte totals (e.g. `XMLParser.feed`'s batch
-   *   threshold) should use this rather than the raw input length, since a Buffer chunk ending mid-character may decode to fewer chars than its byte
+   *   threshold) should use this rather than the raw input length, since a byte chunk ending mid-character may decode to fewer chars than its byte
    *   length until the next chunk completes the sequence.
    *
    * @throws {ParseError} `INVALID_INPUT` when the buffer limit is exceeded, `DATA_MUST_BE_STRING` for an unsupported chunk type.
    */
-  feed(data: string | Buffer): number {
+  feed(data: string | Uint8Array): number {
     if (this.#detecting) {
       if (typeof data === 'string') {
         // Already decoded upstream (e.g. stream.setEncoding() was called by
         // the caller) — detection is moot, nothing left to sniff.
         this.#detecting = false;
       } else {
-        const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
-        // `#detecting` is only true while `_sniffBuffer` is a Buffer — the
+        const chunk = toBytes(data);
+        // `#detecting` is only true while `_sniffBuffer` is a byte array — the
         // constructor sets them together, so the assertion is an invariant,
         // not a runtime check.
-        const held = this._sniffBuffer as Buffer;
-        this._sniffBuffer = held.length ? Buffer.concat([held, chunk]) : chunk;
-        const declarationComplete = this._sniffBuffer.includes(Buffer.from('?>'));
+        const held = this._sniffBuffer as Uint8Array;
+        this._sniffBuffer = held.length ? concatBytes(held, chunk) : chunk;
+        const declarationComplete = containsBytes(this._sniffBuffer, DECLARATION_END);
         if (this._sniffBuffer.length < SNIFF_CAP && !declarationComplete) {
           // Not enough to decide yet — hold everything, decode nothing.
           return 0;
@@ -245,21 +285,21 @@ export default class FeedableSource implements InputSourceLike {
     return newData.length;
   }
 
-  #decodeNow(data: string | Buffer): string {
+  #decodeNow(data: string | Uint8Array): string {
     if (typeof data === 'string') return data;
-    if (Buffer.isBuffer(data)) {
+    if (ArrayBuffer.isView(data)) {
       // Stateful decode: bytes of a multi-byte char split across two feed()
       // calls are buffered internally by the decoder and correctly stitched
       // together, instead of each chunk being decoded in isolation.
       if (!this.#decoder) this.#decoder = this._createDecoder ? this._createDecoder() : createTextDecoderAdapter('utf-8');
-      return this.#decoder.write(data);
+      return this.#decoder.write(toBytes(data));
     }
-    // Defensive tail: `feed()`'s contract is `string | Buffer` and both are
+    // Defensive tail: `feed()`'s contract is `string | Uint8Array` and both are
     // handled above, but anything else carrying a usable toString() is coerced
     // rather than rejected outright.
     const coercible = data as { toString(): string };
     if (typeof coercible?.toString === 'function') return coercible.toString();
-    throw new DataMustBeString({ received: typeof data, message: 'feed() data must be a string or Buffer.' });
+    throw new DataMustBeString({ received: typeof data, message: 'feed() data must be a string or a byte array.' });
   }
 
   /**
@@ -269,13 +309,13 @@ export default class FeedableSource implements InputSourceLike {
    *
    * @returns The held bytes, minus any BOM.
    */
-  #resolveDetection(): Buffer {
+  #resolveDetection(): Uint8Array {
     const registry = (this.#decodingOptions as NonNullable<FeedableSourceOptions['decoding']>).registry;
-    const { encoding, bomLength } = sniff(this._sniffBuffer as Buffer, registry);
+    const { encoding, bomLength } = sniff(this._sniffBuffer as Uint8Array, registry);
     const descriptor = registry.resolve(encoding);
     this._createDecoder = () => descriptor.createDecoder();
     this.#detecting = false;
-    const held = bomLength ? (this._sniffBuffer as Buffer).subarray(bomLength) : (this._sniffBuffer as Buffer);
+    const held = bomLength ? (this._sniffBuffer as Uint8Array).subarray(bomLength) : (this._sniffBuffer as Uint8Array);
     this._sniffBuffer = null;
     return held;
   }

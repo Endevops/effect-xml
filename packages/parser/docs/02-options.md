@@ -156,11 +156,11 @@ Effect.runSync(
 );
 ```
 
-`selfSynchronizing` — leave `false` unless you've verified an ASCII delimiter byte (`<`, `>`, `"`, `'`) can never appear as part of one of this encoding's multi-byte characters. Setting it `true` incorrectly causes wrong tag/attribute boundaries to be found, not a crash — this is a correctness switch, not a performance knob to flip speculatively. A malformed `createDecoder()` (missing `write`/`end`) is rejected while `XMLParser.make` is registering the decoder, not later during parsing.
+`selfSynchronizing` — descriptive metadata, kept because it answers a real question about an encoding, but it no longer selects a read strategy: every encoding is decoded before scanning, so no value here can cause wrong tag/attribute boundaries. A malformed `createDecoder()` (missing `write`/`end`) is rejected while `XMLParser.make` is registering the decoder, not later during parsing.
 
 `customDecoders` is scoped to the one `XMLParser` instance it's passed to — it doesn't leak into other instances in the same process.
 
-See [16-encoding.md](./16-encoding.md) for the full internals (why `BufferSource` needs this in particular, and how streaming auto-detection buffers bytes until it knows the encoding). Position reporting throughout the parser is index-only — no line/column tracking.
+See [16-encoding.md](./16-encoding.md) for the full internals (how a document is decoded and then scanned, and how streaming auto-detection buffers bytes until it knows the encoding). Position reporting throughout the parser is index-only and always a character offset — no line/column tracking.
 
 ---
 

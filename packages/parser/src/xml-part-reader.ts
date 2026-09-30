@@ -171,10 +171,10 @@ export function readTagExp(parser: TagExpressionParser): TagExp {
 
   // Quote positions the scan above already found while looking for '>' —
   // handed to AttributeProcessor so it doesn't re-scan for quotes itself.
-  // Only usable when this source's offsets are guaranteed to line up 1:1
-  // with characters in the decoded `exp` string — false for BufferSource
-  // reading UTF-8, where a byte offset can land mid-character (see
-  // BufferSource._quotePairsUsable doc). Consumed synchronously by
+  // Usable because every source decodes before scanning, so the offsets are
+  // already character indices into the same string `exp` was sliced from; the
+  // `_quotePairsUsable !== false` test is retained so a source recording byte
+  // offsets would still opt out. Consumed synchronously by
   // buildTagExpObj below, before any other tag scan can touch the array
   // again, so no staleness risk. `_quotePairs` is a fixed-capacity reusable
   // typed array — `_quotePairsLen` says how many of its slots are valid for

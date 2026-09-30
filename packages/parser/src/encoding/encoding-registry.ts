@@ -5,8 +5,8 @@ import { createTextDecoderAdapter, createUtf16BeAdapter } from './text-decoder-a
 
 /**
  * @description A descriptor with every optional field filled in, so readers never have to test for `undefined`. `Omit` rather than an intersection: intersecting
- * with `EncodingDescriptor` would intersect `bomBytes: Buffer | null` with `bomBytes?: Buffer` and collapse the `null` back to `Buffer` — losing
- * exactly the case `bomCandidates()` filters on.
+ * with `EncodingDescriptor` would intersect `bomBytes: Uint8Array | null` with `bomBytes?: Uint8Array` and collapse the `null` back to `Uint8Array` —
+ * losing exactly the case `bomCandidates()` filters on.
  */
 export type ResolvedEncodingDescriptor = Omit<EncodingDescriptor, 'aliases' | 'bomBytes' | 'selfSynchronizing' | 'variableWidth'> & {
   /**
@@ -16,10 +16,10 @@ export type ResolvedEncodingDescriptor = Omit<EncodingDescriptor, 'aliases' | 'b
   /**
    * @description Byte-order-mark signature used by auto-detection, or `null` when the encoding has no BOM.
    */
-  bomBytes: Buffer | null;
+  bomBytes: Uint8Array | null;
   /**
-   * @description True only when an ASCII delimiter byte can never appear as part of a multi-byte sequence — the precondition for `BufferSource`'s byte-level scan
-   * fast path.
+   * @description True when an ASCII delimiter byte can never appear as part of a multi-byte sequence. Retained as descriptor metadata for callers that inspect it;
+   * it no longer selects a scan strategy, because every encoding is now decoded before scanning (see `encoding-profile.ts`).
    */
   selfSynchronizing: boolean;
   /**
@@ -47,7 +47,7 @@ export default class EncodingRegistry {
     this.register({
       name: 'utf8',
       aliases: ['utf-8'],
-      bomBytes: Buffer.from([0xef, 0xbb, 0xbf]),
+      bomBytes: new Uint8Array([0xef, 0xbb, 0xbf]),
       selfSynchronizing: true,
       variableWidth: true,
       createDecoder: () => createTextDecoderAdapter('utf-8'),
@@ -78,7 +78,7 @@ export default class EncodingRegistry {
     this.register({
       name: 'utf16le',
       aliases: ['utf-16le', 'ucs2', 'ucs-2'],
-      bomBytes: Buffer.from([0xff, 0xfe]),
+      bomBytes: new Uint8Array([0xff, 0xfe]),
       selfSynchronizing: false,
       variableWidth: true,
       createDecoder: () => createTextDecoderAdapter('utf-16le'),
@@ -88,7 +88,7 @@ export default class EncodingRegistry {
       aliases: ['utf-16be'],
       // No native TextDecoder label for utf16be either; byte-swap then
       // decode as utf16le, same trick as before.
-      bomBytes: Buffer.from([0xfe, 0xff]),
+      bomBytes: new Uint8Array([0xfe, 0xff]),
       selfSynchronizing: false,
       variableWidth: true,
       createDecoder: () => createUtf16BeAdapter(),
@@ -157,7 +157,7 @@ export default class EncodingRegistry {
         out.push(d);
       }
     }
-    return out.sort((a, b) => (b.bomBytes as Buffer).length - (a.bomBytes as Buffer).length);
+    return out.sort((a, b) => (b.bomBytes as Uint8Array).length - (a.bomBytes as Uint8Array).length);
   }
 }
 

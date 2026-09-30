@@ -358,7 +358,7 @@ export default class Xml2JsParser implements TagExpressionParser {
    *
    * @param data - The whole document as bytes.
    */
-  parseBytesArr(data: Buffer): unknown {
+  parseBytesArr(data: Uint8Array): unknown {
     const registry = this.options.decoding?._registry;
     const profile = buildProfileForBuffer(data, this.options.decoding as DecodingOptions, registry);
     this.source = new BufferSource(data, {}, profile);

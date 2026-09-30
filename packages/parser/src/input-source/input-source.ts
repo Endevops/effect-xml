@@ -37,8 +37,10 @@ export interface InputSourceLike {
    */
   _quotePairsLen: number;
   /**
-   * @description Whether `_quotePairs` offsets can be reused as indices into a decoded string. `false` for `BufferSource` on a multi-byte encoding, where a byte
-   * offset can land mid-character. `undefined` on string-backed sources, where it is always safe.
+   * @description Whether `_quotePairs` offsets can be reused as indices into a decoded string. `undefined` on every source, because all three decode before
+   * scanning: offsets recorded against the buffer are already character indices, so they are always safe. The field remains on the interface so
+   * `XmlPartReader` can keep testing it — a byte-scan path that recorded byte offsets is what it guards against, and a source that reintroduced one
+   * would set it to `false`.
    */
   _quotePairsUsable?: boolean | undefined;
 
@@ -155,27 +157,12 @@ export type ScanStrategy = Pick<
 > & { readFromBuffer(n: number, shouldUpdate?: boolean): string | undefined };
 
 /**
- * @description `this` context every method of a string-backed {@link ScanStrategy} is called with — i.e. a `BufferSource` whose buffer has already been decoded to
- * a JS string (`CharScanStrategy`), or a `StringSource` / `FeedableSource`.
+ * @description `this` context every method of a string-backed {@link ScanStrategy} is called with — i.e. a `BufferSource` whose bytes have already been decoded to
+ * a JS string (`CharScanStrategy`), or a `StringSource` / `FeedableSource`. This is the only shape a {@link ScanStrategy} takes now: every source
+ * decodes before scanning, so there is no byte-backed counterpart.
  */
 export interface CharScanContext {
   buffer: string;
-  startIndex: number;
-  autoFlush: boolean;
-  flushThreshold: number;
-  _tokenStart: number;
-  _quotePairs: Int32Array;
-  _quotePairsLen: number;
-  updateBufferBoundary(n?: number): void;
-  flush(): void;
-}
-
-/**
- * @description `this` context every method of a byte-backed {@link ScanStrategy} is called with — i.e. a `BufferSource` whose buffer is still raw bytes
- * (`ByteScanStrategy`). Indices are byte offsets, not character offsets.
- */
-export interface ByteScanContext {
-  buffer: Buffer;
   startIndex: number;
   autoFlush: boolean;
   flushThreshold: number;
