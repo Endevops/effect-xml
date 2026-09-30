@@ -1,14 +1,19 @@
 import { Effect } from 'effect';
 
 import type { BuilderError } from '../../errors.ts';
-
-import BaseValueParser from './base-value-parser.ts';
+import type { ValueParser } from '../value-parser.ts';
 
 /**
- * @description Trims leading and trailing whitespace from string values. Superseded by {@link WSNormalizer}, which also collapses internal runs, and kept because
- * existing chains name it.
+ * @description Trims leading and trailing whitespace from string values. Superseded by the whitespace normalizer, which also collapses internal runs, and kept
+ * because existing chains name it.
+ *
+ * @returns The parser.
  */
-export default class Trim extends BaseValueParser {
+export const makeTrim = (): ValueParser => ({
+  /**
+   * @description Stateless, but the registry requires a `reset` so a parser holding state can be cleared between documents.
+   */
+  reset(): void {},
   /**
    * @description Trim a string.
    *
@@ -16,8 +21,8 @@ export default class Trim extends BaseValueParser {
    *
    * @returns The trimmed string, or `val` unchanged if it is not a string.
    */
-  override parse(val: unknown): Effect.Effect<unknown, BuilderError> {
+  parse(val: unknown): Effect.Effect<unknown, BuilderError> {
     if (typeof val === 'string') return Effect.succeed(val.trim());
     return Effect.succeed(val);
-  }
-}
+  },
+});

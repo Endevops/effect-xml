@@ -8,7 +8,7 @@ import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
 
 import { BuilderError as BuilderErrorCtor } from '../errors.ts';
 import BaseOutputBuilder from './base-output-builder.ts';
-import ValueParserRegistry from './value-parser-registry.ts';
+import { makeValueParserRegistry } from './value-parser-registry.ts';
 
 /**
  * @description The base every builder factory extends. A factory is the parser's entry point into a builder: the parser holds one, calls `getInstance` before each
@@ -32,7 +32,7 @@ export default class BaseOutputBuilderFactory {
    */
   constructor(builderOptions: BuiltInValueParserOptions = {}) {
     this.builderOptions = builderOptions;
-    this.registry = new ValueParserRegistry();
+    this.registry = makeValueParserRegistry();
   }
 
   /**

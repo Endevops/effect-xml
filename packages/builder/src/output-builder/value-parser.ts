@@ -2,12 +2,13 @@ import type { MatcherView } from '@endevops/common-xml';
 
 import { Effect, Exit } from 'effect';
 
-/**
- * @description The context handed to every value parser's `parse` call, describing the value being transformed.
- */
 import type { BuilderError } from '../errors.ts';
 
-export class Context {
+/**
+ * @description Where one value came from, handed to every {@link ValueParser.parse} call. A plain value built by {@link makeContext} rather than a class: it holds
+ * nothing but what the parser was told, and a constructor with no behaviour would only be somewhere for a hidden write to live.
+ */
+export interface Context {
   /**
    * @description The tag or attribute name the value belongs to.
    */
@@ -24,77 +25,87 @@ export class Context {
    * @description Whether the value is an attribute value rather than element text, or `null` when not yet known.
    */
   readonly isAttribute: boolean | null;
-
-  /**
-   * @description Build a context.
-   *
-   * @param elementName - The tag or attribute name.
-   * @param matcher - The live path, or `null`.
-   * @param isLeafNode - Whether the element has no child elements, or `null`.
-   * @param isAttribute - Whether the value is an attribute value. Defaults to `false`.
-   */
-  constructor(elementName: string, matcher: MatcherView | null, isLeafNode: boolean | null, isAttribute: boolean | null = false) {
-    this.elementName = elementName;
-    this.matcher = matcher;
-    this.isLeafNode = isLeafNode;
-    this.isAttribute = isAttribute;
-  }
 }
 
 /**
+ * @description Build a {@link Context}.
+ *
+ * @param elementName - The tag or attribute name.
+ * @param matcher - The live path, or `null`.
+ * @param isLeafNode - Whether the element has no child elements, or `null`.
+ * @param isAttribute - Whether the value is an attribute value. Defaults to `false`.
+ *
+ * @returns The context.
+ */
+export const makeContext = (
+  elementName: string,
+  matcher: MatcherView | null,
+  isLeafNode: boolean | null,
+  isAttribute: boolean | null = false
+): Context => ({ elementName, matcher, isLeafNode, isAttribute });
+
+/**
+ * @description The key a {@link FinalValue} carries. A symbol rather than a `kind` string, so a value parser that legitimately returns a record with a `kind` field
+ * is never mistaken for the sentinel.
+ */
+const FINAL_VALUE: unique symbol = Symbol.for('@endevops/builder/FinalValue');
+
+/**
  * @description A sentinel a value parser returns to end the pipeline immediately. `ValueParserPipeline.run()` unwraps `.value` and returns it without running any
- * later parser. Whether to emit one is the parser's own decision, made through its `IS_FINAL` constructor option — the pipeline never injects it.
+ * later parser. Whether to emit one is the parser's own decision, made through its `IS_FINAL` option — the pipeline never injects it.
  *
  * @example
  *   ```typescript
- *   class StopOnNull extends BaseValueParser {
- *     parse(val: unknown): unknown {
- *       return val === 'null' ? new FinalValue(null) : val;
- *     }
- *   }
+ *   const stopOnNull: ValueParser = {
+ *     parse: val => Effect.succeed(val === 'null' ? finalValue(null) : val),
+ *   };
  *   ```;
  */
-export class FinalValue {
+export interface FinalValue {
   /**
    * @description The value the pipeline returns.
    */
   readonly value: unknown;
-
   /**
-   * @description Wrap a value to end the pipeline.
-   *
-   * @param value - The resolved value.
+   * @description The brand that makes {@link isFinalValue} recognisable.
    */
-  constructor(value: unknown) {
-    this.value = value;
-  }
+  readonly [FINAL_VALUE]: true;
 }
 
 /**
+ * @description Wrap a value to end the pipeline.
+ *
+ * @param value - The resolved value.
+ *
+ * @returns The sentinel.
+ */
+export const finalValue = (value: unknown): FinalValue => ({ [FINAL_VALUE]: true, value });
+
+/**
+ * @description Whether a value is a {@link FinalValue}. A guard rather than `instanceof`, because the sentinel is now a plain object and the brand is a symbol.
+ *
+ * @param value - The value to test.
+ *
+ * @returns Whether it ends the pipeline.
+ */
+export const isFinalValue = (value: unknown): value is FinalValue => typeof value === 'object' && value !== null && FINAL_VALUE in value;
+
+/**
  * @description A mutable key-value store shared with every value parser that opts in via `init(ctx)`. A fresh instance is created per document parse, so nothing
- * leaks between documents. Two keys are written by {@link BaseOutputBuilder} and read by the built-in parsers:
+ * leaks between documents. Two keys are written by the output builder and read by the built-in parsers:
  *
  * - `'xmlVersion'` — the version from the `<?xml version="…"?>` declaration, as a number
  * - `'inputEntities'` — the entity map from the DOCTYPE block Parsers may also write their own keys to communicate with later parsers in the same
  *   chain.
  */
-export class SharedContext {
-  /**
-   * @description Backing store. Private because the accessors below are the whole contract — a parser reaching in directly would bypass the `clear()`-on-reset
-   * guarantee.
-   */
-  #data: Record<string, unknown> = {};
-
+export interface SharedContext {
   /**
    * @description Store a value.
    *
    * @param key - The key.
    * @param value - The value.
    */
-  set(key: string, value: unknown): void {
-    this.#data[key] = value;
-  }
-
+  set(key: string, value: unknown): void;
   /**
    * @description Read a value.
    *
@@ -102,17 +113,31 @@ export class SharedContext {
    *
    * @returns The stored value, or `undefined` if the key was never set.
    */
-  get(key: string): unknown {
-    return this.#data[key];
-  }
-
+  get(key: string): unknown;
   /**
    * @description Remove every entry.
    */
-  clear(): void {
-    this.#data = {};
-  }
+  clear(): void;
 }
+
+/**
+ * @description Create a {@link SharedContext}. The store is closed over rather than held on an instance, so the accessors are the whole contract and nothing can
+ * reach in to bypass the `clear()` guarantee.
+ *
+ * @returns A fresh store.
+ */
+export const makeSharedContext = (): SharedContext => {
+  let data: Record<string, unknown> = {};
+  return {
+    set: (key, value) => {
+      data[key] = value;
+    },
+    get: key => data[key],
+    clear: () => {
+      data = {};
+    },
+  };
+};
 
 /**
  * @description A value transform. The pipeline calls {@link ValueParser.parse} for each value; `reset` and `init` are optional.
@@ -139,17 +164,41 @@ export interface ValueParser {
 }
 
 /**
+ * @description The part of the value-parser registry a pipeline depends on, declared separately so the pipeline is not coupled to the concrete registry — a test
+ * or an embedder can supply its own.
+ */
+export interface ValueParserRegistryLike {
+  /**
+   * @description Look up a parser by name.
+   *
+   * @param name - The registry name.
+   *
+   * @returns An effect producing the parser, failing with the `ValueParserNotFound` reason if no parser is registered under `name`.
+   */
+  get(name: string): Effect.Effect<ValueParser, BuilderError>;
+  /**
+   * @description Add or replace a named parser.
+   *
+   * @param name - The registry name.
+   * @param parser - The parser.
+   *
+   * @returns An effect that registers the parser, failing with the `InvalidValueParser` reason.
+   */
+  register(name: string, parser: ValueParser): Effect.Effect<void, BuilderError>;
+}
+
+/**
  * @description Runs a configured chain of value parsers over each value, in order. A builder gets two of these from its factory: `tagsPipeline` for element text
  * and `attrsPipeline` for attribute values. Both share one {@link SharedContext} and one registry, and both are rebuilt per document, so a parser that
  * implements `init` always sees the current document's context rather than a stale one.
  *
  * @example
  *   ```typescript
- *   const pipeline = new ValueParserPipeline(['ws', 'boolean', 'number'], registry);
+ *   const pipeline = makeValueParserPipeline(['ws', 'boolean', 'number'], registry);
  *   pipeline.run('  true  '); // → true
  *   ```;
  */
-export class ValueParserPipeline {
+export interface ValueParserPipeline {
   /**
    * @description The chain, as registry names or instances. Names are resolved against {@link ValueParserPipeline.registry} on every run, so a parser registered
    * after construction takes effect without rebuilding the pipeline.
@@ -163,22 +212,6 @@ export class ValueParserPipeline {
    * @description The document-scoped store handed to every parser that implements `init`.
    */
   readonly sharedContext: SharedContext;
-
-  /**
-   * @description Build a pipeline and wire up its parsers.
-   *
-   * @param valParsers - The chain, as names or instances.
-   * @param registry - Where names resolve.
-   * @param sharedContext - The store to hand each parser. A fresh one is created when omitted.
-   */
-  constructor(valParsers: (string | ValueParser)[] = [], registry: ValueParserRegistryLike, sharedContext: SharedContext | null = null) {
-    this.valParsers = valParsers;
-    this.registry = registry;
-    this.sharedContext = sharedContext || new SharedContext();
-
-    this.#initAll(valParsers);
-  }
-
   /**
    * @description Run the chain over one value. Each parser receives the previous one's output. A parser returning a {@link FinalValue} ends the chain and its
    * `.value` is returned; a name that does not resolve is skipped, so a chain may reference a parser registered later without failing the run.
@@ -189,62 +222,45 @@ export class ValueParserPipeline {
    * @returns The transformed value. Fails with {@link BuilderError} — `ValueParserNotFound` for a name nothing is registered under, or whatever the
    *   failing parser in the chain reports.
    */
-  run(val: unknown, runtimeContext?: Context): Effect.Effect<unknown, BuilderError> {
-    const registry = this.registry;
-    const parsers = this.valParsers;
-    return Effect.gen(function* () {
-      for (let i = 0; i < parsers.length; i++) {
-        const entry = parsers[i];
-        // A name is resolved on every run, so a parser registered after
-        // construction takes effect without rebuilding the pipeline.
-        const parser = typeof entry === 'string' ? yield* registry.get(entry) : entry;
-        if (parser) {
-          const result = yield* parser.parse(val, runtimeContext);
-          if (result instanceof FinalValue) return result.value;
-          val = result;
-        }
-      }
-      return val;
-    });
-  }
-
+  run(val: unknown, runtimeContext?: Context): Effect.Effect<unknown, BuilderError>;
   /**
    * @description Reset every parser in the chain, for a parser holding state across a document.
    */
-  resetAll(): void {
-    for (let i = 0; i < this.valParsers.length; i++) {
-      const entry = this.valParsers[i];
-      // A name that no longer resolves is skipped rather than failing: this
-      // runs between documents, where throwing would abandon a parse over a
-      // chain entry that has since been unregistered.
-      const parser = typeof entry === 'string' ? this.#tryGet(entry) : entry;
-      if (parser?.reset) parser.reset();
-    }
-  }
-
-  /**
-   * @description Look a name up, or `undefined` when it is not registered.
-   *
-   * @param name - The registry name.
-   *
-   * @returns The parser, or `undefined`.
-   */
-  #tryGet(name: string): ValueParser | undefined {
-    const exit = Effect.runSyncExit(this.registry.get(name));
-    return Exit.isSuccess(exit) ? exit.value : undefined;
-  }
-
+  resetAll(): void;
   /**
    * @description Add or replace a named parser, calling its `init` immediately so it is ready before the next run.
    *
    * @param name - The registry name.
    * @param instance - The parser.
+   *
+   * @returns An effect that registers the parser.
    */
-  register(name: string, instance: ValueParser): Effect.Effect<void, BuilderError> {
-    return Effect.map(this.registry.register(name, instance), () => {
-      if (instance.init) instance.init(this.sharedContext);
-    });
-  }
+  register(name: string, instance: ValueParser): Effect.Effect<void, BuilderError>;
+}
+
+/**
+ * @description Build a pipeline and wire up its parsers.
+ *
+ * @param valParsers - The chain, as names or instances.
+ * @param registry - Where names resolve.
+ * @param sharedContext - The store to hand each parser. A fresh one is created when omitted.
+ *
+ * @returns The pipeline.
+ */
+export const makeValueParserPipeline = (
+  valParsers: (string | ValueParser)[] = [],
+  registry: ValueParserRegistryLike,
+  sharedContext: SharedContext | null = null
+): ValueParserPipeline => {
+  const context = sharedContext || makeSharedContext();
+
+  /**
+   * @description Look a name up, or `undefined` when it is not registered.
+   */
+  const tryGet = (name: string): ValueParser | undefined => {
+    const exit = Effect.runSyncExit(registry.get(name));
+    return Exit.isSuccess(exit) ? exit.value : undefined;
+  };
 
   /**
    * @description Call `init(sharedContext)` on each parser that implements it. A local `Set` deduplicates, for the case where one instance is registered under two
@@ -253,43 +269,54 @@ export class ValueParserPipeline {
    *
    * @param instances - The chain entries, as names or instances.
    */
-  #initAll(instances: (string | ValueParser)[]): void {
-    if (!this.sharedContext) return;
+  const initAll = (instances: (string | ValueParser)[]): void => {
     const seen = new Set<ValueParser>();
     for (const entry of instances) {
-      // Same skip-an-unregistered-name rule as `resetAll`: the constructor
-      // wires up whatever is there, and a name registered later gets its
-      // `init` from `register` instead.
-      const parser = typeof entry === 'string' ? this.#tryGet(entry) : entry;
+      // Same skip-an-unregistered-name rule as `resetAll`: the factory wires up
+      // whatever is there, and a name registered later gets its `init` from
+      // `register` instead.
+      const parser = typeof entry === 'string' ? tryGet(entry) : entry;
       if (parser && typeof parser.init === 'function' && !seen.has(parser)) {
         seen.add(parser);
-        parser.init(this.sharedContext);
+        parser.init(context);
       }
     }
-  }
-}
+  };
 
-/**
- * @description The part of {@link ValueParserRegistry} a pipeline depends on, declared separately so the pipeline is not coupled to the concrete registry — a test
- * or an embedder can supply its own.
- */
-export interface ValueParserRegistryLike {
-  /**
-   * @description Look up a parser by name.
-   *
-   * @param name - The registry name.
-   *
-   * @returns An effect producing the parser, failing with the `ValueParserNotFound` reason if no
-   * parser is registered under `name`.
-   */
-  get(name: string): Effect.Effect<ValueParser, BuilderError>;
-  /**
-   * @description Add or replace a named parser.
-   *
-   * @param name - The registry name.
-   * @param parser - The parser.
-   *
-   * @returns An effect that registers the parser, failing with the `InvalidValueParser` reason.
-   */
-  register(name: string, parser: ValueParser): Effect.Effect<void, BuilderError>;
-}
+  initAll(valParsers);
+
+  return {
+    valParsers,
+    registry,
+    sharedContext: context,
+    run: (val, runtimeContext) =>
+      Effect.gen(function* () {
+        for (let i = 0; i < valParsers.length; i++) {
+          const entry = valParsers[i];
+          // A name is resolved on every run, so a parser registered after
+          // construction takes effect without rebuilding the pipeline.
+          const parser = typeof entry === 'string' ? yield* registry.get(entry) : entry;
+          if (parser) {
+            const result = yield* parser.parse(val, runtimeContext);
+            if (isFinalValue(result)) return result.value;
+            val = result;
+          }
+        }
+        return val;
+      }),
+    resetAll: () => {
+      for (let i = 0; i < valParsers.length; i++) {
+        const entry = valParsers[i];
+        // A name that no longer resolves is skipped rather than failing: this
+        // runs between documents, where throwing would abandon a parse over a
+        // chain entry that has since been unregistered.
+        const parser = typeof entry === 'string' ? tryGet(entry) : entry;
+        if (parser?.reset) parser.reset();
+      }
+    },
+    register: (name, instance) =>
+      Effect.map(registry.register(name, instance), () => {
+        if (instance.init) instance.init(context);
+      }),
+  };
+};

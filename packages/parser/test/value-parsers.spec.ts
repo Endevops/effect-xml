@@ -1,4 +1,4 @@
-import { NumberValueParser, type Context, type ValueParser } from '@endevops/builder';
+import { makeNumberValueParser, type Context, type ValueParser } from '@endevops/builder';
 import { CompactBuilderFactory, type BuilderError } from '@endevops/builder';
 import { COMMON_HTML, CURRENCY } from '@endevops/common-xml';
 import { Effect } from 'effect';
@@ -201,7 +201,7 @@ describe('Custom chain', () => {
 
     const parser = makeParser({
       OutputBuilder: runParser(
-        CompactBuilderFactory.make({ tags: { valueParsers: [new NumberValueParser({ hex: true, leadingZeros: false, eNotation: true })] } })
+        CompactBuilderFactory.make({ tags: { valueParsers: [makeNumberValueParser({ hex: true, leadingZeros: false, eNotation: true })] } })
       ),
     });
     const result = parseDoc(parser, xmlData);

@@ -5,8 +5,9 @@ import { Effect } from 'effect';
 import type { BuilderError } from '../errors.ts';
 import type { BuiltInValueParserOptions, BuilderParserOptions } from './options.ts';
 import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
+import type { SharedContext, ValueParserPipeline } from './value-parser.ts';
 
-import { Context, SharedContext, ValueParserPipeline } from './value-parser.ts';
+import { makeContext, makeSharedContext, makeValueParserPipeline } from './value-parser.ts';
 
 /**
  * @description The chain a builder uses for element text when it configures nothing.
@@ -159,9 +160,9 @@ export default class BaseOutputBuilder {
     // Shared mutable context distributed to all value parsers.
     // This class is the sole writer; parsers are readers (or
     // co-writers for cross-parser communication).
-    this.sharedContext = new SharedContext();
-    this.tagsPipeline = new ValueParserPipeline(tagChain, this.registry, this.sharedContext);
-    this.attrsPipeline = new ValueParserPipeline(attrChain, this.registry, this.sharedContext);
+    this.sharedContext = makeSharedContext();
+    this.tagsPipeline = makeValueParserPipeline(tagChain, this.registry, this.sharedContext);
+    this.attrsPipeline = makeValueParserPipeline(attrChain, this.registry, this.sharedContext);
 
     if (resetPipelines) {
       this.tagsPipeline.resetAll();
@@ -221,7 +222,7 @@ export default class BaseOutputBuilder {
       this.sharedContext?.set('xmlVersion', Number(value));
     }
     const { prefix = '', suffix = '' } = this.parserOptions.attributes ?? {};
-    const context = new Context(name, matcher, true, true); // attributes are always leaf values
+    const context = makeContext(name, matcher, true, true); // attributes are always leaf values
     const bag = (this as { attributes?: Record<string, unknown> }).attributes;
     if (bag) {
       bag[`${prefix}${name}${suffix}`] = yield* this.attrsPipeline.run(value, context);

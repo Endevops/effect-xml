@@ -1,4 +1,4 @@
-import { WSNormalizer } from '@endevops/builder';
+import { makeWSNormalizer } from '@endevops/builder';
 import { CompactBuilderFactory } from '@endevops/builder';
 import { describe, it, expect } from 'vite-plus/test';
 
@@ -171,7 +171,7 @@ describe('White Space', function () {
       },
       nameFor: { cdata: '#cdata', comment: '#comment' },
       OutputBuilder: runParser(
-        CompactBuilderFactory.make({ tags: { valueParsers: [runParser(WSNormalizer.make({ exclude: ['root.stop'] })), 'boolean', 'number'] } })
+        CompactBuilderFactory.make({ tags: { valueParsers: [runParser(makeWSNormalizer({ exclude: ['root.stop'] })), 'boolean', 'number'] } })
       ),
       // tags: { stopNodes: ["root.stop"] }
     };

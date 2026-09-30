@@ -3,11 +3,11 @@ import type { MatcherView, XmlError } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
 import type { BuilderError } from '../errors.ts';
-import type { CloseMetaLike, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
+import type { CloseMetaLike, Context, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
 import { BuilderError as BuilderErrorCtor } from '../errors.ts';
-import { BaseOutputBuilder as BaseOutputBuilderClass, BaseOutputBuilderFactory, Context } from '../output-builder/index.ts';
+import { BaseOutputBuilder as BaseOutputBuilderClass, BaseOutputBuilderFactory, makeContext } from '../output-builder/index.ts';
 import { buildOptions } from './options-builder.ts';
 
 /**
@@ -327,7 +327,7 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     const hasAttributes = this.hasAttributes;
     const isLeafNode = isLeafValue(value, hasAttributes);
 
-    const context = new Context(tagName, this.matcher, isLeafNode, false);
+    const context = makeContext(tagName, this.matcher, isLeafNode, false);
 
     const closed = yield* isLeafNode
       ? this._closedLeafValue(value, textValue, hasAttributes, context)

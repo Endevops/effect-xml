@@ -1,4 +1,4 @@
-import { NumberValueParser } from '@endevops/builder';
+import { makeNumberValueParser } from '@endevops/builder';
 import { CompactBuilderFactory } from '@endevops/builder';
 import { describe, it, expect } from 'vite-plus/test';
 
@@ -15,7 +15,7 @@ import {
 // Helper: build a parser with a custom NumberValueParser configuration.
 const makeParser = (numOpts = {}, parserOpts = {}) => {
   const builder = runParser(CompactBuilderFactory.make());
-  runParser(builder.registerValueParser('number', new NumberValueParser(numOpts)));
+  runParser(builder.registerValueParser('number', makeNumberValueParser(numOpts)));
   return makeXMLParser({ ...parserOpts, OutputBuilder: builder });
 };
 
@@ -158,7 +158,7 @@ describeAcrossAllInputSources('Advanced Number Parsing Scenarios', function (par
     // describeAcrossAllInputSources uses XMLParser directly via parse(), so we
     // can't inject a custom builder. Create a parser manually for this test.
     const builder = runParser(CompactBuilderFactory.make());
-    runParser(builder.registerValueParser('number', new NumberValueParser({ hex: true })));
+    runParser(builder.registerValueParser('number', makeNumberValueParser({ hex: true })));
     const parser = makeXMLParser({ OutputBuilder: builder });
     const result = createInputSource(xml, inputType as InputSourceType).parse(parser);
 

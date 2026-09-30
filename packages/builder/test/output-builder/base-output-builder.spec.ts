@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import type { BuilderError } from '#/errors.ts';
 import type { BuilderParserOptions, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
 
-import { BaseOutputBuilder, BaseOutputBuilderFactory, BooleanParser, Context, ValueParserRegistry } from '#/index.ts';
+import { BaseOutputBuilder, BaseOutputBuilderFactory, makeBooleanParser, makeContext, makeValueParserRegistry } from '#/index.ts';
 import { failed, run, runXml } from '#/test/helpers/effect.ts';
 
 /**
@@ -52,7 +52,7 @@ const atA = (): MatcherView => {
   return runXml(matcher.readOnly());
 };
 
-const registry = (): ValueParserRegistryLike => new ValueParserRegistry();
+const registry = (): ValueParserRegistryLike => makeValueParserRegistry();
 
 /**
  * @description The stop-node detail a parser sends: a name and a position. Typed as {@link TagDetailLike} rather than written inline at each call site, because
@@ -120,7 +120,7 @@ describe('BaseOutputBuilder — construction', () => {
         resets++;
       },
     };
-    const reg = new ValueParserRegistry();
+    const reg = makeValueParserRegistry();
     run(reg.register('counting', counting));
     new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['counting'] } }, null, reg);
     expect(resets).toBeGreaterThan(0);
@@ -134,7 +134,7 @@ describe('BaseOutputBuilder — construction', () => {
         resets++;
       },
     };
-    const reg = new ValueParserRegistry();
+    const reg = makeValueParserRegistry();
     run(reg.register('counting', counting));
     new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['counting'] } }, null, reg, false);
     expect(resets).toBe(0);
@@ -348,7 +348,7 @@ describe('BaseOutputBuilderFactory', () => {
   it('starts with empty builder options and a populated registry', () => {
     const f = new BaseOutputBuilderFactory();
     expect(f.builderOptions).toEqual({});
-    expect(f.registry).toBeInstanceOf(ValueParserRegistry);
+    expect(typeof f.registry.get).toBe('function');
   });
 
   it('keeps the options it was given', () => {
@@ -363,7 +363,7 @@ describe('BaseOutputBuilderFactory', () => {
 
   it('registers a value parser for every builder it produces afterwards', () => {
     const f = new BaseOutputBuilderFactory();
-    const parser = new BooleanParser();
+    const parser = makeBooleanParser();
     run(f.registerValueParser('flag', parser));
     expect(run(f.registry.get('flag'))).toBe(parser);
     // The builder the factory hands out shares the factory's registry.
@@ -423,7 +423,7 @@ describe('BaseOutputBuilderFactory', () => {
 
 describe('Context is what a builder hands its value parsers', () => {
   it('reports the element name the builder was closing', () => {
-    const ctx = new Context('price', atA(), true, false);
+    const ctx = makeContext('price', atA(), true, false);
     expect(ctx.elementName).toBe('price');
     expect(ctx.isLeafNode).toBe(true);
   });
