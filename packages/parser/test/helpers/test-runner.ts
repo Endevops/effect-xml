@@ -243,15 +243,32 @@ export function runAcrossAllInputSourcesWithException(
 }
 
 /**
+ * @description Whether the expected error was given in the per-mechanism `{ string, feedable }` form, as opposed to a bare string or RegExp. Split out of
+ * {@link normalizeExpectedError} because "which form is this" and "what does each mechanism get" are two different questions, and the form test has to
+ * be a type guard for the second one to be able to read the two fields at all. A `RegExp` is an object and would otherwise match the first half of
+ * the test; it is excluded explicitly because a regex is the whole-message form, not a per-mechanism one.
+ *
+ * @param errMsg - The caller's expectation.
+ *
+ * @returns `true` when `errMsg` is the per-mechanism object form.
+ */
+function isPerMechanismError(errMsg: ExpectedError): errMsg is { string?: string | RegExp; feedable?: string | RegExp } {
+  if (errMsg === null || typeof errMsg !== 'object' || errMsg instanceof RegExp) return false;
+  return 'string' in errMsg || 'feedable' in errMsg;
+}
+
+/**
  * @description Flatten the per-mechanism form of an expected error into a `{ string, feedable }` pair. A bare string or RegExp applies to every mechanism. The
  * per-mechanism object form only needs the keys that actually differ; an omitted one falls back to the whole-message form so a partially-specified
  * object is still usable.
  */
 function normalizeExpectedError(errMsg: ExpectedError): { string: string | RegExp; feedable: string | RegExp } {
-  if (errMsg !== null && typeof errMsg === 'object' && !(errMsg instanceof RegExp) && ('string' in errMsg || 'feedable' in errMsg)) {
-    return { string: errMsg.string ?? errMsg.feedable ?? '', feedable: errMsg.feedable ?? errMsg.string ?? '' };
-  }
-  return { string: errMsg as string | RegExp, feedable: errMsg as string | RegExp };
+  if (!isPerMechanismError(errMsg)) return { string: errMsg as string | RegExp, feedable: errMsg as string | RegExp };
+
+  // Read each mechanism off both keys rather than defaulting one to the other afterwards: `string` and `feedable` are independent, so an object that
+  // names only one of them is asking for that one to apply to both.
+  const { string, feedable } = errMsg;
+  return { string: string ?? feedable ?? '', feedable: feedable ?? string ?? '' };
 }
 
 /**

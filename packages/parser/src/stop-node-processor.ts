@@ -42,6 +42,40 @@ export const quoteEnclosures: readonly Enclosure[] = [
 ];
 
 /**
+ * @description The delimiter currently open inside a stop node's opening tag, tracked as the literal character so that a `'` inside a `"` value and a `"` inside a
+ * `'` value are both ordinary content. Holding the character rather than a pair of booleans is what lets the reader ask one question per character —
+ * "does this close the value I am inside?" — instead of testing each quote character against the other one's flag.
+ */
+type QuoteDelimiter = '"' | "'";
+
+/**
+ * @description The raw tail of a stop node's opening tag, from just after the tag name through the terminator that ended it. `attrText` is handed to the output
+ * builder verbatim as the stop node's attribute source, so it must keep the original spacing and any `/` of a self-closing tag.
+ */
+interface TagTail {
+  /**
+   * @description Whether the tag closed with `/>` rather than a bare `>`.
+   */
+  selfClosing: boolean;
+  /**
+   * @description Everything consumed since the end of the tag name, up to and including the terminator.
+   */
+  attrText: string;
+}
+
+/**
+ * @description Whether a character opens a quoted attribute value, and which delimiter it opens. Only the two characters XML allows for attribute-value delimiters
+ * are recognized — an unquoted value has no delimiter, which is exactly the case where a `>` inside the value legitimately ends the tag.
+ *
+ * @param ch - The character just consumed, or `undefined` at end of input.
+ *
+ * @returns The delimiter `ch` opens, or `null` when it is not a quote character.
+ */
+function openQuoteDelimiter(ch: string | undefined): QuoteDelimiter | null {
+  return ch === '"' || ch === "'" ? ch : null;
+}
+
+/**
  * @description StopNodeProcessor options.
  */
 export interface StopNodeProcessorOptions {
@@ -445,40 +479,60 @@ export class StopNodeProcessor {
   /**
    * @description Read from after the tag name up to and including the closing `>`, detecting self-closing `/>` and respecting quoted attribute values so a `>`
    * inside a value does not prematurely end the tag. Returns `{ selfClosing, attrText }` where `attrText` includes everything from the first
-   * attribute character up to and including the closing `>` (or `/>`).
+   * attribute character up to and including the closing `>` (or `/>`). The open quote delimiter is tracked as the literal character rather than as a
+   * pair of booleans, because that is what makes the two questions separable: "am I inside a value?" decides whether the terminator test is even
+   * allowed to run, and once inside, a value can only be left by its own delimiter. Holding a pair of flags instead would have made both answers
+   * depend on the _other_ flag, so every character would have needed the same mutually-exclusive guards whether or not a value was open.
    *
    * @throws {ParseError} `UNEXPECTED_END` when the input runs out inside the tag.
    */
-  #readTagTail(source: InputSourceLike): { selfClosing: boolean; attrText: string } {
+  #readTagTail(source: InputSourceLike): TagTail {
     const start = source.startIndex;
     let len = 0;
-    let inSingle = false;
-    let inDouble = false;
+    let quote: QuoteDelimiter | null = null;
 
     while (source.canRead()) {
       const ch = source.readCh();
       len++;
 
-      if (ch === "'" && !inDouble) {
-        inSingle = !inSingle;
-      } else if (ch === '"' && !inSingle) {
-        inDouble = !inDouble;
-      } else if (!inSingle && !inDouble) {
-        if (ch === '>') {
-          return { selfClosing: false, attrText: source.readStr(len, start) };
-        }
-        if (ch === '/' && source.canRead() && source.readChAt(0) === '>') {
-          source.readCh(); // consume '>'
-          len++;
-          return { selfClosing: true, attrText: source.readStr(len, start) };
-        }
+      // Inside a quoted value nothing can end the tag — not a `>`, not a `/>` — so the only character that matters is the closing delimiter. A quote
+      // character of the other kind inside a value is ordinary content and must not close it.
+      if (quote !== null) {
+        if (ch === quote) quote = null;
+        continue;
       }
+
+      const tagEnd = this.#readTagEnd(source, ch, start, len);
+      if (tagEnd !== null) return tagEnd;
+
+      quote = openQuoteDelimiter(ch);
     }
 
     throw new UnexpectedEnd({
       reading: `stop node <${this.#tagName}> tag`,
       message: `Unclosed stop node <${this.#tagName}> — unexpected end inside tag`,
     });
+  }
+
+  /**
+   * @description Test whether the character just consumed ends the tag, consuming the `>` of a `/>` when it does. Its own method so that "which characters can
+   * close a tag" is one question with one answer, rather than two tests threaded through the same loop that also tracks quoting. Only ever called
+   * outside a quoted value, which is the whole reason the terminator test can be unconditional here.
+   *
+   * @param source - The source to read the `>` of a `/>` from, already positioned just after the `/`.
+   * @param ch - The character just consumed, or `undefined` at end of input.
+   * @param start - The index the tag tail began at.
+   * @param len - How many characters of the tail have been consumed, excluding any `>` consumed here.
+   *
+   * @returns The finished tag tail when `ch` ended the tag, or `null` when it did not.
+   */
+  #readTagEnd(source: InputSourceLike, ch: string | undefined, start: number, len: number): TagTail | null {
+    if (ch === '>') return { selfClosing: false, attrText: source.readStr(len, start) };
+    if (ch === '/' && source.canRead() && source.readChAt(0) === '>') {
+      source.readCh(); // consume '>'
+      return { selfClosing: true, attrText: source.readStr(len + 1, start) };
+    }
+    return null;
   }
 
   /**

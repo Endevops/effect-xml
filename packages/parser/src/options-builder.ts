@@ -7,7 +7,7 @@ import { Effect } from 'effect';
 
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
-import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, X2jOptions } from './options.ts';
+import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, StopNodeEntry, X2jOptions } from './options.ts';
 
 import { InvalidInput, SecurityReservedOption, fromUpstreamError, runBuilder, type ParseError } from './parse-error.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
@@ -249,11 +249,58 @@ const validatePropertyName = (value: unknown, optionName: string): Effect.Effect
 };
 
 /**
- * @description Validate, merge, and normalize the caller's options into the {@link ResolvedOptions} the parser reads. Three things happen here that the parser must
- * not have to do per-document: security-sensitive values are rejected, every default is filled in, and stop-node / skip-tag patterns are compiled
- * once into sealed `ExpressionSet`s. All of that can fail — a reserved option name, a malformed `limits`, a stop-node pattern that will not compile —
- * and all of it happens once, at construction. That is why construction itself is an effect (`XMLParser.make`) rather than a constructor: a
- * configuration the parser cannot honour is a typed failure, and a constructor has nowhere to put one.
+ * @description One entry from `tags.stopNodes` or `skip.tags`, in any of the forms the parser accepts. Aliased because the same three forms are legal for both
+ * lists and every helper in the normalization chain below refers to the union; the alias keeps those signatures readable instead of repeating it.
+ */
+type TagEntry = string | Expression | StopNodeEntry;
+
+/**
+ * @description A {@link TagEntry} after its shape has been dispatched on: the pattern to compile, plus the stop-node config the compiled expression will carry in
+ * `.data`. Named for the same reason as {@link TagEntry} — it appears as the return type of every step between dispatch and compilation.
+ */
+type TagEntryParts = {
+  /**
+   * @description The path expression to compile. Always a plain string by this point, even when the caller handed over an `Expression`.
+   */
+  pattern: string;
+  /**
+   * @description Whether nested same-name tags are depth-tracked during collection.
+   */
+  nested: boolean;
+  /**
+   * @description Enclosure pairs whose interiors suppress closing-tag detection.
+   */
+  skipEnclosures: TagExpressionConfig['skipEnclosures'];
+};
+
+/**
+ * @description One compiled tag-pattern list: the normalized entries to store back on the options, and the sealed `ExpressionSet` the parser matches every tag it
+ * opens against. Returned as a pair rather than written onto the options from inside the compiling step, so that a list which fails to compile or
+ * seal leaves the options object exactly as the merge produced it — a half-normalized entry list is not a state the parser has any handling for.
+ */
+type NormalizedTagList = {
+  /**
+   * @description The compiled entries, one per caller-supplied entry, in the caller's order.
+   */
+  entries: ConfigExpression[];
+  /**
+   * @description The sealed set holding the same expressions, for O(1) hot-path matching.
+   */
+  set: ExpressionSet<TagExpressionConfig>;
+};
+
+/**
+ * @description Validate, merge, and normalize the caller's options into the {@link ResolvedOptions} the parser reads. Four phases happen here, in this order, and
+ * each one exists so the parser never has to do it per-document:
+ *
+ * 1. **Reject the caller's own values** — {@link validateSecurityNames} and {@link validateLimits}. These run on `options` before anything is merged, so
+ *    a value only the defaults would have supplied is never checked, and a bad caller value cannot be masked by a later merge.
+ * 2. **Merge** the caller over a deep clone of {@link defaultOptions}, so no two parsers ever share a nested option group.
+ * 3. **Fill the derived fields** — the default output builder, the two compiled tag-pattern lists, the dangerous-property fallback, `autoClose`.
+ * 4. **Reject the merged result** where the merge is what settled a value's type; today that is `exitIf` alone, since its default is a function and only
+ *    a caller can make it something else. All of it can fail — a reserved option name, a malformed `limits`, a stop-node pattern that will not
+ *    compile — and all of it happens once, at construction. That is why construction itself is an effect (`XMLParser.make`) rather than a
+ *    constructor: a configuration the parser cannot honour is a typed failure, and a constructor has nowhere to put one.
  *
  * @param options - Caller options. Omit for pure defaults.
  *
@@ -263,55 +310,18 @@ const validatePropertyName = (value: unknown, optionName: string): Effect.Effect
  */
 export const buildOptions = (options?: X2jOptions | null): Effect.Effect<ResolvedOptions, ParseError> =>
   Effect.gen(function* () {
-    // Validate security-sensitive option values BEFORE merging
-    if (options) {
-      if (options.nameFor?.text) yield* validatePropertyName(options.nameFor.text, 'nameFor.text');
-      if (options.nameFor?.cdata) yield* validatePropertyName(options.nameFor.cdata, 'nameFor.cdata');
-      if (options.nameFor?.comment) yield* validatePropertyName(options.nameFor.comment, 'nameFor.comment');
-      if (options.attributes?.prefix) yield* validatePropertyName(options.attributes.prefix, 'attributes.prefix');
-      if (options.attributes?.groupBy) yield* validatePropertyName(options.attributes.groupBy, 'attributes.groupBy');
+    // Phase 1 — on the caller's object, before the merge can mask anything.
+    yield* validateSecurityNames(options);
+    yield* validateLimits(options?.limits);
 
-      // Validate limits option
-      if (options.limits !== undefined && options.limits !== null) {
-        if (typeof options.limits !== 'object') {
-          return yield* new InvalidInput({
-            option: 'limits',
-            received: typeof options.limits,
-            message: `'limits' must be an object, got ${typeof options.limits}`,
-          });
-        }
-        const { maxNestedTags, maxAttributesPerTag } = options.limits;
-        if (
-          maxNestedTags !== undefined &&
-          maxNestedTags !== null &&
-          (typeof maxNestedTags !== 'number' || !Number.isInteger(maxNestedTags) || maxNestedTags < 1)
-        ) {
-          return yield* new InvalidInput({
-            option: 'limits.maxNestedTags',
-            received: `${maxNestedTags}`,
-            message: `'limits.maxNestedTags' must be a positive integer, got ${maxNestedTags}`,
-          });
-        }
-        if (
-          maxAttributesPerTag !== undefined &&
-          maxAttributesPerTag !== null &&
-          (typeof maxAttributesPerTag !== 'number' || !Number.isInteger(maxAttributesPerTag) || maxAttributesPerTag < 0)
-        ) {
-          return yield* new InvalidInput({
-            option: 'limits.maxAttributesPerTag',
-            received: `${maxAttributesPerTag}`,
-            message: `'limits.maxAttributesPerTag' must be a non-negative integer, got ${maxAttributesPerTag}`,
-          });
-        }
-      }
-    }
-
+    // Phase 2
     const finalOptions = deepClone(defaultOptions) as ResolvedOptions;
 
     if (options) {
       copyProperties(finalOptions as unknown as Record<string, unknown>, options as unknown as Record<string, unknown>);
     }
 
+    // Phase 3
     if (!finalOptions.OutputBuilder) {
       // `CompactBuilderFactory.make` rather than `new CompactBuilderFactory`:
       // the factory resolves its own options — a value-parser chain, an
@@ -323,72 +333,275 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
       finalOptions.OutputBuilder = runBuilder(DefaultOutputBuilderFactory.make());
     }
 
-    // Normalize stopNodes and skip.tags entries into Expression objects with config embedded
-    // in Expression.data as { nested, skipEnclosures }. Build a sealed ExpressionSet for
-    // O(1) hot-path matching in the parser.
-    //
-    // Accepted entry forms (identical for both stopNodes and skip.tags):
-    //   "..script"
-    //     → Expression("..script", {}, { nested: false, skipEnclosures: [] })
-    //
-    //   Expression instance
-    //     → re-wrapped with { nested: false, skipEnclosures: [] } in data
-    //
-    //   { expression: "..script", nested?: boolean, skipEnclosures?: [] }
-    //   { expression: Expression,  nested?: boolean, skipEnclosures?: [] }
-    //     → Expression with the given config embedded in .data
-    //
-    // `nested` defaults to false; `skipEnclosures` defaults to [].
-    // The two flags are fully independent — any combination is valid.
-    //
-    // Normalizing every form into one shape here is what lets the parser's hot
-    // path be a single findMatch() followed by `.data` — no per-entry branch.
-    //
-    // A caller-supplied `Expression` is re-wrapped rather than reused: its payload
-    // is `unknown` and only this parser's config by convention, and `readTagConfig`
-    // checks the shape rather than trusting it.
     if (Array.isArray(finalOptions.tags?.stopNodes)) {
-      const stopSet = new ExpressionSet<TagExpressionConfig>();
-      const entries: ConfigExpression[] = [];
-      for (const entry of finalOptions.tags.stopNodes) {
-        entries.push(yield* normalizeTagEntry(entry, 'stopNodes', stopSet));
-      }
+      const { entries, set } = yield* normalizeTagList(finalOptions.tags.stopNodes, 'stopNodes');
       finalOptions.tags.stopNodes = entries;
-      yield* Effect.mapError(stopSet.seal(), fromUpstreamError);
-      finalOptions.tags.stopNodesSet = stopSet;
+      finalOptions.tags.stopNodesSet = set;
     }
 
     if (Array.isArray(finalOptions.skip?.tags)) {
-      const skipSet = new ExpressionSet<TagExpressionConfig>();
-      const entries: ConfigExpression[] = [];
-      for (const entry of finalOptions.skip.tags) {
-        entries.push(yield* normalizeTagEntry(entry, 'skip.tags', skipSet));
-      }
+      const { entries, set } = yield* normalizeTagList(finalOptions.skip.tags, 'skip.tags');
       finalOptions.skip.tags = entries;
-      yield* Effect.mapError(skipSet.seal(), fromUpstreamError);
-      finalOptions.skip.tagsSet = skipSet;
+      finalOptions.skip.tagsSet = set;
     }
 
     if (finalOptions.onDangerousProperty === null) {
       finalOptions.onDangerousProperty = defaultOnDangerousProperty;
     }
 
-    // Validate exitIf
-    if (finalOptions.exitIf !== null && finalOptions.exitIf !== undefined) {
-      if (typeof finalOptions.exitIf !== 'function') {
-        return yield* new InvalidInput({
-          option: 'exitIf',
-          received: typeof finalOptions.exitIf,
-          message: `'exitIf' must be a function, got ${typeof finalOptions.exitIf}`,
-        });
-      }
-    }
-
-    // Resolve autoClose: expand the 'html' preset and normalise to an object
     finalOptions.autoClose = resolveAutoClose(finalOptions.autoClose, finalOptions);
+
+    // Phase 4 — `exitIf` defaults to a function, so its type only settles once the merge is done.
+    yield* validateExitIf(finalOptions.exitIf);
 
     return finalOptions;
   });
+
+/**
+ * @description Collect the caller-supplied option values that become property keys in the parsed output, paired with the name each is reported under. Listed
+ * rather than checked in place because the checks are identical — only the value and its label differ — and because the order of this list is the
+ * order failures are reported in: the three `nameFor` keys first, because they name a node's own output key, then the two `attributes` keys, because
+ * they rewrite every attribute name in the document.
+ *
+ * @param options - The caller's options, read before the defaults are merged in.
+ *
+ * @returns One `[optionName, value]` pair per security-sensitive option, whether or not it was set. Absent groups are read as empty objects so a
+ *   caller who set no `nameFor` contributes `undefined` values rather than short-circuiting here; it is the falsy check in
+ *   {@link validateSecurityNames} that skips them.
+ */
+function securitySensitiveOptionValues(options: X2jOptions): ReadonlyArray<readonly [string, unknown]> {
+  const nameFor = options.nameFor ?? {};
+  const attributes = options.attributes ?? {};
+  return [
+    ['nameFor.text', nameFor.text],
+    ['nameFor.cdata', nameFor.cdata],
+    ['nameFor.comment', nameFor.comment],
+    ['attributes.prefix', attributes.prefix],
+    ['attributes.groupBy', attributes.groupBy],
+  ];
+}
+
+/**
+ * @description Reject every caller-supplied option value that would become a reserved JavaScript property key in the parsed output. Runs on the caller's object
+ * rather than the merged one so that a value the defaults would have supplied is never checked — only the caller can turn a default into a reserved
+ * key.
+ *
+ * @param options - Caller options, or nothing when the parser was constructed with pure defaults.
+ *
+ * @returns An effect failing with `SECURITY_RESERVED_OPTION` on the first reserved value, in {@link securitySensitiveOptionValues} order. Infallible
+ *   when there are no options at all, or when none of the five is set.
+ */
+function validateSecurityNames(options: X2jOptions | null | undefined): Effect.Effect<void, ParseError> {
+  if (options === null || options === undefined) return Effect.void;
+  return Effect.gen(function* () {
+    for (const [optionName, value] of securitySensitiveOptionValues(options)) {
+      // A falsy value falls back to its default downstream, and `''` is a legal property key in its own right, so there is nothing here to check.
+      if (value) yield* validatePropertyName(value, optionName);
+    }
+  });
+}
+
+/**
+ * @description Whether a structural limit was given a value the parser could not enforce as written. An absent limit (`undefined` or `null`) means "no limit" and
+ * is always acceptable; anything present must be a whole number at or above `minimum`. A float, a `NaN`, a string that survived the merge, or a
+ * negative count would each yield a limit that either never trips or trips on the wrong tag, so they are rejected at configuration time — where the
+ * caller can still tell a typo from a document that genuinely broke the cap.
+ *
+ * @param value - The limit the caller supplied, or nothing.
+ * @param minimum - The smallest acceptable value: `1` for nesting depth, `0` for attribute count, where "no attributes at all" is a legitimate cap.
+ *
+ * @returns `true` when `value` is present and unusable.
+ */
+function isUnenforceableLimit(value: unknown, minimum: number): boolean {
+  if (value === undefined || value === null) return false;
+  return typeof value !== 'number' || !Number.isInteger(value) || value < minimum;
+}
+
+/**
+ * @description Reject a `limits` option the parser could not enforce — a non-object, or a per-limit value that is present but unusable. The group is validated as
+ * a whole because `copyProperties` walks the caller's object structurally: a `limits` that arrived as a number would otherwise merge into the default
+ * group field by field and leave behind something that reads as a valid limit and is not one.
+ *
+ * @param limits - The caller's `limits`, or nothing when unset.
+ *
+ * @returns An effect failing with `INVALID_INPUT` naming the offending option — `maxNestedTags` reported before `maxAttributesPerTag`, so a caller
+ *   who got both wrong is told about the nesting one first. Infallible when no limits were supplied.
+ */
+function validateLimits(limits: X2jOptions['limits']): Effect.Effect<void, ParseError> {
+  // `typeof null === 'object'`, so the absent check has to come first — otherwise an explicit `limits: null` would be reported as a malformed object.
+  if (limits === null || limits === undefined) return Effect.void;
+  if (typeof limits !== 'object') {
+    return new InvalidInput({ option: 'limits', received: typeof limits, message: `'limits' must be an object, got ${typeof limits}` });
+  }
+  const { maxNestedTags, maxAttributesPerTag } = limits;
+  return Effect.gen(function* () {
+    if (isUnenforceableLimit(maxNestedTags, 1)) {
+      return yield* new InvalidInput({
+        option: 'limits.maxNestedTags',
+        received: `${maxNestedTags}`,
+        message: `'limits.maxNestedTags' must be a positive integer, got ${maxNestedTags}`,
+      });
+    }
+    if (isUnenforceableLimit(maxAttributesPerTag, 0)) {
+      return yield* new InvalidInput({
+        option: 'limits.maxAttributesPerTag',
+        received: `${maxAttributesPerTag}`,
+        message: `'limits.maxAttributesPerTag' must be a non-negative integer, got ${maxAttributesPerTag}`,
+      });
+    }
+  });
+}
+
+/**
+ * @description Reject an `exitIf` that is present but not callable. Checked on the merged options rather than on the caller's, because `exitIf`'s default is a
+ * function and the merge is what settles its type: without this check a non-function would reach the parse loop and fail there, once per tag opened,
+ * as a `TypeError` rather than as the configuration error it is.
+ *
+ * @param exitIf - The merged `exitIf` value.
+ *
+ * @returns An effect failing with `INVALID_INPUT` when `exitIf` is present and not a function. Infallible for `null` / `undefined`, which mean "no
+ *   predicate" and are left for the parser's call site to interpret.
+ */
+function validateExitIf(exitIf: unknown): Effect.Effect<void, ParseError> {
+  if (exitIf === null || exitIf === undefined) return Effect.void;
+  if (typeof exitIf !== 'function') {
+    return new InvalidInput({ option: 'exitIf', received: typeof exitIf, message: `'exitIf' must be a function, got ${typeof exitIf}` });
+  }
+  return Effect.void;
+}
+
+/**
+ * @description Compile every entry of one of the two tag-pattern lists — `tags.stopNodes` or `skip.tags` — into the parser's single normalized shape, and seal the
+ * `ExpressionSet` the parser matches against for each tag it opens. The two lists have identical semantics and were once two copies of the same loop;
+ * they are one function called with a different `optionName` so that a change to either reaches both. Accepted entry forms, identical for both lists
+ * and dispatched by {@link readEntryParts}:
+ *
+ * ```txt
+ * "..script"
+ * → Expression("..script", {}, { nested: false, skipEnclosures: [] })
+ * Expression instance
+ * → re-wrapped with { nested: false, skipEnclosures: [] } in data
+ * { expression: "..script", nested?: boolean, skipEnclosures?: [] }
+ * { expression: Expression,  nested?: boolean, skipEnclosures?: [] }
+ * → Expression with the given config embedded in .data
+ * ```
+ *
+ * `nested` defaults to false; `skipEnclosures` defaults to `[]`. The two flags are fully independent — any combination is valid. Normalizing every
+ * form into one shape here is what lets the parser's hot path be a single `findMatch()` followed by `.data` — no per-entry branch.
+ *
+ * @param entries - The caller's entries, in any accepted form.
+ * @param optionName - Which list this is, used in error messages (`'stopNodes'` or `'skip.tags'`).
+ *
+ * @returns An effect producing the compiled entries together with the sealed set. Sealing is what freezes the pattern trie; an unsealed set would
+ *   silently never match, so it happens before the caller is handed anything and the entries are always consistent with the set they can be found
+ *   in.
+ */
+function normalizeTagList(entries: ReadonlyArray<TagEntry>, optionName: string): Effect.Effect<NormalizedTagList, ParseError> {
+  return Effect.gen(function* () {
+    const set = new ExpressionSet<TagExpressionConfig>();
+    const compiled: ConfigExpression[] = [];
+    for (const entry of entries) {
+      compiled.push(yield* normalizeTagEntry(entry, optionName, set));
+    }
+    yield* Effect.mapError(set.seal(), fromUpstreamError);
+    return { entries: compiled, set };
+  });
+}
+
+/**
+ * @description The single failure both accepted entry forms report for an empty pattern. An empty expression matches nothing at all, so accepting one would leave
+ * the caller with a configured stop node that can never fire — a mistake worth catching at configuration time rather than at the first document that
+ * fails to stop.
+ *
+ * @param optionName - Which list the entry came from (`'stopNodes'` or `'skip.tags'`).
+ *
+ * @returns An `INVALID_INPUT` failure naming the option.
+ */
+function emptyPatternError(optionName: string): InvalidInput {
+  return new InvalidInput({ option: optionName, message: `${optionName} expression cannot be empty` });
+}
+
+/**
+ * @description Whether a non-string entry is the explicit `{ expression, nested?, skipEnclosures? }` form. A runtime check rather than a type-level one on
+ * purpose: both lists are read straight off a plain options object, so a caller in JavaScript — or one whose options crossed an untyped boundary —
+ * can put anything in the array. An entry with no `expression` has to be reported as a bad entry, not dereferenced.
+ *
+ * @param entry - The entry to test.
+ *
+ * @returns `true` when `entry` carries a defined `expression` field.
+ */
+function isTagEntryObject(entry: unknown): entry is StopNodeEntry {
+  return entry !== null && typeof entry === 'object' && (entry as Partial<StopNodeEntry>).expression !== undefined;
+}
+
+/**
+ * @description Resolve the `expression` field of an entry object down to a pattern string. Split from {@link readConfiguredEntry} because this is the one place
+ * that can be handed something which is neither accepted form, and it owns that one rejection — including the empty-string case the bare-string form
+ * shares, via {@link emptyPatternError}.
+ *
+ * @param raw - The `expression` field as supplied.
+ * @param optionName - Used in the error message.
+ *
+ * @returns An effect producing the pattern. Fails with `INVALID_INPUT` for an empty string or for a value that is neither a string nor an
+ *   `Expression`.
+ */
+function readTagPattern(raw: unknown, optionName: string): Effect.Effect<string, ParseError> {
+  if (typeof raw === 'string') {
+    if (raw.length === 0) return emptyPatternError(optionName);
+    return Effect.succeed(raw);
+  }
+  // A caller's `Expression` is read through its `pattern` field rather than `toString()`. The two held the same value before `common-xml` made every question
+  // answerable an effect; the field is still a plain `readonly string`, and reading it needs no run.
+  if (raw instanceof Expression) return Effect.succeed(raw.pattern);
+  return new InvalidInput({ option: optionName, received: typeof raw, message: `${optionName} expression must be a string or Expression instance` });
+}
+
+/**
+ * @description Read the explicit `{ expression, nested?, skipEnclosures? }` form into the flat parts the compiler wants. The two flags are independent, so each is
+ * read on its own terms rather than defaulted together: `nested` is true only when literally `true`, and a `skipEnclosures` that is not an array is
+ * dropped for the default rather than half-used — the same defensive read {@link readTagConfig} applies to a bare `Expression`'s payload, since both
+ * can carry anything a caller attached.
+ *
+ * @param entry - The entry, already known to carry a defined `expression`.
+ * @param optionName - Used in error messages (`'stopNodes'` or `'skip.tags'`).
+ *
+ * @returns An effect producing the entry's pattern and config.
+ */
+function readConfiguredEntry(entry: StopNodeEntry, optionName: string): Effect.Effect<TagEntryParts, ParseError> {
+  const nested = entry.nested === true;
+  const skipEnclosures = Array.isArray(entry.skipEnclosures) ? entry.skipEnclosures : [];
+  return Effect.map(readTagPattern(entry.expression, optionName), pattern => ({ pattern, nested, skipEnclosures }));
+}
+
+/**
+ * @description Dispatch one raw entry onto the three forms the parser accepts and pull out its pattern and config. Split from the compilation step so that "which
+ * shape is this entry in" and "can this pattern be compiled" are answered by two functions: the first is structural dispatch, the second is the
+ * fallible part, and a change to the accepted forms only touches this one.
+ *
+ * @param entry - The caller's entry, in any accepted form.
+ * @param optionName - Used in error messages (`'stopNodes'` or `'skip.tags'`).
+ *
+ * @returns An effect producing the entry's pattern and config. Fails with `INVALID_INPUT` for an empty pattern or for an entry that matches none of
+ *   the three forms.
+ */
+function readEntryParts(entry: TagEntry, optionName: string): Effect.Effect<TagEntryParts, ParseError> {
+  if (typeof entry === 'string') {
+    if (entry.length === 0) return emptyPatternError(optionName);
+    return Effect.succeed({ pattern: entry, nested: false, skipEnclosures: [] });
+  }
+  if (entry instanceof Expression) {
+    // Bare `Expression` — keep its pattern and apply defaults for missing data fields. The payload is only this parser's config by convention, so
+    // `readTagConfig` checks the shape rather than trusting it, which is also what a caller who attached something else entirely needs.
+    const carried = readTagConfig(entry.data);
+    return Effect.succeed({ pattern: entry.pattern, nested: carried.nested, skipEnclosures: carried.skipEnclosures });
+  }
+  if (isTagEntryObject(entry)) return readConfiguredEntry(entry, optionName);
+  return new InvalidInput({
+    option: optionName,
+    received: typeof entry,
+    message: `Invalid ${optionName} entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.`,
+  });
+}
 
 /**
  * @description Standard HTML void elements — never have a closing tag.
@@ -429,10 +642,8 @@ function resolveAutoClose(raw: AutoCloseInput, opts: ResolvedOptions): AutoClose
 
 /**
  * @description Normalize one entry from `tags.stopNodes` or `skip.tags` into an `Expression` whose `.data` carries `{ nested, skipEnclosures }`, and register it
- * in `set`. Accepted forms: a plain string pattern, a pre-compiled `Expression` (re-wrapped with the defaults, keeping any config it already
- * carried), or a `{ expression, nested?, skipEnclosures? }` object whose `expression` may be either a string or an `Expression`. A caller's
- * `Expression` is read through its `pattern` field rather than `toString()`. The two held the same value before `common-xml` made every question
- * answerable an effect; the field is still a plain `readonly string`, and reading it needs no run.
+ * in `set`. The entry's shape is read by {@link readEntryParts}; all this owns is turning the resulting pattern into a compiled expression and adding
+ * it to the set the parser will match against.
  *
  * @param entry - The caller's entry, in any accepted form.
  * @param optionName - Used in error messages (`'stopNodes'` or `'skip.tags'`).
@@ -442,53 +653,12 @@ function resolveAutoClose(raw: AutoCloseInput, opts: ResolvedOptions): AutoClose
  *   `DEPENDENCY_ERROR` for a pattern `common-xml` will not compile.
  */
 const normalizeTagEntry = (
-  entry: string | Expression | { expression: string | Expression; nested?: boolean; skipEnclosures?: TagExpressionConfig['skipEnclosures'] },
+  entry: TagEntry,
   optionName: string,
   set: ExpressionSet<TagExpressionConfig>
 ): Effect.Effect<ConfigExpression, ParseError> =>
   Effect.gen(function* () {
-    let pattern: string;
-    let nested: boolean;
-    let skipEnclosures: TagExpressionConfig['skipEnclosures'];
-
-    if (typeof entry === 'string') {
-      if (entry.length === 0) return yield* new InvalidInput({ option: optionName, message: `${optionName} expression cannot be empty` });
-      pattern = entry;
-      nested = false;
-      skipEnclosures = [];
-    } else if (entry instanceof Expression) {
-      // Bare Expression — keep its pattern, apply defaults for missing data fields.
-      // A caller-supplied Expression is `Expression<unknown>`, so its payload is
-      // this parser's config only by convention. readTagConfig checks the shape
-      // rather than trusting it, which is also what a caller who attached
-      // something else entirely needs.
-      pattern = entry.pattern;
-      const carried = readTagConfig(entry.data);
-      nested = carried.nested;
-      skipEnclosures = carried.skipEnclosures;
-    } else if (entry && typeof entry === 'object' && entry.expression !== undefined) {
-      const raw = entry.expression;
-      if (typeof raw === 'string') {
-        if (raw.length === 0) return yield* new InvalidInput({ option: optionName, message: `${optionName} expression cannot be empty` });
-        pattern = raw;
-      } else if (raw instanceof Expression) {
-        pattern = raw.pattern;
-      } else {
-        return yield* new InvalidInput({
-          option: optionName,
-          received: typeof raw,
-          message: `${optionName} expression must be a string or Expression instance`,
-        });
-      }
-      nested = entry.nested === true;
-      skipEnclosures = Array.isArray(entry.skipEnclosures) ? entry.skipEnclosures : [];
-    } else {
-      return yield* new InvalidInput({
-        option: optionName,
-        received: typeof entry,
-        message: `Invalid ${optionName} entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.`,
-      });
-    }
+    const { pattern, nested, skipEnclosures } = yield* readEntryParts(entry, optionName);
 
     const expr: ConfigExpression = yield* Effect.mapError(
       Expression.make<TagExpressionConfig>(pattern, {}, { nested, skipEnclosures }),
@@ -536,32 +706,56 @@ function deepClone(obj: unknown): unknown {
 }
 
 /**
+ * @description Whether an option's value has to be adopted by reference instead of merged into the default group. Everything matched here is either not structured
+ * data, or must stay identical to what the caller passed: a callback or a builder factory has no meaningful field-by-field merge, and a `RegExp` or
+ * an array would be rebuilt rather than kept. `OutputBuilder` is special-cased by key because it is a factory _object_ rather than a function or a
+ * plain option group, and the generic object branch in {@link copyProperty} would walk into it and reassemble something that is no longer the
+ * caller's factory.
+ *
+ * @param key - The option's key, which is what makes `OutputBuilder` a special case.
+ * @param value - The caller's value for that key.
+ *
+ * @returns `true` when `target[key]` should simply become `value`.
+ */
+function isAdoptedByReference(key: string, value: unknown): boolean {
+  return key === 'OutputBuilder' || typeof value === 'function' || value instanceof RegExp || Array.isArray(value);
+}
+
+/**
+ * @description Merge one option value into `target[key]`, descending a level for a plain object and adopting everything else whole. Split out of
+ * {@link copyProperties} so that the per-value decision does not sit inside the key loop, where it was interleaved with the prototype-pollution guard
+ * and the two read as a single rule when they are not.
+ *
+ * @param target - The object being merged into. `target[key]` is written in place.
+ * @param key - The option's key. Never `__proto__`, `constructor`, or `prototype` — {@link copyProperties} filters those out first.
+ * @param value - The caller's value for `key`.
+ */
+function copyProperty(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (isAdoptedByReference(key, value)) {
+    target[key] = value;
+    return;
+  }
+  if (typeof value === 'object' && value !== null) {
+    // A group the defaults did not supply — or one the caller replaced with a primitive — starts empty rather than rejecting the merge, so that a
+    // partial group still lands on an object the later reads (`finalOptions.tags.unpaired`, and friends) can use.
+    if (typeof target[key] !== 'object' || target[key] === null) target[key] = {};
+    copyProperties(target[key] as Record<string, unknown>, value as Record<string, unknown>);
+    return;
+  }
+  target[key] = value;
+}
+
+/**
  * @description Recursively merge `source` over `target`, one level of nesting at a time. The hand-rolled walk is deliberate: it must copy functions by reference
  * (a builder factory or a user callback is not cloneable), and it must refuse `__proto__` / `constructor` / `prototype` as keys, since options come
- * from user code and the merge target is a plain object.
+ * from user code and the merge target is a plain object. Each surviving key is then handed to {@link copyProperty}, which decides between adopting
+ * the value whole and descending into it.
  */
 function copyProperties(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const key of Object.keys(source)) {
     // Guard against prototype pollution via option keys
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
 
-    const value = source[key];
-    if (key === 'OutputBuilder') {
-      target[key] = value;
-    } else if (typeof value === 'function') {
-      target[key] = value;
-    } else if (value instanceof RegExp) {
-      // ← guard, before the generic object check
-      target[key] = value;
-    } else if (Array.isArray(value)) {
-      target[key] = value;
-    } else if (typeof value === 'object' && value !== null) {
-      if (typeof target[key] !== 'object' || target[key] === null) {
-        target[key] = {};
-      }
-      copyProperties(target[key] as Record<string, unknown>, value as Record<string, unknown>);
-    } else {
-      target[key] = value;
-    }
+    copyProperty(target, key, source[key]);
   }
 }
