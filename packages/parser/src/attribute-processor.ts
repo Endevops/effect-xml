@@ -105,76 +105,187 @@ function parseAttributes(
   parser?: TagExpressionParser
 ): RawAttributeMatch[] {
   const results: RawAttributeMatch[] = [];
-  const len = attrStr.length;
+  const ctx: AttrScanContext = {
+    str: attrStr,
+    len: attrStr.length,
+    pairs: quotePairs,
+    pairsLen: quotePairsLen,
+    usePairs: quotePairs !== undefined && quotePairsLen > 0,
+    // `attrsOffset` is only absent on the paths that never reach here, but the
+    // original arithmetic let it become NaN rather than 0. Preserved on purpose:
+    // a mis-wired call then fails to match instead of silently matching against
+    // pair indices from the wrong origin.
+    pairBase: attrsOffset as number,
+    pairIdx: 0,
+    parser,
+  };
+
   let i = 0;
-  const usePairs = quotePairs !== undefined && quotePairsLen > 0;
-  // `attrsOffset` is only absent on the paths that never reach here, but the
-  // original arithmetic let it become NaN rather than 0. Preserved on purpose:
-  // a mis-wired call then fails to match instead of silently matching against
-  // pair indices from the wrong origin.
-  const pairBase = attrsOffset as number;
-  let pairIdx = 0;
-
-  while (i < len) {
-    // Skip whitespace between attributes
-    while (i < len && isSpaceCode(attrStr.charCodeAt(i))) i++;
-    if (i >= len) break;
-
-    // Read name
-    const nameStart = i;
-    while (i < len && attrStr.charCodeAt(i) !== 61 && !isSpaceCode(attrStr.charCodeAt(i))) i++;
-    const name = attrStr.substring(nameStart, i);
-
-    // Skip whitespace before '='
-    while (i < len && isSpaceCode(attrStr.charCodeAt(i))) i++;
-
-    if (i >= len || attrStr.charCodeAt(i) !== 61) {
-      // Boolean attribute — no '='
-      results.push({ name, value: undefined, startIndex: nameStart });
-      continue;
-    }
-
-    i++; // skip '='
-
-    // Skip whitespace after '='
-    while (i < len && isSpaceCode(attrStr.charCodeAt(i))) i++;
-
-    // The character right after '=' (mod whitespace) MUST be a quote — this
-    // is never relaxed, in any mode. Reject before consuming anything, so an
-    // unquoted value never partially reaches the output builder.
-    const quote = attrStr.charCodeAt(i); // NaN when i >= len — also fails both checks below
-    if (quote !== 34 && quote !== 39) {
-      // not " or '
-      throw new UnquotedAttributeValue({
-        name,
-        message: `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
-        index: parser ? errorPositionOf(parser.source).index : undefined,
-      });
-    }
-
-    // Fast path: the tag-end scanner already found this exact quote pair
-    // while looking for '>' — reuse its closing-quote position instead of
-    // re-scanning character-by-character for it.
-    let closeLocal = -1;
-    if (usePairs && pairIdx + 1 < quotePairsLen && quotePairs?.[pairIdx] === i + pairBase) {
-      closeLocal = (quotePairs[pairIdx + 1] as number) - pairBase;
-      pairIdx += 2;
-    }
-
-    i++; // skip opening quote
-    let end;
-    if (closeLocal >= 0) {
-      end = closeLocal;
-    } else {
-      end = i;
-      while (end < len && attrStr.charCodeAt(end) !== quote) end++;
-    }
-    const value = scanAttrValue(attrStr, i, end, parser);
-    i = end + 1; // skip closing quote
-    results.push({ name, value, startIndex: nameStart });
+  while (i < ctx.len) {
+    const attr = readAttribute(ctx, i);
+    // Only whitespace left — the expression is fully consumed.
+    if (attr === null) break;
+    results.push(attr.match);
+    i = attr.next;
   }
 
   return results;
+}
+
+/**
+ * @description Everything `parseAttributes`' per-attribute step needs that does not change from one attribute to the next. Bundled because the step touches eight
+ * inputs and threading them as parameters made the signature worse than the loop it replaced.
+ */
+interface AttrScanContext {
+  /**
+   * @description The raw attribute expression being parsed.
+   */
+  str: string;
+  /**
+   * @description `str.length`, carried so the helpers need not re-read it.
+   */
+  len: number;
+  /**
+   * @description Flattened `[open, close, …]` quote offsets recorded by the tag-end scanner, if any.
+   */
+  pairs: Int32Array | undefined;
+  /**
+   * @description Number of filled slots in `pairs`.
+   */
+  pairsLen: number;
+  /**
+   * @description Whether `pairs` is usable, decided once per expression.
+   */
+  usePairs: boolean;
+  /**
+   * @description Offset of `str` within the buffer `pairs` was recorded against.
+   */
+  pairBase: number;
+  /**
+   * @description Index of the next unread pair, advanced as pairs are consumed.
+   */
+  pairIdx: number;
+  /**
+   * @description Parser context, used only to report error positions.
+   */
+  parser: TagExpressionParser | undefined;
+}
+
+/**
+ * @description Character code of `=`, which terminates an attribute name.
+ */
+const EQUALS = 61;
+/**
+ * @description Character code of `"`, the double-quote attribute delimiter.
+ */
+const DOUBLE_QUOTE = 34;
+/**
+ * @description Character code of `'`, the single-quote attribute delimiter.
+ */
+const SINGLE_QUOTE = 39;
+
+/**
+ * @description Parse the one attribute starting at `from`, through its value or up to the end of a boolean attribute.
+ *
+ * @param ctx - Expression-wide scan state. `ctx.pairIdx` advances when a recorded quote pair is consumed.
+ * @param from - Offset to start at, which may be whitespace.
+ *
+ * @returns The match and the offset the next attribute starts at, or `null` when `from` is at or past the end of the expression.
+ *
+ * @throws {ParseError} `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote, plus whatever `scanAttrValue` throws for a value that is
+ *   terminated but contains illegal characters.
+ */
+function readAttribute(ctx: AttrScanContext, from: number): { match: RawAttributeMatch; next: number } | null {
+  // Skip whitespace between attributes
+  let i = skipSpaces(ctx.str, from, ctx.len);
+  if (i >= ctx.len) return null;
+
+  const nameStart = i;
+  const { name, next } = readAttrName(ctx.str, i, ctx.len);
+
+  // Skip whitespace before '='
+  i = skipSpaces(ctx.str, next, ctx.len);
+
+  // No '=' — a boolean attribute. It ends at the whitespace that stopped the name scan.
+  if (i >= ctx.len || ctx.str.charCodeAt(i) !== EQUALS) {
+    return { match: { name, value: undefined, startIndex: nameStart }, next: i };
+  }
+
+  i = skipSpaces(ctx.str, i + 1, ctx.len); // past '='
+
+  // The character right after '=' (mod whitespace) MUST be a quote — this is
+  // never relaxed, in any mode. Reject before consuming anything, so an
+  // unquoted value never partially reaches the output builder.
+  const quote = ctx.str.charCodeAt(i); // NaN when i >= len — also fails both checks below
+  if (quote !== DOUBLE_QUOTE && quote !== SINGLE_QUOTE) {
+    throw new UnquotedAttributeValue({
+      name,
+      message: `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
+      index: ctx.parser ? errorPositionOf(ctx.parser.source).index : undefined,
+    });
+  }
+
+  const closeLocal = ctx.usePairs ? takeQuotePair(ctx, i) : -1;
+
+  i++; // skip opening quote
+  const end = closeLocal >= 0 ? closeLocal : findClosingQuote(ctx.str, i, ctx.len, quote);
+  const value = scanAttrValue(ctx.str, i, end, ctx.parser);
+  return { match: { name, value, startIndex: nameStart }, next: end + 1 }; // skip closing quote
+}
+
+/**
+ * @description Advance past XML whitespace, stopping at `len`. XML permits whitespace around `=` and between attributes, so this is needed in three places per
+ * attribute and was the single largest source of duplicated scanning loops in `parseAttributes`.
+ */
+function skipSpaces(attrStr: string, from: number, len: number): number {
+  let i = from;
+  while (i < len && isSpaceCode(attrStr.charCodeAt(i))) i++;
+  return i;
+}
+
+/**
+ * @description Read the attribute name at `from`. A name runs to the first `=`, the first whitespace, or the end of the expression — any of which means either a
+ * value follows or the attribute is boolean.
+ *
+ * @returns The name as written, and the offset just past it. The cursor is left
+ * _before_ any whitespace, for the caller to skip.
+ */
+function readAttrName(attrStr: string, from: number, len: number): { name: string; next: number } {
+  let i = from;
+  while (i < len && attrStr.charCodeAt(i) !== EQUALS && !isSpaceCode(attrStr.charCodeAt(i))) i++;
+  return { name: attrStr.substring(from, i), next: i };
+}
+
+/**
+ * @description Reuse a closing-quote position the tag-end scanner already recorded. `scanTagExpEnd` walks every attribute value on its way to the `>` that ends
+ * the tag, recording where each quote pair opened and closed. When the pair recorded for this attribute's opening quote lines up, its close position
+ * is already known and re-scanning for it character by character is wasted work — the difference between this and the slow path is a whole attribute
+ * value per attribute on every tag.
+ *
+ * @param ctx - Expression-wide scan state; `ctx.pairIdx` advances by two on a hit.
+ * @param openAt - Offset of this attribute's opening quote within `ctx.str`.
+ *
+ * @returns The closing-quote offset relative to `ctx.str`, or `-1` when no pair lines up and the caller should scan for it.
+ */
+function takeQuotePair(ctx: AttrScanContext, openAt: number): number {
+  if (ctx.pairs === undefined || ctx.pairIdx + 1 >= ctx.pairsLen) return -1;
+  if (ctx.pairs[ctx.pairIdx] !== openAt + ctx.pairBase) return -1;
+
+  const closeLocal = (ctx.pairs[ctx.pairIdx + 1] as number) - ctx.pairBase;
+  ctx.pairIdx += 2;
+  return closeLocal;
+}
+
+/**
+ * @description Find the closing quote for an attribute value by scanning forward from `from`.
+ *
+ * @returns The offset of the matching quote, or `len` if the value is unterminated — which `scanAttrValue` reports rather than this function
+ *   throwing, so the unterminated case keeps its existing error.
+ */
+function findClosingQuote(attrStr: string, from: number, len: number, quote: number): number {
+  let end = from;
+  while (end < len && attrStr.charCodeAt(end) !== quote) end++;
+  return end;
 }
 
 /**
@@ -229,10 +340,8 @@ export function collectRawAttributes(
   if (!attrStr || attrStr.length === 0) return;
 
   const matches = parseAttributes(attrStr, quotePairs, attrsOffset, quotePairsLen, parser);
-  const len = matches.length;
-  tagExp._rawAttrMatchCount = len; // total parsed attrs, incl. dropped (xmlns:) ones — for maxAttributesPerTag parity with old behavior
-  const parsedAttrs: ParsedAttribute[] = [];
-  let count = 0;
+  // total parsed attrs, incl. dropped (xmlns:) ones — for maxAttributesPerTag parity with old behavior
+  tagExp._rawAttrMatchCount = matches.length;
 
   // attributes.duplicate: 'overwrite' (default) needs no bookkeeping — last
   // occurrence naturally wins via the rawAttributes object-assign + the
@@ -240,43 +349,101 @@ export function collectRawAttributes(
   // before this option existed. 'ignore'/'throw' need to track names seen
   // so far on *this* tag only — a fresh Set per call, never shared across tags.
   const dupMode = parser.options.attributes?.duplicate || 'overwrite';
-  const seen = dupMode !== 'overwrite' ? new Set<string>() : null;
-  const boolMode = parser.options.attributes?.booleanType || 'allow';
+  const policy: AttrPolicy = {
+    dupMode,
+    seen: dupMode !== 'overwrite' ? new Set<string>() : null,
+    boolMode: parser.options.attributes?.booleanType || 'allow',
+  };
 
-  for (let i = 0; i < len; i++) {
-    const m = matches[i] as RawAttributeMatch;
+  const parsedAttrs = keepAttributes(matches, parser, tagExp, policy);
+  tagExp.rawAttributesLen = parsedAttrs.length;
+  tagExp._parsedAttrs = parsedAttrs;
+}
 
-    if (seen) {
-      if (seen.has(m.name)) {
-        if (dupMode === 'throw') {
-          throw new DuplicateAttribute({ name: m.name, message: `Duplicate attribute '${m.name}'`, index: errorPositionOf(parser.source).index });
-        }
-        continue; // 'ignore' — first occurrence wins, later ones dropped entirely
+/**
+ * @description The per-tag attribute policies `collectRawAttributes` applies, resolved once per tag. Split out because each is a separate decision the match loop
+ * would otherwise be branching on, and two of them (`duplicate` and `booleanType`) have nothing to do with each other.
+ */
+interface AttrPolicy {
+  /**
+   * @description `attributes.duplicate`: which occurrence of a repeated name wins.
+   */
+  dupMode: 'overwrite' | 'ignore' | 'throw';
+  /**
+   * @description Names already seen on _this_ tag, or `null` under `'overwrite'` where last-write-wins needs no bookkeeping. Never shared across tags.
+   */
+  seen: Set<string> | null;
+  /**
+   * @description `attributes.booleanType`: what to do with a valueless attribute.
+   */
+  boolMode: 'allow' | 'ignore' | 'throw';
+}
+
+/**
+ * @description Decide whether one parsed occurrence of an attribute is processed at all. Duplicate detection runs first, so a repeated boolean attribute is
+ * reported as a duplicate rather than as a second valueless one.
+ *
+ * @param policy - Per-tag policies, with `policy.seen` updated on acceptance.
+ * @param m - The parsed occurrence.
+ * @param parser - Parser context, used to report error positions.
+ *
+ * @returns `true` when this occurrence should be recorded.
+ *
+ * @throws {ParseError} `DUPLICATE_ATTRIBUTE` under `attributes.duplicate: 'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED` under `attributes.booleanType:
+ *   'throw'`.
+ */
+function acceptOccurrence(policy: AttrPolicy, m: RawAttributeMatch, parser: TagExpressionParser): boolean {
+  if (policy.seen !== null) {
+    if (policy.seen.has(m.name)) {
+      if (policy.dupMode === 'throw') {
+        throw new DuplicateAttribute({ name: m.name, message: `Duplicate attribute '${m.name}'`, index: errorPositionOf(parser.source).index });
       }
-      seen.add(m.name);
+      return false; // 'ignore' — first occurrence wins, later ones dropped entirely
     }
+    policy.seen.add(m.name);
+  }
 
-    const rawVal = m.value;
-    if (rawVal === undefined) {
-      if (boolMode === 'throw') {
-        throw new BooleanAttributeRejected({
-          name: m.name,
-          message: `Valueless attribute '${m.name}' is not allowed`,
-          index: errorPositionOf(parser.source).index,
-        });
-      }
-      if (boolMode === 'ignore') continue; // drop silently, rest of tag unaffected
-    }
+  if (m.value !== undefined) return true;
+
+  if (policy.boolMode === 'throw') {
+    throw new BooleanAttributeRejected({
+      name: m.name,
+      message: `Valueless attribute '${m.name}' is not allowed`,
+      index: errorPositionOf(parser.source).index,
+    });
+  }
+  // 'ignore' drops it silently, rest of tag unaffected; 'allow' falls through with the value becoming `true` below.
+  return policy.boolMode === 'allow';
+}
+
+/**
+ * @description Walk the parsed matches, apply the policies, process each surviving name once, and record what is left. `processAttrName()` is the expensive step
+ * (ns-prefix resolution, name validation, sanitization, reserved-name check), so it runs only for occurrences the policies keep — and only once,
+ * which is the whole point of pass 1 caching into `_parsedAttrs` for pass 2.
+ *
+ * @returns The attributes that survived, in document order. Its length is also
+ * the surviving count, so `rawAttributesLen` needs no separate tally.
+ */
+function keepAttributes(
+  matches: RawAttributeMatch[],
+  parser: TagExpressionParser,
+  tagExp: TagExpAttributeTarget,
+  policy: AttrPolicy
+): ParsedAttribute[] {
+  const parsedAttrs: ParsedAttribute[] = [];
+
+  for (const m of matches) {
+    if (!acceptOccurrence(policy, m, parser)) continue;
 
     const attrName = parser.processAttrName(m.name);
     if (attrName === false) continue;
-    count++;
-    const attrVal = rawVal !== undefined ? rawVal : true;
+
+    const attrVal = m.value !== undefined ? m.value : true;
     tagExp.rawAttributes[m.name] = attrVal;
     parsedAttrs.push({ name: attrName, value: attrVal, index: m.startIndex });
   }
-  tagExp.rawAttributesLen = count;
-  tagExp._parsedAttrs = parsedAttrs;
+
+  return parsedAttrs;
 }
 
 /**
