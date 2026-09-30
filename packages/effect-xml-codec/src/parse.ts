@@ -27,7 +27,7 @@ import type { NameMode } from './conventions.ts';
 import type { XmlValue } from './xml-value.ts';
 
 import { ATTRIBUTE_PREFIX, resolveName, TEXT_KEY } from './conventions.ts';
-import { XmlParseError } from './errors.ts';
+import { asParseError, XmlParseError } from './errors.ts';
 
 /**
  * @description Resolves character references. The default expansion limits are zero, which the decoder treats as unlimited, so one instance can be shared for the
@@ -84,7 +84,11 @@ export interface XmlParseOptions {
 }
 
 /**
- * @description Parses an XML document into its root element's content.
+ * @description Parses an XML document into its root element's content. The parser is synchronous and reports through `throw`, so the failure is caught and routed
+ * into the error channel rather than left to become a defect. A failed parse is an expected outcome of reading untrusted text — it is what
+ * `catchTag`, `retry` and a fallback all key off — and only a defect would hide it. The span is the boundary a performance trace hangs off: it
+ * carries the document's length, which is the size that drives the parser's cost, so a slow parse in a profile can be attributed to the input that
+ * produced it. The `…Sync` forms are the untraced fast path for callers who have already decided not to allocate an `Effect`.
  *
  * @param text - The document to read.
  * @param options - Whitespace, depth and name-handling settings.
@@ -92,7 +96,9 @@ export interface XmlParseOptions {
  * @returns The root element's content as an {@link XmlValue}.
  */
 export const parseXml = (text: string, options: XmlParseOptions = {}): Effect.Effect<XmlValue, XmlParseError> =>
-  Effect.sync(() => parseDocument(text, options).value);
+  Effect.try({ try: () => parseDocument(text, options).value, catch: asParseError }).pipe(
+    Effect.withSpan('XmlCodec.parseXml', { attributes: { 'xml.length': text.length } })
+  );
 
 /**
  * @description Parses an XML document, throwing instead of returning a failed `Effect`.

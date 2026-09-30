@@ -311,6 +311,20 @@ describe('parseXml() — documents it refuses', () => {
     expect(Exit.isSuccess(Effect.runSyncExit(parseXml('<r><a>1</b></r>')))).toBe(false);
     expect(Exit.isSuccess(Effect.runSyncExit(parseXml('<r><a>1</a></r>')))).toBe(true);
   });
+
+  it('reports a malformed document as a typed failure rather than a defect', () => {
+    // A parse failure is an expected outcome of reading untrusted text, so it has to land in the error channel. Were it a defect, `catchTag`, `retry` and a
+    // fallback would all miss it and the declared `XmlParseError` type would be a lie.
+    const exit = Effect.runSyncExit(parseXml('<r><a>1</b></r>'));
+    expect(Exit.hasDies(exit)).toBe(false);
+    if (Exit.isSuccess(exit)) throw new Error('expected the parse to fail');
+    expect(Cause.squash(exit.cause)).toBeInstanceOf(XmlParseError);
+  });
+
+  it('lets a caller recover from a parse failure by tag', () => {
+    const recovered = Effect.runSync(parseXml('<r><a>1</b></r>').pipe(Effect.catchTag('XmlParseError', () => Effect.succeed({ recovered: true }))));
+    expect(recovered).toEqual({ recovered: true });
+  });
 });
 
 describe('parseXml() — a document that cannot be read as XML but should be', () => {

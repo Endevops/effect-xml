@@ -154,6 +154,19 @@ one per role a key can play, name resolution memoized per document rather than
 per element, one object per parsed element instead of two, and the indent for
 each depth built once per render rather than once per line.
 
+### Tracing
+
+Every `Effect` method opens a span named `XmlCodec.<method>`, carrying the
+document length or the root name as an attribute, so a slow serialize in a trace
+can be attributed to the input that caused it. `decodeText` nests the parser's
+own `XmlCodec.parseXml` span, which is what lets a profile separate parsing from
+schema validation — the split the benchmark notes above are worth reading
+together with. Provide a `Tracer` to a program to collect them, as
+`test/tracing.spec.ts` does. The `…Sync` forms are untraced on purpose: they
+exist to skip the `Effect` machinery the spans live in. A failed parse is a
+typed `XmlParseError` in the error channel, not a defect, so `catchTag`, `retry`
+and a fallback all see it.
+
 ### Against the libraries in this workspace and on npm
 
 `bench/comparison.bench.ts` measures the same object through this codec and

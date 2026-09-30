@@ -19,8 +19,8 @@ import type { XmlRenderOptions } from './render.ts';
 import type { XmlValue } from './xml-value.ts';
 
 import { DEFAULT_ROOT_NAME } from './conventions.ts';
-import { XmlNameError, XmlParseError } from './errors.ts';
-import { parseXmlDocument } from './parse.ts';
+import { asParseError, XmlNameError, XmlParseError } from './errors.ts';
+import { parseXml, parseXmlDocument } from './parse.ts';
 import { renderXml } from './render.ts';
 import { isXmlRecord } from './xml-value.ts';
 
@@ -102,7 +102,10 @@ export interface XmlCodecOptions {
  * @description A schema paired with the XML that carries it, in both directions. The four text methods are the ones an application that serializes usually wants:
  * {@link encodeText} and {@link decodeText} speak XML documents, and {@link encodeValue} and {@link decodeValue} speak {@link XmlValue} for when the
  * document is stored somewhere else and the parse or the render would be wasted. Every one of them has a `…Sync` form, because serialization sits on
- * hot paths where an `Effect` allocation per value is the dominant cost.
+ * hot paths where an `Effect` allocation per value is the dominant cost. The `Effect` forms each open a span named `XmlCodec.<method>`, carrying the
+ * document length or the root name, so a slow serialize can be attributed to the input that caused it; {@link decodeText} nests the parser's own span
+ * so a trace separates parsing from schema validation. The `…Sync` forms are untraced, because they exist precisely to skip the machinery the spans
+ * live in.
  *
  * @example
  *   ```typescript
@@ -319,21 +322,34 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S & ServiceFree<
   const parseFor = (overrides: XmlParseOptions | undefined): XmlParseOptions =>
     overrides === undefined ? parseOptions : { ...parseOptions, ...overrides };
 
+  // Every `Effect` method carries a span, and every span carries the size of the work it covers. A trace is what turns "serialization is slow" into "the parse of
+  // this 40 kB document is the cost, not the schema pass", which is the question a profile of this package is usually asked. The spans are named `XmlCodec.<method>`
+  // so a trace reads as the codec's surface rather than as anonymous runtime frames, and the `…Sync` forms below stay untraced — they are the fast path for a
+  // caller who has already decided not to pay for an `Effect` allocation per value.
   return {
     schema,
     rootName,
-    encodeValue: value => encode(value),
+    encodeValue: value => encode(value).pipe(Effect.withSpan('XmlCodec.encodeValue', { attributes: { 'xml.root': rootName } })),
     encodeValueSync: value => encodeSync(value),
-    decodeValue: xml => decode(reconcile(xml)),
+    decodeValue: xml => decode(reconcile(xml)).pipe(Effect.withSpan('XmlCodec.decodeValue', { attributes: { 'xml.root': rootName } })),
     decodeValueSync: xml => decodeSync(reconcile(xml)),
-    encodeText: (value, overrides) => Effect.try({ try: () => renderXml(encodeSync(value), renderFor(overrides)), catch: toNameError }),
+    encodeText: (value, overrides) =>
+      Effect.try({ try: () => renderXml(encodeSync(value), renderFor(overrides)), catch: toNameError }).pipe(
+        Effect.withSpan('XmlCodec.encodeText', { attributes: { 'xml.root': rootName } })
+      ),
     encodeTextSync: (value, overrides) => renderXml(encodeSync(value), renderFor(overrides)),
+    // Parsing is its own span through `parseXml`, so a decode trace splits into the parser's cost and the schema pass's cost — the two halves the README's
+    // benchmark notes are worth telling apart.
     decodeText: (text, overrides) =>
-      Effect.flatMap(Effect.try({ try: () => parseXmlDocument(text, parseFor(overrides)), catch: asParseError }), document =>
-        decode(reconcile(document.value))
+      parseXml(text, parseFor(overrides)).pipe(
+        Effect.flatMap(value => decode(reconcile(value))),
+        Effect.withSpan('XmlCodec.decodeText', { attributes: { 'xml.length': text.length } })
       ),
     decodeTextSync: (text, overrides) => decodeSync(reconcile(parseXmlDocument(text, parseFor(overrides)).value)),
-    readDocument: (text, overrides) => Effect.try({ try: () => parseXmlDocument(text, parseFor(overrides)), catch: asParseError }),
+    readDocument: (text, overrides) =>
+      Effect.try({ try: () => parseXmlDocument(text, parseFor(overrides)), catch: asParseError }).pipe(
+        Effect.withSpan('XmlCodec.readDocument', { attributes: { 'xml.length': text.length } })
+      ),
   };
 };
 
@@ -380,15 +396,3 @@ const toNameError = (error: unknown): XmlNameError => {
   const match = /Invalid XML name (?<quoted>.*):/.exec(message);
   return new XmlNameError({ name: match?.groups?.['quoted'] ? (JSON.parse(match.groups['quoted']) as string) : '', reason: message });
 };
-
-/**
- * @description Identity for a parse failure, and a wrapper for anything else that escapes the parser.
- *
- * @param error - Whatever was thrown.
- *
- * @returns The failure to put in the error channel.
- */
-const asParseError = (error: unknown): XmlParseError =>
-  error instanceof XmlParseError
-    ? error
-    : new XmlParseError({ message: error instanceof Error ? error.message : String(error), position: -1, input: '' });
