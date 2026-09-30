@@ -1,12 +1,13 @@
 /**
- * @description Specs for the tracing surface: every `Effect` entry point carries a span with the size of the work it covers, so a profile can attribute a slow
- * serialize to the input that produced it. The `…Sync` forms are deliberately untraced and are not asserted here.
+ * @description Specs for the tracing surface. `parseXml` is the package's one `Effect` entry point and carries a span with the size of the work it covers, so a
+ * profile can attribute a slow parse to the input that produced it. `toCodecXml` is a Schema, and tracing a schema encode or decode is Effect's
+ * concern rather than this package's; `renderXml` and the `…Sync` forms are untraced on purpose.
  */
 
-import { Effect, Option, Schema, Tracer } from 'effect';
+import { Effect, Tracer } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import { parseXml, toCodecXml } from '#/index.ts';
+import { parseXml } from '#/index.ts';
 
 /**
  * @description Runs an effect with a tracer that keeps every span it creates, so a spec can assert on what a trace would have shown.
@@ -62,35 +63,5 @@ describe('tracing — parseXml()', () => {
     });
     Effect.runSyncExit(parseXml('<r><a>1</b></r>').pipe(Effect.withTracer(tracer)));
     expect(spanNamed(spans, 'XmlCodec.parseXml')?.status._tag).toBe('Ended');
-  });
-});
-
-describe('tracing — codec methods', () => {
-  const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
-
-  it('spans encodeText with the root name', () => {
-    const { spans } = traced(codec.encodeText({ a: 'x' }));
-    expect(spanNamed(spans, 'XmlCodec.encodeText')?.attributes.get('xml.root')).toBe('r');
-  });
-
-  it('spans decodeText with the document length', () => {
-    const text = '<r><a>x</a></r>';
-    const { spans } = traced(codec.decodeText(text));
-    expect(spanNamed(spans, 'XmlCodec.decodeText')?.attributes.get('xml.length')).toBe(text.length);
-  });
-
-  it('nests the parser span inside the decode span, so a decode trace splits parse from validation', () => {
-    const { spans } = traced(codec.decodeText('<r><a>x</a></r>'));
-    const parse = spanNamed(spans, 'XmlCodec.parseXml');
-    const decode = spanNamed(spans, 'XmlCodec.decodeText');
-    expect(parse).toBeDefined();
-    expect(decode).toBeDefined();
-    expect(Option.getOrUndefined(parse?.parent ?? Option.none())).toBe(decode);
-  });
-
-  it('spans readDocument with the document length', () => {
-    const text = '<r><a>x</a></r>';
-    const { spans } = traced(codec.readDocument(text));
-    expect(spanNamed(spans, 'XmlCodec.readDocument')?.attributes.get('xml.length')).toBe(text.length);
   });
 });

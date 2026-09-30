@@ -31,7 +31,9 @@ import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
 import { afterAll, beforeAll, expect, test } from 'vite-plus/test';
 
-import { toCodecXml } from '#/index.ts';
+import type { XmlValue } from '#/index.ts';
+
+import { parseXmlSync, renderXml, toCodecXml } from '#/index.ts';
 
 // ---------------------------------------------------------------------------
 // The documents under test
@@ -134,9 +136,9 @@ const NOTE_ROOT = 'note';
 // The implementations, each constructed once
 // ---------------------------------------------------------------------------
 
-const orderCodec = toCodecXml(Order, { rootName: ROOT });
-const reportCodec = toCodecXml(Report, { rootName: REPORT_ROOT });
-const noteCodec = toCodecXml(Note, { rootName: NOTE_ROOT });
+const orderCodec = toCodecXml(Order);
+const reportCodec = toCodecXml(Report);
+const noteCodec = toCodecXml(Note);
 
 /**
  * @description The settings that make a builder produce the same bytes as this codec, applied to both versions of it. `attributeNamePrefix: '@'` is the one that
@@ -182,9 +184,9 @@ const upstream = new UpstreamXMLParser({ ignoreAttributes: false, attributeNameP
 /**
  * @description The documents, rendered by this codec so that all three decode from the same bytes.
  */
-const orderDocument = orderCodec.encodeTextSync(order);
-const reportDocument = reportCodec.encodeTextSync(report);
-const noteDocument = noteCodec.encodeTextSync(note);
+const orderDocument = renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT });
+const reportDocument = renderXml(Schema.encodeSync(reportCodec)(report) as XmlValue, { rootName: REPORT_ROOT });
+const noteDocument = renderXml(Schema.encodeSync(noteCodec)(note) as XmlValue, { rootName: NOTE_ROOT });
 
 /**
  * @description Accumulates the outcome of every operation the benchmarks perform, so the work is observable rather than discardable.
@@ -242,7 +244,7 @@ test('encoding — a small document', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => orderCodec.encodeTextSync(order).length)
+      measure(() => renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT }).length)
     ),
     bench(
       '@endevops/builder',
@@ -260,7 +262,7 @@ test('encoding — a 500-row document', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => reportCodec.encodeTextSync(report).length)
+      measure(() => renderXml(Schema.encodeSync(reportCodec)(report) as XmlValue, { rootName: REPORT_ROOT }).length)
     ),
     bench(
       '@endevops/builder',
@@ -278,7 +280,7 @@ test('encoding — one large text node', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => noteCodec.encodeTextSync(note).length)
+      measure(() => renderXml(Schema.encodeSync(noteCodec)(note) as XmlValue, { rootName: NOTE_ROOT }).length)
     ),
     bench(
       '@endevops/builder',
@@ -296,7 +298,7 @@ test('decoding — a small document', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => orderCodec.decodeTextSync(orderDocument))
+      measure(() => Schema.decodeSync(orderCodec)(parseXmlSync(orderDocument)))
     ),
     bench(
       '@endevops/flexible-xml-parser',
@@ -314,7 +316,7 @@ test('decoding — a 500-row document', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => reportCodec.decodeTextSync(reportDocument))
+      measure(() => Schema.decodeSync(reportCodec)(parseXmlSync(reportDocument)))
     ),
     bench(
       '@endevops/flexible-xml-parser',
@@ -332,7 +334,7 @@ test('decoding — one large text node', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => noteCodec.decodeTextSync(noteDocument))
+      measure(() => Schema.decodeSync(noteCodec)(parseXmlSync(noteDocument)))
     ),
     bench(
       '@endevops/flexible-xml-parser',
@@ -354,7 +356,7 @@ test('a full round trip, both halves measured', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => orderCodec.decodeTextSync(orderCodec.encodeTextSync(order)))
+      measure(() => Schema.decodeSync(orderCodec)(parseXmlSync(renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT }))))
     ),
     bench(
       'then parser, both @endevops',

@@ -71,15 +71,19 @@ const rows: { row: Array<Schema.Schema.Type<typeof Row>> } = {
 };
 
 /**
- * @description The same rows as a document, for the parsing benchmarks. Rendering them once here rather than inside a benchmark keeps the parse rows measuring the
- * parser.
+ * @description The large document's codec, built once. The XML value tree it produces is rendered once here too, so the parse rows measure the parser rather than
+ * the renderer.
  */
-const rowsDocument = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }), { rootName: 'report' }).encodeTextSync(rows);
+const reportCodec = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }));
+
+const rowsDocument = renderXml(Schema.encodeSync(reportCodec)(rows) as XmlValue, { rootName: 'report' });
 
 /**
- * @description The small document as text, for the parsing benchmarks.
+ * @description The small document's codec and its document, built once for the same reason.
  */
-const orderDocument = toCodecXml(Order, { rootName: 'order' }).encodeTextSync(order);
+const orderCodec = toCodecXml(Order);
+
+const orderDocument = renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: 'order' });
 
 /**
  * @description A record of plain character data, for isolating the renderer from the escaping it normally does.
@@ -118,26 +122,30 @@ const sizeOf = (value: XmlValue): number => {
 const BUDGET = { time: 300, warmupTime: 50 } as const;
 
 /**
- * @description A codec bound to a local, so the benchmark body does not pay for a property read on the codec object on every iteration.
+ * @description A schema's text encoder, bound to a local so the benchmark body does not pay for a codec build on every iteration. The text path is two steps —
+ * encode the value to the XML value tree, then render it — and both are included, because that is what a caller does.
  *
- * @param schema - The schema to build a codec for.
+ * @param schema - The schema to encode values of.
  * @param rootName - The root element's name.
  *
- * @returns The codec's `encodeTextSync`.
+ * @returns A function from value to document.
  */
-const encoderFor = (schema: Schema.Constraint, rootName: string): ((value: never) => string) =>
-  toCodecXml(schema as never, { rootName }).encodeTextSync as (value: never) => string;
+const encoderFor = (schema: Schema.Constraint, rootName: string): ((value: never) => string) => {
+  const codec = toCodecXml(schema as never);
+  return value => renderXml(Schema.encodeSync(codec)(value) as XmlValue, { rootName });
+};
 
 /**
- * @description A codec's `decodeTextSync` bound to a local.
+ * @description A schema's text decoder, bound to a local. The mirror of {@link encoderFor}: parse the document into the XML value tree, then decode it.
  *
- * @param schema - The schema to build a codec for.
- * @param rootName - The root element's name.
+ * @param schema - The schema to decode values of.
  *
- * @returns The codec's `decodeTextSync`.
+ * @returns A function from document to value.
  */
-const decoderFor = (schema: Schema.Constraint, rootName: string): ((text: string) => unknown) =>
-  toCodecXml(schema as never, { rootName }).decodeTextSync;
+const decoderFor = (schema: Schema.Constraint): ((text: string) => unknown) => {
+  const codec = toCodecXml(schema as never);
+  return text => Schema.decodeSync(codec)(parseXmlSync(text));
+};
 
 afterAll(() => {
   // An empty sink means the benchmark bodies never reached the line that folds a
@@ -147,7 +155,7 @@ afterAll(() => {
 
 test('codec — a small document', async ({ bench }) => {
   const encode = encoderFor(Order, 'order');
-  const decode = decoderFor(Order, 'order');
+  const decode = decoderFor(Order);
 
   await bench.compare(
     bench('encode', () => {
@@ -166,7 +174,7 @@ test('codec — a small document', async ({ bench }) => {
 test('codec — a large document', async ({ bench }) => {
   const schema = Schema.Struct({ row: Schema.Array(Row) });
   const encode = encoderFor(schema, 'report');
-  const decode = decoderFor(schema, 'report');
+  const decode = decoderFor(schema);
 
   await bench.compare(
     bench('encode', () => {

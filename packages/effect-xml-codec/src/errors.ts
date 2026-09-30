@@ -1,9 +1,9 @@
-// The two ways XML serialization can fail that a `SchemaIssue.Issue` does not already describe.
+// The one way XML serialization can fail that a `SchemaIssue.Issue` does not already describe.
 //
 // A schema mismatch — a `number` where the document says `text` — is a
 // `SchemaIssue.Issue` and comes from Effect's own parser. What is left is the
-// part Effect knows nothing about: a document that is not well-formed XML, and
-// a field name that cannot be written as an XML name.
+// part Effect knows nothing about: a document that is not well-formed XML, and a
+// field name that cannot be written as one.
 
 import { Schema } from 'effect';
 
@@ -33,28 +33,6 @@ export class XmlParseError extends Schema.TaggedError<XmlParseError>()('XmlParse
    * @description The source text that failed to parse, so a log can carry the document without the caller re-reading it.
    */
   input: Schema.String,
-}) {}
-
-/**
- * @description A field name cannot be written as an XML name and the render options asked to fail rather than repair it.
- *
- * @example
- *   ```typescript
- *   import { XmlNameError } from '@endevops/effect-xml-codec';
- *
- *   const error = new XmlNameError({ name: 'not a name', reason: 'First character " " is not a valid NameStartChar' });
- *   ```;
- */
-export class XmlNameError extends Schema.TaggedError<XmlNameError>()('XmlNameError', {
-  /**
-   * @description The offending field name, as it appeared in the value.
-   */
-  name: Schema.String,
-
-  /**
-   * @description Why the naming package rejected it.
-   */
-  reason: Schema.String,
 }) {}
 
 /**

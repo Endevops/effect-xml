@@ -1,11 +1,13 @@
 /**
- * @description A round-trip Effect Schema codec for XML. `toCodecXml` derives an XML representation from any Effect schema and reads it back. Attributes are the
- * fields whose names start with `@`, so `@xmlns` is written as `xmlns="…"`.
+ * @description A round-trip Effect Schema codec for XML. `toCodecXml` is Effect's own `Schema.toCodecStringTree` under the name this package uses: a `Schema`
+ * whose `Encoded` is the XML value tree, so it composes with `Schema.encode` and `Schema.decode` the way `Schema.toCodecJson` does. `renderXml`
+ * writes the encoded tree as a document and `parseXml` reads one back. Attributes are the fields whose names start with `@`, so `@xmlns` is written
+ * as `xmlns="…"`.
  *
  * @example
  *   ```typescript
  *   import { Schema } from 'effect';
- *   import { toCodecXml } from '@endevops/effect-xml-codec';
+ *   import { parseXmlSync, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
  *
  *   const Book = Schema.Struct({
  *     '@id': Schema.String,
@@ -13,19 +15,18 @@
  *     tag: Schema.Array(Schema.String),
  *   });
  *
- *   const book = toCodecXml(Book, { rootName: 'book' });
+ *   const codec = toCodecXml(Book);
  *   const value = { '@id': '1', title: 'Dune', tag: ['sci-fi'] };
  *
- *   const text = book.encodeTextSync(value);
+ *   const text = renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
  *   // => '<book id="1"><title>Dune</title><tag>sci-fi</tag></book>'
  *
- *   book.decodeTextSync(text); // => value
+ *   Schema.decodeSync(codec)(parseXmlSync(text)); // => value
  *   ```;
  *
  * @packageDocumentation
  */
 
-export type { XmlCodec, XmlCodecOptions } from './codec.ts';
 export { toCodecXml } from './codec.ts';
 
 export type { NameMode, ResolveNameOptions } from './conventions.ts';
@@ -42,7 +43,7 @@ export {
   TEXT_KEY,
 } from './conventions.ts';
 
-export { XmlNameError, XmlParseError } from './errors.ts';
+export { XmlParseError } from './errors.ts';
 
 export type { XmlDocument, XmlParseOptions } from './parse.ts';
 export { parseXml, parseXmlDocument, parseXmlSync } from './parse.ts';
