@@ -15,7 +15,7 @@ export default defineConfig({
     '*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx}': ["sh -c 'exec fallow --changed-since HEAD --type-aware --fail-on-issues'"],
   },
   run: { cache: { scripts: true } },
-  test: { isolate: false, fsModuleCache: true },
+  test: { isolate: false, fsModuleCache: true, coverage: { exclude: ['**/test/**'] } },
   fmt: {
     arrowParens: 'avoid',
     bracketSameLine: true,
