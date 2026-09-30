@@ -31,7 +31,43 @@
     "picocolors",
     "simple-git",
   ],
-  "rules": { "circular-dependencies": "error", "unused-dependencies": "error", "private-type-leaks": "error" },
+  // The dependency graph is a strict layering, and this states it so the
+  // detector checks it rather than sitting unmeasured:
+  //
+  //   common-xml  entities, naming, path matching — no sibling dependency
+  //   builder     XML out and JS in; builds on common-xml
+  //   parser      XML in to JS out; builds on builder and common-xml
+  //   codec       Schema <-> XML, standalone on top of common-xml
+  //
+  // A rule listing only what a layer may import is the check: `common-xml`
+  // has none, so an import from it into a sibling is a violation rather than
+  // something a reader has to notice. `effect` and `node:*` are outside every
+  // zone and so unrestricted.
+  "boundaries": {
+    "zones": [
+      { "name": "common-xml", "patterns": ["packages/common-xml/src/**/*.ts"] },
+      { "name": "builder", "patterns": ["packages/builder/src/**/*.ts"] },
+      { "name": "parser", "patterns": ["packages/parser/src/**/*.ts"] },
+      { "name": "codec", "patterns": ["packages/effect-xml-codec/src/**/*.ts"] },
+    ],
+    "rules": [
+      // The base layer depends on nothing of ours. Its absence from every
+      // other `allow` list is what makes that a rule rather than a convention.
+      { "from": "common-xml", "allow": [] },
+      { "from": "builder", "allow": ["common-xml"] },
+      { "from": "parser", "allow": ["builder", "common-xml"] },
+      { "from": "codec", "allow": ["common-xml"] },
+    ],
+  },
+  "rules": {
+    "circular-dependencies": "error",
+    "unused-dependencies": "error",
+    "private-type-leaks": "error",
+    // There is no declarative rule pack in this repo, so the policy detector
+    // has nothing to enforce. Turning it off is the honest statement; leaving
+    // it unconfigured reports the absence every run instead.
+    "policy-violation": "off",
+  },
   // Test suites are not published (see package.json `files`) and the
   // `scripts/values` codegen tools are offline-only. Their long `describe`
   // blocks and template literals dominate the unit-size signal without
