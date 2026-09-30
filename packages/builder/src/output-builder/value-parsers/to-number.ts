@@ -217,6 +217,117 @@ function handleInfinity(original: string, value: number, mode: ToNumberOptions['
 }
 
 /**
+ * @description Whether a value is written in exponent notation, in either case of the marker.
+ *
+ * @param value - The candidate string.
+ *
+ * @returns `true` when it holds an `e` or an `E`.
+ */
+function hasExponentMarker(value: string): boolean {
+  return value.includes('e') || value.includes('E');
+}
+
+/**
+ * @description Whether a mantissa starts at the exponent marker rather than carrying digits in front of it — `e3` and `.e3` are the two shapes `"0e3"` and
+ * `"0.e3"` are written in.
+ *
+ * @param mantissa - The mantissa capture from {@link EXPONENT_PATTERN}.
+ * @param marker - The exponent marker as written, `'e'` or `'E'`.
+ *
+ * @returns `true` when the mantissa opens on the marker, optionally behind a point.
+ */
+function opensAtMarker(mantissa: string, marker: string): boolean {
+  return mantissa.startsWith(`.${marker}`) || mantissa[0] === marker;
+}
+
+/**
+ * @description An exponent literal split into the pieces its leading-zero rule is judged on.
+ */
+interface ExponentParts {
+  /**
+   * @description The input as written, echoed back by every rule that refuses.
+   */
+  original: string;
+  /**
+   * @description The trimmed input, which the accepting rules parse.
+   */
+  value: string;
+  /**
+   * @description The `+` or `-` capture group, or `''`.
+   */
+  sign: string;
+  /**
+   * @description Everything from the first significant digit through the exponent digits.
+   */
+  mantissa: string;
+  /**
+   * @description The exponent marker as written, `'e'` or `'E'`.
+   */
+  marker: string;
+  /**
+   * @description The run of zeros the literal opens with, `''` when it opens with digits.
+   */
+  zeros: string;
+  /**
+   * @description Whether the run of zeros runs straight into the exponent marker in the input as written.
+   */
+  zerosAgainstMarker: boolean;
+}
+
+/**
+ * @description Read the pieces of an exponent literal out of a {@link EXPONENT_PATTERN} match.
+ *
+ * @param original - The input as written.
+ * @param value - The trimmed input.
+ * @param match - The pattern match.
+ *
+ * @returns The split literal.
+ */
+function exponentParts(original: string, value: string, match: RegExpExecArray): ExponentParts {
+  const sign = match[1] ?? '';
+  const zeros = match[2] ?? '';
+  // Group 3 is required by the pattern — it holds the `[eE]` and at least one
+  // digit — so the fallback cannot fire. It is written out because the index
+  // access is typed as possibly undefined and a reader should not have to
+  // re-derive the pattern to see why.
+  const mantissa = match[3] ?? '';
+  const marker = mantissa.includes('e') ? 'e' : 'E';
+  return {
+    original,
+    value,
+    sign,
+    mantissa,
+    marker,
+    zeros,
+    // A zero run immediately before the exponent is `"0e3"`, which is a
+    // different shape from `"03e3"` and is judged by a different rule. The
+    // sign shifts where in the input the run ends.
+    zerosAgainstMarker: original[sign ? zeros.length + 1 : zeros.length] === marker,
+  };
+}
+
+/**
+ * @description The leading-zero shapes an exponent literal can be written in, applied in order. Which shape it is written in decides the answer outright, so the
+ * sequence is the contract rather than an implementation detail: a run of two or more pressed against the marker is refused, a lone zero that _is_
+ * the value is accepted whatever the leading-zero option says, a run the marker has moved away from is ordinary padding, and a literal with no run at
+ * all is not this function's business.
+ *
+ * @param parts - The split literal.
+ * @param options - The resolved options.
+ *
+ * @returns The parsed number, or the original string when the notation is not acceptable.
+ */
+function judgeExponent(parts: ExponentParts, options: ResolvedOptions): string | number {
+  if (parts.zeros.length > 1 && parts.zerosAgainstMarker) return parts.original;
+  if (parts.zeros.length === 1 && opensAtMarker(parts.mantissa, parts.marker)) return Number(parts.value);
+  if (parts.zeros.length > 0) {
+    if (options.leadingZeros && !parts.zerosAgainstMarker) return Number(`${parts.sign}${parts.mantissa}`);
+    return parts.original;
+  }
+  return Number(parts.value);
+}
+
+/**
  * @description Resolve exponent notation, honouring the leading-zero rules.
  *
  * @param original - The input as written.
@@ -229,26 +340,208 @@ function resolveExponent(original: string, value: string, options: ResolvedOptio
   if (!options.eNotation) return original;
   const match = EXPONENT_PATTERN.exec(value);
   if (!match) return original;
+  return judgeExponent(exponentParts(original, value, match), options);
+}
 
+/**
+ * @description Whether a run of zeros in front of a decimal is padding rather than the number's own zero. A run of two or more is always padding; a single zero is
+ * padding too, unless it is the zero of the fraction.
+ *
+ * @param zeros - The leading zero run.
+ * @param touchesPoint - Whether the character after the run in the input as written is a decimal point.
+ *
+ * @returns `true` when the run is padding a value.
+ */
+function isPaddedZeroRun(zeros: string, touchesPoint: boolean): boolean {
+  if (zeros.length > 1) return true;
+  return zeros.length === 1 && !touchesPoint;
+}
+
+/**
+ * @description Parse a `0x` / `0b` / `0o` literal, if the candidate is one and the caller allows that base. Hex first, then binary, then octal — a value matching
+ * none of them comes back `undefined` and falls through to the decimal rules untouched.
+ *
+ * @param candidate - The trimmed candidate.
+ * @param resolved - The resolved options.
+ *
+ * @returns The parsed integer, or `undefined` when the candidate is not an enabled radix literal.
+ */
+function parseRadixLiteral(candidate: string, resolved: ResolvedOptions): number | undefined {
+  if (resolved.hex && HEX_PATTERN.test(candidate)) return parseRadix(candidate, 16);
+  if (resolved.binary && BINARY_PATTERN.test(candidate)) return parseRadix(candidate, 2);
+  if (resolved.octal && OCTAL_PATTERN.test(candidate)) return parseRadix(candidate, 8);
+  return undefined;
+}
+
+/**
+ * @description The {@link NUMBER_PATTERN} capture groups, read once so the decimal rules never index into a match again. Splitting the candidate into sign,
+ * leading zeros and the rest is what lets the leading-zero rules be judged without re-parsing the whole thing.
+ */
+interface DecimalMatch {
+  /**
+   * @description The `+` or `-` capture group, or `''`.
+   */
+  sign: string;
+  /**
+   * @description The run of zeros in front of the digits, or `''`.
+   */
+  zeros: string;
+  /**
+   * @description The digits, with the zero run already excluded and any fraction still attached.
+   */
+  digits: string;
+  /**
+   * @description The character that follows the zero run in the input as written, or `undefined` at the end of it. `'00.5'` puts a point there and `'007'` puts a
+   * digit, and that one character is what tells a padded identifier from a decimal.
+   */
+  afterZeros: string | undefined;
+}
+
+/**
+ * @description Read the pieces of a decimal out of a {@link NUMBER_PATTERN} match, against the input as written.
+ *
+ * @param original - The input as written, which is where the character after the zero run is looked up.
+ * @param match - The pattern match.
+ *
+ * @returns The split decimal.
+ */
+function readDecimalMatch(original: string, match: RegExpExecArray): DecimalMatch {
   const sign = match[1] ?? '';
-  const leadingZeros = match[2] ?? '';
-  // Group 3 is required by the pattern — it holds the `[eE]` and at least one
-  // digit — so the fallback cannot fire. It is written out because the index
-  // access is typed as possibly undefined and a reader should not have to
-  // re-derive the pattern to see why.
-  const mantissa = match[3] ?? '';
-  const eChar = mantissa.includes('e') ? 'e' : 'E';
-  // A zero run immediately before the exponent is `"0e3"`, which is a different
-  // shape from `"03e3"` and is judged by a different rule.
-  const zerosAdjacentToExponent = sign ? original[leadingZeros.length + 1] === eChar : original[leadingZeros.length] === eChar;
+  const zeros = match[2] ?? '';
+  return {
+    sign,
+    zeros,
+    digits: match[3] ?? '',
+    // The sign shifts where in the input the run ends, so it belongs to the index rather than to the run's length.
+    afterZeros: original[sign ? zeros.length + 1 : zeros.length],
+  };
+}
 
-  if (leadingZeros.length > 1 && zerosAdjacentToExponent) return original;
-  if (leadingZeros.length === 1 && (mantissa.startsWith(`.${eChar}`) || mantissa[0] === eChar)) return Number(value);
-  if (leadingZeros.length > 0) {
-    if (options.leadingZeros && !zerosAdjacentToExponent) return Number(`${sign}${mantissa}`);
-    return original;
-  }
-  return Number(value);
+/**
+ * @description A candidate decimal split into the pieces the round-trip rules are judged on. Passed whole rather than as an argument list because both judges need
+ * most of it, and because the pieces have to stay together: the rules compare the digits against the form JS printed back, and unpacking them from a
+ * signature is how a reader loses track of which is which.
+ */
+interface DecimalParts {
+  /**
+   * @description The trimmed candidate, as the numeric rules see it.
+   */
+  candidate: string;
+  /**
+   * @description The input as written, echoed back by every rule that refuses.
+   */
+  original: string;
+  /**
+   * @description The `+` or `-` capture group, or `''`.
+   */
+  sign: string;
+  /**
+   * @description The run of zeros in front of the digits, or `''`.
+   */
+  leadingZeros: string;
+  /**
+   * @description The digits with the fraction's trailing zeros trimmed and the point tidied.
+   */
+  withoutZeros: string;
+  /**
+   * @description The candidate as a number.
+   */
+  num: number;
+  /**
+   * @description The candidate as JS printed it back, which is the form the rules compare against.
+   */
+  roundTripped: string;
+}
+
+/**
+ * @description Judge a decimal that has a point in it against the form JS printed back. The printed form may match the tidied digits with the sign folded in by
+ * `Number`, or with the sign still standing in front of them — those are the two spellings that survive the round trip, and anything else means the
+ * input said something the number does not.
+ *
+ * @param parts - The split candidate.
+ *
+ * @returns The number, or the original string.
+ */
+function judgePointed(parts: DecimalParts): string | number {
+  if (parts.roundTripped === '0') return parts.num;
+  if (parts.roundTripped === parts.withoutZeros) return parts.num;
+  if (parts.roundTripped === `${parts.sign}${parts.withoutZeros}`) return parts.num;
+  return parts.original;
+}
+
+/**
+ * @description Judge an integer against the form JS printed back. The two branches differ in where the sign is looked for, which follows from the zero run: with
+ * one in front, the digits have to come back with the sign still standing in front of them, because that sign is part of what the run was padding.
+ * Without one, the comparison is against the signless digits and the sign is checked against the printed sign separately.
+ *
+ * @param parts - The split candidate.
+ *
+ * @returns The number, or the original string.
+ */
+function judgeInteger(parts: DecimalParts): string | number {
+  const comparable = parts.leadingZeros ? parts.withoutZeros : parts.candidate;
+  const accepted = parts.leadingZeros
+    ? comparable === parts.roundTripped || parts.sign + comparable === parts.roundTripped
+    : comparable === parts.roundTripped || comparable === parts.sign + parts.roundTripped;
+  return accepted ? parts.num : parts.original;
+}
+
+/**
+ * @description Apply the decimal rules to a candidate that is neither a radix literal nor exponent notation.
+ *
+ * @param original - The input as written.
+ * @param candidate - The trimmed candidate.
+ * @param resolved - The resolved options.
+ *
+ * @returns The number, or the original string when the decimal rules refuse it.
+ */
+function parseDecimal(original: string, candidate: string, resolved: ResolvedOptions): string | number {
+  const match = NUMBER_PATTERN.exec(candidate);
+  if (!match) return original;
+
+  const { sign, zeros, digits, afterZeros } = readDecimalMatch(original, match);
+  if (!resolved.leadingZeros && isPaddedZeroRun(zeros, afterZeros === '.')) return original;
+
+  const num = Number(candidate);
+  const parts: DecimalParts = {
+    candidate,
+    original,
+    sign,
+    leadingZeros: zeros,
+    withoutZeros: trimTrailingZeros(digits),
+    num,
+    roundTripped: String(num),
+  };
+
+  if (num === 0) return num;
+  // A long literal that JS printed back in exponent form. Accept it only if
+  // the caller allows exponents, or the round trip is not faithful.
+  if (hasExponentMarker(parts.roundTripped)) return resolved.eNotation ? num : original;
+  return candidate.indexOf('.') !== -1 ? judgePointed(parts) : judgeInteger(parts);
+}
+
+/**
+ * @description The numeric forms that are not a plain decimal, in the order they are tried: a radix literal, then the overflow branch, then exponent notation. The
+ * order is the contract rather than an implementation detail. The overflow check has to run before the notation branch, because a value that
+ * overflows is judged as an overflow however it was written. The radix literals have to win outright, because `Number('0x1f')` is `NaN` where
+ * `parseInt('0x1f', 16)` is 31.
+ *
+ * @param original - The input as written.
+ * @param candidate - The trimmed, and possibly Unicode-normalized, candidate.
+ * @param resolved - The resolved options.
+ *
+ * @returns The number, the original string, or `null` when the `infinity` option asks for it.
+ */
+function convertNumericForm(original: string, candidate: string, resolved: ResolvedOptions): string | number | null {
+  const radix = parseRadixLiteral(candidate, resolved);
+  if (radix !== undefined) return radix;
+  // `Number(candidate)` is explicit about coercing. The global `isFinite` does
+  // the same thing, and the original relied on that: `Number.isFinite` does not
+  // coerce, so it answers `false` for the string `"1.5"` and every decimal would
+  // take the infinity branch below.
+  if (!Number.isFinite(Number(candidate))) return handleInfinity(original, Number(candidate), resolved.infinity);
+  if (hasExponentMarker(candidate)) return resolveExponent(original, candidate, resolved);
+  return parseDecimal(original, candidate, resolved);
 }
 
 /**
@@ -288,51 +581,7 @@ function toNumber(value: string, options: ToNumberOptions = {}): string | number
     if (candidate === '0') return 0;
   }
 
-  if (resolved.hex && HEX_PATTERN.test(candidate)) return parseRadix(candidate, 16);
-  if (resolved.binary && BINARY_PATTERN.test(candidate)) return parseRadix(candidate, 2);
-  if (resolved.octal && OCTAL_PATTERN.test(candidate)) return parseRadix(candidate, 8);
-  // `Number(candidate)` is explicit about coercing. The global `isFinite` does
-  // the same thing, and the original relied on that: `Number.isFinite` does not
-  // coerce, so it answers `false` for the string `"1.5"` and every decimal would
-  // take the infinity branch below.
-  if (!Number.isFinite(Number(candidate))) return handleInfinity(original, Number(candidate), resolved.infinity);
-  if (candidate.includes('e') || candidate.includes('E')) return resolveExponent(original, candidate, resolved);
-
-  // Split the candidate into sign, leading zeros and the rest, so the
-  // leading-zero rules can be judged without re-parsing the whole thing.
-  const match = NUMBER_PATTERN.exec(candidate);
-  if (!match) return value;
-
-  const sign = match[1] ?? '';
-  const leadingZeros = match[2] ?? '';
-  const withoutZeros = trimTrailingZeros(match[3] ?? '');
-  const zeroRunTouchesPoint = sign ? original[leadingZeros.length + 1] === '.' : original[leadingZeros.length] === '.';
-
-  if (!resolved.leadingZeros && (leadingZeros.length > 1 || (leadingZeros.length === 1 && !zeroRunTouchesPoint))) {
-    return value;
-  }
-
-  const num = Number(candidate);
-  const roundTripped = String(num);
-
-  if (num === 0) return num;
-  if (/[eE]/.test(roundTripped)) {
-    // A long literal that JS printed back in exponent form. Accept it only if
-    // the caller allows exponents, or the round trip is not faithful.
-    return resolved.eNotation ? num : value;
-  }
-  if (candidate.indexOf('.') !== -1) {
-    if (roundTripped === '0') return num;
-    if (roundTripped === withoutZeros) return num;
-    if (roundTripped === `${sign}${withoutZeros}`) return num;
-    return value;
-  }
-
-  const comparable = leadingZeros ? withoutZeros : candidate;
-  if (leadingZeros) {
-    return comparable === roundTripped || sign + comparable === roundTripped ? num : value;
-  }
-  return comparable === roundTripped || comparable === sign + roundTripped ? num : value;
+  return convertNumericForm(original, candidate, resolved);
 }
 
 export default toNumber;
