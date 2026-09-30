@@ -1,5 +1,7 @@
 import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
 
+import type { InputSourceLike } from './input-source.ts';
+
 import { UnexpectedEnd } from '../parse-error.js';
 import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.js';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.js';
@@ -19,7 +21,7 @@ import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.js';
  * character and every bulk-read span for a field most callers never read; dropping it is a straight speed win. A caller that wants line/column can
  * derive it from `index` plus the original document text.
  */
-export default class StringSource {
+export default class StringSource implements InputSourceLike {
   /**
    * @description The live buffer. A prefix is trimmed off the front by `flush()` as the document is consumed.
    */
@@ -261,12 +263,6 @@ export default class StringSource {
     }
 
     throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
-  }
-
-  readFromBuffer(n: number, updateIndex?: number) {
-    const ch = n === 1 ? this.buffer[this.startIndex] : this.buffer.substring(this.startIndex, this.startIndex + n);
-    if (updateIndex) this.updateBufferBoundary(n);
-    return ch;
   }
 
   /**

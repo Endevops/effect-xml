@@ -86,7 +86,7 @@ function getCachedName<T>(cache: Map<string, T>, rawName: string, computeFn: () 
  *
  * @implements {TagDetailLike}
  */
-export class TagDetail implements TagDetailLike {
+class TagDetail implements TagDetailLike {
   /**
    * @description Processed tag name — namespace prefix already stripped, already sanitized.
    */
@@ -127,7 +127,7 @@ export class TagDetail implements TagDetailLike {
 /**
  * @description `isStopNode` / `isSkipTag` are stored as instance properties and invoked as `this.isStopNode()`, so the receiver is part of their contract.
  */
-type TagConfigPredicate = () => TagExpressionConfig | null | undefined;
+export type TagConfigPredicate = () => TagExpressionConfig | null | undefined;
 
 /**
  * @description Stand-in installed when no stop nodes / skip tags are configured, so the per-tag check costs one call that returns immediately instead of reaching
@@ -347,7 +347,7 @@ export default class Xml2JsParser implements TagExpressionParser {
    * @param strData - The whole document as a string.
    */
   parse(strData: string): unknown {
-    this.source = new StringSource(strData) as InputSourceLike;
+    this.source = new StringSource(strData);
     this.initializeParser();
     this._parseAndFinalize();
     return this.outputBuilder.getOutput();

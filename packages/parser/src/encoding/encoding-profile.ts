@@ -1,5 +1,5 @@
 import type { ScanStrategy } from '../input-source/input-source.ts';
-import type { DecodingOptions, EncodingDecoder } from '../options.ts';
+import type { DecodingOptions } from '../options.ts';
 import type EncodingRegistry from './encoding-registry.js';
 import type { ResolvedEncodingDescriptor } from './encoding-registry.js';
 
@@ -67,18 +67,4 @@ export function buildProfileForBuffer(
   }
   const descriptor = registry.resolve(name);
   return { descriptor, bomLength, scanStrategy: createCharScanStrategy() };
-}
-
-/**
- * @description BuildDecoderForStream(decodingOptions, registry) -> the descriptor's stateful decoder, for `FeedableSource` / `StreamSource`. These two are already
- * decode-first architecturally (see `CharScanStrategy`'s doc comment) so they only ever need the decoder half of a profile, never a scan strategy.
- * Streaming auto-detection (peeking enough of the first `feed()` chunk before a decoder can even be constructed) is implemented separately in
- * `FeedableSource`'s `#resolveDetection()`; this helper covers the explicit-encoding case and falls back to utf8 otherwise.
- *
- * @param decodingOptions - User decoding options.
- * @param registry - Registry to resolve names against. Defaults to the shared registry.
- */
-export function buildDecoderForStream(decodingOptions: DecodingOptions = {}, registry: EncodingRegistry = defaultEncodingRegistry): EncodingDecoder {
-  const requested = decodingOptions.encoding && decodingOptions.encoding !== 'auto' ? decodingOptions.encoding : 'utf8';
-  return registry.resolve(requested).createDecoder();
 }

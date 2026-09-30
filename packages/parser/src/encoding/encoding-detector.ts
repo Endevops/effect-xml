@@ -26,7 +26,7 @@ export interface EncodingDetection {
 /**
  * @description A descriptor whose BOM signature matched the head of the document.
  */
-export interface BomMatch {
+interface BomMatch {
   descriptor: ResolvedEncodingDescriptor;
   bomLength: number;
 }

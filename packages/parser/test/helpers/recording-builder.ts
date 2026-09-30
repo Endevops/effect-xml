@@ -115,7 +115,7 @@ export interface RecordingEvents {
  * contract is the structural `OutputBuilderLike`, and this satisfies it directly while keeping the real builder's output behaviour byte-for-byte:
  * every call is recorded, then handed straight through.
  */
-export class RecordingBuilder implements OutputBuilderLike {
+class RecordingBuilder implements OutputBuilderLike {
   /**
    * @description The intercepted callbacks.
    */

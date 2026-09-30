@@ -4,8 +4,6 @@ import type { Effect } from 'effect';
 
 import type { InputSourceLike } from '../input-source/input-source.ts';
 import type { ResolvedOptions } from '../options.ts';
-import type { TagExpressionConfig } from './tag-expression.ts';
-
 export type { ExitIfPredicate } from '../options.ts';
 
 /**
@@ -370,8 +368,3 @@ export interface TagExpressionParser {
    */
   getNameValidator(production: 'name' | 'qName'): NameValidator;
 }
-
-/**
- * @description The `nested` + `skipEnclosures` config a stop-node or skip-tag expression matched, or `null` when nothing matched.
- */
-export type TagMatchConfig = TagExpressionConfig | null;

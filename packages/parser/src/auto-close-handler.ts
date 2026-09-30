@@ -15,7 +15,7 @@ import { absolutePosition } from './util.js';
 /**
  * @description Error types returned by `getParseErrors()` when `collectErrors` is true.
  */
-export const AutoCloseErrorType = Object.freeze({
+const AutoCloseErrorType = Object.freeze({
   /**
    * @description A tag was still open when the document ended.
    */
@@ -41,7 +41,7 @@ export const AutoCloseErrorType = Object.freeze({
 /**
  * @description One of the four recovery outcomes `AutoCloseErrorType` can record.
  */
-export type AutoCloseErrorTypeValue = (typeof AutoCloseErrorType)[keyof typeof AutoCloseErrorType];
+type AutoCloseErrorTypeValue = (typeof AutoCloseErrorType)[keyof typeof AutoCloseErrorType];
 
 /**
  * @description What the caller should do after `handleMismatch()` has run.

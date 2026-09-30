@@ -3,33 +3,6 @@ import type { InputSourceLike } from './input-source/input-source.ts';
 import { IllegalCharacter, InvalidTag, UnexpectedEnd } from './parse-error.ts';
 
 /**
- * @description Every capture group of every match of `regex` in `string`, flattened into one array per match, with the match's start offset attached as
- * `startIndex`.
- *
- * @param string - Subject to search.
- * @param regex - Must be global; `lastIndex` is carried across iterations.
- *
- * @returns One array per match, holding the full match followed by each capture group.
- */
-export function getAllMatches(string: string, regex: RegExp): (string[] & { startIndex: number })[] {
-  const matches: (string[] & { startIndex: number })[] = [];
-  let match = regex.exec(string);
-  while (match) {
-    // Built empty, then given its startIndex below — an array literal cannot be
-    // cast directly to the intersection type it acquires a moment later.
-    const allmatches = [] as unknown as string[] & { startIndex: number };
-    allmatches.startIndex = regex.lastIndex - (match[0]?.length ?? 0);
-    const len = match.length;
-    for (let index = 0; index < len; index++) {
-      allmatches.push(match[index] as string);
-    }
-    matches.push(allmatches);
-    match = regex.exec(string);
-  }
-  return matches;
-}
-
-/**
  * @description Whether `char` is XML whitespace. Accepts `undefined` so callers that read past the end of input get `false` rather than a throw.
  */
 export function isSpace(char: string | undefined): boolean {
@@ -41,32 +14,6 @@ export function isSpace(char: string | undefined): boolean {
  */
 export function isSpaceCode(code: number): boolean {
   return code === 32 || code === 9 || code === 10 || code === 13 || code === 12; // space \t \n \r \f
-}
-
-/**
- * @description Whether `v` is not `undefined`. Deliberately a check for an _absent_ value, not a nullish one — `null` counts as existing and passes straight
- * through {@link getValue}.
- */
-export function isExist<T>(v: T | undefined): v is T {
-  return typeof v !== 'undefined';
-}
-
-/**
- * @description Whether `obj` has no own enumerable keys.
- */
-export function isEmptyObject(obj: object): boolean {
-  return Object.keys(obj).length === 0;
-}
-
-/**
- * @description `v` when it exists, `''` otherwise. Collapses a missing value and an empty string to the same result; `null` passes through as `null`.
- */
-export function getValue<T>(v: T | undefined): T | '' {
-  if (isExist(v)) {
-    return v;
-  } else {
-    return '';
-  }
 }
 
 /**

@@ -132,11 +132,6 @@ export function createInputSource(xmlString: string, type: InputSourceType): Inp
 }
 
 /**
- * @description Callback invoked with each run's parsed output.
- */
-export type ResultCallback = (result: ParsedNode) => void;
-
-/**
  * @description Callback that also receives the parser, for tests that inspect `wasExited` or re-parse. Generic in the parser type so a test that supplies an
  * instrumented parser (see `recording-builder.ts`) receives that concrete type in the callback rather than the base `XMLParser`, keeping fields like
  * `_events` typed all the way through.
@@ -172,41 +167,6 @@ export function runAcrossAllInputSources(testName: string, xmlString: string, te
       testFn(result, inputSource.type);
     });
   });
-}
-
-/**
- * @description Focused variant of {@link runAcrossAllInputSources}, for narrowing the run to one test during debugging. Uses `it.only`, so it excludes every other
- * test in the file while present. Convert to `runAcrossAllInputSources` once the investigation is done — a leftover focus turns the whole file into a
- * single-test run and hides real regressions.
- *
- * @param testName - Name of the test. The input type is appended in brackets.
- * @param xmlString - XML content to parse.
- * @param testFn - Receives the parsed result and the parser.
- * @param parserOptions - Parser options for each run.
- */
-export function frunAcrossAllInputSources(
-  testName: string,
-  xmlString: string,
-  testFn: ResultWithParserCallback,
-  parserOptions: X2jOptions = {}
-): void {
-  INPUT_TYPES.forEach(inputType => {
-    it.only(`${testName} [${inputType}]`, function () {
-      const inputSource = createInputSource(xmlString, inputType);
-      const parser = makeParser(parserOptions);
-      const result = inputSource.parse(parser);
-      testFn(result, parser);
-    });
-  });
-}
-
-/**
- * @description Skipped counterpart of {@link runAcrossAllInputSources}, for a case that's documented but not currently asserted.
- *
- * @param testName - Name of the skipped test.
- */
-export function xrunAcrossAllInputSources(testName: string): void {
-  it.skip(`${testName}`, function () {});
 }
 
 /**
@@ -293,31 +253,6 @@ export function runAcrossAllInputSourcesWithFactory<TParser extends XMLParser = 
 ): void {
   INPUT_TYPES.forEach(inputType => {
     it(`${testName} [${inputType}]`, function () {
-      const parser = parserFactory();
-      const inputSource = createInputSource(xmlString, inputType);
-      const result = inputSource.parse(parser);
-      testFn(result, parser);
-    });
-  });
-}
-
-/**
- * @description Focused variant of {@link runAcrossAllInputSourcesWithFactory}, for narrowing the run to one test during debugging. Uses `it.only` — see
- * {@link frunAcrossAllInputSources} for the caveat about leaving one behind.
- *
- * @param testName - Name of the test. The input type is appended in brackets.
- * @param xmlString - XML content to parse.
- * @param testFn - Receives the parsed result and the parser.
- * @param parserFactory - Produces the parser for each run.
- */
-export function frunAcrossAllInputSourcesWithFactory(
-  testName: string,
-  xmlString: string,
-  testFn: ResultWithParserCallback,
-  parserFactory: ParserFactory
-): void {
-  INPUT_TYPES.forEach(inputType => {
-    it.only(`${testName} [${inputType}]`, function () {
       const parser = parserFactory();
       const inputSource = createInputSource(xmlString, inputType);
       const result = inputSource.parse(parser);

@@ -3,7 +3,6 @@
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type { TagExpressionParser } from './internal/parser-types.ts';
 import type { ParsedAttribute } from './internal/parser-types.ts';
-import type { TagExpressionConfig } from './internal/tag-expression.ts';
 
 import { collectRawAttributes } from './attribute-processor.js';
 import { InvalidTagName, UnclosedQuote, UnexpectedEnd } from './parse-error.js';
@@ -315,7 +314,3 @@ function buildTagExpObj(
   // console.log(tagExp)
   return tagExp;
 }
-
-// Re-exported so callers of `normalizeTagEntry` can name the config shape
-// without reaching into `internal/`.
-export type { TagExpressionConfig };

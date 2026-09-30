@@ -162,6 +162,8 @@ export default class EncodingRegistry {
 }
 
 /**
- * @description Registry seeded once at module load and shared by every `XMLParser` that registers no custom decoders.
+ * @description Registry seeded once at module load and shared by every `XMLParser` that registers no custom decoders. The element type is inferred rather than
+ * annotated: the class is this module's default export and is not reachable from the package root by name, so an explicit `: EncodingRegistry`
+ * annotation would only publish a type no consumer can spell.
  */
-export const defaultEncodingRegistry: EncodingRegistry = new EncodingRegistry();
+export const defaultEncodingRegistry = new EncodingRegistry();

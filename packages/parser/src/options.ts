@@ -5,10 +5,10 @@ import type EncodingRegistry from './encoding/encoding-registry.ts';
 import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { Enclosure, TagExpressionConfig } from './internal/tag-expression.ts';
 
-// The runtime error class and its code table live in `parse-error.ts`; re-exported
-// here so option documentation and error documentation can be read together
-// without the two drifting apart.
-export { ErrorCode } from './parse-error.ts';
+// `ErrorCodeValue` is re-exported here so option documentation and error
+// documentation can be read together without the two drifting apart; the
+// `ErrorCode` value itself reaches the package root straight from
+// `parse-error.ts`, which is where it is defined.
 export type { ErrorCodeValue } from './parse-error.ts';
 export type { Enclosure } from './internal/tag-expression.ts';
 
@@ -211,10 +211,11 @@ export interface DoctypeOptions {
 
 // ─── Error handling ────────────────────────────────────────────────────────────
 
-// `ErrorCode`, `ErrorCodeValue` and `ParseError` are re-exported from
-// `./parse-error.ts` at the top of this file — that module owns the runtime
-// class and the frozen code table, so documenting them in a second place could
-// only ever drift.
+// `ErrorCode`, `ErrorCodeValue` and `ParseError` are owned by
+// `./parse-error.ts` — that module holds the runtime class and the frozen code
+// table, so documenting them in a second place could only ever drift. Only
+// `ErrorCodeValue` is re-exported here (see the top of this file); the value
+// and `ParseError` reach the package root from `parse-error.ts` itself.
 
 // ─── Limits ────────────────────────────────────────────────────────────────────
 
