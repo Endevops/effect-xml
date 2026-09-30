@@ -89,7 +89,23 @@ import {
   XML,
 } from './entities/index.ts';
 import { XmlError, XmlErrorReason } from './errors.ts';
-import { createValidator, name, ncName, nmToken, nmTokens, qName, sanitize, validate, validateAll } from './naming/index.ts';
+import {
+  createValidator,
+  isName,
+  isNcName,
+  isNmToken,
+  isNmTokens,
+  isQName,
+  name,
+  ncName,
+  nmToken,
+  nmTokens,
+  qName,
+  sanitize,
+  sanitizeSync,
+  validate,
+  validateAll,
+} from './naming/index.ts';
 import { Expression, ExpressionSet, Matcher, MatcherView } from './path-matcher/index.ts';
 
 export { EntityDecoder, EntityEncoder, ENTITY_ACTION };
@@ -111,7 +127,23 @@ export {
   SHAPES,
   XML,
 };
-export { createValidator, name, ncName, nmToken, nmTokens, qName, sanitize, validate, validateAll };
+export {
+  createValidator,
+  isName,
+  isNcName,
+  isNmToken,
+  isNmTokens,
+  isQName,
+  name,
+  ncName,
+  nmToken,
+  nmTokens,
+  qName,
+  sanitize,
+  sanitizeSync,
+  validate,
+  validateAll,
+};
 export { Expression, ExpressionSet, Matcher, MatcherView };
 export { XmlError, XmlErrorReason };
 export type { XmlErrorReasonType };

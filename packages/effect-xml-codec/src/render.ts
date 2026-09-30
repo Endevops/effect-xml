@@ -19,12 +19,10 @@
 
 import type { XmlVersion } from '@endevops/common-xml';
 
-import { Effect } from 'effect';
-
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
-import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveName, TEXT_KEY } from './conventions.ts';
+import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveNameSync, TEXT_KEY } from './conventions.ts';
 import { isXmlArray } from './xml-value.ts';
 
 /**
@@ -150,7 +148,8 @@ interface ResolvedOptions {
  * @description Builds the name resolver for one render. Every element and every attribute name goes through here, and a document repeats names: a thousand
  * `<item>` elements, or the same `id` on every row. A validator that runs a regex per occurrence pays that cost a thousand times for one answer, so
  * the first result is remembered and the rest are lookups. It also keeps the mode and version in one place, which is what stops a caller from
- * resolving a name with different settings than the render it is part of.
+ * resolving a name with different settings than the render it is part of. The resolver is the synchronous one: this is a per-name call inside the
+ * render loop, and running an `Effect` per name to read a boolean is the cost the synchronous spelling exists to avoid.
  *
  * @param options - Resolved render options.
  *
@@ -161,7 +160,7 @@ const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: 
   return name => {
     const hit = cache.get(name);
     if (hit !== undefined) return hit;
-    const resolved = Effect.runSync(resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion }));
+    const resolved = resolveNameSync(name, { mode: options.name, xmlVersion: options.xmlVersion });
     cache.set(name, resolved);
     return resolved;
   };

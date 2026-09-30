@@ -26,7 +26,7 @@ import { Effect } from 'effect';
 import type { NameMode } from './conventions.ts';
 import type { XmlValue } from './xml-value.ts';
 
-import { ATTRIBUTE_PREFIX, resolveName, TEXT_KEY } from './conventions.ts';
+import { ATTRIBUTE_PREFIX, resolveNameSync, TEXT_KEY } from './conventions.ts';
 import { asParseError, XmlParseError } from './errors.ts';
 
 /**
@@ -247,14 +247,20 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     const cached = nameCache.get(raw);
     if (cached !== undefined) return cached;
 
-    // `resolveName` returns an effect, as every entry point in the naming package does. The parser's
-    // own loop is synchronous and reports through `fail`, so the effect is run here and its failure
-    // routed into the same place — a rejected name is a property of the document either way.
-    const name = Effect.runSync(
-      Effect.mapError(resolveName(raw, nameOptions), cause => {
-        fail(`${what} ${JSON.stringify(raw)} is not a legal XML name: ${cause.message}`, position);
-      })
-    );
+    // The resolver is synchronous — validating a name is a regex test that cannot fail — so the
+    // parser's own loop calls it directly and reports the one failure it can produce the same way
+    // `fail` does. Routing this through an `Effect` ran a runtime per element and per attribute in
+    // the document to read a boolean.
+    let name: string;
+    try {
+      name = resolveNameSync(raw, nameOptions);
+    } catch (cause) {
+      throw new XmlParseError({
+        message: `${what} ${JSON.stringify(raw)} is not a legal XML name: ${cause instanceof Error ? cause.message : String(cause)}`,
+        position,
+        input: text,
+      });
+    }
 
     nameCache.set(raw, name);
     return name;

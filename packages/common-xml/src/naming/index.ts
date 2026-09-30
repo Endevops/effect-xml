@@ -271,7 +271,72 @@ const getRegexes = (xmlVersion: XmlVersion = '1.0', asciiOnly = false): Producti
 
 // ---------------------------------------------------------------------------
 // Boolean validators
+//
+// Two spellings of each: the plain `is*` predicate, and the Effect-returning one that wraps it. A regex test cannot fail — and every one of these is called
+// per name inside a parser's or codec's hot loop — so the predicate is the real implementation and the Effect is the uniform-shape wrapper for callers already
+// in an Effect. Calling the Effect form per name means allocating and running an effect to read a boolean, which for a document with a handful of repeated
+// names is most of the cost of resolving them.
 // ---------------------------------------------------------------------------
+
+/**
+ * @description Whether the string is a valid XML Name. Colons are allowed anywhere (Name production). Used for: DOCTYPE entity names, notation names, DTD element
+ * declarations. The synchronous form; {@link name} is its Effect-returning wrapper.
+ *
+ * @param str - The candidate name.
+ * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
+ *
+ * @returns Whether `str` satisfies the production.
+ */
+export const isName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
+  getRegexes(xmlVersion, asciiOnly).name.test(str);
+
+/**
+ * @description Whether the string is a valid NCName (Non-Colonized Name). Colons are not permitted. Used for: namespace prefixes, local names, SVG id attributes.
+ * The synchronous form; {@link ncName} is its Effect-returning wrapper.
+ *
+ * @param str - The candidate name.
+ * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
+ *
+ * @returns Whether `str` satisfies the production.
+ */
+export const isNcName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
+  getRegexes(xmlVersion, asciiOnly).ncName.test(str);
+
+/**
+ * @description Whether the string is a valid QName (Qualified Name). Allows exactly one colon as a prefix separator: `prefix:localName`. Used for: element and
+ * attribute names in namespace-aware XML/SVG. The synchronous form; {@link qName} is its Effect-returning wrapper.
+ *
+ * @param str - The candidate name.
+ * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
+ *
+ * @returns Whether `str` satisfies the production.
+ */
+export const isQName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
+  getRegexes(xmlVersion, asciiOnly).qName.test(str);
+
+/**
+ * @description Whether the string is a valid NMToken. Like Name but no restriction on the first character. Used for: DTD NMTOKEN attribute values. The synchronous
+ * form; {@link nmToken} is its Effect-returning wrapper.
+ *
+ * @param str - The candidate token.
+ * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
+ *
+ * @returns Whether `str` satisfies the production.
+ */
+export const isNmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
+  getRegexes(xmlVersion, asciiOnly).nmToken.test(str);
+
+/**
+ * @description Whether the string is a valid NMTokens value — a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values. The
+ * synchronous form; {@link nmTokens} is its Effect-returning wrapper.
+ *
+ * @param str - The candidate list.
+ * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
+ *
+ * @returns Whether `str` satisfies the production.
+ */
+export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
+  getRegexes(xmlVersion, asciiOnly).nmTokens.test(str);
 
 /**
  * @description Returns true if the string is a valid XML Name. Colons are allowed anywhere (Name production). Used for: DOCTYPE entity names, notation names, DTD
@@ -283,8 +348,7 @@ const getRegexes = (xmlVersion: XmlVersion = '1.0', asciiOnly = false): Producti
  * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
  *   package has one shape.
  */
-export const name = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
-  Effect.succeed(getRegexes(xmlVersion, asciiOnly).name.test(str));
+export const name = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isName(str, opts));
 
 /**
  * @description Returns true if the string is a valid NCName (Non-Colonized Name). Colons are not permitted. Used for: namespace prefixes, local names, SVG id
@@ -296,8 +360,7 @@ export const name = (str: string, { xmlVersion = '1.0', asciiOnly = false }: Val
  * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
  *   package has one shape.
  */
-export const ncName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
-  Effect.succeed(getRegexes(xmlVersion, asciiOnly).ncName.test(str));
+export const ncName = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isNcName(str, opts));
 
 /**
  * @description Returns true if the string is a valid QName (Qualified Name). Allows exactly one colon as a prefix separator: `prefix:localName`. Used for: element
@@ -309,8 +372,7 @@ export const ncName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: V
  * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
  *   package has one shape.
  */
-export const qName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
-  Effect.succeed(getRegexes(xmlVersion, asciiOnly).qName.test(str));
+export const qName = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isQName(str, opts));
 
 /**
  * @description Returns true if the string is a valid NMToken. Like Name but no restriction on the first character. Used for: DTD NMTOKEN attribute values.
@@ -321,8 +383,7 @@ export const qName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: Va
  * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
  *   package has one shape.
  */
-export const nmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
-  Effect.succeed(getRegexes(xmlVersion, asciiOnly).nmToken.test(str));
+export const nmToken = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isNmToken(str, opts));
 
 /**
  * @description Returns true if the string is a valid NMTokens value — a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values.
@@ -333,8 +394,7 @@ export const nmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }: 
  * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
  *   package has one shape.
  */
-export const nmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): Effect.Effect<boolean, XmlError> =>
-  Effect.succeed(getRegexes(xmlVersion, asciiOnly).nmTokens.test(str));
+export const nmTokens = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isNmTokens(str, opts));
 
 // ---------------------------------------------------------------------------
 // Memoized validator factory
@@ -638,6 +698,45 @@ export const validateAll = (
 
 /**
  * @description Transforms an invalid string into the nearest valid XML name for the given production: strips or replaces illegal characters, fixes an invalid
+ * start character by prepending the replacement, and removes colons for NCName. The synchronous form; {@link sanitize} is its Effect-returning
+ * wrapper.
+ *
+ * @param str - The candidate name.
+ * @param production - The production to sanitize for. Defaults to `'name'`.
+ * @param opts - `replacement` is the substitute character (default `'_'`); `asciiOnly` also replaces non-ASCII characters.
+ *
+ * @returns A string that satisfies `production` for the ASCII range, or the nearest approximation of it.
+ */
+export const sanitizeSync = (
+  str: string,
+  production: Production = 'name',
+  { replacement = '_', asciiOnly = false }: SanitizeOptions = {}
+): string => {
+  if (!str) return replacement;
+
+  let result = str;
+
+  // Strip colons for NCName
+  if (production === 'ncName') {
+    result = result.replace(/:/g, '');
+  }
+
+  // Replace illegal characters
+  const allowedCharPattern = asciiOnly ? /[^\w\-.:]/g : /[^\w\-.:\u00B7\u00C0-\uFFFD]/g;
+  result = result.replace(allowedCharPattern, replacement);
+
+  // Fix invalid start character for Name / NCName / QName
+  if (production !== 'nmToken' && production !== 'nmTokens') {
+    if (/^[-.\d]/.test(result)) {
+      result = replacement + result;
+    }
+  }
+
+  return result || replacement;
+};
+
+/**
+ * @description Transforms an invalid string into the nearest valid XML name for the given production: strips or replaces illegal characters, fixes an invalid
  * start character by prepending the replacement, and removes colons for NCName.
  *
  * @param str - The candidate name.
@@ -647,31 +746,5 @@ export const validateAll = (
  * @returns An effect producing a string that satisfies `production` for the ASCII range, or the nearest approximation of it. Infallible, so the error
  *   channel is empty; it exists so every entry point in the package has one shape.
  */
-export const sanitize = (
-  str: string,
-  production: Production = 'name',
-  { replacement = '_', asciiOnly = false }: SanitizeOptions = {}
-): Effect.Effect<string, XmlError> =>
-  Effect.sync(() => {
-    if (!str) return replacement;
-
-    let result = str;
-
-    // Strip colons for NCName
-    if (production === 'ncName') {
-      result = result.replace(/:/g, '');
-    }
-
-    // Replace illegal characters
-    const allowedCharPattern = asciiOnly ? /[^\w\-.:]/g : /[^\w\-.:\u00B7\u00C0-\uFFFD]/g;
-    result = result.replace(allowedCharPattern, replacement);
-
-    // Fix invalid start character for Name / NCName / QName
-    if (production !== 'nmToken' && production !== 'nmTokens') {
-      if (/^[-.\d]/.test(result)) {
-        result = replacement + result;
-      }
-    }
-
-    return result || replacement;
-  });
+export const sanitize = (str: string, production: Production = 'name', opts: SanitizeOptions = {}): Effect.Effect<string, XmlError> =>
+  Effect.sync(() => sanitizeSync(str, production, opts));

@@ -124,13 +124,13 @@ two parsers. Run both with `vp test bench packages/effect-xml-codec`.
 
 | Benchmark                   | Throughput |
 | --------------------------- | ---------- |
-| a 300-byte document, encode | ~160k/sec  |
-| a 300-byte document, decode | ~160k/sec  |
-| a 500-row document, encode  | ~1,500/sec |
-| a 500-row document, decode  | ~1,500/sec |
-| 20,000 characters of text   | ~500k/sec  |
+| a 300-byte document, encode | ~120k/sec  |
+| a 300-byte document, decode | ~130k/sec  |
+| a 500-row document, encode  | ~1,200/sec |
+| a 500-row document, decode  | ~1,400/sec |
+| 20,000 characters of text   | ~437k/sec  |
 
-Two findings shaped the code, and both are measured rather than assumed:
+Three findings shaped the code, and all are measured rather than assumed:
 
 - **Escaping was the whole cost of a large document.**
   `EntityEncoder` escapes by applying five sequential global replacements,
@@ -141,13 +141,25 @@ Two findings shaped the code, and both are measured rather than assumed:
   for clean text and 28x faster for text with a character in it.
   `test/render.spec.ts` compares the two implementations across every ASCII
   character so the fast path is checked against the library rather than trusted.
+- **Resolving a name is a regex test, not an `Effect`.** The naming package's
+  five validators were made to return `Effect`s at some point, which left the
+  renderer and the parser calling `Effect.runSync(resolveName(...))` once per
+  distinct element and attribute name in every document. Running a runtime to
+  read a boolean cost roughly 1µs per name, and a small document has about a
+  dozen names, so name resolution was most of what a serialize and a parse did.
+  `@endevops/common-xml` now exposes the synchronous predicates (`isQName` and
+  the rest, plus `sanitizeSync`) alongside the `Effect` wrappers, and
+  `resolveNameSync` is what the renderer's namer and the parser's name cache
+  call. That is 2.6x on a small document's encode and 2.9x on its decode; the
+  500-row document improves about 5% because it asks the same handful of names,
+  and the per-row work is what dominates there.
 - **A small document is dominated by something this package does not own.** Of
-  the ~6µs it takes to serialize one, the great majority is Effect's
-  `toCodecStringTree` and `toCodecArrayFromSingle` derivation, which are
-  memoized per schema but still walk the schema on every call. The renderer and
-  parser underneath it run at roughly 1.5µs and 1.7µs. A caller serializing the
-  same shape on every request should build the codec once and reuse it, which is
-  what the API is shaped for.
+  the ~9µs it takes to serialize one, roughly 2.5µs is Effect's
+  `toCodecStringTree` and `toCodecArrayFromSingle` derivation, which walks the
+  schema on every call, and the rest is this package's renderer. The renderer
+  and parser underneath run at roughly 2.5µs and 2.5µs on a flat document. A
+  caller serializing the same shape on every request should build the codec
+  once and reuse it, which is what the API is shaped for.
 
 The other things the benchmarks changed: one pass over a record's keys instead of
 one per role a key can play, name resolution memoized per document rather than
