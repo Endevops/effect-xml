@@ -2,8 +2,8 @@ import type { BufferSourceOptions } from '#/input-source/buffer-source-options.t
 
 import type { InputSourceLike } from './input-source.ts';
 
-import { UnexpectedEnd } from '../parse-error.js';
-import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.js';
+import { QUOTE_PAIRS_CAPACITY } from '../util.js';
+import { canRead, matchAhead, readCh, readChAt, readStr, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.js';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.js';
 
 /**
@@ -142,18 +142,13 @@ export default class StringSource implements InputSourceLike {
 
   // ─── Core read interface ──────────────────────────────────────────────────
 
-  readCh() {
-    return this.buffer[this.startIndex++];
-  }
+  // Shared with FeedableSource and CharScanStrategy, which are the same three
+  // sources reading the same kind of buffer. See char-scan-reads.ts. Assigned
+  // rather than wrapped so `this` binds correctly with no call-site indirection.
 
-  readChAt(index: number) {
-    return this.buffer[this.startIndex + index];
-  }
-
-  readStr(n: number, from?: number) {
-    if (typeof from === 'undefined') from = this.startIndex;
-    return this.buffer.substring(from, from + n);
-  }
+  readCh = readCh;
+  readChAt = readChAt;
+  readStr = readStr;
 
   /**
    * @description Check whether the upcoming characters equal `expected`, without consuming or allocating anything — no substring is built even for a full match.
@@ -168,102 +163,16 @@ export default class StringSource implements InputSourceLike {
    * @returns `true` on full match, `false` on a definite mismatch, `null` if the buffer runs out before enough characters are available to decide
    *   either way (treat like any other not-enough-data-yet case — same handling as `scanTagExpEnd`'s `-1`)
    */
-  matchAhead(expected: string, caseInsensitive: boolean = false): boolean | null {
-    const len = expected.length;
-    for (let i = 0; i < len; i++) {
-      let ch = this.buffer[this.startIndex + i];
-      if (ch === undefined) return null;
-      if (caseInsensitive) ch = ch.toLowerCase();
-      if (ch !== expected[i]) return false;
-    }
-    return true;
-  }
+  matchAhead = matchAhead;
 
   // Two variants — caller picks once based on skip.attributes, no flag
   // evaluated inside the loop. See src/input-source/scan-tag-exp-end.js.
   scanTagExpEnd = scanTagExpEnd;
   scanTagExpEndFast = scanTagExpEndFast;
 
-  readUpto(stopStr: string) {
-    const inputLength = this.buffer.length;
-    const stopLength = stopStr.length;
-
-    for (let i = this.startIndex; i < inputLength; i++) {
-      let match = true;
-      for (let j = 0; j < stopLength; j++) {
-        if (this.buffer[i + j] !== stopStr[j]) {
-          match = false;
-          break;
-        }
-      }
-      if (match) {
-        const result = this.buffer.substring(this.startIndex, i);
-        this.startIndex = i + stopLength;
-        return result;
-      }
-    }
-
-    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
-  }
-
-  /**
-   * @description Single-character variant of readUpto — faster because there is no inner match loop. Reads until `stopChar` is found, consumes it, and returns the
-   * text before it.
-   *
-   * @param stopChar Exactly one character.
-   */
-  readUptoChar(stopChar: string): string {
-    const i = this.buffer.indexOf(stopChar, this.startIndex);
-    if (i === -1) {
-      throw new UnexpectedEnd({ reading: `'${stopChar}'`, message: `Unexpected end of source reading '${stopChar}'` });
-    }
-    const result = this.buffer.substring(this.startIndex, i);
-    this.startIndex = i + 1;
-    return result;
-  }
-
-  readUptoCloseTag(stopStr: string): string {
-    // stopStr: "</tagname"
-    const inputLength = this.buffer.length;
-    const stopLength = stopStr.length;
-    let tagMatchStart = -1;
-    // 0: scanning, 1: tag-name matched (scanning for '>'), 2: full match
-    let state = 0;
-
-    for (let i = this.startIndex; i < inputLength; i++) {
-      if (state === 1) {
-        const c = this.buffer[i];
-        if (isSpace(c)) continue;
-        if (c === '>') {
-          state = 2;
-        } else {
-          state = 0;
-          tagMatchStart = -1;
-        } // false match e.g. </scriptX>
-      } else {
-        // Try to match stopStr at position i
-        let matched = true;
-        for (let j = 0; j < stopLength; j++) {
-          if (this.buffer[i + j] !== stopStr[j]) {
-            matched = false;
-            break;
-          }
-        }
-        if (matched) {
-          state = 1;
-          tagMatchStart = i;
-          i += stopLength - 1; // skip past matched string
-        }
-      }
-      if (state === 2) {
-        const result = this.buffer.substring(this.startIndex, tagMatchStart);
-        this.startIndex = i + 1;
-        return result;
-      }
-    }
-
-    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
-  }
+  readUpto = readUpto;
+  readUptoChar = readUptoChar;
+  readUptoCloseTag = readUptoCloseTag;
 
   /**
    * @description Advance the read cursor by n characters. Triggers an automatic flush of already-processed data when autoFlush is enabled, the processed portion
@@ -286,7 +195,5 @@ export default class StringSource implements InputSourceLike {
    * @description Returns true when there is at least one character available at or after the given offset (relative to startIndex). Mirrors FeedableSource's
    * formula so all three sources answer the same question the same way.
    */
-  canRead(n: number = 0) {
-    return this.startIndex + n < this.buffer.length;
-  }
+  canRead = canRead;
 }

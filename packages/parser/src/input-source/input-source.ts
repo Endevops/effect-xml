@@ -172,3 +172,13 @@ export interface CharScanContext {
   updateBufferBoundary(n?: number): void;
   flush(): void;
 }
+
+/**
+ * @description The `this` context the shared character-level reads in `char-scan-reads.ts` need: the live buffer, the cursor, and the one cursor-advancing
+ * primitive. Strictly narrower than {@link CharScanContext}, which additionally requires `_tokenStart` — a single-mark field that only
+ * `CharScanStrategy` has, since `StringSource` and `FeedableSource` track two marks in `_marks` instead. A read shared by all three cannot name a
+ * field two of them lack.
+ *
+ * @see {@link CharScanContext}
+ */
+export type CharScanReadContext = Pick<CharScanContext, 'buffer' | 'startIndex' | 'updateBufferBoundary'>;

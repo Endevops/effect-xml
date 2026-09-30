@@ -4,8 +4,9 @@ import type { InputSourceLike } from './input-source.ts';
 
 import { sniff } from '../encoding/encoding-detector.ts';
 import { createTextDecoderAdapter } from '../encoding/text-decoder-adapter.ts';
-import { DataMustBeString, InvalidInput, UnexpectedEnd } from '../parse-error.ts';
-import { isSpace, QUOTE_PAIRS_CAPACITY } from '../util.ts';
+import { DataMustBeString, InvalidInput } from '../parse-error.ts';
+import { QUOTE_PAIRS_CAPACITY } from '../util.ts';
+import { canRead, matchAhead, readCh, readChAt, readStr, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.ts';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 
 // Matches EncodingDetector's own declaration-peek window — bounds how much
@@ -38,6 +39,34 @@ function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
   out.set(a, 0);
   out.set(b, a.length);
   return out;
+}
+
+/**
+ * @description Decide how this source will obtain its stateful decoder, which depends on which of the three encoding modes the caller selected:
+ *
+ * - An explicit name with a registry: resolve it and build the decoder. The resolve is deferred into the returned closure because the constructor must
+ *   not fail on an unknown name — `feed()` reports it as `UNSUPPORTED_ENCODING` against real bytes, not against a source nobody ever fed.
+ * - `'auto'`: nothing to build yet. Detection needs bytes that have not arrived, so the factory is `null` and `#resolveDetection()` supplies one once
+ *   the sniff buffer holds enough.
+ * - Neither supplied (direct construction, bypassing `XMLParser`): the caller's own `createDecoder`, else `null`, which `feed()` reads as plain utf8.
+ *
+ * @param options - The options the source was constructed with.
+ * @param decodingOptions - `options.decoding`, normalized to `null` when absent.
+ * @param detecting - Whether the `'auto'` mode is in effect, already computed by the caller.
+ *
+ * @returns A deferred decoder factory, or `null` when detection must resolve the encoding first or the caller supplied no factory.
+ */
+function decoderFactoryFor(
+  options: FeedableSourceOptions,
+  decodingOptions: FeedableSourceOptions['decoding'] | null,
+  detecting: boolean
+): (() => EncodingDecoder) | null {
+  const requested = decodingOptions?.encoding;
+  if (!detecting && requested && decodingOptions?.registry) {
+    const registry = decodingOptions.registry;
+    return () => registry.resolve(requested).createDecoder();
+  }
+  return typeof options.createDecoder === 'function' ? options.createDecoder : null;
 }
 
 /**
@@ -198,15 +227,9 @@ export default class FeedableSource implements InputSourceLike {
     //     before this feature existed.
     this.#decodingOptions = options.decoding || null;
     const decodingOptions = this.#decodingOptions;
-    const requestedEncoding = decodingOptions?.encoding;
-    this.#detecting = requestedEncoding === 'auto';
+    this.#detecting = decodingOptions?.encoding === 'auto';
     this._sniffBuffer = this.#detecting ? new Uint8Array(0) : null;
-    if (!this.#detecting && requestedEncoding && decodingOptions?.registry) {
-      const registry = decodingOptions.registry;
-      this._createDecoder = () => registry.resolve(requestedEncoding).createDecoder();
-    } else {
-      this._createDecoder = typeof options.createDecoder === 'function' ? options.createDecoder : null;
-    }
+    this._createDecoder = decoderFactoryFor(options, decodingOptions, this.#detecting);
 
     /**
      * @description Two-level mark stack. _marks[0] — outer mark: set by parseXml()'s loop before consuming '<'. rewindToMark() always restores startIndex here.
@@ -346,9 +369,7 @@ export default class FeedableSource implements InputSourceLike {
   /**
    * @description Returns true when there is at least one character available at or after the given offset (relative to startIndex).
    */
-  canRead(n: number = 0) {
-    return this.startIndex + n < this.buffer.length;
-  }
+  canRead = canRead;
 
   // ─── Two-level mark API ───────────────────────────────────────────────────
 
@@ -391,9 +412,11 @@ export default class FeedableSource implements InputSourceLike {
    *
    * @returns The character, or `undefined` at end of input.
    */
-  readCh() {
-    return this.buffer[this.startIndex++];
-  }
+  // Shared with StringSource and CharScanStrategy, which are the same three
+  // sources reading the same kind of buffer. See char-scan-reads.ts. Assigned
+  // rather than wrapped so `this` binds correctly with no call-site indirection.
+
+  readCh = readCh;
 
   /**
    * @description Read character at offset without advancing.
@@ -402,9 +425,7 @@ export default class FeedableSource implements InputSourceLike {
    *
    * @returns The character, or `undefined` past the end.
    */
-  readChAt(index: number) {
-    return this.buffer[this.startIndex + index];
-  }
+  readChAt = readChAt;
 
   /**
    * @description Read n characters as string.
@@ -412,26 +433,14 @@ export default class FeedableSource implements InputSourceLike {
    * @param n - Number of characters to read.
    * @param from - Start position. Defaults to the current position.
    */
-  readStr(n: number, from?: number) {
-    if (typeof from === 'undefined') from = this.startIndex;
-    return this.buffer.substring(from, from + n);
-  }
+  readStr = readStr;
 
   /**
    * @description See `StringSource`'s copy of this method for the full doc — identical contract here. `null` (not enough buffered data yet) is the routine case
    * for this source in particular, since a chunk boundary can land mid-check; callers already have to handle that the same way they handle
    * `scanTagExpEnd`'s `-1`.
    */
-  matchAhead(expected: string, caseInsensitive: boolean = false) {
-    const len = expected.length;
-    for (let i = 0; i < len; i++) {
-      let ch = this.buffer[this.startIndex + i];
-      if (ch === undefined) return null;
-      if (caseInsensitive) ch = ch.toLowerCase();
-      if (ch !== expected[i]) return false;
-    }
-    return true;
-  }
+  matchAhead = matchAhead;
 
   // Two variants — caller picks once based on skip.attributes, no flag
   // evaluated inside the loop. Bracket access (not charCodeAt) is load-bearing
@@ -451,27 +460,7 @@ export default class FeedableSource implements InputSourceLike {
    *
    * @throws {ParseError} UNEXPECTED_END when stop string is not found
    */
-  readUpto(stopStr: string) {
-    const inputLength = this.buffer.length;
-    const stopLength = stopStr.length;
-
-    for (let i = this.startIndex; i < inputLength; i++) {
-      let match = true;
-      for (let j = 0; j < stopLength; j++) {
-        if (this.buffer[i + j] !== stopStr[j]) {
-          match = false;
-          break;
-        }
-      }
-      if (match) {
-        const result = this.buffer.substring(this.startIndex, i);
-        this.startIndex = i + stopLength;
-        return result;
-      }
-    }
-
-    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
-  }
+  readUpto = readUpto;
 
   /**
    * @description Single-character variant of readUpto — faster because there is no inner match loop. Reads until `stopChar` is found, consumes it, and returns the
@@ -479,15 +468,7 @@ export default class FeedableSource implements InputSourceLike {
    *
    * @param stopChar Exactly one character.
    */
-  readUptoChar(stopChar: string) {
-    const i = this.buffer.indexOf(stopChar, this.startIndex);
-    if (i === -1) {
-      throw new UnexpectedEnd({ reading: `'${stopChar}'`, message: `Unexpected end of source reading '${stopChar}'` });
-    }
-    const result = this.buffer.substring(this.startIndex, i);
-    this.startIndex = i + 1;
-    return result;
-  }
+  readUptoChar = readUptoChar;
 
   /**
    * @description Read until a closing tag is found (used for stop nodes).
@@ -498,46 +479,7 @@ export default class FeedableSource implements InputSourceLike {
    *
    * @throws {ParseError} UNEXPECTED_END when the closing tag is not found
    */
-  readUptoCloseTag(stopStr: string) {
-    const inputLength = this.buffer.length;
-    const stopLength = stopStr.length;
-    let tagMatchStart = -1;
-    let state = 0; // 0=scanning, 1=tag-name matched (scanning for '>'), 2=full match
-
-    for (let i = this.startIndex; i < inputLength; i++) {
-      if (state === 1) {
-        const c = this.buffer[i];
-        if (isSpace(c)) continue;
-        if (c === '>') {
-          state = 2;
-        } else {
-          state = 0;
-          tagMatchStart = -1;
-        } // false match e.g. </scriptX>
-      } else {
-        // Try to match stopStr at position i
-        let matched = true;
-        for (let j = 0; j < stopLength; j++) {
-          if (this.buffer[i + j] !== stopStr[j]) {
-            matched = false;
-            break;
-          }
-        }
-        if (matched) {
-          state = 1;
-          tagMatchStart = i;
-          i += stopLength - 1; // skip past matched string
-        }
-      }
-      if (state === 2) {
-        const result = this.buffer.substring(this.startIndex, tagMatchStart);
-        this.startIndex = i + 1;
-        return result;
-      }
-    }
-
-    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
-  }
+  readUptoCloseTag = readUptoCloseTag;
 
   /**
    * @description Advance the read cursor by n characters. Triggers an automatic flush of already-processed data when autoFlush is enabled, the processed portion
