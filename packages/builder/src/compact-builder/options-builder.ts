@@ -151,20 +151,35 @@ function copyProperties<T extends object>(defaults: T, source: Record<string, un
 
   for (const key of Object.keys(source)) {
     if (FORBIDDEN_KEYS.has(key)) continue;
-
     const value = source[key];
-    if (typeof value === 'function' || Array.isArray(value)) {
-      target[key] = value;
-    } else if (value !== null && typeof value === 'object') {
-      const existing = target[key];
-      target[key] = copyProperties(
-        existing !== null && typeof existing === 'object' && !Array.isArray(existing) ? (existing as Record<string, unknown>) : {},
-        value as Record<string, unknown>
-      );
-    } else {
-      target[key] = value;
-    }
+    // Anything that is not a plain object is assigned as it stands, which covers
+    // primitives, null, undefined, arrays and functions alike.
+    target[key] = isPlainObject(value) ? copyProperties(asMergeBase(target[key]), value) : value;
   }
 
   return target as T;
+}
+
+/**
+ * @description Whether a value is a plain object, and so the one case {@link copyProperties} merges rather than assigns. `typeof null === 'object'` and `typeof []
+ * === 'object'` both hold, which is why neither is taken at face value here.
+ *
+ * @param value - The value to test.
+ *
+ * @returns Whether it merges.
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * @description The baseline for a nested merge. An existing plain object at that key continues it; anything else — a missing key, a primitive, an array, a
+ * function — starts from an empty object, because there is nothing there to merge into.
+ *
+ * @param value - The value already at that key in the target.
+ *
+ * @returns The object to merge into.
+ */
+function asMergeBase(value: unknown): Record<string, unknown> {
+  return isPlainObject(value) ? value : {};
 }

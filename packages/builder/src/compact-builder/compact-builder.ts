@@ -267,26 +267,9 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     // behaviour and it is the right one: `alwaysArray` and `forceArray` are both
     // path-based, so a builder with no path cannot honour either, and failing
     // loudly beats quietly not forcing an array the caller asked for.
+    const alwaysVote = this._alwaysArrayVote();
+    const forceVote = this._forceArrayVote(isLeafNode);
 
-    // --- alwaysArray vote ---
-    // undefined = abstain. Note that a non-match abstains rather than vetoing:
-    // "not in the alwaysArray list" says nothing about whether this tag should be
-    // an array, so the decision is left to the other voter.
-    const matched = runXml(this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView));
-    const alwaysVote = matched ? true : undefined;
-
-    // --- forceArray vote ---
-    // undefined = abstain
-    let forceVote: boolean | undefined;
-    const forceArray = this.builderOptions.forceArray;
-    if (typeof forceArray === 'function') {
-      const result = forceArray(this.matcher as MatcherView, isLeafNode);
-      if (result === true) forceVote = true;
-      else if (result === false) forceVote = false;
-      // anything else (undefined, null, …) → abstain
-    }
-
-    // --- resolution ---
     // An explicit false is a veto and wins; otherwise one true is enough; all
     // abstaining falls back to the default shape, which is not an array.
     if (forceVote === false) return false;
@@ -295,10 +278,39 @@ export class CompactBuilder extends BaseOutputBuilderClass {
   }
 
   /**
-   * @description Close a tag: run its text through the value chain, wrap it, and write it into the parent. The interesting decision is what shape a tag takes. A
-   * tag is a leaf when it has no child elements — attributes alone do not make it non-leaf, since a tag with only attributes is still a single value.
-   * A leaf becomes its parsed text, unless it has attributes, in which case the attributes are the object and the text joins them under
-   * `nameFor.text`. A non-leaf becomes an object of its children, plus a text key when it also had text of its own.
+   * @description The `alwaysArray` half of the vote: `true` on a path match, abstaining otherwise. A non-match is not a veto — "not in the `alwaysArray` list"
+   * says nothing about whether this tag should be an array, so the decision is left to the other voter.
+   *
+   * @returns The vote, or `undefined` to abstain.
+   */
+  private _alwaysArrayVote(): boolean | undefined {
+    return runXml(this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView)) ? true : undefined;
+  }
+
+  /**
+   * @description The `forceArray` half of the vote. Only an explicit `true` or `false` counts; anything else — `undefined`, `null`, a truthy string — is silence.
+   * That is what lets a callback return a conditional expression without guarding every branch.
+   *
+   * @param isLeafNode - Whether the tag turned out to have no child elements.
+   *
+   * @returns The vote, or `undefined` to abstain.
+   */
+  private _forceArrayVote(isLeafNode: boolean): boolean | undefined {
+    const forceArray = this.builderOptions.forceArray;
+    if (typeof forceArray !== 'function') return undefined;
+    const result = forceArray(this.matcher as MatcherView, isLeafNode);
+    return typeof result === 'boolean' ? result : undefined;
+  }
+
+  /**
+   * @description Close a tag: work out the shape its accumulated state takes, then write it into the parent. The shape decision itself belongs to
+   * {@link CompactBuilder._closedLeafValue} and {@link CompactBuilder._closedContainerValue} — what decides a tag's shape is whether it is a leaf and
+   * whether it had attributes, and none of that is about the close.
+   *
+   * @param matcher - Not read; the builder tracks position through its own stack.
+   * @param closeMeta - Not read; closing metadata is the parser's business.
+   *
+   * @returns An effect producing `void`.
    */
   override closeElement = Effect.fnUntraced(function* (
     this: CompactBuilder,
@@ -310,58 +322,27 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     void matcher;
     void closeMeta;
     const tagName = this.tagName;
-    let value = this.value; // contains attributes if not skipped
+    const value = this.value; // contains attributes if not skipped
     const textValue = this.textValue;
     const hasAttributes = this.hasAttributes;
-
-    // A tag is a leaf node if it has no child elements.
-    // It can have attributes and still be a leaf node.
-    // hasAttributes is tracked explicitly by _buildAttributeValue() so we never
-    // need to reverse-engineer this from key names, prefixes, or groupBy keys.
-    const isLeafNode = typeof value !== 'object' || Array.isArray(value) || isEmpty(value) || hasAttributes;
+    const isLeafNode = isLeafValue(value, hasAttributes);
 
     const context = new Context(tagName, this.matcher, isLeafNode, false);
 
-    if (isLeafNode) {
-      // A stop node's content is raw text the parser already declined to decode,
-      // so running the value chain over it would decode it twice.
-      const parsedText = this._pendingStopNode ? textValue : yield* this.tagsPipeline.run(textValue, context);
-
-      if (hasAttributes) {
-        // Attributes are present — value is already an object.
-        // Only write the text node when there is actual text content; an empty
-        // parsedText alongside attributes would produce a spurious #text:"" key.
-        // forceTextNode overrides this and writes the node even when empty.
-        if (parsedText !== '' && parsedText !== null && parsedText !== undefined) {
-          (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
-        } else if (this.builderOptions.forceTextNode) {
-          (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
-        }
-      } else if (this.builderOptions.forceTextNode) {
-        // No attributes — wrap in an object so the shape is always consistent
-        value = { [this.parserOptions.nameFor.text]: parsedText };
-      } else {
-        // No attributes, no forceTextNode — use the plain parsed value
-        value = parsedText as CompactValue;
-      }
-    } else if (textValue.length > 0 || this.builderOptions.forceTextNode) {
-      // Non-leaf node with actual text content sitting between child elements
-      // mixed content: element has both child tags and text
-      const parsedText = this._pendingStopNode ? textValue : yield* this.tagsPipeline.run(textValue, context);
-      (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
-    }
+    const closed = yield* isLeafNode
+      ? this._closedLeafValue(value, textValue, hasAttributes, context)
+      : this._closedContainerValue(value, textValue, context);
 
     // Unchecked on purpose: a close with no matching open is a parser bug, and
     // upstream threw here. The frame is written by addElement and read here, so
     // a missing one means the two are out of step — which a caller needs to know
     // about rather than have papered over with a default.
     const frame = this.tagsStack.pop() as TagFrame;
-    let parentTag = frame.parentValue;
 
     // Check if this tag should be forced into an array
     const shouldForceArray = this._resolveForceArray(isLeafNode);
 
-    parentTag = this._addChildTo(tagName, value, parentTag, shouldForceArray);
+    const parentTag = this._addChildTo(tagName, closed, frame.parentValue, shouldForceArray);
 
     this.tagName = frame.tagName;
     this.textValue = frame.textValue;
@@ -369,6 +350,71 @@ export class CompactBuilder extends BaseOutputBuilderClass {
     this.hasAttributes = frame.hasAttributes; // restore parent tag's flag
     this._pendingStopNode = false;
   });
+
+  /**
+   * @description A leaf's closing value: the attributes as they stand, with the parsed text joined under `nameFor.text`. With no attributes there is nothing to
+   * join to, so the text is the value — bare, or wrapped under the text key when `forceTextNode` asks for a uniform shape.
+   *
+   * @param value - The value accumulated so far, which holds the attributes when there were any.
+   * @param textValue - The tag's accumulated text.
+   * @param hasAttributes - Whether the tag had attributes.
+   * @param context - The context to hand the value chain.
+   *
+   * @returns An effect producing the value to write into the parent.
+   */
+  private _closedLeafValue(
+    value: CompactValue,
+    textValue: string,
+    hasAttributes: boolean,
+    context: Context
+  ): Effect.Effect<CompactValue, BuilderError> {
+    return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
+      if (hasAttributes) {
+        // Attributes are present — value is already an object. Only write the
+        // text node when there is actual text content; an empty parsedText
+        // alongside attributes would produce a spurious #text:"" key.
+        // forceTextNode overrides that and writes the node even when empty.
+        if (hasTextContent(parsedText) || this.builderOptions.forceTextNode) {
+          (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
+        }
+        return value;
+      }
+      // No attributes — wrap in an object so the shape is always consistent,
+      // or use the plain parsed value when nothing asks for the wrap.
+      return this.builderOptions.forceTextNode ? { [this.parserOptions.nameFor.text]: parsedText } : (parsedText as CompactValue);
+    });
+  }
+
+  /**
+   * @description A non-leaf's closing value: its children, unchanged, plus a text key when it also had text of its own — mixed content, an element with both child
+   * tags and text. A non-leaf with no text of its own gets no text key at all, since an empty one would be indistinguishable from a leaf's.
+   *
+   * @param value - The value accumulated so far, holding the children.
+   * @param textValue - The tag's accumulated text.
+   * @param context - The context to hand the value chain.
+   *
+   * @returns An effect producing the value to write into the parent.
+   */
+  private _closedContainerValue(value: CompactValue, textValue: string, context: Context): Effect.Effect<CompactValue, BuilderError> {
+    if (textValue.length === 0 && !this.builderOptions.forceTextNode) return Effect.succeed(value);
+    return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
+      (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
+      return value;
+    });
+  }
+
+  /**
+   * @description Run a closing tag's text through the element value chain. A stop node's content is raw text the parser already declined to decode, so running the
+   * chain over it would decode it twice — hence the bypass.
+   *
+   * @param text - The tag's accumulated text.
+   * @param context - The context to hand the chain.
+   *
+   * @returns An effect producing the parsed text.
+   */
+  private _parseText(text: string, context: Context): Effect.Effect<unknown, BuilderError> {
+    return this._pendingStopNode ? Effect.succeed(text) : this.tagsPipeline.run(text, context);
+  }
 
   /**
    * @description Append a named child to the current value, promoting a bare string to an object first.
@@ -449,6 +495,33 @@ export class CompactBuilder extends BaseOutputBuilderClass {
  */
 function isEmpty(obj: object): boolean {
   return Object.keys(obj).length === 0;
+}
+
+/**
+ * @description Whether a closing tag's accumulated value is a single value rather than a set of children. A string, an array, or an object with nothing in it has
+ * no children by construction, and a tag carrying attributes is a single value even when it also has children — the attributes are the object and the
+ * text joins them. `hasAttributes` is tracked explicitly by {@link CompactBuilder._buildAttributeValue} so none of this has to be reverse-engineered
+ * from key names, prefixes, or a `groupBy` key.
+ *
+ * @param value - The value accumulated so far.
+ * @param hasAttributes - Whether the tag had attributes.
+ *
+ * @returns Whether the tag is a leaf.
+ */
+function isLeafValue(value: CompactValue, hasAttributes: boolean): boolean {
+  return typeof value !== 'object' || Array.isArray(value) || isEmpty(value) || hasAttributes;
+}
+
+/**
+ * @description Whether a parsed text value is worth writing under the text key. Empty and absent are the same thing here: a `#text: ''` would be indistinguishable
+ * from a tag that had no text at all.
+ *
+ * @param value - The parsed text.
+ *
+ * @returns Whether there is text to write.
+ */
+function hasTextContent(value: unknown): boolean {
+  return value !== '' && value !== null && value !== undefined;
 }
 
 export default CompactBuilderFactory;
