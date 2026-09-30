@@ -39,6 +39,33 @@ IS_XML_UNSAFE[39] = 1;
 const NEEDS_PROCESSING = /[&<>"'\u0080-\uFFFF]/;
 
 /**
+ * @description The state one pass of the walk hands to the next. Both passes keep their own copy in locals and build this once on the way out, so the
+ * per-character loop never reads or writes an instance field — an earlier shape threaded the walk through a mutable object on the instance and
+ * measured roughly 7% slower on the ASCII path, where every character touches it.
+ */
+interface ScanState {
+  /**
+   * @description Everything emitted so far: the literal runs already copied plus the replacements already appended.
+   */
+  result: string;
+
+  /**
+   * @description Index of the first character not yet copied into `result`, where the next literal run starts.
+   */
+  last: number;
+
+  /**
+   * @description Index the pass stopped at, which is where the next pass picks up. A pass that ran out of budget leaves this where it was.
+   */
+  i: number;
+
+  /**
+   * @description Whether the replacement budget ran out inside this pass. The next pass stops immediately when it did.
+   */
+  limitReached: boolean;
+}
+
+/**
  * @description Options for {@link EntityEncoder}. Every field is optional and every field's default is the permissive one, so `new EntityEncoder()` encodes
  * XML-unsafe ASCII _and_ non-ASCII named entities.
  */
@@ -113,6 +140,21 @@ export class EntityEncoder {
   replacementsCount: number;
 
   /**
+   * @description The entity text {@link EntityEncoder.#matchEntity} last found, or `null` when nothing starts at the position it probed. This is a scratch slot
+   * rather than a return value because the main pass probes once per non-ASCII character: returning a `{ entity, advance }` pair allocated one
+   * two-field object per probe, on a path where the probe itself is the work. Null rather than `''` because `null` cannot collide with a real entity
+   * the way an empty string could. Read by the walk step that called the probe, before the next probe can run — `#matchEntity` is synchronous and
+   * nothing inside `encode` calls back out, so there is no re-entrant reader to interleave with.
+   */
+  #matchText: string | null = null;
+
+  /**
+   * @description How many UTF-16 code units {@link EntityEncoder.#matchText} replaces. Written by the same {@link EntityEncoder.#record} that writes the text, so
+   * the two cannot disagree. Left holding the failing width when {@link EntityEncoder.#matchText} is `null`, where nothing reads it.
+   */
+  #matchWidth = 1;
+
+  /**
    * @description Create an encoder. The option handling happens once here so `encode` reads plain booleans rather than re-deriving them per character.
    *
    * @param options - Configuration. See {@link EntityEncoderOptions}.
@@ -148,43 +190,62 @@ export class EntityEncoder {
   encode(str: string): Effect.Effect<string> {
     if (typeof str !== 'string' || str.length === 0) return Effect.succeed(str);
     if (!NEEDS_PROCESSING.test(str)) return Effect.succeed(str);
+    if (this.maxReplacements > 0 && this.replacementsCount >= this.maxReplacements) return Effect.succeed(str);
 
-    const maxRep = this.maxReplacements;
-    if (maxRep > 0 && this.replacementsCount >= maxRep) return Effect.succeed(str);
-
-    // Hoist to locals — avoids `this` property lookup inside the hot loop, and
-    // the walk's own state stays in locals for the same reason. `#matchEntity`
-    // is a call per candidate, not per character, so the loop body stays inline.
-    const encodeXmlSafe = this.encodeXmlSafe;
+    // Two passes of one walk. The main one stops at `len - 2` so a three-character
+    // probe there is still readable without a bounds check; the tail covers what
+    // is left, where no such match is possible.
     const len = str.length;
+    const main = this.#encodeMain(str, len - 2);
+    const tail = this.#encodeTail(str, main.i, main.last, main.result, main.limitReached);
+
+    // Flush any remaining literal suffix. This is also what copies the rest of
+    // the input through when the budget ran out mid-string.
+    let { result, last } = tail;
+    if (last < len) result += str.substring(last);
+
+    return Effect.succeed(result);
+  }
+
+  /**
+   * @description The main pass of the walk: from the start of the string up to `mainEnd`, which the caller sets two characters short of the end so a
+   * three-character probe there needs no bounds check. Everything it accumulates stays in locals — see {@link ScanState} — and the option is hoisted
+   * out of `this` for the same reason, since every character of an ASCII run would otherwise re-read a property. Two branches are the whole of the
+   * per-character work: the fixed-table escape for the five XML-unsafe ASCII codes, and {@link EntityEncoder.#matchEntity} for everything non-ASCII.
+   * Safe ASCII does no work at all, so a run of it is handed to {@link EntityEncoder.#skipRun} in one call rather than paying this loop's own
+   * bookkeeping once per character. Split out of `encode` because this and {@link EntityEncoder.#encodeTail} are the same walk with one rule changed,
+   * and `encode` reads better as three guards and two calls than as a preamble and two loops.
+   *
+   * @param str - The string being scanned.
+   * @param mainEnd - The last index a three-character probe may start at, i.e. `str.length - 2`.
+   *
+   * @returns The walk state at the point this pass hands over to {@link EntityEncoder.#encodeTail}.
+   */
+  #encodeMain(str: string, mainEnd: number): ScanState {
+    const encodeXmlSafe = this.encodeXmlSafe;
 
     let result = '';
     let last = 0;
     let i = 0;
     let limitReached = false;
 
-    // Main loop, running to len-2 so a three-character probe never needs a
-    // bounds check. The last two characters are the tail block's problem.
-    const mainEnd = len - 2;
-
     while (i <= mainEnd && !limitReached) {
       const c0 = str.charCodeAt(i);
 
-      // ASCII branch
       if (c0 < 128) {
         if (encodeXmlSafe && IS_XML_UNSAFE[c0] === 1) {
           result += str.substring(last, i) + XML_UNSAFE_REPLACEMENT[c0];
           last = ++i;
-          if (this.#spendBudget()) limitReached = true;
+          // Assigned rather than tested under `if`: the loop condition has
+          // already established `limitReached` is false, so the branch would
+          // only be a second spelling of what `#spendBudget` returns.
+          limitReached = this.#spendBudget();
         } else {
-          // Bulk-skip: advance to the next interesting position without
-          // touching the outer loop overhead on every safe character
-          i++;
-          while (i <= mainEnd && !limitReached) {
-            const c = str.charCodeAt(i);
-            if (c >= 128 || (encodeXmlSafe && IS_XML_UNSAFE[c] === 1)) break;
-            i++;
-          }
+          // Safe ASCII needs no work, so advance over the whole run in one call
+          // rather than paying this loop's own bookkeeping per character. `i` is
+          // known safe, so the run after it starts at the next index and
+          // `#skipRun` never re-tests a character already decided on.
+          i = this.#skipRun(str, i + 1, mainEnd);
         }
         continue;
       }
@@ -192,44 +253,63 @@ export class EntityEncoder {
       // Non-ASCII: integer-keyed trie lookup, longest match first. c1 and c2
       // need no bounds checks because i <= mainEnd guarantees i+1 and i+2 are
       // both inside the string.
-      const matched = this.#matchEntity(str, i, true);
-      if (matched.entity === null) {
+      this.#matchEntity(str, i, true);
+
+      const text = this.#matchText;
+      if (text === null) {
         i++;
         continue;
       }
 
-      result += str.substring(last, i) + matched.entity;
-      i += matched.advance;
+      result += str.substring(last, i) + text;
+      i += this.#matchWidth;
       last = i;
-      if (this.#spendBudget()) limitReached = true;
+      limitReached = this.#spendBudget();
     }
 
-    // Tail: the last one or two characters, where no three-character match is
-    // possible.
-    const tail = this.#encodeTail(str, i, last, result, limitReached);
-
-    // Flush any remaining literal suffix. This is also what copies the rest of
-    // the input through when the budget ran out mid-string.
-    result = tail.result;
-    last = tail.last;
-    if (last < len) result += str.substring(last);
-    return Effect.succeed(result);
+    return { result, last, i, limitReached };
   }
 
   /**
-   * @description The tail pass: from wherever the main loop stopped to the end of the string. Split out because it is the same walk with one rule changed — no
-   * three-character entity can start within two characters of the end, so the probe is skipped rather than bounds-checked. Two or three characters is
-   * the whole of it, so this runs once per `encode` rather than per character, and its locals cost nothing.
+   * @description Advance over a run of characters that need no replacement, starting from `from`. The loop lives here rather than inline in
+   * {@link EntityEncoder.#encodeMain} so the caller's own bookkeeping — the outer condition and the character-class dispatch — is not paid once per
+   * character of input that is mostly plain text, which is the common shape. The caller has already established that the character before `from`
+   * needed no replacement, which is why `from` is one past the character it decided about rather than that character itself.
    *
    * @param str - The string being scanned.
-   * @param from - Where the main loop stopped.
+   * @param from - Where the run starts; every index below it has already been dealt with.
+   * @param end - The last index this pass may reach.
+   *
+   * @returns The index of the first character at or after `from` that does need a replacement, or `end + 1` if the run reaches the end of the region.
+   */
+  #skipRun(str: string, from: number, end: number): number {
+    const encodeXmlSafe = this.encodeXmlSafe;
+
+    let i = from;
+    while (i <= end) {
+      const c = str.charCodeAt(i);
+      if (c >= 128 || (encodeXmlSafe && IS_XML_UNSAFE[c] === 1)) break;
+      i++;
+    }
+
+    return i;
+  }
+
+  /**
+   * @description The tail pass: from wherever {@link EntityEncoder.#encodeMain} stopped to the end of the string. Split out because it is the same walk with one
+   * rule changed — no three-character entity can start within two characters of the end, so the probe is skipped rather than bounds-checked. Two or
+   * three characters is the whole of it, so this runs once per `encode` rather than per character, and its locals cost nothing.
+   *
+   * @param str - The string being scanned.
+   * @param from - Where the main pass stopped.
    * @param last - Where the next literal run starts.
    * @param result - What has been emitted so far.
    * @param limitReached - Whether the budget was already spent, in which case this returns immediately.
    *
-   * @returns The extended output and the new `last`, so the caller can flush the remaining literal.
+   * @returns The extended walk state. `i` is the end of the string — this pass has nothing left to hand on to — and `limitReached` is whether it
+   *   spent the budget here.
    */
-  #encodeTail(str: string, from: number, last: number, result: string, limitReached: boolean): { result: string; last: number } {
+  #encodeTail(str: string, from: number, last: number, result: string, limitReached: boolean): ScanState {
     const encodeXmlSafe = this.encodeXmlSafe;
     const len = str.length;
 
@@ -251,67 +331,111 @@ export class EntityEncoder {
       }
 
       // Non-ASCII tail — only two- and one-character matches are possible here
-      const matched = this.#matchEntity(str, i, false);
-      if (matched.entity === null) {
+      this.#matchEntity(str, i, false);
+
+      const text = this.#matchText;
+      if (text === null) {
         i++;
         continue;
       }
 
-      result += str.substring(last, i) + matched.entity;
-      i += matched.advance;
+      result += str.substring(last, i) + text;
+      i += this.#matchWidth;
       last = i;
       done = this.#spendBudget();
     }
 
-    return { result, last };
+    return { result, last, i, limitReached: done };
   }
 
   /**
-   * @description Longest named entity starting at `index`, and how many characters it spans. Three- then two- then one-character, so `&mdash;`-style names win
-   * over a shorter prefix of themselves. `threeCharOK` is the caller's bounds guarantee rather than a re-check: the main loop has already established
-   * that `index + 2` is inside the string, and the tail has not.
+   * @description Longest named entity starting at `index`, and how many characters it spans, recorded into {@link EntityEncoder.#matchText} and
+   * {@link EntityEncoder.#matchWidth} for the caller to read — see those fields for why this is not a return value. Three- then two- then
+   * one-character, so a three-code-unit name wins over a shorter prefix of itself. `threeCharOK` is the caller's bounds guarantee rather than a
+   * re-check: the main pass has already established that `index + 2` is inside the string, and the tail has not.
    *
    * @param str - The string being scanned.
    * @param index - Where the entity would start.
    * @param threeCharOK - Whether three characters are readable from `index`.
-   *
-   * @returns The entity text and its width, or `{ entity: null }` when nothing starts here.
    */
-  #matchEntity(str: string, index: number, threeCharOK: boolean): { entity: string | null; advance: number } {
-    const c0 = str.charCodeAt(index);
+  #matchEntity(str: string, index: number, threeCharOK: boolean): void {
+    const first = str.charCodeAt(index);
 
     if (threeCharOK) {
-      const mid3 = trie3.get(c0);
-      if (mid3 !== undefined) {
-        const inner3 = mid3.get(str.charCodeAt(index + 1));
-        if (inner3 !== undefined) {
-          const candidate = inner3.get(str.charCodeAt(index + 2));
-          if (candidate !== undefined) return { entity: candidate, advance: 3 };
-        }
-      }
+      const three = this.#matchThree(str, index, first);
+      if (three !== undefined) return this.#record(three, 3);
     }
 
-    if (index + 1 < str.length) {
-      const inner2 = trie2.get(c0);
-      if (inner2 !== undefined) {
-        const candidate = inner2.get(str.charCodeAt(index + 1));
-        if (candidate !== undefined) return { entity: candidate, advance: 2 };
-      }
-    }
+    const two = this.#matchTwo(str, index, first);
+    if (two !== undefined) return this.#record(two, 2);
 
-    if (this.encodeAllNamed) {
-      const candidate = trie1.get(c0);
-      if (candidate !== undefined) return { entity: candidate, advance: 1 };
-    }
+    const one = this.#matchOne(first);
+    if (one !== undefined) return this.#record(one, 1);
 
-    return { entity: null, advance: 1 };
+    this.#matchText = null;
+  }
+
+  /**
+   * @description The three-code-unit entity starting at `index`, if the HTML5 table has one. Reads two codes past the first, which is safe only because
+   * `threeCharOK` in {@link EntityEncoder.#matchEntity} has already established that they are inside the string.
+   *
+   * @param str - The string being scanned.
+   * @param index - Where the entity would start.
+   * @param first - The char code at `index`, which the caller has already read.
+   *
+   * @returns The `&name;` text, or `undefined` when no three-code-unit entity starts here.
+   */
+  #matchThree(str: string, index: number, first: number): string | undefined {
+    const rest = trie3.get(first)?.get(str.charCodeAt(index + 1));
+    return rest?.get(str.charCodeAt(index + 2));
+  }
+
+  /**
+   * @description The two-code-unit entity starting at `index`, if the HTML5 table has one and there is a second code unit to read. This is the probe the tail pass
+   * uses on its own, and the only one whose bounds the caller has not already guaranteed.
+   *
+   * @param str - The string being scanned.
+   * @param index - Where the entity would start.
+   * @param first - The char code at `index`, which the caller has already read.
+   *
+   * @returns The `&name;` text, or `undefined` when no two-code-unit entity starts here or `index` is the last code unit in the string.
+   */
+  #matchTwo(str: string, index: number, first: number): string | undefined {
+    if (index + 1 >= str.length) return undefined;
+    return trie2.get(first)?.get(str.charCodeAt(index + 1));
+  }
+
+  /**
+   * @description The one-code-unit entity for a char code, if the table has one and {@link EntityEncoder.encodeAllNamed} allows a single character to be replaced.
+   * The only one of the three probes an option can switch off.
+   *
+   * @param first - The char code at the probed position, which the caller has already read.
+   *
+   * @returns The `&name;` text, or `undefined` when single-character replacement is off or the code has no name.
+   */
+  #matchOne(first: number): string | undefined {
+    if (!this.encodeAllNamed) return undefined;
+    return trie1.get(first);
+  }
+
+  /**
+   * @description Record a probe hit as this position's match.
+   *
+   * @param text - The `&name;` text the caller should emit.
+   * @param width - How many UTF-16 code units it replaces. Taken from the trie that was probed, because nothing about `text` itself gives it away:
+   *   `&COPY;` is seven characters long and replaces one.
+   */
+  #record(text: string, width: number): void {
+    this.#matchText = text;
+    this.#matchWidth = width;
   }
 
   /**
    * @description Charge one replacement against the budget.
    *
-   * @returns Whether that spent the last of it, in which case the scan stops where it stands. Every call site is a loop body that then sets its own
-   *   `limitReached`, so the four copies of that check collapse to one here and the accounting stays in one place.
+   * @returns Whether that spent the last of it, in which case the scan stops where it stands. Both passes assign this straight into their stop flag,
+   *   which the loop condition has already cleared — so the check is written once here rather than once per call site — and the accounting stays in
+   *   one place.
    */
   #spendBudget(): boolean {
     if (this.maxReplacements <= 0) return false;
