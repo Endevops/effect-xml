@@ -2,7 +2,7 @@ import { Effect } from 'effect';
 
 import type { XmlError } from '../errors.ts';
 import type Expression from './expression.ts';
-import type { Segment } from './expression.ts';
+import type { PositionSelector, Segment } from './expression.ts';
 
 import ExpressionSet from './expression-set.ts';
 
@@ -352,6 +352,176 @@ export class MatcherView {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Segment rules
+//
+// Pure functions over one pattern segment and one path node, so that each kind
+// of condition reads on its own and `#matchSegment` collapses to a conjunction
+// of them. None of these touches matcher state, which is what makes the
+// attribute and position rules readable as plain predicates.
+// ---------------------------------------------------------------------------
+
+/**
+ * @description Whether a segment's tag name selects a node. `'*'` selects any tag; a segment that resolved to no tag at all selects none.
+ *
+ * @param segment - The pattern segment.
+ * @param node - The path node to test it against.
+ *
+ * @returns Whether the tag names agree.
+ */
+const tagNameMatches = (segment: Segment, node: PathNode): boolean => segment.tag === '*' || segment.tag === node.tag;
+
+/**
+ * @description Whether a segment's namespace qualifier selects a node. A segment that specified none matches any namespace, as does `'*'`.
+ *
+ * @param segment - The pattern segment.
+ * @param node - The path node to test it against.
+ *
+ * @returns Whether the namespaces agree.
+ */
+const namespaceMatches = (segment: Segment, node: PathNode): boolean =>
+  segment.namespace === undefined || segment.namespace === '*' || segment.namespace === node.namespace;
+
+/**
+ * @description Whether a segment's `[attr]` or `[attr=value]` condition holds. An attribute condition describes the tag being opened rather than an ancestor, so
+ * it fails against every node but the current one. The value comparison is string-to-string, which is what lets `user[count=5]` match a numeric `5`.
+ *
+ * @param segment - The pattern segment.
+ * @param node - The path node to test it against.
+ * @param isCurrentNode - Whether `node` is the top of the stack.
+ *
+ * @returns Whether the condition holds, vacuously for a segment that carries none.
+ */
+const attributeConditionMatches = (segment: Segment, node: PathNode, isCurrentNode: boolean): boolean => {
+  if (segment.attrName === undefined) return true;
+  if (!isCurrentNode) return false;
+
+  const values = node.values;
+  if (!values || !(segment.attrName in values)) return false;
+  if (segment.attrValue === undefined) return true;
+  return String(values[segment.attrName]) === String(segment.attrValue);
+};
+
+/**
+ * @description Whether a node's sibling counter satisfies a position selector. `last` is parsed and carried on a segment but has no rule here, so it never rejects
+ * — the one selector that selects rather than filters.
+ *
+ * @param position - The selector the pattern asked for.
+ * @param counter - The node's occurrence count among same-named siblings, zero-based.
+ * @param positionValue - Which occurrence `nth` selects, for the `nth` selector only.
+ *
+ * @returns Whether the counter satisfies the selector.
+ */
+const counterSatisfies = (position: PositionSelector, counter: number, positionValue: number | undefined): boolean => {
+  switch (position) {
+    case 'first':
+      return counter === 0;
+    case 'odd':
+      return counter % 2 === 1;
+    case 'even':
+      return counter % 2 === 0;
+    case 'nth':
+      return counter === positionValue;
+    case 'last':
+      return true;
+  }
+};
+
+/**
+ * @description Whether a segment's `:first` / `:odd` / `:even` / `:nth(n)` condition holds. Like an attribute condition, a position describes the tag being
+ * opened, so it fails against every node but the current one.
+ *
+ * @param segment - The pattern segment.
+ * @param node - The path node to test it against.
+ * @param isCurrentNode - Whether `node` is the top of the stack.
+ *
+ * @returns Whether the condition holds, vacuously for a segment that carries none.
+ */
+const positionConditionMatches = (segment: Segment, node: PathNode, isCurrentNode: boolean): boolean => {
+  if (segment.position === undefined) return true;
+  if (!isCurrentNode) return false;
+  return counterSatisfies(segment.position, node.counter ?? 0, segment.positionValue);
+};
+
+/**
+ * @description The two counters a node pushed onto a level receives, read off that level's bookkeeping before it is advanced.
+ */
+interface SiblingCounters {
+  /**
+   * @description How many times this tag name had already appeared at this level, zero-based.
+   */
+  counter: number;
+  /**
+   * @description How many children in total had been seen at this level before this one.
+   */
+  position: number;
+}
+
+/**
+ * @description Build the path node for a push. Namespace and attribute values are attached only when they were actually supplied, so a node with neither leaves
+ * both keys absent rather than present-and-undefined.
+ *
+ * @param tagName - The tag being entered.
+ * @param attrValues - Its attribute values, or `null`.
+ * @param namespace - Its namespace, or `null`.
+ * @param counters - The sibling counters read for this level.
+ *
+ * @returns The node to push.
+ */
+const buildPathNode = (
+  tagName: string,
+  attrValues: Record<string, unknown> | null,
+  namespace: string | null,
+  counters: SiblingCounters
+): PathNode => {
+  const node: PathNode = { tag: tagName, position: counters.position, counter: counters.counter };
+  if (namespace !== null && namespace !== undefined) {
+    node.namespace = namespace;
+  }
+  if (attrValues !== null && attrValues !== undefined) {
+    node.values = attrValues;
+  }
+  return node;
+};
+
+/**
+ * @description Where the deep-wildcard walk resumes, or how it ended. Returned as a value rather than signalled by a return type, so the walk hands a decision
+ * back to its loop without the cursors and the sentinels sharing one return position.
+ */
+type DeepStep =
+  | {
+      /**
+       * @description The segment at `segIdx` was placed against the node at `pathIdx`, and both cursors move inwards from there.
+       */
+      readonly status: 'matched';
+      /**
+       * @description The next path level to consider, one below the one just consumed.
+       */
+      readonly pathIdx: number;
+      /**
+       * @description The next pattern segment to place, one below the one just consumed.
+       */
+      readonly segIdx: number;
+    }
+  /**
+   * @description The walk reached a `..` in final position, which absorbs everything still left of the path.
+   */
+  | { readonly status: 'exhausted' }
+  /**
+   * @description A segment could not be placed, so the pattern does not match.
+   */
+  | { readonly status: 'failed' };
+
+/**
+ * @description A `..` in final position, which absorbs every path level still left.
+ */
+const DEEP_STEP_EXHAUSTED: DeepStep = { status: 'exhausted' };
+
+/**
+ * @description A segment that could not be placed, so the pattern does not match.
+ */
+const DEEP_STEP_FAILED: DeepStep = { status: 'failed' };
+
 /**
  * @description Tracks the current path through an XML/JSON tree and matches it against {@link Expression}s. The matcher keeps a stack of {@link PathNode}s from root
  * to the current tag, and only the topmost node retains attribute values, so memory stays proportional to one node rather than the depth. Sibling
@@ -438,65 +608,90 @@ class Matcher {
     const self = this;
     return Effect.gen(function* () {
       self.#pathStringCache = null;
-
-      // Remove values from previous current node (now becoming ancestor)
-      const previous = self.#current;
-      if (previous) {
-        previous.values = undefined;
-      }
-
-      // Get or create sibling tracking for current level
-      const currentLevel = self.path.length;
-      let level = self.siblingStacks[currentLevel];
-      if (!level) {
-        level = { counts: new Map(), total: 0 };
-        self.siblingStacks[currentLevel] = level;
-      }
-
-      // Create a unique key for sibling tracking that includes namespace
-      const siblingKey = namespace ? `${namespace}:${tagName}` : tagName;
-
-      // Calculate counter (how many times this tag appeared at this level)
-      const counter = level.counts.get(siblingKey) ?? 0;
-
-      // Position = total children at this level seen before this one.
-      const position = level.total;
-
-      // Update sibling count for this tag, and the level's running total.
-      level.counts.set(siblingKey, counter + 1);
-      level.total++;
-
-      // Create new node
-      const node: PathNode = { tag: tagName, position, counter };
-
-      if (namespace !== null && namespace !== undefined) {
-        node.namespace = namespace;
-      }
-
-      if (attrValues !== null && attrValues !== undefined) {
-        node.values = attrValues;
-      }
-
-      self.path.push(node);
-
-      // Depth of the node we just pushed (1-based, matches self.path.length)
-      const depth = self.path.length;
-
-      // Copy only the requested attributes into the kept-attrs stack. This is
-      // the one part of push() whose cost scales with input (O(keep.length))
-      // rather than being O(1) — by design, since the caller is explicitly
-      // opting in for specific attribute names. No options/keep => zero added
-      // cost beyond the property reads below.
-      const keep = options !== null ? options.keep : null;
-      if (keep !== null && keep !== undefined && keep.length > 0 && attrValues) {
-        for (let i = 0; i < keep.length; i++) {
-          const name = keep[i];
-          if (name !== undefined && attrValues[name] !== undefined) {
-            self.#keptAttrs.push({ depth, name, value: attrValues[name] });
-          }
-        }
-      }
+      self.#releaseCurrentValues();
+      const counters = self.#advanceSiblingCounters(tagName, namespace);
+      self.path.push(buildPathNode(tagName, attrValues, namespace, counters));
+      // `#retainKeptAttrs` reads the depth off the stack, so it runs after the push.
+      self.#retainKeptAttrs(attrValues, options);
     });
+  }
+
+  /**
+   * @description Drop the current node's attribute values, because the node it is about to become an ancestor must not hold them — memory stays proportional to
+   * one node rather than to the path depth.
+   */
+  #releaseCurrentValues(): void {
+    const previous = this.#current;
+    if (previous !== undefined) {
+      previous.values = undefined;
+    }
+  }
+
+  /**
+   * @description The sibling bookkeeping for the level the path is about to descend into, created on first descent into it.
+   *
+   * @param currentLevel - The depth being entered, which is the path's current length.
+   *
+   * @returns The level's bookkeeping.
+   */
+  #siblingLevelAt(currentLevel: number): SiblingLevel {
+    const existing = this.siblingStacks[currentLevel];
+    if (existing !== undefined) return existing;
+    const created: SiblingLevel = { counts: new Map(), total: 0 };
+    this.siblingStacks[currentLevel] = created;
+    return created;
+  }
+
+  /**
+   * @description Read the counters for a node about to be pushed at the current level, and advance that level's bookkeeping past it. The namespace is part of the
+   * sibling key, so `<ns:a>` and `<a>` are counted as differently-named siblings.
+   *
+   * @param tagName - The tag being entered.
+   * @param namespace - Its namespace, or `null`.
+   *
+   * @returns The counters to build the node with.
+   */
+  #advanceSiblingCounters(tagName: string, namespace: string | null): SiblingCounters {
+    const level = this.#siblingLevelAt(this.path.length);
+    const siblingKey = namespace ? `${namespace}:${tagName}` : tagName;
+    const counter = level.counts.get(siblingKey) ?? 0;
+    const position = level.total;
+    level.counts.set(siblingKey, counter + 1);
+    level.total++;
+    return { counter, position };
+  }
+
+  /**
+   * @description The attribute names a push asked to retain, or `undefined` when it asked for none. `options` is read exactly as the caller passed it, so an
+   * explicit `null` and an absent argument behave identically.
+   *
+   * @param options - Push options, e.g. `{ keep: ['version'] }`.
+   *
+   * @returns The names to retain.
+   */
+  #keepNames(options: PushOptions | null): string[] | undefined {
+    const keep = options !== null ? options.keep : null;
+    return keep !== null && keep !== undefined && keep.length > 0 ? keep : undefined;
+  }
+
+  /**
+   * @description Copy the requested attributes into the kept-attrs stack, so they stay reachable from descendants after this node stops being current. This is the
+   * one part of `push` whose cost scales with input (O(keep.length)) rather than being O(1) — by design, since the caller is explicitly opting in for
+   * specific attribute names. A name the pushed node does not carry produces no entry, and a node with no attributes at all produces none either.
+   *
+   * @param attrValues - The pushed node's attribute values.
+   * @param options - Push options, e.g. `{ keep: ['version'] }`.
+   */
+  #retainKeptAttrs(attrValues: Record<string, unknown> | null, options: PushOptions | null): void {
+    const keep = this.#keepNames(options);
+    if (keep === undefined) return;
+    if (attrValues === null || attrValues === undefined) return;
+
+    const depth = this.path.length;
+    for (const name of keep) {
+      if (name === undefined || attrValues[name] === undefined) continue;
+      this.#keptAttrs.push({ depth, name, value: attrValues[name] });
+    }
   }
 
   /**
@@ -827,50 +1022,92 @@ class Matcher {
       let segIdx = segments.length - 1;
 
       while (segIdx >= 0 && pathIdx >= 0) {
-        const segment = segments[segIdx];
-        if (segment === undefined) return false;
-
-        if (segment.type === 'deep-wildcard') {
-          segIdx--;
-
-          if (segIdx < 0) {
-            return true;
-          }
-
-          const nextSeg = segments[segIdx];
-          if (nextSeg === undefined) return false;
-          let found = false;
-
-          for (let i = pathIdx; i >= 0; i--) {
-            const node = self.path[i];
-            if (node !== undefined && (yield* self.#matchSegment(nextSeg, node, i === self.path.length - 1))) {
-              pathIdx = i - 1;
-              segIdx--;
-              found = true;
-              break;
-            }
-          }
-
-          if (!found) {
-            return false;
-          }
-        } else {
-          const node = self.path[pathIdx];
-          if (node === undefined || !(yield* self.#matchSegment(segment, node, pathIdx === self.path.length - 1))) {
-            return false;
-          }
-          pathIdx--;
-          segIdx--;
-        }
+        const step = yield* self.#deepStep(segments, segIdx, pathIdx);
+        if (step.status === 'failed') return false;
+        // A `..` in final position absorbs everything still left of the path.
+        if (step.status === 'exhausted') return true;
+        pathIdx = step.pathIdx;
+        segIdx = step.segIdx;
       }
 
+      // Running out of path first means the pattern still had segments to place.
       return segIdx < 0;
     });
   }
 
   /**
-   * @description Test one pattern segment against one path node. Attribute and position conditions only ever apply to the node the matcher is currently on — they
-   * describe the tag being opened, not an ancestor — so a segment carrying either one fails against any other node.
+   * @description Take one step of the deep-wildcard walk: place the segment at `segIdx` against the node at `pathIdx`, or let a `..` absorb a run of path levels.
+   *
+   * @param segments - The pattern's segments.
+   * @param segIdx - The segment the walk is currently on.
+   * @param pathIdx - The path node the walk is currently on.
+   *
+   * @returns Where the walk resumes, or how it ended.
+   */
+  #deepStep(segments: readonly Segment[], segIdx: number, pathIdx: number): Effect.Effect<DeepStep, XmlError> {
+    const segment = segments[segIdx];
+    if (segment === undefined) return Effect.succeed(DEEP_STEP_FAILED);
+    if (segment.type === 'deep-wildcard') return this.#deepStepWildcard(segments, segIdx, pathIdx);
+    return this.#deepStepLiteral(segment, segIdx, pathIdx);
+  }
+
+  /**
+   * @description The non-`..` arm of {@link Matcher.#deepStep}: the segment has to match the node at `pathIdx` exactly, and the walk continues from the level below
+   * it.
+   *
+   * @param segment - The segment to place.
+   * @param segIdx - The index the segment sits at.
+   * @param pathIdx - The index the node sits at.
+   *
+   * @returns Where the walk resumes, or that it failed.
+   */
+  #deepStepLiteral(segment: Segment, segIdx: number, pathIdx: number): Effect.Effect<DeepStep, XmlError> {
+    const node = this.path[pathIdx];
+    if (node === undefined) return Effect.succeed(DEEP_STEP_FAILED);
+
+    return Effect.map(this.#matchSegment(segment, node, pathIdx === this.path.length - 1), matched => {
+      return matched ? { status: 'matched', pathIdx: pathIdx - 1, segIdx: segIdx - 1 } : DEEP_STEP_FAILED;
+    });
+  }
+
+  /**
+   * @description The `..` arm of {@link Matcher.#deepStep}. In final position the wildcard has absorbed everything left of the path. Otherwise the segment standing
+   * directly above it is searched backwards from `pathIdx` for the deepest node it fits, so the wildcard absorbs the run of levels above that — zero
+   * levels included, since the node at `pathIdx` is itself a candidate.
+   *
+   * @param segments - The pattern's segments.
+   * @param segIdx - The index the wildcard sits at.
+   * @param pathIdx - The deepest path level still available to the wildcard.
+   *
+   * @returns Where the walk resumes, or how it ended.
+   */
+  #deepStepWildcard(segments: readonly Segment[], segIdx: number, pathIdx: number): Effect.Effect<DeepStep, XmlError> {
+    if (segIdx === 0) return Effect.succeed(DEEP_STEP_EXHAUSTED);
+    const absorbed = segments[segIdx - 1];
+    if (absorbed === undefined) return Effect.succeed(DEEP_STEP_FAILED);
+
+    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
+    // not the instance. Captured here, once, and the body reads as it did.
+    const self = this;
+    return Effect.gen(function* () {
+      for (let i = pathIdx; i >= 0; i--) {
+        const node = self.path[i];
+        if (node === undefined) continue;
+        if (yield* self.#matchSegment(absorbed, node, i === self.path.length - 1)) {
+          // Placing `absorbed` consumes two pattern segments — the wildcard and
+          // the segment above it — against one path level, so the pattern cursor
+          // moves in by two while the path cursor moves in by one.
+          return { status: 'matched', pathIdx: i - 1, segIdx: segIdx - 2 };
+        }
+      }
+      return DEEP_STEP_FAILED;
+    });
+  }
+
+  /**
+   * @description Test one pattern segment against one path node, as the conjunction of one rule per kind of condition the segment may carry. Attribute and
+   * position conditions only ever apply to the node the matcher is currently on — they describe the tag being opened, not an ancestor — so a segment
+   * carrying either one fails against any other node.
    *
    * @param segment - The pattern segment.
    * @param node - The path node to test it against.
@@ -882,51 +1119,12 @@ class Matcher {
     // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
     // branches, and the compiler points at every call site that now has to run it.
     return Effect.sync(() => {
-      if (segment.tag !== '*' && segment.tag !== node.tag) {
-        return false;
-      }
-
-      if (segment.namespace !== undefined) {
-        if (segment.namespace !== '*' && segment.namespace !== node.namespace) {
-          return false;
-        }
-      }
-
-      if (segment.attrName !== undefined) {
-        if (!isCurrentNode) {
-          return false;
-        }
-
-        if (!node.values || !(segment.attrName in node.values)) {
-          return false;
-        }
-
-        if (segment.attrValue !== undefined) {
-          if (String(node.values[segment.attrName]) !== String(segment.attrValue)) {
-            return false;
-          }
-        }
-      }
-
-      if (segment.position !== undefined) {
-        if (!isCurrentNode) {
-          return false;
-        }
-
-        const counter = node.counter ?? 0;
-
-        if (segment.position === 'first' && counter !== 0) {
-          return false;
-        } else if (segment.position === 'odd' && counter % 2 !== 1) {
-          return false;
-        } else if (segment.position === 'even' && counter % 2 !== 0) {
-          return false;
-        } else if (segment.position === 'nth' && counter !== segment.positionValue) {
-          return false;
-        }
-      }
-
-      return true;
+      return (
+        tagNameMatches(segment, node) &&
+        namespaceMatches(segment, node) &&
+        attributeConditionMatches(segment, node, isCurrentNode) &&
+        positionConditionMatches(segment, node, isCurrentNode)
+      );
     });
   }
 

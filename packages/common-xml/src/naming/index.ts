@@ -463,6 +463,84 @@ const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, a
 };
 
 /**
+ * @description The colon-specific reason a `qName` or `ncName` failed, or `undefined` when the failure is not about a colon. The three QName forms are checked in
+ * the order they can co-occur: a string that both starts and ends with a colon is reported as the leading one, and a two-colon string is reported as
+ * the count.
+ *
+ * @param str - The candidate name.
+ * @param production - The production checked.
+ *
+ * @returns The reason and position, or `undefined`.
+ */
+const diagnoseColon = (str: string, production: Production): { reason: string; position: number } | undefined => {
+  if (production === 'ncName' && str.includes(':')) {
+    return { reason: 'Colon is not allowed in NCName', position: str.indexOf(':') };
+  }
+
+  if (production !== 'qName') return undefined;
+  if (str.startsWith(':')) {
+    return { reason: 'QName cannot start with a colon', position: 0 };
+  }
+  if (str.endsWith(':')) {
+    return { reason: 'QName cannot end with a colon', position: str.length - 1 };
+  }
+  if ((str.match(/:/g) ?? []).length > 1) {
+    return { reason: 'QName can have at most one colon', position: str.lastIndexOf(':') };
+  }
+  return undefined;
+};
+
+/**
+ * @description The first character that is not a legal `NameChar`, and where it sits.
+ *
+ * @param str - The candidate name.
+ * @param namePattern - The `NameChar` test for the character set the validator used.
+ *
+ * @returns The reason and position, or `undefined` when every character is legal.
+ */
+const diagnoseNameChar = (str: string, namePattern: RegExp): { reason: string; position: number } | undefined => {
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (char !== undefined && !namePattern.test(char)) {
+      return { reason: `Character "${char}" at position ${i} is not a valid NameChar`, position: i };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * @description Why a name failed, once whether it failed is already known. The first character outranks the rest: a name that cannot start is reported as a bad
+ * `NameStartChar` even when a later character is also illegal.
+ *
+ * @param str - The candidate name.
+ * @param production - The production checked.
+ * @param startCharPattern - The `NameStartChar` test for the character set the validator used.
+ * @param namePattern - The `NameChar` test for the same character set.
+ *
+ * @returns The reason, and the offending position, which is `undefined` for a structural failure.
+ */
+const findFailure = (
+  str: string,
+  production: Production,
+  startCharPattern: RegExp,
+  namePattern: RegExp
+): { reason: string; position: number | undefined } => {
+  if (str.length === 0) {
+    return { reason: 'Input is empty', position: undefined };
+  }
+
+  const colon = diagnoseColon(str, production);
+  if (colon !== undefined) return colon;
+
+  const firstChar = str[0];
+  if (['name', 'ncName', 'qName'].includes(production) && !startCharPattern.test(firstChar ?? '')) {
+    return { reason: `First character "${firstChar}" is not a valid NameStartChar`, position: 0 };
+  }
+
+  return diagnoseNameChar(str, namePattern) ?? { reason: 'Does not match the production rules', position: undefined };
+};
+
+/**
  * @description Why a name failed, once whether it failed is already known. Split from {@link diagnose} so the effect that asks the question stays a one-liner and
  * the reason-finding is plain.
  *
@@ -476,9 +554,6 @@ const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, a
 const diagnoseWith = (str: string, production: Production, isValid: boolean, asciiOnly: boolean): ValidationResult => {
   if (isValid) return { valid: true, production, input: str };
 
-  let reason = 'Does not match the production rules';
-  let position: number | undefined;
-
   // Diagnostic fallback char checks must mirror the same character set the
   // boolean validator above used, or the reported reason/position could
   // contradict the `valid: false` result (e.g. flagging a char as illegal
@@ -486,37 +561,7 @@ const diagnoseWith = (str: string, production: Production, isValid: boolean, asc
   const startCharPattern = asciiOnly ? /^[:A-Za-z_]/ : /^[:A-Za-z_\u00C0-\uFFFD]/;
   const namePattern = asciiOnly ? /[\w\-\\.:]/ : /[\w\-\\.:\u00B7\u00C0-\uFFFD]/;
 
-  const firstChar = str[0];
-
-  if (str.length === 0) {
-    reason = 'Input is empty';
-  } else if (production === 'ncName' && str.includes(':')) {
-    position = str.indexOf(':');
-    reason = 'Colon is not allowed in NCName';
-  } else if (production === 'qName' && str.startsWith(':')) {
-    reason = 'QName cannot start with a colon';
-    position = 0;
-  } else if (production === 'qName' && str.endsWith(':')) {
-    reason = 'QName cannot end with a colon';
-    position = str.length - 1;
-  } else if (production === 'qName' && (str.match(/:/g) ?? []).length > 1) {
-    reason = 'QName can have at most one colon';
-    position = str.lastIndexOf(':');
-  } else if (['name', 'ncName', 'qName'].includes(production) && !startCharPattern.test(firstChar ?? '')) {
-    reason = `First character "${firstChar}" is not a valid NameStartChar`;
-    position = 0;
-  } else {
-    for (let i = 0; i < str.length; i++) {
-      const char = str[i];
-      if (char !== undefined && !namePattern.test(char)) {
-        reason = `Character "${char}" at position ${i} is not a valid NameChar`;
-        position = i;
-        break;
-      }
-    }
-  }
-
-  return { valid: false, production, input: str, reason, position };
+  return { valid: false, production, input: str, ...findFailure(str, production, startCharPattern, namePattern) };
 };
 
 /**

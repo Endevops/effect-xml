@@ -8,6 +8,73 @@ import type { MatcherView } from './matcher.ts';
 import { XmlError as XmlErrorCtor } from '../errors.ts';
 
 /**
+ * @description The failure a sealed set reports, built here so `add` reads as the guard rather than as the error's shape.
+ *
+ * @param size - How many patterns the sealed set holds, reported alongside the failure.
+ *
+ * @returns The effect that fails with it.
+ */
+const sealedSetFailure = (size: number): Effect.Effect<never, XmlError> =>
+  Effect.fail(
+    new XmlErrorCtor({
+      reason: { _tag: 'SealedExpressionSet', size },
+      message: 'ExpressionSet is sealed. Create a new ExpressionSet to add more expressions.',
+    })
+  );
+
+/**
+ * @description File an expression in an index bucket, creating that bucket on first use. Every index in the set routes through here, so "does this bucket exist
+ * yet" is asked in one place rather than at each of the four call sites.
+ *
+ * @param buckets - The index to file into.
+ * @param key - The bucket's key.
+ * @param expression - The expression to file.
+ */
+const appendToBucket = <T>(buckets: Map<string | number, Expression<T>[]>, key: string | number, expression: Expression<T>): void => {
+  const bucket = buckets.get(key);
+  if (bucket === undefined) {
+    buckets.set(key, [expression]);
+    return;
+  }
+  bucket.push(expression);
+};
+
+/**
+ * @description The first expression in a bucket that matches, or `null` for an absent or exhausted bucket. This is the per-tag hot path, so an index with no
+ * bucket for the current key costs one `Effect.succeed` rather than a scan.
+ *
+ * @param bucket - The expressions to try, or `undefined` when the index has no bucket for this key.
+ * @param matcher - The matcher whose current path is tested against each of them.
+ *
+ * @returns The first matching expression, or `null`.
+ */
+const firstMatching = <T>(
+  bucket: readonly Expression<T>[] | undefined,
+  matcher: Matcher | MatcherView
+): Effect.Effect<Expression<T> | null, XmlError> => {
+  if (bucket === undefined) return Effect.succeed(null);
+
+  return Effect.gen(function* () {
+    for (const expression of bucket) {
+      if (yield* (matcher as MatcherView).matches(expression)) return expression;
+    }
+    return null;
+  });
+};
+
+/**
+ * @description The deep-wildcard bucket for a terminal tag, or `undefined` on an empty path, which has no current tag and so no key to look up. The unindexed
+ * deep-wildcard list still gets its turn in that case.
+ *
+ * @param byTag - The deep-wildcard index.
+ * @param tag - The current tag, or `undefined` on an empty path.
+ *
+ * @returns The bucket, or `undefined`.
+ */
+const deepBucketFor = <T>(byTag: Map<string, Expression<T>[]>, tag: string | undefined): readonly Expression<T>[] | undefined =>
+  tag === undefined ? undefined : byTag.get(tag);
+
+/**
  * @description An indexed collection of {@link Expression}s for efficient bulk matching. Instead of iterating every expression on every tag, an `ExpressionSet`
  * pre-indexes them at insertion time by depth and terminal tag name. At match time only the relevant bucket is evaluated — typically reducing checks
  * from O(E) to an O(1) lookup plus a small bucket. `T` is the payload type of the expressions' {@link Expression.data}. Declare it to get that payload
@@ -73,12 +140,7 @@ export default class ExpressionSet<T = unknown> {
    */
   add = Effect.fnUntraced(function* (this: ExpressionSet<T>, expression: Expression<T>): Effect.fn.Return<ExpressionSet<T>, XmlError> {
     if (this.#sealed) {
-      return yield* Effect.fail(
-        new XmlErrorCtor({
-          reason: { _tag: 'SealedExpressionSet', size: this.#patterns.size },
-          message: 'ExpressionSet is sealed. Create a new ExpressionSet to add more expressions.',
-        })
-      );
+      return yield* sealedSetFailure(this.#patterns.size);
     }
 
     // Deduplicate by pattern string
@@ -86,49 +148,50 @@ export default class ExpressionSet<T = unknown> {
     this.#patterns.add(expression.pattern);
 
     if (yield* expression.hasDeepWildcard()) {
-      // `..` breaks depth indexing, so these are indexed by terminal tag when
-      // there is a concrete one, and fall back to an unindexed scan when the
-      // last segment is a wildcard or has no tag to key on.
-      const lastSeg = expression.segments[expression.segments.length - 1];
-      const tag = lastSeg?.type === 'deep-wildcard' ? undefined : lastSeg?.tag;
-      if (tag !== undefined && tag !== '*') {
-        const bucket = this.#deepByTerminalTag.get(tag);
-        if (bucket) {
-          bucket.push(expression);
-        } else {
-          this.#deepByTerminalTag.set(tag, [expression]);
-        }
-      } else {
-        this.#deepWildcards.push(expression);
-      }
+      this.#indexDeepWildcard(expression);
       return this;
     }
 
-    const depth = yield* expression.length();
-    const lastSeg = expression.segments[expression.segments.length - 1];
-    const tag = lastSeg?.tag;
-
-    if (!tag || tag === '*') {
-      // Can index by depth but not by tag
-      const bucket = this.#wildcardByDepth.get(depth);
-      if (bucket) {
-        bucket.push(expression);
-      } else {
-        this.#wildcardByDepth.set(depth, [expression]);
-      }
-    } else {
-      // Tightest bucket: depth + tag
-      const key = `${depth}:${tag}`;
-      const bucket = this.#byDepthAndTag.get(key);
-      if (bucket) {
-        bucket.push(expression);
-      } else {
-        this.#byDepthAndTag.set(key, [expression]);
-      }
-    }
-
+    yield* this.#indexByDepth(expression);
     return this;
   });
+
+  /**
+   * @description File a `..` expression. `..` breaks depth indexing, so these go by terminal tag when there is a concrete one, and into the unindexed list when
+   * the last segment is itself a wildcard or has no tag to key on.
+   *
+   * @param expression - The expression to file.
+   */
+  #indexDeepWildcard(expression: Expression<T>): void {
+    const lastSegment = expression.segments[expression.segments.length - 1];
+    const tag = lastSegment?.type === 'deep-wildcard' ? undefined : lastSegment?.tag;
+
+    if (tag === undefined || tag === '*') {
+      this.#deepWildcards.push(expression);
+      return;
+    }
+    appendToBucket(this.#deepByTerminalTag, tag, expression);
+  }
+
+  /**
+   * @description File a depth-exact expression: by depth alone when its terminal tag is a wildcard or absent, and by depth plus tag when it names one, which is
+   * the tightest bucket and where most expressions live.
+   *
+   * @param expression - The expression to file.
+   *
+   * @returns An effect that files it.
+   */
+  #indexByDepth(expression: Expression<T>): Effect.Effect<void, XmlError> {
+    return Effect.map(expression.length(), depth => {
+      const tag = expression.segments[expression.segments.length - 1]?.tag;
+
+      if (!tag || tag === '*') {
+        appendToBucket(this.#wildcardByDepth, depth, expression);
+        return;
+      }
+      appendToBucket(this.#byDepthAndTag, `${depth}:${tag}`, expression);
+    });
+  }
 
   /**
    * @description Add several expressions at once.
@@ -223,35 +286,15 @@ export default class ExpressionSet<T = unknown> {
     const depth = yield* matcher.getDepth();
     const tag = yield* matcher.getCurrentTag();
 
-    // 1. Tightest bucket — most expressions live here
-    const exactBucket = this.#byDepthAndTag.get(`${depth}:${tag}`);
-    if (exactBucket) {
-      for (const expression of exactBucket) {
-        if (yield* (matcher as MatcherView).matches(expression)) return expression;
-      }
-    }
-
-    // 2. Depth-matched wildcard-tag expressions
-    const wildcardBucket = this.#wildcardByDepth.get(depth);
-    if (wildcardBucket) {
-      for (const expression of wildcardBucket) {
-        if (yield* (matcher as MatcherView).matches(expression)) return expression;
-      }
-    }
-
-    // 3. Deep wildcards — indexed by terminal tag, then unindexed fallback.
-    // An empty path has no current tag, so there is no key to look up; the
-    // unindexed list below still gets its turn.
-    const deepBucket = tag === undefined ? undefined : this.#deepByTerminalTag.get(tag);
-    if (deepBucket) {
-      for (const expression of deepBucket) {
-        if (yield* (matcher as MatcherView).matches(expression)) return expression;
-      }
-    }
-    for (const expression of this.#deepWildcards) {
-      if (yield* (matcher as MatcherView).matches(expression)) return expression;
-    }
-
-    return null;
+    // Cheapest bucket first: an O(1) depth+tag lookup where most expressions
+    // live, then the depth-only wildcard bucket, then the deep-wildcard lists.
+    // `??` short-circuits, so a bucket that matches nothing costs no more than
+    // the lookup that found it empty.
+    return (
+      (yield* firstMatching(this.#byDepthAndTag.get(`${depth}:${tag}`), matcher)) ??
+      (yield* firstMatching(this.#wildcardByDepth.get(depth), matcher)) ??
+      (yield* firstMatching(deepBucketFor(this.#deepByTerminalTag, tag), matcher)) ??
+      (yield* firstMatching(this.#deepWildcards, matcher))
+    );
   });
 }
