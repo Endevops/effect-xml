@@ -335,7 +335,8 @@ type EntityInputValue =
 type EntityInputMap = Readonly<Record<string, EntityInputValue>> | null | undefined;
 
 /**
- * @description A named entity that resolved, tagged with the tier its limit accounting charges.
+ * @description What one reference expanded to, tagged with the tier its limit accounting charges. The field is the replacement text itself for a named entity, the
+ * character for a numeric reference, and `''` for a removed one — the three shapes the walk pushes into its output.
  */
 type ResolvedEntity = { value: string; tier: LimitTier };
 
@@ -389,30 +390,44 @@ const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
  * @param maps - The maps to merge. A falsy entry — `null`, `undefined`, `''`, `0` — contributes nothing rather than throwing.
  *
  * @returns A null-prototype object of own string-valued entries. Nothing from `Object.prototype` can be read out of it, so a document naming
- *   `constructor` or `toString` finds nothing.
+ *   `constructor` or `toString` finds nothing. Each entry is read through {@link flattenEntityValue}, so an entry that cannot be reduced to a string
+ *   is absent rather than present-and-unusable.
  */
 function mergeEntityMaps(...maps: readonly EntityInputMap[]): Record<string, string> {
   const out: Record<string, string> = Object.create(null);
   for (const map of maps) {
     if (!map) continue;
     for (const key of Object.keys(map)) {
-      const raw = map[key];
-      if (typeof raw === 'string') {
-        out[key] = raw;
-        continue;
-      }
-      // The `raw &&` in upstream is a null check: every object is truthy, so it only ever rejects
-      // `null` and `undefined` here, and `typeof` then rejects a bare function value.
-      if (raw !== null && raw !== undefined && typeof raw === 'object' && raw.val !== undefined) {
-        const val = raw.val;
-        if (typeof val === 'string') {
-          out[key] = val;
-        }
-        // A function `val` has no scanner equivalent and is dropped, upstream included.
-      }
+      const value = flattenEntityValue(map[key]);
+      if (value !== undefined) out[key] = value;
     }
   }
   return out;
+}
+
+/**
+ * @description Reduce one registration entry to the string a reference to it expands to, or to nothing when the entry is a form the scanner has no use for. Three
+ * shapes survive: the string itself, and a `{ regex | regx, val }` envelope whose `val` is a string. Everything else — a number, `null`, `undefined`,
+ * a bare function, an envelope whose `val` is a function — has no string to substitute, so the name is dropped and a reference to it comes back out
+ * as the text it was written as. Dropping is silent on purpose: the runtime inspects whatever it is handed, and failing the construction over one
+ * unreadable entry would take every other entity in the table down with it.
+ *
+ * @param raw - The entry as it arrived, in whatever shape the caller supplied it — including no entry at all, which a table with a hole in it
+ *   produces.
+ *
+ * @returns The replacement string, or `undefined` when the entry cannot be read. A name registered to the empty string yields `''`, which is why
+ *   callers compare against `undefined` rather than testing for emptiness.
+ */
+function flattenEntityValue(raw: EntityInputValue | undefined): string | undefined {
+  if (typeof raw === 'string') return raw;
+
+  // The `raw &&` in upstream is a null check: every object is truthy, so it only ever rejects
+  // `null` and `undefined` here, and `typeof` then rejects a bare function value.
+  if (raw === null || raw === undefined || typeof raw !== 'object' || raw.val === undefined) return undefined;
+
+  const val = raw.val;
+  // A function `val` has no scanner equivalent and is dropped, upstream included.
+  return typeof val === 'string' ? val : undefined;
 }
 
 /**
@@ -481,6 +496,67 @@ function parseNCRConfig(ncr: EntityDecoderNCROptions | undefined): { xmlVersion:
   // Null is never safe to emit, so anything weaker than `remove` is raised to it before it is stored.
   const nullLevel = Math.max(ncrLevelOf(ncr.nullNCR, NCR_LEVEL.remove), NCR_LEVEL.remove);
   return { xmlVersion, onLevel, nullLevel };
+}
+
+/**
+ * @description Resolve {@link EntityDecoderOptions.postCheck} to something the decode loop can call unconditionally, or to the identity function. The fallback
+ * exists so the path that actually scanned does not have to test for the option, while the two fast paths that return before the scan still skip the
+ * call entirely. A non-function value is treated as an absent option rather than rejected, matching the hook rules: a mistyped option disables its
+ * feature instead of failing the construction.
+ *
+ * @param raw - The configured hook, or nothing.
+ *
+ * @returns The hook itself, or a function returning its first argument.
+ */
+function readPostCheck(raw: EntityDecoderOptions['postCheck']): (resolved: string, original: string) => string {
+  if (typeof raw === 'function') return raw;
+  return r => r;
+}
+
+/**
+ * @description Resolve a registration hook option to something safe to call, under the same non-function rule as {@link readPostCheck}.
+ *
+ * @param raw - The configured hook, or nothing.
+ *
+ * @returns The hook itself, or `null` for an absent option and for a value that is not a function. `null` is what lets every registration path ask
+ *   unconditionally: a hook that is not there accepts.
+ */
+function readHook(raw: EntityRegistrationHook | null | undefined): EntityRegistrationHook | null {
+  if (typeof raw === 'function') return raw;
+  return null;
+}
+
+/**
+ * @description Read one of the two entity-name lists as a set, under the same missing-value rule as the other options: absent is empty, not an error. The
+ * `Array.isArray` test rather than a truthiness one is what keeps a mistyped list from reaching `new Set` and throwing there, so a caller's typo
+ * disables the list instead of taking the decoder down. Matching against a set is also why a name in both lists is decided by the order
+ * {@link EntityDecoder.decode} consults them in, not by the order the caller wrote them in.
+ *
+ * @param raw - The configured list, or nothing.
+ *
+ * @returns The names as a set, empty when the option is absent or is not an array.
+ */
+function readNameList(raw: string[] | undefined): ReadonlySet<string> {
+  if (Array.isArray(raw)) return new Set(raw);
+  return new Set();
+}
+
+/**
+ * @description Scan forward from a `&` for the `;` that would close the reference it opens, giving up once more than {@link MAX_TOKEN_LENGTH} characters have
+ * passed since the `&`.
+ *
+ * @param str - The string being scanned.
+ * @param ampersand - The index of the `&`.
+ *
+ * @returns The index of the closing `;`, or `-1` when the run holds none inside the window. A `;` one character past the `&` is returned rather than
+ *   refused: that is the empty token `&;`, and the caller decides it is not a reference.
+ */
+function scanTokenEnd(str: string, ampersand: number): number {
+  const len = str.length;
+  let j = ampersand + 1;
+  while (j < len && str.charCodeAt(j) !== CODE_SEMICOLON && j - ampersand <= MAX_TOKEN_LENGTH) j++;
+  if (j >= len || str.charCodeAt(j) !== CODE_SEMICOLON) return -1;
+  return j;
 }
 
 // ---------------------------------------------------------------------------
@@ -653,7 +729,9 @@ export class EntityDecoder {
       : Effect.succeed(new EntityDecoder(options));
 
   /**
-   * @description Create a decoder. Every option is resolved here into the flat fields the decode loop reads, so nothing per-reference has to re-derive it.
+   * @description Create a decoder. Every option is resolved here into the flat fields the decode loop reads, so nothing per-reference has to re-derive it. The
+   * options whose wrong type disables them rather than failing the construction — the two hooks, the two name lists — are read through
+   * {@link readHook} and {@link readNameList}, so that rule is written once instead of four times.
    *
    * @param resolved - Configuration, already checked. See {@link EntityDecoderOptions}.
    */
@@ -665,7 +743,7 @@ export class EntityDecoder {
     const limit = resolved.limit ?? {};
     this.#maxTotalExpansions = limit.maxTotalExpansions || 0;
     this.#maxExpandedLength = limit.maxExpandedLength || 0;
-    this.#postCheck = typeof resolved.postCheck === 'function' ? resolved.postCheck : r => r;
+    this.#postCheck = readPostCheck(resolved.postCheck);
     this.#limitTiers = parseLimitTiers(limit.applyLimitsTo ?? LIMIT_TIER_EXTERNAL);
     this.#numericAllowed = resolved.numericAllowed ?? true;
     this.#baseMap = mergeEntityMaps(DEFAULT_XML_ENTITIES, resolved.namedEntities || null);
@@ -675,16 +753,16 @@ export class EntityDecoder {
     this.#totalExpansions = 0;
     this.#expandedLength = 0;
 
-    this.#removeSet = new Set(Array.isArray(resolved.remove) ? resolved.remove : []);
-    this.#leaveSet = new Set(Array.isArray(resolved.leave) ? resolved.leave : []);
+    this.#removeSet = readNameList(resolved.remove);
+    this.#leaveSet = readNameList(resolved.leave);
 
     const ncrConfig = parseNCRConfig(resolved.ncr);
     this.#ncrXmlVersion = ncrConfig.xmlVersion;
     this.#ncrOnLevel = ncrConfig.onLevel;
     this.#ncrNullLevel = ncrConfig.nullLevel;
 
-    this.#onExternalEntity = typeof resolved.onExternalEntity === 'function' ? resolved.onExternalEntity : null;
-    this.#onInputEntity = typeof resolved.onInputEntity === 'function' ? resolved.onInputEntity : null;
+    this.#onExternalEntity = readHook(resolved.onExternalEntity);
+    this.#onInputEntity = readHook(resolved.onInputEntity);
   }
 
   /**
@@ -835,7 +913,8 @@ export class EntityDecoder {
    * @description Expand every entity reference in a string, in one pass. The output is never re-scanned, so no expansion can produce a _second_ one: a registered
    * value that itself contains reference text reaches the caller as that literal text, unexpanded. What the limits bound is the growth of this single
    * pass — how much one round of expansion can add. Three inputs return before the scan and therefore never reach
-   * {@link EntityDecoderOptions.postCheck}: a non-string, the empty string, and any string with no `&` in it.
+   * {@link EntityDecoderOptions.postCheck}: a non-string, the empty string, and any string with no `&` in it. The scan itself is `#expandAll`; what
+   * this method adds is the three inputs that skip it and the single join of what it collected.
    *
    * @example
    *   ```typescript
@@ -859,15 +938,33 @@ export class EntityDecoder {
     if (typeof str !== 'string' || str.length === 0) return str;
     if (str.indexOf('&') === -1) return str; // nothing here can be a reference
 
-    const original = str;
+    const chunks = yield* this.#expandAll(str);
+
+    // `chunks` is empty exactly when nothing was replaced, in which case the input is its own result.
+    const result = chunks.length === 0 ? str : chunks.join('');
+
+    return this.#postCheck(result, str);
+  });
+
+  /**
+   * @description Walk the string once and collect the pieces of every reference that resolved. Two advance rules make the walk terminate and keep it correct: an
+   * `&` that turns out to open nothing moves the cursor by one character rather than to the end of its run, so a second `&` in the same text is still
+   * found; and a reference that did resolve moves it to just past the `;`, so the text that was substituted for it is never looked at again — that is
+   * what makes the pass single, and a registered value containing `&` cannot expand a second level. What a reference becomes is `#resolveToken`'s to
+   * decide and what it costs is `#chargeExpansion`'s to apply, which leaves the scanning here as the only thing with a rule of its own.
+   *
+   * @param str - The string to expand. It always holds at least one `&` and is never empty, or the caller would have returned before reaching the
+   *   walk.
+   *
+   * @returns An effect producing the pieces in order. The array is empty exactly when nothing was replaced, which the caller reads as "the input is
+   *   its own result". Fails with {@link XmlError} and the reason the offending reference carries — `ProhibitedCharacterReference`,
+   *   `ExpansionLimitExceeded` or `ExpandedLengthLimitExceeded`.
+   */
+  #expandAll = Effect.fnUntraced(function* (this: EntityDecoder, str: string): Effect.fn.Return<string[], XmlError> {
     const chunks: string[] = [];
     const len = str.length;
     let last = 0; // start of the next unprocessed literal run
     let i = 0;
-
-    const limitExpansions = this.#maxTotalExpansions > 0;
-    const limitLength = this.#maxExpandedLength > 0;
-    const checkLimits = limitExpansions || limitLength;
 
     while (i < len) {
       if (str.charCodeAt(i) !== CODE_AMPERSAND) {
@@ -875,116 +972,168 @@ export class EntityDecoder {
         continue;
       }
 
-      // Scan forward to the closing `;`, refusing to look further than one token's width.
-      let j = i + 1;
-      while (j < len && str.charCodeAt(j) !== CODE_SEMICOLON && j - i <= MAX_TOKEN_LENGTH) j++;
-
-      if (j >= len || str.charCodeAt(j) !== CODE_SEMICOLON) {
-        // No `;` in range: a bare ampersand, not a reference. Advance past the `&` only, so a
-        // later `&` in the same run is still found.
+      const end = scanTokenEnd(str, i);
+      if (end <= i + 1) {
+        // Nothing to resolve: no `;` inside the scan window, or an empty token (`&;`). A bare ampersand
+        // rather than a reference, so advance past the `&` only and let the rest of the run be copied.
         i++;
         continue;
       }
 
-      const token = str.slice(i + 1, j);
-      if (token.length === 0) {
-        i++;
-        continue;
-      }
-
-      let replacement: string | undefined;
-      let tier: LimitTier | undefined;
-
-      if (this.#removeSet.has(token)) {
-        // Deleted without being resolved, so the name need not exist.
-        replacement = '';
-        // Upstream guards this with `if (tier === undefined)`, and `tier` is declared without an
-        // initialiser, so the branch is unconditionally taken. Kept as written: the comment beside
-        // it is the only record of why the charge lands on `external`.
-        if (tier === undefined) {
-          tier = LIMIT_TIER_EXTERNAL;
-        }
-      } else if (this.#leaveSet.has(token)) {
-        // Emitted as the original `&token;`. Advancing only past the `&` leaves the `;` to be
-        // copied by the next literal run, which is what makes the text come back unchanged.
-        i++;
-        continue;
-      } else if (token.charCodeAt(0) === CODE_HASH) {
-        // Classification runs before any decision about `numericAllowed`: the ranges that carry a
-        // minimum have to be caught whichever way that option is set.
-        const ncrResult = yield* this.#resolveNCR(token);
-        if (ncrResult === undefined) {
-          i++;
-          continue;
-        }
-        replacement = ncrResult; // '' for remove, the character for allow
-        tier = LIMIT_TIER_BASE;
-      } else {
-        const resolved = this.#resolveName(token);
-        replacement = resolved?.value;
-        tier = resolved?.tier;
-      }
-
-      if (replacement === undefined) {
-        // Unknown name: leave the text alone and resume scanning just after the `&`.
+      const token = str.slice(i + 1, end);
+      const resolved = yield* this.#resolveToken(token);
+      if (resolved === undefined) {
+        // Left, unparseable or unknown: leave the text alone and resume scanning just after the `&`.
         i++;
         continue;
       }
 
       if (i > last) chunks.push(str.slice(last, i));
-      chunks.push(replacement);
-      last = j + 1;
+      chunks.push(resolved.value);
+      last = end + 1;
       i = last;
 
-      if (checkLimits && this.#tierCounts(tier)) {
-        if (limitExpansions) {
-          this.#totalExpansions++;
-          if (this.#totalExpansions > this.#maxTotalExpansions) {
-            // Deliberately not resetting the counter before failing: the
-            // over-limit total is what the error reports, and `reset` is the
-            // caller's way to start a new document.
-            return yield* new XmlErrorCtor({
-              reason: { _tag: 'ExpansionLimitExceeded', actual: this.#totalExpansions, limit: this.#maxTotalExpansions },
-              message: `[EntityReplacer] Entity expansion count limit exceeded: ${this.#totalExpansions} > ${this.#maxTotalExpansions}`,
-            });
-          }
-        }
-        if (limitLength) {
-          // Only the surplus counts, and only upward: a reference that shrinks the text cannot
-          // contribute, so `maxExpandedLength` is a bound on growth and not on document size.
-          const delta = replacement.length - (token.length + 2);
-          if (delta > 0) {
-            this.#expandedLength += delta;
-            if (this.#expandedLength > this.#maxExpandedLength) {
-              return yield* new XmlErrorCtor({
-                reason: { _tag: 'ExpandedLengthLimitExceeded', actual: this.#expandedLength, limit: this.#maxExpandedLength },
-                message: `[EntityReplacer] Expanded content length limit exceeded: ${this.#expandedLength} > ${this.#maxExpandedLength}`,
-              });
-            }
-          }
-        }
-      }
+      yield* this.#chargeExpansion(token, resolved.value, resolved.tier);
     }
 
     if (last < len) chunks.push(str.slice(last));
 
-    // `chunks` is empty exactly when nothing was replaced, in which case the input is its own result.
-    const result = chunks.length === 0 ? str : chunks.join('');
-
-    return this.#postCheck(result, original);
+    return chunks;
   });
+
+  /**
+   * @description Decide what one reference expands to. The lists and maps are consulted in the one order the runtime uses, and the first that matches wins:
+   *
+   * 1. `remove` — deleted outright, without the name ever being resolved, so the name need not exist.
+   * 2. `leave` — emitted as the original `&token;`, and charged to nothing.
+   * 3. A `#`-prefixed token — the numeric pipeline, which is the only one of the four that can fail. Classification runs before any decision about
+   *    `numericAllowed`, because the ranges that carry a minimum have to be caught whichever way that option is set.
+   * 4. Anything else — resolved against the input map, then the external map, then the base map.
+   *
+   * @param token - The reference's token, e.g. `brand` or `#38`, with the `&` and the `;` already stripped. Never empty: the scanner drops `&;`
+   *   before calling.
+   *
+   * @returns An effect producing what the reference expands to and the tier to charge it to, or `undefined` to leave it as written and charge it
+   *   nothing. `undefined` covers all three ways of leaving a reference alone — a listed `leave` name, a numeric reference that is out of range, and
+   *   a name registered nowhere — and none of them is distinguishable from outside. Fails with {@link XmlError} and the
+   *   `ProhibitedCharacterReference` reason when the numeric policy throws on the codepoint.
+   */
+  #resolveToken = Effect.fnUntraced(function* (this: EntityDecoder, token: string): Effect.fn.Return<ResolvedEntity | undefined, XmlError> {
+    if (this.#removeSet.has(token)) {
+      // Deleted without being resolved, so the name need not exist. Upstream guards this charge with
+      // `if (tier === undefined)`, and its `tier` is declared without an initialiser, so the branch is
+      // unconditionally taken and the charge always lands on `external` — whatever tier the name would
+      // have resolved in. That is why a document full of removed built-ins can trip an `external` limit
+      // nothing it wrote could otherwise reach. Kept as written, since that is a behaviour a caller may
+      // already be relying on.
+      return { value: '', tier: LIMIT_TIER_EXTERNAL };
+    }
+
+    // Emitted as the original `&token;`. The walk advances only past the `&` and leaves the `;` to be
+    // copied by the next literal run, which is what makes the text come back unchanged.
+    if (this.#leaveSet.has(token)) return undefined;
+
+    if (token.charCodeAt(0) === CODE_HASH) {
+      const character = yield* this.#resolveNCR(token);
+      // `''` for a removal and the character for an allow are both real replacements; `undefined` is the
+      // numeric pipeline's own way of saying "leave it as written".
+      if (character === undefined) return undefined;
+      return { value: character, tier: LIMIT_TIER_BASE };
+    }
+
+    return this.#resolveName(token);
+  });
+
+  /**
+   * @description Charge one expansion against the ceilings, or against neither. An expansion counts only when its tier passes `#tierCounts` and at least one
+   * ceiling is configured, so a decoder with no limits set does no accounting at all, and an entity in a tier the filter excludes is free. Each
+   * ceiling is guarded separately rather than left to its own check, because an unconfigured ceiling is not a ceiling of zero: `maxExpandedLength: 0`
+   * means unlimited, so a decoder with only a count limit must not accumulate length it will then be compared against.
+   *
+   * @param token - The reference's token, with the `&` and `;` stripped. Its width is the baseline the expansion is measured against.
+   * @param replacement - What the reference expanded to, including `''` for a removal.
+   * @param tier - The tier the expansion is charged to.
+   *
+   * @returns An effect that fails with {@link XmlError} once a ceiling is exceeded, and succeeds otherwise. The count is checked before the length,
+   *   so a document that breaches both is reported against the count.
+   */
+  #chargeExpansion = Effect.fnUntraced(function* (
+    this: EntityDecoder,
+    token: string,
+    replacement: string,
+    tier: LimitTier
+  ): Effect.fn.Return<void, XmlError> {
+    const counts = this.#maxTotalExpansions > 0;
+    const grows = this.#maxExpandedLength > 0;
+    if (!counts && !grows) return;
+    if (!this.#tierCounts(tier)) return;
+
+    if (counts) yield* this.#countExpansion();
+    if (grows) yield* this.#countExpandedLength(token, replacement);
+  });
+
+  /**
+   * @description Add one expansion to the running total and compare it against {@link EntityDecoderLimitOptions.maxTotalExpansions}. The comparison is `>` rather
+   * than `>=`, so a limit of `n` allows exactly `n` expansions and throws on the `n + 1`th. That is a contract — the option's own documentation
+   * states it — and the kind of off-by-one a tidy-up changes by accident. The counter is deliberately not reset before failing: the over-limit total
+   * is what the error message reports, and {@link EntityDecoder.reset} is the caller's way to start a new document.
+   *
+   * @returns An effect that fails with {@link XmlError} and the `ExpansionLimitExceeded` reason once the count is past the ceiling, and succeeds
+   *   otherwise. The `EntityReplacer` prefix in the message is preserved verbatim from the original throw, despite naming a class this decoder does
+   *   not have.
+   */
+  #countExpansion(): Effect.Effect<void, XmlError> {
+    this.#totalExpansions++;
+    if (this.#totalExpansions > this.#maxTotalExpansions) {
+      return Effect.fail(
+        new XmlErrorCtor({
+          reason: { _tag: 'ExpansionLimitExceeded', actual: this.#totalExpansions, limit: this.#maxTotalExpansions },
+          message: `[EntityReplacer] Entity expansion count limit exceeded: ${this.#totalExpansions} > ${this.#maxTotalExpansions}`,
+        })
+      );
+    }
+    return Effect.void;
+  }
+
+  /**
+   * @description Add one expansion's surplus to the running total and compare it against {@link EntityDecoderLimitOptions.maxExpandedLength}. Only the surplus
+   * counts, and only upward: a reference whose replacement is no longer than the `&token;` it replaces contributes zero, and a shrinking one
+   * contributes nothing and cannot trip the limit at all. That is what makes the ceiling a bound on growth rather than on document size.
+   *
+   * @param token - The reference's token, with the `&` and `;` stripped. The two delimiters count towards what the expansion displaced.
+   * @param replacement - What the reference expanded to, including `''` for a removal.
+   *
+   * @returns An effect that fails with {@link XmlError} and the `ExpandedLengthLimitExceeded` reason once the total is past the ceiling, and succeeds
+   *   otherwise. The `EntityReplacer` prefix in the message is preserved verbatim from the original throw, for the same reason as in
+   *   `#countExpansion`.
+   */
+  #countExpandedLength(token: string, replacement: string): Effect.Effect<void, XmlError> {
+    const delta = replacement.length - (token.length + 2);
+    if (delta <= 0) return Effect.void;
+
+    this.#expandedLength += delta;
+    if (this.#expandedLength > this.#maxExpandedLength) {
+      return Effect.fail(
+        new XmlErrorCtor({
+          reason: { _tag: 'ExpandedLengthLimitExceeded', actual: this.#expandedLength, limit: this.#maxExpandedLength },
+          message: `[EntityReplacer] Expanded content length limit exceeded: ${this.#expandedLength} > ${this.#maxExpandedLength}`,
+        })
+      );
+    }
+    return Effect.void;
+  }
 
   /**
    * @description Decide whether an entity of a given tier is charged against the limits.
    *
-   * @param tier - The tier the resolved entity belongs to, or `undefined` for a reference that was charged before its tier was known.
+   * @param tier - The tier the replacement is charged to. Every expansion that reaches here carries one — a name deleted before it was ever resolved
+   *   still carries the `external` tier — so there is no absent case to answer.
    *
-   * @returns `true` when it counts. `'all'` short-circuits, and a `tier` of `undefined` never counts, which is the same answer a set lookup for a
-   *   non-member would give.
+   * @returns `true` when it counts. `'all'` short-circuits, so a filter naming every tier charges everything regardless of which map it came from.
    */
-  #tierCounts(tier: LimitTier | undefined): boolean {
+  #tierCounts(tier: LimitTier): boolean {
     if (this.#limitTiers.has(LIMIT_TIER_ALL)) return true;
-    return tier !== undefined && this.#limitTiers.has(tier);
+    return this.#limitTiers.has(tier);
   }
 
   /**
