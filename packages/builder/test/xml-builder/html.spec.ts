@@ -21,8 +21,11 @@ import { run, makeBuilder } from '#/test/helpers/effect.ts';
 describe('Builder', function () {
   it('should parse HTML with basic entities, <pre>, <script>, <br>', function () {
     // An inherited property on Object.prototype, to prove the builder walks own keys only.
-    (Object.prototype as unknown as Record<string, unknown>).something = 'strange';
-    const html = `
+    const target = Object.prototype as unknown as Record<string, unknown>;
+    const previous = target.something;
+    target.something = 'strange';
+    try {
+      const html = `
         <html lang="en">
             <head>
                 <script>
@@ -69,28 +72,34 @@ describe('Builder', function () {
             </body>
         </html>`;
 
-    const parsingOptions: X2jOptions = {
-      ignoreAttributes: false,
-      preserveOrder: true,
-      unpairedTags: ['hr', 'br', 'link', 'meta'],
-      stopNodes: ['*.pre', '*.script'],
-      processEntities: true,
-      htmlEntities: true,
-    };
-    const parser = new XMLParser(parsingOptions);
-    const result: unknown = parser.parse(html);
+      const parsingOptions: X2jOptions = {
+        ignoreAttributes: false,
+        preserveOrder: true,
+        unpairedTags: ['hr', 'br', 'link', 'meta'],
+        stopNodes: ['*.pre', '*.script'],
+        processEntities: true,
+        htmlEntities: true,
+      };
+      const parser = new XMLParser(parsingOptions);
+      const result: unknown = parser.parse(html);
 
-    const builderOptions: XmlBuilderOptions = {
-      ignoreAttributes: false,
-      format: true,
-      preserveOrder: true,
-      suppressEmptyNode: false,
-      unpairedTags: ['hr', 'br', 'link', 'meta'],
-      stopNodes: ['*.pre', '*.script'],
-    };
-    const builder = makeBuilder(builderOptions);
-    let output = run(builder.build(result));
-    output = output.replace('₹', '&inr;');
-    expect(output.replace(/\s+/g, '')).toEqual(html.replace(/\s+/g, ''));
+      const builderOptions: XmlBuilderOptions = {
+        ignoreAttributes: false,
+        format: true,
+        preserveOrder: true,
+        suppressEmptyNode: false,
+        unpairedTags: ['hr', 'br', 'link', 'meta'],
+        stopNodes: ['*.pre', '*.script'],
+      };
+      const builder = makeBuilder(builderOptions);
+      let output = run(builder.build(result));
+      output = output.replace('₹', '&inr;');
+      expect(output.replace(/\s+/g, '')).toEqual(html.replace(/\s+/g, ''));
+    } finally {
+      // Restored here rather than in an `afterEach`: the pollution is global, and a spec that leaves it
+      // behind reaches every later file collected in the same worker under `isolate: false`.
+      if (previous === undefined) delete target.something;
+      else target.something = previous;
+    }
   });
 });

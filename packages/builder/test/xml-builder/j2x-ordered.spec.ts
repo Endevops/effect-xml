@@ -239,8 +239,11 @@ describe('XMLBuilder', function () {
 
   it('should build XML when leaf nodes or attributes are parsed to array', function () {
     // The prototype is not declared to carry this key, so it is written through the index signature the builder itself walks.
-    (Object.prototype as Record<string, unknown>).something = 'strange';
-    const XMLdata = `<report>
+    const target = Object.prototype as Record<string, unknown>;
+    const previous = target.something;
+    target.something = 'strange';
+    try {
+      const XMLdata = `<report>
         <store>
             <region>US</region>
             <inventory>
@@ -264,7 +267,7 @@ describe('XMLBuilder', function () {
             </inventory>
         </store>
     </report>`;
-    const expected = `
+      const expected = `
 <report>
   <store>
     <region>US</region>
@@ -290,20 +293,26 @@ describe('XMLBuilder', function () {
   </store>
 </report>`;
 
-    const options: X2jOptions = {
-      ignoreAttributes: false,
-      isArray: (_tagName, _jpath, isLeafNode, _isAttribute) => {
-        if (isLeafNode === true) return true;
-        return false;
-      },
-      preserveOrder: true,
-    };
-    const parser = new XMLParser(options);
-    let result: unknown = parser.parse(XMLdata);
+      const options: X2jOptions = {
+        ignoreAttributes: false,
+        isArray: (_tagName, _jpath, isLeafNode, _isAttribute) => {
+          if (isLeafNode === true) return true;
+          return false;
+        },
+        preserveOrder: true,
+      };
+      const parser = new XMLParser(options);
+      let result: unknown = parser.parse(XMLdata);
 
-    const builder = makeBuilder({ attributeNamePrefix: '@_', ignoreAttributes: false, format: true, preserveOrder: true });
-    result = run(builder.build(result));
-    expect(result).toEqual(expected);
+      const builder = makeBuilder({ attributeNamePrefix: '@_', ignoreAttributes: false, format: true, preserveOrder: true });
+      result = run(builder.build(result));
+      expect(result).toEqual(expected);
+    } finally {
+      // Restored here rather than in an `afterEach`: the pollution is global, and a spec that leaves it
+      // behind reaches every later file collected in the same worker under `isolate: false`.
+      if (previous === undefined) delete target.something;
+      else target.something = previous;
+    }
   });
 
   it('should not process stop nodes when preserveOrder is true', function () {

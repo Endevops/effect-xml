@@ -421,13 +421,22 @@ describe('XMLBuilder', function () {
 
   it('should ignore Object level prototype properties or function', function () {
     // The prototype is not declared to carry this key, so it is written through the index signature the builder itself walks.
-    (Object.prototype as Record<string, unknown>).something = 'strange';
-    const jObj = { a: 1 };
-    const builder = makeBuilder();
-    const result = run(builder.build(jObj));
-    const expected = `<a>1</a>`;
+    const target = Object.prototype as Record<string, unknown>;
+    const previous = target.something;
+    target.something = 'strange';
+    try {
+      const jObj = { a: 1 };
+      const builder = makeBuilder();
+      const result = run(builder.build(jObj));
+      const expected = `<a>1</a>`;
 
-    expect(result).toEqual(expected);
+      expect(result).toEqual(expected);
+    } finally {
+      // Restored here rather than in an `afterEach`: the pollution is global, and a spec that leaves it
+      // behind reaches every later file collected in the same worker under `isolate: false`.
+      if (previous === undefined) delete target.something;
+      else target.something = previous;
+    }
   });
 
   it('should preserve the sign of a negative zero tag value', function () {
