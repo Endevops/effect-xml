@@ -19,6 +19,15 @@ import type { X2jOptions } from '#/options.ts';
 import XMLParser from '#/xml-parser.ts';
 
 /**
+ * @description How to sample each suite, and how long to warm it up first. A 20k-item catalog is roughly a second of work per parse, and Tinybench runs a task
+ * until either `time` elapses or `iterations` samples have been collected — whichever comes last. Its defaults (1000ms, 64 iterations) therefore
+ * demand 64 full-document parses per task, a minute of work in a runner that fails any `test` at 60s; the whole-document and chunked suites here both
+ * timed out on exactly that. Pinning `iterations` to a small number bounds each task to a handful of samples while the longer `time` window keeps the
+ * sample from being a single parse's noise.
+ */
+const BUDGET = { time: 2000, iterations: 3, warmupTime: 500, warmupIterations: 1 } as const;
+
+/**
  * @description Generate a catalog document with `n` items.
  *
  * @param n - Number of `<item>` elements to generate.
@@ -94,7 +103,7 @@ const runSync = <A>(effect: Effect.Effect<A, unknown>): A => Effect.runSync(effe
 test('parse() — whole document', async ({ bench }) => {
   await bench('20k-item catalog', () => {
     observed += rootKeyCount(runSync(makeParser().parse(doc)));
-  }).run();
+  }).run(BUDGET);
 });
 
 test('feed()/end() — chunked', async ({ bench }) => {
@@ -102,5 +111,5 @@ test('feed()/end() — chunked', async ({ bench }) => {
     const parser = makeParser();
     for (let offset = 0; offset < doc.length; offset += CHUNK_SIZE) runSync(parser.feed(doc.slice(offset, offset + CHUNK_SIZE)));
     observed += rootKeyCount(runSync(parser.end()));
-  }).run();
+  }).run(BUDGET);
 });

@@ -89,6 +89,19 @@ files already handle and any new one needs to:
   measurement, so check the durations after a Vite+ upgrade rather than
   assuming the numbers mean what they meant.
 
+A third thing the guide does not warn about, and the one that actually bit:
+
+- **A benchmark is a `test`, and a `test` has a 60s timeout.** Tinybench runs a
+  task until either `time` elapses _or_ `iterations` samples are collected —
+  whichever comes last — and its defaults are `time: 1000` with
+  `iterations: 64`. A workload heavy enough to outrun the time window (a
+  full-document parse of a large fixture, say) is therefore run 64 times
+  regardless, and 64 samples of a one-second task is a minute of work in a
+  suite that cannot exceed 60. The fix is to pin `iterations` on any suite
+  whose single iteration is not tens of microseconds — `iterations: 3` samples
+  a slow task three times, and a longer `time` window still smooths the sample.
+  `parse.bench.ts` carries the full note.
+
 # Git
 
 - After a task runs and its checks pass, commit the work. Do not wait to be asked.
