@@ -20,6 +20,7 @@ import type {
 } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { DecodingOptions, ResolvedOptions } from './options.ts';
+import type { TagExp } from './xml-part-reader.ts';
 
 import AutoCloseHandler from './auto-close-handler.ts';
 import { readDocType } from './doc-type-reader.ts';
@@ -399,49 +400,63 @@ export default class Xml2JsParser implements TagExpressionParser {
       if (ch === undefined || ch === '') break;
 
       if (ch === '<') {
-        const tagStart = preReadPos;
-
-        const nextChar = this.source.readChAt(0);
-        if (nextChar === '' || nextChar === undefined)
-          throw new UnexpectedEnd({ reading: `after '<'`, message: "Unexpected end of source after '<'", index: errorPositionOf(this.source).index });
-
-        //sorted frequency wise
-        if (nextChar === '/') {
-          this.source.updateBufferBoundary();
-          this.readClosingTag(tagStart);
-        } else if (nextChar === '!') {
-          this.source.updateBufferBoundary();
-          this.addTextNode();
-          this.readSpecialTag(nextChar);
-        } else if (nextChar === '?') {
-          this.source.updateBufferBoundary();
-          this.addTextNode();
-          readPiTag(this);
-        } else {
-          this.readOpeningTag(tagStart);
-        }
+        this._dispatchTagStart(preReadPos);
       } else {
-        // ch is already consumed. Peek ahead for more non-'<' chars and grab
-        // the whole run in one readStr call rather than concatenating one char
-        // at a time through every loop iteration.
-        let runLen = 0;
-        while (true) {
-          const c = this.source.readChAt(runLen);
-          if (c === '<' || c === undefined || c === '') break;
-          runLen++;
-        }
-        if (runLen > 0) {
-          this.tagTextData += ch + this.source.readStr(runLen, this.source.startIndex);
-          this.source.updateBufferBoundary(runLen);
-        } else {
-          this.tagTextData += ch;
-        }
-
-        //TODO: why does below code doesn't work
-        // const text = this.source.readUptoChar("<");
-        // this.tagTextData += text;
+        this._accumulateTextRun(ch);
       }
     }
+  }
+
+  /**
+   * @description Read the character following a `<` and route the token to the reader for its kind. The arms are ordered by frequency, so the two most common in
+   * real documents (`</` closing a tag and `<` opening one) are reached with the fewest comparisons. Only `!` and `?` flush pending text first,
+   * because a comment, CDATA or processing instruction cannot appear inside character data — an opening or closing tag can.
+   *
+   * @param tagStart - Position of the `<` itself, captured before it was read.
+   *
+   * @throws {ParseError} `UNEXPECTED_END` when the `<` is the last character available.
+   */
+  _dispatchTagStart(tagStart: { index: number }): void {
+    const nextChar = this.source.readChAt(0);
+    if (nextChar === '' || nextChar === undefined)
+      throw new UnexpectedEnd({ reading: `after '<'`, message: "Unexpected end of source after '<'", index: errorPositionOf(this.source).index });
+
+    //sorted frequency wise
+    if (nextChar === '/') {
+      this.source.updateBufferBoundary();
+      this.readClosingTag(tagStart);
+    } else if (nextChar === '!') {
+      this.source.updateBufferBoundary();
+      this.addTextNode();
+      this.readSpecialTag(nextChar);
+    } else if (nextChar === '?') {
+      this.source.updateBufferBoundary();
+      this.addTextNode();
+      readPiTag(this);
+    } else {
+      this.readOpeningTag(tagStart);
+    }
+  }
+
+  /**
+   * @description Buffer character data up to the next `<`. `first` has already been consumed by the caller. The rest of the run is then taken in a single
+   * `readStr` rather than one character per trip through the main loop, which is the difference between one substring per character of text content
+   * and one per run.
+   */
+  _accumulateTextRun(first: string): void {
+    let runLen = 0;
+    while (true) {
+      const c = this.source.readChAt(runLen);
+      if (c === '<' || c === undefined || c === '') break;
+      runLen++;
+    }
+    if (runLen === 0) {
+      this.tagTextData += first;
+      return;
+    }
+
+    this.tagTextData += first + this.source.readStr(runLen, this.source.startIndex);
+    this.source.updateBufferBoundary(runLen);
   }
 
   /**
@@ -454,17 +469,38 @@ export default class Xml2JsParser implements TagExpressionParser {
     // the builder — treat the partial parse as complete and skip EOF checks.
     if (this._exitIfTriggered) return;
 
-    const hasOpenTags = this.tagsStack.length > 0 || !!(this.currentTagDetail && !this.currentTagDetail.root);
+    const hasOpenTags = this._hasOpenTags();
+    // Trailing text is only meaningful when nothing is open: with an open tag,
+    // the text belongs to that tag and is closed by the recovery path instead.
+    const hasTrailingText = !hasOpenTags && this._hasTrailingText();
 
-    const hasTrailingText = !hasOpenTags && this.tagTextData !== undefined && this.tagTextData.trimEnd().length > 0;
+    if (!hasOpenTags && !hasTrailingText) return;
 
-    if (hasOpenTags || hasTrailingText) {
-      if (this.autoCloseHandler && hasOpenTags && !hasTrailingText) {
-        this.autoCloseHandler.handleEof(this._parserState());
-      } else {
-        throw new UnexpectedTrailingData({ message: 'Unexpected data in the end of document', index: errorPositionOf(this.source).index });
-      }
+    // autoClose repairs open tags only, so the `!hasTrailingText` guard this
+    // branch used to carry is implied by `hasOpenTags` and is dropped: text
+    // after the last `</>` is a document error no handler can make well-formed.
+    if (this.autoCloseHandler && hasOpenTags) {
+      this.autoCloseHandler.handleEof(this._parserState());
+      return;
     }
+
+    throw new UnexpectedTrailingData({ message: 'Unexpected data in the end of document', index: errorPositionOf(this.source).index });
+  }
+
+  /**
+   * @description Whether any real element is still open at end of input — either on the stack or as the current tag. The synthetic root node that `pushTag` starts
+   * from is not an element and does not count.
+   */
+  _hasOpenTags(): boolean {
+    return this.tagsStack.length > 0 || !!(this.currentTagDetail && !this.currentTagDetail.root);
+  }
+
+  /**
+   * @description Whether text has accumulated past the last tag. Whitespace-only text does not count — it is dropped by `addTextNode` under `skip.whitespaceText`,
+   * and reaching here with only whitespace is a well-formed document, not trailing data.
+   */
+  _hasTrailingText(): boolean {
+    return this.tagTextData !== undefined && this.tagTextData.trimEnd().length > 0;
   }
 
   /**
@@ -503,33 +539,9 @@ export default class Xml2JsParser implements TagExpressionParser {
    *   configured.
    */
   readClosingTag(tagStart: { index: number }): void {
-    // ── Fast path ────────────────────────────────────────────────────────────
-    // The overwhelming majority of closing tags match the tag already sitting
-    // on top of the stack. Try that directly, character-by-character, before
-    // reading the name into a fresh string and re-validating/re-sanitizing a
-    // name we've already validated once (see
-    // SAVEPOINT_closing_tag_and_double_scan.md). Peek-only — a mismatch or a
-    // buffer that runs out mid-check costs nothing to abandon, so any failure
-    // here falls straight through to the exact original slow path below.
-    //
-    // Skipping isUnpaired()/isStopNode() on this path is safe by construction,
-    // not just by observation: only pushTag() ever sets currentTagDetail, and
-    // pushTag() is never reached for an unpaired tag or a stop-node/skip-tag
-    // match (both close themselves inline in readOpeningTag) — so whenever
-    // currentTagDetail is a real open tag, both checks are guaranteed false.
-    const current = this.currentTagDetail;
-    if (current && !current.root && current.rawName !== undefined) {
-      const consumed = tryMatchClosingTagName(this.source, current.rawName);
-      if (consumed !== -1) {
-        this.source.updateBufferBoundary(consumed);
-        const closeMeta: CloseMeta = { name: current.name, index: tagStart.index, closeEnd: absolutePosition(this.source) };
-        this.addTextNode();
-        this.popTag(closeMeta);
-        return;
-      }
-    }
+    if (this._closeAgainstOpenTag(tagStart)) return;
 
-    // ── Slow path — unchanged ────────────────────────────────────────────────
+    // ── Slow path ────────────────────────────────────────────────────────────
     const tagName = this.processTagName(readClosingTagName(this.source));
     // closeMeta: position of this closing tag's '</' (tagStart, passed in from
     // parseXml's dispatch) plus the offset right after its '>' (closeEnd) —
@@ -540,24 +552,60 @@ export default class Xml2JsParser implements TagExpressionParser {
       throw new UnexpectedCloseTag({ tag: tagName, message: `Unexpected closing tag '${tagName}'`, index: errorPositionOf(this.source).index });
     }
 
-    if (tagName !== this.currentTagDetail?.name) {
-      if (!this.autoCloseHandler) {
-        throw new MismatchedCloseTag({
-          tag: tagName,
-          expected: this.currentTagDetail?.name,
-          message: `Unexpected closing tag '${tagName}' expecting '${this.currentTagDetail?.name}'`,
-          index: errorPositionOf(this.source).index,
-        });
-      }
-
-      const decision = this.autoCloseHandler.handleMismatch(tagName, this._parserState());
-
-      if (decision.action === 'discard') return;
-      // 'close-matched': handler updated currentTagDetail; fall through to normal close
-    }
+    if (tagName !== this.currentTagDetail?.name && !this._recoverMismatch(tagName)) return;
 
     if (!this.currentTagDetail?.root) this.addTextNode();
     this.popTag(closeMeta);
+  }
+
+  /**
+   * @description _Fast path_: close against the tag already on the stack without reading the name at all. The overwhelming majority of closing tags match the tag
+   * sitting on top of the stack. Trying that directly, character by character, avoids reading the name into a fresh string and re-validating and
+   * re-sanitizing a name already validated once when the tag opened (see `SAVEPOINT_closing_tag_and_double_scan.md`). Peek-only: a mismatch, or a
+   * buffer that runs out mid-check, costs nothing to abandon, so every failure here falls straight through to the unchanged slow path. Skipping
+   * `isUnpaired()` / `isStopNode()` here is safe by construction, not just by observation. Only `pushTag()` ever sets `currentTagDetail`, and
+   * `pushTag()` is never reached for an unpaired tag or a stop-node/skip-tag match — both of those close themselves inline in `readOpeningTag()`. So
+   * whenever `currentTagDetail` is a real open tag, both checks are guaranteed false.
+   *
+   * @returns `true` when the tag was matched and closed here, `false` to fall through to the slow path. Nothing is consumed on `false` — the check is
+   *   a peek.
+   */
+  _closeAgainstOpenTag(tagStart: { index: number }): boolean {
+    const current = this.currentTagDetail;
+    if (!current || current.root || current.rawName === undefined) return false;
+
+    const consumed = tryMatchClosingTagName(this.source, current.rawName);
+    if (consumed === -1) return false;
+
+    this.source.updateBufferBoundary(consumed);
+    const closeMeta: CloseMeta = { name: current.name, index: tagStart.index, closeEnd: absolutePosition(this.source) };
+    this.addTextNode();
+    this.popTag(closeMeta);
+    return true;
+  }
+
+  /**
+   * @description Offer a closing tag that does not match the open tag to the autoClose handler, when one is configured.
+   *
+   * @returns `true` when the mismatch was resolved and this closing tag should close what it now matches. `false` when the closing tag is to be
+   *   discarded — the handler decided it carries nothing recoverable.
+   *
+   * @throws {ParseError} `MISMATCHED_CLOSE_TAG` when no autoClose handler is configured, since a mismatched closing tag is then unrecoverable. On
+   *   `'close-matched'` the handler has already popped the intermediate tags and updated `currentTagDetail`, so the caller falls through to the
+   *   normal close path against whatever is now on top.
+   */
+  _recoverMismatch(tagName: string): boolean {
+    const expected = this.currentTagDetail?.name;
+    if (!this.autoCloseHandler) {
+      throw new MismatchedCloseTag({
+        tag: tagName,
+        expected,
+        message: `Unexpected closing tag '${tagName}' expecting '${expected}'`,
+        index: errorPositionOf(this.source).index,
+      });
+    }
+
+    return this.autoCloseHandler.handleMismatch(tagName, this._parserState()).action !== 'discard';
   }
 
   /**
@@ -572,28 +620,8 @@ export default class Xml2JsParser implements TagExpressionParser {
     this.addTextNode();
 
     // ── Stop-node resume ─────────────────────────────────────────────────────
-    // When a chunk boundary fell inside StopNodeProcessor.collect(), feed() caught
-    // UNEXPECTED_END and rewound the source to the '<' of the stop node's
-    // opening tag. On the next feed() we re-enter here with the processor active.
-    // Re-consume the opening tag (source was rewound to its '<'), then resume
-    // collection — the processor remembers all accumulated content and depth.
     if (this._stopNodeProcessor && this._stopNodeProcessor.isActive()) {
-      const { tagDetail, isSkip } = this._stopNodeProcessorMeta as StopNodeMeta;
-      this._stopNodeProcessor.resumeAfterOpenTag();
-      readTagExp(this); // re-consume the opening tag from the rewound source
-      // openEnd reflects the offset right after this opening tag's '>' — stable
-      // across retries since the opening tag is fully re-read every time.
-      tagDetail.openEnd = absolutePosition(this.source);
-      const { content, end: stopEnd } = this._stopNodeProcessor.collect(this.source);
-      if (!isSkip) {
-        this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
-        this.outputBuilder.onStopNode?.(tagDetail, content, this.readonlyMatcher, stopEnd);
-        this.outputBuilder.addValue(content, this.readonlyMatcher);
-        runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
-      }
-      runXml(this.matcher.pop());
-      this._stopNodeProcessor = null;
-      this._stopNodeProcessorMeta = null;
+      this._resumeStopNode();
       return;
     }
 
@@ -616,26 +644,11 @@ export default class Xml2JsParser implements TagExpressionParser {
     // passing the full "ns:code" as the tag name would break ns::code expression matching.
     const matcherTagName = tagNamespace !== undefined ? tagExp.tagName.slice(colonIdx + 1) : processedTagName;
 
-    // ── Limit: maxNestedTags ─────────────────────────────────────────────────
-    const maxNested = options.limits?.maxNestedTags;
-    if (maxNested !== undefined && maxNested !== null) {
-      const depth = this.tagsStack.length + 1;
-      if (depth > maxNested) {
-        throw new LimitMaxNestedTags({
-          limit: maxNested,
-          depth,
-          message: `Nesting depth ${depth} exceeds limit of ${maxNested} (tag: '${processedTagName}')`,
-          index: tagDetail.index,
-        });
-      }
-    }
+    this._enforceMaxNestedTags(tagDetail);
 
     // ── Two-pass attribute handling ──────────────────────────────────────────
-    const rawAttributes = tagExp.rawAttributes;
-    const raeAttrLen = tagExp.rawAttributesLen;
-    if (raeAttrLen > 0) {
-      runXml(this.matcher.push(matcherTagName, rawAttributes, tagNamespace, keepSpace));
-      // this.matcher.updateCurrent(rawAttributes);
+    if (tagExp.rawAttributesLen > 0) {
+      runXml(this.matcher.push(matcherTagName, tagExp.rawAttributes, tagNamespace, keepSpace));
     } else {
       runXml(this.matcher.push(matcherTagName, {}, tagNamespace));
     }
@@ -648,85 +661,162 @@ export default class Xml2JsParser implements TagExpressionParser {
       flushAttributes(tagExp._parsedAttrs, this, tagExp._attrsExpStart, tagExp._rawAttrMatchCount, processedTagName);
     }
 
-    // Stop-node and skip-tag checks AFTER attributes are set so attribute conditions work.
-    // const stopNodeConfig = this.isStopNode();
-    // Skip tag is only checked when this tag is not already a stop node — they are mutually exclusive.
-    // const skipTagConfig = stopNodeConfig ? null : this.isSkipTag();
+    this._dispatchOpenedTag(tagExp, tagDetail, stopNodeConfig, skipTagConfig);
+  }
 
-    if (this.isUnpaired(processedTagName)) {
-      this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
-      // Unpaired tags (e.g. <br>, <img>) have no separate closing tag — the
-      // close position is the same as the open tag's end.
-      runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
-      runXml(this.matcher.pop());
+  /**
+   * @description Enforce `limits.maxNestedTags` against the depth this tag would open.
+   *
+   * @throws {ParseError} `LIMIT_MAX_NESTED_TAGS` when the depth exceeds the limit. No limit configured means no check.
+   */
+  _enforceMaxNestedTags(tagDetail: TagDetailLike): void {
+    const maxNested = this.options.limits?.maxNestedTags;
+    if (maxNested === undefined || maxNested === null) return;
+
+    const depth = this.tagsStack.length + 1;
+    if (depth <= maxNested) return;
+
+    throw new LimitMaxNestedTags({
+      limit: maxNested,
+      depth,
+      message: `Nesting depth ${depth} exceeds limit of ${maxNested} (tag: '${tagDetail.name}')`,
+      index: tagDetail.index,
+    });
+  }
+
+  /**
+   * @description Route a fully-read opening tag to the one handling that applies, in the order below. The order is load-bearing, not incidental:
+   *
+   * 1. Unpaired (`<br>`) and 2. self-closing (`<tag/>`) have no closing tag at all, so they complete here regardless of any later rule.
+   * 2. Stop nodes and 4. skip tags are mutually exclusive by construction — `skipTagConfig` is only computed when `stopNodeConfig` came back empty.
+   * 3. `exitIf` is checked last, so a tag matching both a stop node and an `exitIf` predicate resolves as the stop node. Each arm was inline here
+   *    before. They are named methods so the routing reads as a table, and so each one's builder calls can be read without tracking which branch of
+   *    the chain is live.
+   */
+  _dispatchOpenedTag(
+    tagExp: TagExp,
+    tagDetail: TagDetailLike,
+    stopNodeConfig: TagExpressionConfig | null | undefined,
+    skipTagConfig: TagExpressionConfig | null | undefined
+  ): void {
+    if (this.isUnpaired(tagDetail.name)) {
+      this._openUnpairedTag(tagDetail);
     } else if (tagExp.selfClosing) {
-      if (!skipTagConfig) {
-        this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
-        // Self-closing tags (<tag/>) likewise have no distinct closing tag.
-        runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
-      }
-      runXml(this.matcher.pop());
+      this._openSelfClosingTag(tagDetail, skipTagConfig);
     } else if (stopNodeConfig) {
-      // Create a fresh processor with the matching nested + skipEnclosures config.
-      // Raw tag name (tagExp.tagName) is used — the processor scans the source
-      // character-by-character and must match the prefix-as-written (e.g. "ns:code"),
-      // independent of what skip.nsPrefix does to the processed output name.
-      this._stopNodeProcessor = new StopNodeProcessor(tagExp.tagName, {
-        nested: stopNodeConfig.nested,
-        skipEnclosures: stopNodeConfig.skipEnclosures,
-      });
-      this._stopNodeProcessorMeta = { tagDetail, isSkip: false };
-      this._stopNodeProcessor.activate();
-      const { content, end: stopEnd } = this._stopNodeProcessor.collect(this.source);
-      this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
-      this.outputBuilder.onStopNode?.(tagDetail, content, this.readonlyMatcher, stopEnd);
-      this.outputBuilder.addValue(content, this.readonlyMatcher);
-      // closeMeta for a stop node carries only `closeEnd` (offset right after
-      // the matched </tagname> was consumed) — StopNodeProcessor scans the
-      // closing tag opaquely and doesn't track where '</tagname' itself starts,
-      // so unlike the normal close path we don't have a real index
-      // for the close tag's own start, only its end.
-      runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
-      runXml(this.matcher.pop());
-      this._stopNodeProcessor = null;
-      this._stopNodeProcessorMeta = null;
+      this._openStopNode(tagExp, tagDetail, stopNodeConfig);
     } else if (skipTagConfig) {
-      // Skip tag: collect raw content (to advance the source past the closing tag)
-      // but call no output builder methods — the tag is silently dropped.
-      // Raw tag name used for the same reason as the stop-node branch above.
-      this._stopNodeProcessor = new StopNodeProcessor(tagExp.tagName, { nested: skipTagConfig.nested, skipEnclosures: skipTagConfig.skipEnclosures });
-      this._stopNodeProcessorMeta = { tagDetail, isSkip: true };
-      this._stopNodeProcessor.activate();
-      this._stopNodeProcessor.collect(this.source); // advance source; content discarded
-      runXml(this.matcher.pop());
-      this._stopNodeProcessor = null;
-      this._stopNodeProcessorMeta = null;
+      this._openSkipTag(tagExp, tagDetail, skipTagConfig);
     } else if (runXml(this._exitIf(this.readonlyMatcher))) {
-      // ── exitIf ───────────────────────────────────────────────────────────────
-      // Checked BEFORE addElement so the triggering tag is never added to the
-      // output builder. The matcher is already positioned (push + updateCurrent
-      // above), so attribute-based predicates work correctly.
-      //
-      // We pop the matcher entry for this tag (it was never added to the builder),
-      // then close all already-open ancestors so the builder can finalise its tree.
-
-      const exitDepth = this.tagsStack.length; // number of ancestors open before this tag
-      runXml(this.matcher.pop()); // undo the push for the triggering tag
-
-      while (this.currentTagDetail && !this.currentTagDetail.root) {
-        this.addTextNode();
-        this.popTag();
-      }
-
-      // Notify the output builder that parsing was intentionally truncated.
-      if (typeof this.outputBuilder.onExit === 'function') {
-        this.outputBuilder.onExit({ tagDetail, matcher: this.readonlyMatcher, depth: exitDepth });
-      }
-
-      this._exitIfTriggered = true;
+      this._triggerExitIf(tagDetail);
     } else {
       this.pushTag(tagDetail);
     }
+  }
+
+  /**
+   * @description Handle an unpaired tag (`<br>`, `<img>`). There is no separate closing tag, so the element opens and closes in one step and the close position is
+   * the open tag's own end.
+   */
+  _openUnpairedTag(tagDetail: TagDetailLike): void {
+    this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
+    runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
+    runXml(this.matcher.pop());
+  }
+
+  /**
+   * @description Handle a self-closing tag (`<tag/>`). Like an unpaired tag it has no distinct closing tag, so it opens and closes immediately — but unlike an
+   * unpaired tag it can still be a skip tag, in which case it is dropped from the output entirely.
+   */
+  _openSelfClosingTag(tagDetail: TagDetailLike, skipTagConfig: TagExpressionConfig | null | undefined): void {
+    if (!skipTagConfig) {
+      this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
+      runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
+    }
+    runXml(this.matcher.pop());
+  }
+
+  /**
+   * @description Handle an opening tag that starts a stop node: collect its content through to the matching `</tag>`, emit it, and close. The raw tag name is used
+   * to construct the processor because it scans the source character by character and must match the prefix as written (`ns:code`), independent of
+   * what `skip.nsPrefix` does to the output name. The `closeMeta` passed here carries only `closeEnd` (the offset just past the matched
+   * `</tagname>`). `StopNodeProcessor` scans the closing tag opaquely and does not track where `</tagname>` itself starts, so unlike the normal close
+   * path there is no real index for the close tag's start — only its end.
+   */
+  _openStopNode(tagExp: TagExp, tagDetail: TagDetailLike, config: TagExpressionConfig): void {
+    this._stopNodeProcessor = new StopNodeProcessor(tagExp.tagName, { nested: config.nested, skipEnclosures: config.skipEnclosures });
+    this._stopNodeProcessorMeta = { tagDetail, isSkip: false };
+    this._stopNodeProcessor.activate();
+    const { content, end: stopEnd } = this._stopNodeProcessor.collect(this.source);
+    this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
+    this.outputBuilder.onStopNode?.(tagDetail, content, this.readonlyMatcher, stopEnd);
+    this.outputBuilder.addValue(content, this.readonlyMatcher);
+    runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
+    runXml(this.matcher.pop());
+    this._stopNodeProcessor = null;
+    this._stopNodeProcessorMeta = null;
+  }
+
+  /**
+   * @description Handle an opening tag that starts a skip tag. Identical to the stop-node path except that no output builder method is called: the content is
+   * collected only to advance the source past the closing tag, then discarded and the tag silently dropped.
+   */
+  _openSkipTag(tagExp: TagExp, tagDetail: TagDetailLike, config: TagExpressionConfig): void {
+    this._stopNodeProcessor = new StopNodeProcessor(tagExp.tagName, { nested: config.nested, skipEnclosures: config.skipEnclosures });
+    this._stopNodeProcessorMeta = { tagDetail, isSkip: true };
+    this._stopNodeProcessor.activate();
+    this._stopNodeProcessor.collect(this.source); // advance source; content discarded
+    runXml(this.matcher.pop());
+    this._stopNodeProcessor = null;
+    this._stopNodeProcessorMeta = null;
+  }
+
+  /**
+   * @description Handle an opening tag whose `exitIf` predicate fired. Checked before `addElement` so the triggering tag is never added to the output builder. The
+   * matcher is already positioned from the push above, so attribute-based predicates work. The push is then undone and every open ancestor closed, so
+   * the builder can finalise its tree, and the builder is told the document was truncated on purpose rather than being malformed.
+   */
+  _triggerExitIf(tagDetail: TagDetailLike): void {
+    const exitDepth = this.tagsStack.length; // number of ancestors open before this tag
+    runXml(this.matcher.pop()); // undo the push for the triggering tag
+
+    while (this.currentTagDetail && !this.currentTagDetail.root) {
+      this.addTextNode();
+      this.popTag();
+    }
+
+    if (typeof this.outputBuilder.onExit === 'function') {
+      this.outputBuilder.onExit({ tagDetail, matcher: this.readonlyMatcher, depth: exitDepth });
+    }
+
+    this._exitIfTriggered = true;
+  }
+
+  /**
+   * @description Finish an opening tag that a chunk boundary interrupted partway. When a boundary fell inside `StopNodeProcessor.collect()`, `feed()` caught
+   * `UNEXPECTED_END` and rewound the source to the `<` of the stop node's opening tag. On the next `feed()` the parser re-enters `readOpeningTag()`
+   * with the processor still active, so the opening tag is re-consumed from the rewound source and collection resumes — the processor remembers
+   * everything accumulated so far and the depth it had reached. A skip tag is retried through the same path but emits nothing, which is why the
+   * builder calls sit behind `isSkip`.
+   */
+  _resumeStopNode(): void {
+    const { tagDetail, isSkip } = this._stopNodeProcessorMeta as StopNodeMeta;
+    const processor = this._stopNodeProcessor as StopNodeProcessor;
+    processor.resumeAfterOpenTag();
+    readTagExp(this); // re-consume the opening tag from the rewound source
+    // openEnd reflects the offset right after this opening tag's '>' — stable
+    // across retries since the opening tag is fully re-read every time.
+    tagDetail.openEnd = absolutePosition(this.source);
+    const { content, end: stopEnd } = processor.collect(this.source);
+    if (!isSkip) {
+      this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
+      this.outputBuilder.onStopNode?.(tagDetail, content, this.readonlyMatcher, stopEnd);
+      this.outputBuilder.addValue(content, this.readonlyMatcher);
+      runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
+    }
+    runXml(this.matcher.pop());
+    this._stopNodeProcessor = null;
+    this._stopNodeProcessorMeta = null;
   }
 
   /**
@@ -770,33 +860,46 @@ export default class Xml2JsParser implements TagExpressionParser {
    * @throws {ParseError} `INVALID_TAG` for anything that isn't a comment, CDATA, or DOCTYPE; `UNEXPECTED_END` on a chunk boundary.
    */
   readSpecialTag(startCh: string): void {
-    if (startCh === '!') {
-      const nextChar = this.source.readCh();
-      if (nextChar === null || nextChar === undefined)
-        throw new UnexpectedEnd({ reading: `after '<!'`, message: "Unexpected end of source after '<!'", index: errorPositionOf(this.source).index });
-
-      if (nextChar === '-') {
-        readComment(this);
-      } else if (nextChar === '[') {
-        readCdata(this);
-      } else if (nextChar === 'D') {
-        // DOCTYPE is always read to consume its content and advance the cursor.
-        // Entities are forwarded to the output builder only when doctypeOptions.enabled is true.
-        const docTypeEntities = readDocType(this);
-        if (this.doctypeFound) {
-          throw new InvalidInput({
-            option: 'doctypeOptions',
-            message: 'Multiple DOCTYPE declarations found.',
-            index: errorPositionOf(this.source).index,
-          });
-        }
-        this.doctypeFound = true;
-        if (this.options.doctypeOptions.enabled && docTypeEntities && Object.keys(docTypeEntities).length > 0) {
-          this.outputBuilder.addInputEntities(docTypeEntities);
-        }
-      }
-    } else {
+    if (startCh !== '!') {
       throw new InvalidTag({ tag: `<${startCh}`, message: `Invalid tag '<${startCh}'`, index: errorPositionOf(this.source).index });
+    }
+
+    const nextChar = this.source.readCh();
+    if (nextChar === null || nextChar === undefined)
+      throw new UnexpectedEnd({ reading: `after '<!'`, message: "Unexpected end of source after '<!'", index: errorPositionOf(this.source).index });
+
+    if (nextChar === '-') {
+      readComment(this);
+    } else if (nextChar === '[') {
+      readCdata(this);
+    } else if (nextChar === 'D') {
+      this._readDocTypeDeclaration();
+    }
+    // Any other character after `<!` is silently ignored, matching the original
+    // chain: the construct is not one XML defines, but it is also not one that
+    // leaves the parser in a state it cannot recover from.
+  }
+
+  /**
+   * @description Handle a `<!DOCTYPE` declaration. The declaration is always read, even when `doctypeOptions.enabled` is false, because reading it is what
+   * advances the cursor past the internal subset. Whether its entities reach the output builder is a separate question.
+   *
+   * @throws {ParseError} `INVALID_INPUT` on a second DOCTYPE. XML allows exactly one, and accepting a second would leave entities from two subsets
+   *   merged with no record of which document they came from.
+   */
+  _readDocTypeDeclaration(): void {
+    const docTypeEntities = readDocType(this);
+    if (this.doctypeFound) {
+      throw new InvalidInput({
+        option: 'doctypeOptions',
+        message: 'Multiple DOCTYPE declarations found.',
+        index: errorPositionOf(this.source).index,
+      });
+    }
+    this.doctypeFound = true;
+
+    if (this.options.doctypeOptions.enabled && Object.keys(docTypeEntities).length > 0) {
+      this.outputBuilder.addInputEntities(docTypeEntities);
     }
   }
 
