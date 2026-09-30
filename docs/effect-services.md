@@ -69,12 +69,22 @@ constructor.
 
 ## Phases
 
-1. **builder** — value parsers, registry, pipeline, output builder, XML builder;
-   migrate `packages/builder/test` and the parser's builder wiring.
-2. **parser input layer** — encoding registry, input sources (string/buffer/
+1. **builder value-parser layer** — done (`935b0e1`): `Context`, `SharedContext`,
+   `FinalValue`, `ValueParserPipeline`, `ValueParserRegistry` and the five
+   built-ins are factory-produced values; `BaseValueParser` is gone.
+2. **builder XML builder** — done (`e8df40c`): `XMLBuilder` is a
+   `Context.Service` with `make` and `layer`, over per-build state.
+3. **builder output builder** — `BaseOutputBuilder`/`BaseOutputBuilderFactory`
+   and `CompactBuilder`/`CompactBuilderFactory` → an `OutputBuilder` service
+   whose `getInstance` returns a per-document builder value; migrate the
+   parser's builder wiring.
+4. **parser input layer** — encoding registry, input sources (string/buffer/
    feedable/stream), readers.
-3. **parser core** — `Parser` service, walk state, auto-close, stop nodes.
-4. **docs** — rewrite the READMEs, `docs/*.md` examples, and the codec package's
+5. **parser core** — `Parser` service, walk state, auto-close, stop nodes.
+6. **docs** — rewrite the READMEs, `docs/*.md` examples, and the codec package's
    internal use of the builder.
 
-Each phase is one green commit: `vp check` clean and `vp test` green.
+Each phase is one green commit: `vp check` clean and `vp test` green. Note that
+`tsc` resolves the workspace `@endevops/builder` through its built `dist`, so a
+build (`pnpm --filter @endevops/builder build`) is required before `vp check`
+sees a builder API change; `dist` is gitignored.
