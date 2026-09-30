@@ -1183,6 +1183,8 @@ export const fromUpstreamError = (cause: XmlError | BuilderError): DependencyErr
  * production, a matcher the parser owns — so reaching the failure branch would mean a defect rather than a bad document. The mapping is here anyway,
  * because leaving it out would make the next member added to `common-xml` throw a `FiberFailure` from inside the parser.
  *
+ * @deprecated
+ *
  * @param effect - The effect to run.
  *
  * @returns The successful value.
@@ -1195,6 +1197,8 @@ export const runXml = <A>(effect: Effect.Effect<A, XmlError>): A => Effect.runSy
  * @description Run a `@endevops/builder` effect in the middle of a synchronous decision, mapping its failure into a thrown {@link DependencyError}. The builder's
  * counterpart to {@link runXml}, and for the same reason: `closeElement` and `addAttribute` are called once per tag from the synchronous walk, and
  * both can genuinely fail — on an entity expansion limit, or a value processor a caller supplied.
+ *
+ * @deprecated
  *
  * @param effect - The effect to run.
  *

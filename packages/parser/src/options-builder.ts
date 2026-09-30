@@ -3,13 +3,13 @@ import type { Expression as PathExpression } from '@endevops/common-xml';
 
 import { CompactBuilderFactory } from '@endevops/builder';
 import { Expression, ExpressionSet } from '@endevops/common-xml';
-import { Effect } from 'effect';
+import { Effect, Predicate } from 'effect';
 
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, StopNodeEntry, X2jOptions } from './options.ts';
 
-import { InvalidInput, SecurityReservedOption, fromUpstreamError, runBuilder, type ParseError } from './parse-error.js';
+import { InvalidInput, SecurityReservedOption, fromUpstreamError, type ParseError } from './parse-error.js';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
 
 /**
@@ -321,7 +321,8 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
     }
 
     // Phase 3
-    if (!finalOptions.OutputBuilder) {
+    const outputBuilder = options?.OutputBuilder;
+    if (Predicate.isNullish(finalOptions.OutputBuilder)) {
       // `CompactBuilderFactory.make` rather than `new CompactBuilderFactory`:
       // the factory resolves its own options — a value-parser chain, an
       // `alwaysArray` pattern — on the way in, and that can fail, so its
@@ -329,7 +330,9 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
       // `builderOptions` undefined, which surfaced much later as a missing
       // `forceTextNode` on the first tag rather than as the configuration
       // failure it was.
-      finalOptions.OutputBuilder = runBuilder(DefaultOutputBuilderFactory.make());
+      finalOptions.OutputBuilder = yield* DefaultOutputBuilderFactory.make().pipe(Effect.orDie);
+    } else if (Effect.isEffect(outputBuilder)) {
+      finalOptions.OutputBuilder = yield* outputBuilder.pipe(Effect.orDie);
     }
 
     if (Array.isArray(finalOptions.tags?.stopNodes)) {

@@ -214,9 +214,8 @@ export class MatcherView {
   getAnyParentAttr(attrName: string): Effect.Effect<unknown, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      return yield* self.#matcher.getAnyParentAttr(attrName);
+    return Effect.gen({ self: this }, function* () {
+      return yield* this.#matcher.getAnyParentAttr(attrName);
     });
   }
 
@@ -230,9 +229,8 @@ export class MatcherView {
   hasAnyParentAttr(attrName: string): Effect.Effect<boolean, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      return yield* self.#matcher.hasAnyParentAttr(attrName);
+    return Effect.gen({ self: this }, function* () {
+      return yield* this.#matcher.hasAnyParentAttr(attrName);
     });
   }
 
@@ -272,9 +270,8 @@ export class MatcherView {
   getIndex(): Effect.Effect<number, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      return yield* self.getPosition();
+    return Effect.gen({ self: this }, function* () {
+      return yield* this.getPosition();
     });
   }
 
@@ -326,9 +323,8 @@ export class MatcherView {
   matches(expression: Expression): Effect.Effect<boolean, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      return yield* self.#matcher.matches(expression);
+    return Effect.gen({ self: this }, function* () {
+      return yield* this.#matcher.matches(expression);
     });
   }
 
@@ -345,9 +341,8 @@ export class MatcherView {
   matchesAny(exprSet: ExpressionSet): Effect.Effect<boolean, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      return yield* exprSet.matchesAny(self.#matcher);
+    return Effect.gen({ self: this }, function* () {
+      return yield* exprSet.matchesAny(this.#matcher);
     });
   }
 }
@@ -605,14 +600,13 @@ class Matcher {
   ): Effect.Effect<void, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      self.#pathStringCache = null;
-      self.#releaseCurrentValues();
-      const counters = self.#advanceSiblingCounters(tagName, namespace);
-      self.path.push(buildPathNode(tagName, attrValues, namespace, counters));
+    return Effect.gen({ self: this }, function* () {
+      this.#pathStringCache = null;
+      this.#releaseCurrentValues();
+      const counters = this.#advanceSiblingCounters(tagName, namespace);
+      this.path.push(buildPathNode(tagName, attrValues, namespace, counters));
       // `#retainKeptAttrs` reads the depth off the stack, so it runs after the push.
-      self.#retainKeptAttrs(attrValues, options);
+      this.#retainKeptAttrs(attrValues, options);
     });
   }
 
@@ -702,26 +696,25 @@ class Matcher {
   pop(): Effect.Effect<PathNode | undefined, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      if (self.path.length === 0) return undefined;
-      self.#pathStringCache = null;
+    return Effect.gen({ self: this }, function* () {
+      if (this.path.length === 0) return undefined;
+      this.#pathStringCache = null;
 
-      const node = self.path.pop();
+      const node = this.path.pop();
 
-      if (self.siblingStacks.length > self.path.length + 1) {
-        self.siblingStacks.length = self.path.length + 1;
+      if (this.siblingStacks.length > this.path.length + 1) {
+        this.siblingStacks.length = this.path.length + 1;
       }
 
       // Drop any kept attributes that belonged to the popped node (or deeper).
       // #keptAttrs is depth-ordered (push only ever appends increasing depths),
       // so this is a backward scan that stops at the first surviving entry —
       // typically O(1) since kept attrs are rare by design.
-      const poppedDepth = self.path.length + 1;
-      while (self.#keptAttrs.length > 0) {
-        const last = self.#keptAttrs[self.#keptAttrs.length - 1];
+      const poppedDepth = this.path.length + 1;
+      while (this.#keptAttrs.length > 0) {
+        const last = this.#keptAttrs[this.#keptAttrs.length - 1];
         if (last === undefined || last.depth < poppedDepth) break;
-        self.#keptAttrs.pop();
+        this.#keptAttrs.pop();
       }
 
       return node;
@@ -877,9 +870,8 @@ class Matcher {
   getIndex(): Effect.Effect<number, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
-      return yield* self.getPosition();
+    return Effect.gen({ self: this }, function* () {
+      return yield* this.getPosition();
     });
   }
 
@@ -963,8 +955,7 @@ class Matcher {
   matches(expression: Expression): Effect.Effect<boolean, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
+    return Effect.gen({ self: this }, function* () {
       const segments = expression.segments;
 
       if (segments.length === 0) {
@@ -972,10 +963,10 @@ class Matcher {
       }
 
       if (yield* expression.hasDeepWildcard()) {
-        return yield* self.#matchWithDeepWildcard(segments);
+        return yield* this.#matchWithDeepWildcard(segments);
       }
 
-      return yield* self.#matchSimple(segments);
+      return yield* this.#matchSimple(segments);
     });
   }
 
@@ -987,17 +978,16 @@ class Matcher {
    * @returns Whether every segment matches.
    */
   #matchSimple(segments: readonly Segment[]): Effect.Effect<boolean, XmlError> {
-    const self = this;
-    return Effect.gen(function* () {
-      if (self.path.length !== segments.length) {
+    return Effect.gen({ self: this }, function* () {
+      if (this.path.length !== segments.length) {
         return false;
       }
 
       for (let i = 0; i < segments.length; i++) {
         const segment = segments[i];
-        const node = self.path[i];
+        const node = this.path[i];
         if (segment === undefined || node === undefined) return false;
-        if (!(yield* self.#matchSegment(segment, node, i === self.path.length - 1))) {
+        if (!(yield* this.#matchSegment(segment, node, i === this.path.length - 1))) {
           return false;
         }
       }
@@ -1016,13 +1006,12 @@ class Matcher {
    * @returns Whether the pattern is exhausted against the path.
    */
   #matchWithDeepWildcard(segments: readonly Segment[]): Effect.Effect<boolean, XmlError> {
-    const self = this;
-    return Effect.gen(function* () {
-      let pathIdx = self.path.length - 1;
+    return Effect.gen({ self: this }, function* () {
+      let pathIdx = this.path.length - 1;
       let segIdx = segments.length - 1;
 
       while (segIdx >= 0 && pathIdx >= 0) {
-        const step = yield* self.#deepStep(segments, segIdx, pathIdx);
+        const step = yield* this.#deepStep(segments, segIdx, pathIdx);
         if (step.status === 'failed') return false;
         // A `..` in final position absorbs everything still left of the path.
         if (step.status === 'exhausted') return true;
@@ -1088,12 +1077,11 @@ class Matcher {
 
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
-    const self = this;
-    return Effect.gen(function* () {
+    return Effect.gen({ self: this }, function* () {
       for (let i = pathIdx; i >= 0; i--) {
-        const node = self.path[i];
+        const node = this.path[i];
         if (node === undefined) continue;
-        if (yield* self.#matchSegment(absorbed, node, i === self.path.length - 1)) {
+        if (yield* this.#matchSegment(absorbed, node, i === this.path.length - 1)) {
           // Placing `absorbed` consumes two pattern segments — the wildcard and
           // the segment above it — against one path level, so the pattern cursor
           // moves in by two while the path cursor moves in by one.

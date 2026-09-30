@@ -460,7 +460,7 @@ export interface X2jOptions {
    * requiring `line` / `col` on the tag detail, which this parser's index-only position model never produces. Depending on the structural contract
    * lets the bundled builders, a hand-written minimal factory, and a subclass all be passed without a cast.
    */
-  OutputBuilder?: OutputBuilderFactoryLike;
+  OutputBuilder?: OutputBuilderFactoryLike | Effect.Effect<OutputBuilderFactoryLike>;
 
   // --- autoClose (malformed-input recovery) ---
   /**

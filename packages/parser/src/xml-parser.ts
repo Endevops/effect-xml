@@ -135,13 +135,13 @@ class XMLParser {
    *
    * @returns An effect producing the built output. Fails with a `ParseError` on any well-formedness or limit violation.
    */
-  parse(xmlData: string | ArrayBufferView | { toString(): string }): Effect.Effect<unknown, ParseError> {
+  parse<T>(xmlData: string | ArrayBufferView | { toString(): string }): Effect.Effect<T, ParseError> {
     if (ArrayBuffer.isView(xmlData)) {
       // Route through the encoding-aware path (auto-detect / configured
       // `decoding.encoding`) instead of an unconditional utf8 decode —
       // otherwise a non-utf8 `decoding.encoding` option would silently be
       // ignored for byte input given directly to parse().
-      return this.parseBytesArr(xmlData);
+      return this.parseBytesArr(xmlData) as Effect.Effect<T, ParseError>;
     } else if (typeof xmlData !== 'string') {
       if (xmlData && typeof xmlData.toString === 'function') {
         xmlData = xmlData.toString();
@@ -159,7 +159,7 @@ class XMLParser {
         return result;
       },
       catch: toParseError,
-    });
+    }) as Effect.Effect<T, ParseError>;
   }
 
   /**
