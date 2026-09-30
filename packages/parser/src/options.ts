@@ -1,7 +1,7 @@
 import type { Expression, ExpressionSet, MatcherView, XmlError } from '@endevops/common-xml';
 import type { Effect } from 'effect';
 
-import type EncodingRegistry from './encoding/encoding-registry.ts';
+import type { EncodingRegistry } from './encoding/encoding-registry.ts';
 import type { NameCache, OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { Enclosure, TagExpressionConfig } from './internal/tag-expression.ts';
 

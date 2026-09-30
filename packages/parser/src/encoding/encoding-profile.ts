@@ -1,6 +1,6 @@
 import type { ScanStrategy } from '../input-source/input-source.ts';
 import type { DecodingOptions } from '../options.ts';
-import type EncodingRegistry from './encoding-registry.js';
+import type { EncodingRegistry } from './encoding-registry.js';
 import type { ResolvedEncodingDescriptor } from './encoding-registry.js';
 
 import { sniff } from './encoding-detector.js';

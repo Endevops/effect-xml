@@ -1,4 +1,4 @@
-import type EncodingRegistry from '../encoding/encoding-registry.ts';
+import type { EncodingRegistry } from '../encoding/encoding-registry.ts';
 import type { EncodingDecoder, FeedableOptions } from '../options.ts';
 import type { InputSourceLike } from './input-source.ts';
 

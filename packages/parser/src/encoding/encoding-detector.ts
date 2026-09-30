@@ -1,5 +1,4 @@
-import type EncodingRegistry from './encoding-registry.ts';
-import type { ResolvedEncodingDescriptor } from './encoding-registry.ts';
+import type { EncodingRegistry, ResolvedEncodingDescriptor } from './encoding-registry.ts';
 
 import { EncodingMismatch } from '../parse-error.ts';
 

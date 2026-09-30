@@ -4,7 +4,7 @@ import type { ReadableLike } from './input-source/stream-source.ts';
 import type { ParseErrorEntry } from './internal/parser-types.ts';
 import type { ResolvedOptions, X2jOptions } from './options.ts';
 
-import EncodingRegistry, { defaultEncodingRegistry } from './encoding/encoding-registry.js';
+import { defaultEncodingRegistry, makeEncodingRegistry } from './encoding/encoding-registry.js';
 import FeedableSource from './input-source/feedable-source.js';
 import StreamSource, { isReadableStream } from './input-source/stream-source.js';
 import { buildOptions } from './options-builder.js';
@@ -157,7 +157,7 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
   // instance in the process). The common case (no customDecoders) reuses
   // the shared default registry, seeded once at module load.
   if (state.options.decoding?.customDecoders) {
-    const registry = new EncodingRegistry();
+    const registry = makeEncodingRegistry();
     for (const [name, descriptor] of Object.entries(state.options.decoding.customDecoders)) {
       // The map key is authoritative for `name`; spread first so a
       // descriptor that also carries `name` can't override the key.
