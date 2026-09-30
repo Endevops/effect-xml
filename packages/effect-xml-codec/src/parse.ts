@@ -185,6 +185,29 @@ interface StartTag {
 }
 
 /**
+ * @description An element's body as the parser read it: the character data it accumulated, and whether any child element went into the record.
+ */
+interface Content {
+  /**
+   * @description Every text run in the body, concatenated in the order they appeared.
+   */
+  readonly text: string;
+
+  /**
+   * @description Whether the body held at least one child element. Counted rather than asked of the record afterwards, because a child whose fields are all absent
+   * leaves no trace of itself in the record and must still keep its element from being written self-closing.
+   */
+  readonly hasChildren: boolean;
+}
+
+/**
+ * @description What sits at the cursor inside an element's body. Naming what is there before deciding what to do with it is what lets the content loop stay a
+ * dispatch: each construct is recognised in one place, against the ones that cannot be confused with it, rather than by a chain of `startsWith`
+ * guesses where each had to remember what the last had already ruled out.
+ */
+type Construct = 'text' | 'close' | 'comment' | 'cdata' | 'instruction' | 'child';
+
+/**
  * @description Parses a whole document: a prolog, exactly one root element, and nothing but whitespace after it.
  *
  * @param text - The document to read.
@@ -343,58 +366,135 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     // start tag produced, as it goes rather than in passes, because the order
     // they appear in is the only order available: attributes always come first on
     // the tag, but text and children interleave freely.
+    const content = readContent(name, record, depth);
+
+    return { name, value: finishElement(record, hasAttributes, content.text, content.hasChildren) };
+  };
+
+  /**
+   * @description Reads an element's body up to and including its closing tag, folding what it finds into the record the start tag produced. Returns when the
+   * closing tag has been consumed; failing on it is {@link readClosingTag}'s job, so that a mismatched or unclosed tag is reported the same way
+   * wherever it was found.
+   *
+   * @param name - The name the start tag gave the element, which its closing tag has to match.
+   * @param record - The record to fold the children into.
+   * @param depth - The depth the element sits at; its children are one deeper.
+   *
+   * @returns The body as character data, and whether it held any child element.
+   *
+   * @throws {XmlParseError} When the body is unterminated, a closing tag does not match, or a declaration appears inside it.
+   */
+  const readContent = (name: string, record: Record<string, XmlValue>, depth: number): Content => {
     let childText = '';
     let hasChildren = false;
 
     for (;;) {
-      if (at >= text.length) fail(`Unclosed element <${name}>`, at);
-
-      if (text.charCodeAt(at) !== LT) {
-        const next = text.indexOf('<', at);
-        const end = next === -1 ? text.length : next;
-        childText += decodeEntities(text.slice(at, end));
-        at = end;
-        continue;
+      switch (classifyContent(name)) {
+        case 'text':
+          childText += readTextRun();
+          break;
+        case 'close':
+          readClosingTag(name);
+          return { text: childText, hasChildren };
+        case 'comment':
+          at = skipUntil('-->', at + 4, 'comment');
+          break;
+        case 'cdata':
+          childText += readCdata();
+          break;
+        case 'instruction':
+          at = skipUntil('?>', at + 2, 'processing instruction');
+          break;
+        case 'child': {
+          hasChildren = true;
+          addChild(record, readElement(depth + 1));
+          break;
+        }
       }
-
-      if (text.startsWith('</', at)) {
-        const closeStart = at;
-        at += 2;
-        const closing = readName('element name');
-        if (closing !== name) fail(`Closing tag </${closing}> does not match <${name}>`, closeStart);
-        skipSpaces();
-        if (text.charCodeAt(at) !== GT) fail(`Malformed closing tag </${closing}>`, at);
-        at++;
-        return { name, value: finishElement(record, hasAttributes, childText, hasChildren) };
-      }
-
-      if (text.startsWith('<!--', at)) {
-        at = skipUntil('-->', at + 4, 'comment');
-        continue;
-      }
-
-      if (text.startsWith('<![CDATA[', at)) {
-        const end = text.indexOf(']]>', at + 9);
-        if (end === -1) fail('Unterminated CDATA section', at);
-        childText += text.slice(at + 9, end); // CDATA is character data, already resolved
-        at = end + 3;
-        continue;
-      }
-
-      if (text.startsWith('<?', at)) {
-        at = skipUntil('?>', at + 2, 'processing instruction');
-        continue;
-      }
-
-      if (text.startsWith('<!', at)) fail('A declaration is not allowed inside an element', at);
-
-      const child = readElement(depth + 1);
-      hasChildren = true;
-      const existing = record[child.name];
-      if (existing === undefined) record[child.name] = child.value;
-      else if (Array.isArray(existing)) (existing as Array<XmlValue>).push(child.value);
-      else record[child.name] = [existing, child.value];
     }
+  };
+
+  /**
+   * @description What the cursor is sitting on inside an element's body. The two things the loop cannot read are refused here rather than in it: running out of
+   * document and a declaration, which is markup the parser does not accept inside an element. Recognising the constructs that _are_ read is the rest,
+   * and the order is the one that rules out the shorter prefixes first — `</` before `<?` before any other `<!`, and `<![CDATA[` before the `<!` that
+   * would otherwise match it.
+   *
+   * @param name - The name the enclosing element's start tag gave it, for the unterminated-body message.
+   *
+   * @returns What the cursor is on.
+   *
+   * @throws {XmlParseError} When the document ended inside the body, or a declaration appears inside it.
+   */
+  const classifyContent = (name: string): Construct => {
+    if (at >= text.length) fail(`Unclosed element <${name}>`, at);
+    if (text.charCodeAt(at) !== LT) return 'text';
+    if (text.startsWith('</', at)) return 'close';
+    if (text.startsWith('<!--', at)) return 'comment';
+    if (text.startsWith('<![CDATA[', at)) return 'cdata';
+    if (text.startsWith('<?', at)) return 'instruction';
+    if (text.startsWith('<!', at)) fail('A declaration is not allowed inside an element', at);
+    return 'child';
+  };
+
+  /**
+   * @description Consumes a `</name>`, checking on the way that it is the tag that closes this element and that it is well-formed.
+   *
+   * @param name - The name the start tag gave the element, which the closing tag has to match.
+   *
+   * @throws {XmlParseError} When the closing name differs, or the tag is malformed.
+   */
+  const readClosingTag = (name: string): void => {
+    const closeStart = at;
+    at += 2;
+    const closing = readName('element name');
+    if (closing !== name) fail(`Closing tag </${closing}> does not match <${name}>`, closeStart);
+    skipSpaces();
+    if (text.charCodeAt(at) !== GT) fail(`Malformed closing tag </${closing}>`, at);
+    at++;
+  };
+
+  /**
+   * @description Reads the run of character data up to the next `<`, or to the end of the document.
+   *
+   * @returns The run, with its character references expanded.
+   */
+  const readTextRun = (): string => {
+    const next = text.indexOf('<', at);
+    const end = next === -1 ? text.length : next;
+    const run = decodeEntities(text.slice(at, end));
+    at = end;
+    return run;
+  };
+
+  /**
+   * @description Reads a `<![CDATA[…]]>` section. CDATA is character data, and character data is what it holds, so it joins the element's text as it stands — the
+   * entities in it are literal text and must not be expanded.
+   *
+   * @returns The section's contents.
+   *
+   * @throws {XmlParseError} When the section is not terminated.
+   */
+  const readCdata = (): string => {
+    const end = text.indexOf(']]>', at + 9);
+    if (end === -1) fail('Unterminated CDATA section', at);
+    const data = text.slice(at + 9, end);
+    at = end + 3;
+    return data;
+  };
+
+  /**
+   * @description Adds a child to its parent's record. Two children under one name make an array, and the first one does not: a schema can tell a repeated field
+   * from a single one by the shape, and an array of one is not what a single value encodes to.
+   *
+   * @param record - The parent's record, added to in place.
+   * @param child - The child element as it was read.
+   */
+  const addChild = (record: Record<string, XmlValue>, child: Element): void => {
+    const existing = record[child.name];
+    if (existing === undefined) record[child.name] = child.value;
+    else if (Array.isArray(existing)) (existing as Array<XmlValue>).push(child.value);
+    else record[child.name] = [existing, child.value];
   };
 
   /**

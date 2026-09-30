@@ -167,33 +167,59 @@ const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: 
   };
 };
 
-const resolveOptions = (options: XmlRenderOptions): ResolvedOptions => {
-  // One string per depth, built as the render reaches it. A document of a few
-  // thousand elements on several lines each would otherwise call `repeat` once per
-  // line and allocate the same handful of strings thousands of times over.
+/**
+ * @description A boolean option's value, with an absent one read as the default. The three boolean options are spelled through here rather than through a `??` of
+ * their own, so the table below reads as a list of what each option _is_ instead of a list of nine separate decisions about what an omitted option
+ * means — and so a reader looking for "which options are on by default" finds three words rather than three mixes of `?? true` and `?? false` to
+ * read.
+ *
+ * @param value - The option as the caller wrote it, or `undefined` when the caller left it out.
+ * @param fallback - The value to use when the caller left it out.
+ *
+ * @returns The option's value.
+ */
+const flag = (value: boolean | undefined, fallback: boolean): boolean => value ?? fallback;
+
+/**
+ * @description The indent for a given depth, built the first time a render reaches that depth and kept. A document of a few thousand elements on several lines
+ * each would otherwise call `repeat` once per line and allocate the same handful of strings thousands of times over.
+ *
+ * @param indent - The string one level of indentation is made of.
+ *
+ * @returns A function from depth to the indent for that depth.
+ */
+const makeLineAt = (indent: string): ((depth: number) => string) => {
   const lines: Array<string> = [''];
+  return depth => {
+    const line = lines[depth];
+    if (line !== undefined) return line;
+    const built = indent.repeat(depth);
+    lines[depth] = built;
+    return built;
+  };
+};
+
+/**
+ * @description Applies the defaults to one call's options, and builds the two things a render needs that are not options: the memoized name resolver and the
+ * memoized indent lines.
+ *
+ * @param options - The options as the caller wrote them.
+ *
+ * @returns Every option a render reads, defaulted, with the resolver and the indent lines attached.
+ */
+const resolveOptions = (options: XmlRenderOptions): ResolvedOptions => {
   const resolved = {
     rootName: options.rootName ?? DEFAULT_ROOT_NAME,
     itemName: options.itemName ?? DEFAULT_ITEM_NAME,
-    format: options.format ?? false,
+    format: flag(options.format, false),
     indent: options.indent ?? '  ',
-    suppressEmptyNode: options.suppressEmptyNode ?? true,
-    sortKeys: options.sortKeys ?? false,
+    suppressEmptyNode: flag(options.suppressEmptyNode, true),
+    sortKeys: flag(options.sortKeys, false),
     name: options.name ?? ('repair' as NameMode),
     xmlVersion: options.xmlVersion ?? ('1.0' as XmlVersion),
     maxDepth: options.maxDepth ?? 256,
   };
-  return {
-    ...resolved,
-    namer: makeNamer(resolved),
-    lineAt: depth => {
-      const line = lines[depth];
-      if (line !== undefined) return line;
-      const built = resolved.indent.repeat(depth);
-      lines[depth] = built;
-      return built;
-    },
-  };
+  return { ...resolved, namer: makeNamer(resolved), lineAt: makeLineAt(resolved.indent) };
 };
 
 /**
@@ -284,38 +310,23 @@ export const renderXml = (value: XmlValue, options: XmlRenderOptions = {}): stri
 };
 
 /**
- * @description Renders one named element and its subtree.
+ * @description Renders one named element and its subtree. The value an {@link XmlValue} holds decides which of the four shapes below it takes — a repeated run of
+ * children, character data, an absent field, or a record — and each of those is written by a function of its own, so this one is the dispatch rather
+ * than the document.
  *
  * @param out - The chunk buffer to append to.
  * @param name - The element name, not yet resolved.
  * @param value - The element's value.
  * @param depth - Current nesting depth, for indentation and the depth cap.
  * @param options - Resolved render options.
+ *
+ * @throws {RangeError} When the value nests deeper than `options.maxDepth`.
  */
 const renderElement = (out: Array<string>, name: string, value: XmlValue, depth: number, options: ResolvedOptions): void => {
-  if (depth > options.maxDepth) {
-    throw new RangeError(`XML nesting exceeded maxDepth (${options.maxDepth}). Raise the limit if the document is legitimately this deep.`);
-  }
+  assertWithinDepth(depth, options);
 
-  // A repeated run of children under one name: `tags: ['a', 'b']` renders
-  // `<tags>a</tags><tags>b</tags>`, not one element wrapping both. The name is
-  // already the element's own, so the caller only supplies a name when the
-  // array sits where no name is available.
-  //
-  // Checked before the line break and the name are taken, because the array
-  // itself is not an element: opening a line for it as well as for each of its
-  // members would leave a blank line where the array was.
   if (isXmlArray(value)) {
-    // An empty array still gets an element. Writing nothing would make a field
-    // that was present and empty indistinguishable from one that was never
-    // there, and a document that came from a schema is easier to trust when the
-    // element it describes is actually in the output.
-    if (value.length === 0) {
-      if (options.format && depth > 0) openLine(out, depth, options);
-      writeEmpty(out, options.namer(name), options);
-      return;
-    }
-    for (const member of value) renderElement(out, name, member, depth, options);
+    renderRepeated(out, name, value, depth, options);
     return;
   }
 
@@ -326,108 +337,226 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
 
   const tag = options.namer(name);
 
-  if (typeof value === 'string') {
-    // An empty string is character data that happens to be empty, and an element
-    // holding none of it is the same element as one holding nothing at all.
-    if (value === '') {
-      writeEmpty(out, tag, options);
-      return;
-    }
-    out.push('<', tag, '>', escapeText(value), '</', tag, '>');
+  if (typeof value === 'string' || value === undefined) {
+    renderLeaf(out, tag, value, options);
     return;
   }
 
-  // An `undefined` element is an absent one. The renderer is handed values that
-  // never went through the schema — a caller building a document by hand — so
-  // this is reachable, and an empty element is the honest rendering of it.
-  if (value === undefined) {
+  renderRecord(out, tag, value, depth, options);
+};
+
+/**
+ * @description Refuses to walk deeper than the render allows. A value can nest without end, and every one of those levels costs a stack frame here, so the cap is
+ * checked on the way down rather than trusted to the caller.
+ *
+ * @param depth - The depth about to be written.
+ * @param options - Resolved render options.
+ *
+ * @throws {RangeError} When `depth` is past `options.maxDepth`.
+ */
+const assertWithinDepth = (depth: number, options: ResolvedOptions): void => {
+  if (depth > options.maxDepth) {
+    throw new RangeError(`XML nesting exceeded maxDepth (${options.maxDepth}). Raise the limit if the document is legitimately this deep.`);
+  }
+};
+
+/**
+ * @description Renders a repeated run of children under one name: `tags: ['a', 'b']` renders `<tags>a</tags><tags>b</tags>`, not one element wrapping both. The
+ * name is already the element's own, so a name only has to be supplied where no name is available. Checked before the line break and the name are
+ * taken, because the array itself is not an element: opening a line for it as well as for each of its members would leave a blank line where the
+ * array was.
+ *
+ * @param out - The chunk buffer to append to.
+ * @param name - The element name, not yet resolved.
+ * @param members - The children to write, one after another.
+ * @param depth - The depth the run sits at.
+ * @param options - Resolved render options.
+ */
+const renderRepeated = (out: Array<string>, name: string, members: ReadonlyArray<XmlValue>, depth: number, options: ResolvedOptions): void => {
+  // An empty array still gets an element. Writing nothing would make a field
+  // that was present and empty indistinguishable from one that was never
+  // there, and a document that came from a schema is easier to trust when the
+  // element it describes is actually in the output.
+  if (members.length === 0) {
+    if (options.format && depth > 0) openLine(out, depth, options);
+    writeEmpty(out, options.namer(name), options);
+    return;
+  }
+  for (const member of members) renderElement(out, name, member, depth, options);
+};
+
+/**
+ * @description Renders an element whose value is character data, or nothing. An empty string is character data that happens to be empty, and an element holding
+ * none of it is the same element as one holding nothing at all — as is an `undefined` element, which is an absent one. The renderer is handed values
+ * that never went through the schema — a caller building a document by hand — so the absent case is reachable, and an empty element is the honest
+ * rendering of both.
+ *
+ * @param out - The chunk buffer to append to.
+ * @param tag - The element's name, already resolved.
+ * @param value - The element's character data, or `undefined` for an absent element.
+ * @param options - Resolved render options.
+ */
+const renderLeaf = (out: Array<string>, tag: string, value: string | undefined, options: ResolvedOptions): void => {
+  if (value === undefined || value === '') {
     writeEmpty(out, tag, options);
     return;
   }
+  out.push('<', tag, '>', escapeText(value), '</', tag, '>');
+};
 
-  const record: XmlRecord = value;
+/**
+ * @description Renders an element holding a record: the attributes gathered from its `@` keys, the character data from its `#text` key, and its remaining keys as
+ * child elements.
+ *
+ * @param out - The chunk buffer to append to.
+ * @param tag - The element's name, already resolved.
+ * @param record - The element's value.
+ * @param depth - The depth the element sits at.
+ * @param options - Resolved render options.
+ */
+const renderRecord = (out: Array<string>, tag: string, record: XmlRecord, depth: number, options: ResolvedOptions): void => {
+  const fields = collectFields(record, options);
+  const text = textOf(record);
+  const children = fields.children;
 
-  // One pass over the keys collects all three roles at once: the attributes are
-  // rendered as they are found, the child names are set aside for the second pass
-  // that writes them, and the text key is read in place. A pass for the
-  // attributes, a pass for the children and an index for the text instead walks
-  // the keys three times and allocates the key array twice, which on a document
-  // of a few thousand elements is thousands of allocations for nothing.
+  // Self-closing is decided by whether the element has any *content*, not by
+  // whether it has attributes: `<a id="1"/>` is the same element as
+  // `<a id="1">` with nothing in it, and the short form is what every XML
+  // writer produces.
+  if (children === undefined && text === '') {
+    writeEmpty(out, tag, options, fields.attributes);
+    return;
+  }
+
+  out.push('<', tag, fields.attributes, '>');
+
+  // Character data sits inline when it is all an element has, and on its own
+  // line when the element also has children, so an indented document does not
+  // end up with its first line of text glued to its opening tag.
+  if (text !== '') {
+    if (children !== undefined && options.format) openLine(out, depth + 1, options);
+    out.push(escapeText(text));
+  }
+
+  if (children !== undefined) {
+    writeChildren(out, record, children, depth, options);
+    if (options.format) openLine(out, depth, options);
+  }
+
+  out.push('</', tag, '>');
+};
+
+/**
+ * @description An element's keys resolved into the roles they play.
+ */
+interface Fields {
+  /**
+   * @description The element's rendered attributes, each with its leading space, or `''` when it has none.
+   */
+  readonly attributes: string;
+
+  /**
+   * @description The names of the child elements, in the order they will be written, or `undefined` when the element has none. `undefined` rather than an empty
+   * array because "has children" is one of the two things the self-closing decision turns on, and the other is the text.
+   */
+  readonly children: Array<string> | undefined;
+}
+
+/**
+ * @description One pass over a record's keys, collecting all three roles at once: the attributes are rendered as they are found, the child names are set aside for
+ * the pass that writes them, and the text key is left to {@link textOf}. A pass for the attributes, a pass for the children and an index for the text
+ * instead walks the keys three times and allocates the key array twice, which on a document of a few thousand elements is thousands of allocations
+ * for nothing. Sorting is off by default, and the default path is the one that matters, so the attributes are built as they are found and there is
+ * nothing to sort. When it is on, the attribute keys are collected instead and rendered afterwards in sorted order, which costs an array per element
+ * and buys output that does not depend on the order the fields happened to be declared in.
+ *
+ * @param record - The element's value.
+ * @param options - Resolved render options.
+ *
+ * @returns The element's rendered attributes and its child names.
+ */
+const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
   const keys = Object.keys(record);
   let attributes = '';
   let children: Array<string> | undefined;
-
-  // Sorting is off by default, and the default path is the one that matters, so
-  // the attributes are built as they are found and there is nothing to sort. When
-  // it is on the attribute keys are collected instead and rendered afterwards,
-  // which costs an array per element and buys output that does not depend on the
-  // order the fields happened to be declared in.
   const sortAttributes = options.sortKeys ? ([] as Array<string>) : undefined;
 
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i] as string;
     const child = record[key];
 
+    // An absent field is not written at all, which is what keeps an unset
+    // optional attribute out of the document rather than in it as `a=""`, and
+    // an absent child out of it rather than in it as `<a/>`. The text key is
+    // read by `textOf` either way, so skipping it here costs nothing.
+    if (child === undefined) continue;
+
     if (isAttributeKey(key)) {
-      // An absent field is not written at all, which is what keeps an unset
-      // optional attribute out of the document rather than in it as `a=""`.
-      if (child === undefined) continue;
-      if (sortAttributes !== undefined) {
-        sortAttributes.push(key);
-        continue;
-      }
-      attributes += ' ' + options.namer(attributeName(key)) + '="' + escapeAttribute(attributeText(child)) + '"';
+      // Only keys with a value are collected, so every name in `sortAttributes`
+      // has one to read back out of.
+      if (sortAttributes === undefined) attributes += renderAttribute(key, child, options);
+      else sortAttributes.push(key);
       continue;
     }
 
-    if (isTextKey(key) || child === undefined) continue; // an absent field is not written at all
-    (children ??= []).push(key);
+    if (!isTextKey(key)) (children ??= []).push(key);
   }
 
   if (sortAttributes !== undefined) {
     sortAttributes.sort();
-    for (let i = 0; i < sortAttributes.length; i++) {
-      const key = sortAttributes[i] as string;
-      const child = record[key];
-      if (child === undefined) continue;
-      attributes += ' ' + options.namer(attributeName(key)) + '="' + escapeAttribute(attributeText(child)) + '"';
-    }
+    attributes += sortedAttributes(sortAttributes, record, options);
+    children?.sort();
   }
 
-  if (options.sortKeys && children !== undefined) children.sort();
+  return { attributes, children };
+};
 
-  const text = textOf(record);
+/**
+ * @description The attributes named by `keys`, rendered in the order given. Only reached when the render was asked to sort keys, where the names are collected
+ * during the key pass and written here so their order does not follow the order the fields were declared in.
+ *
+ * @param keys - The attribute keys to write, in the order to write them.
+ * @param record - The element's value, to read the attribute values out of.
+ * @param options - Resolved render options.
+ *
+ * @returns The rendered attributes, each with its leading space.
+ */
+const sortedAttributes = (keys: ReadonlyArray<string>, record: XmlRecord, options: ResolvedOptions): string => {
+  let attributes = '';
+  for (const key of keys) attributes += renderAttribute(key, record[key], options);
+  return attributes;
+};
 
-  // Self-closing is decided by whether the element has any *content*, not by
-  // whether it has attributes: `<a id="1"/>` is the same element as `<a id="1">`
-  // with nothing in it, and the short form is what every XML writer produces.
-  if (children === undefined && text === '') {
-    writeEmpty(out, tag, options, attributes);
-    return;
+/**
+ * @description One attribute, written whole. The leading space is part of it so the caller can concatenate attributes and the opening tag without a separator of
+ * its own.
+ *
+ * @param key - The attribute's key, with or without its `@` prefix.
+ * @param value - The attribute's value.
+ * @param options - Resolved render options.
+ *
+ * @returns The attribute, ready to write inside the opening tag.
+ */
+const renderAttribute = (key: string, value: XmlValue, options: ResolvedOptions): string =>
+  ' ' + options.namer(attributeName(key)) + '="' + escapeAttribute(attributeText(value)) + '"';
+
+/**
+ * @description Writes an element's children, by name and in the order their keys were found. The names are what the key pass kept; the values are read back out of
+ * the record here, because keeping both would mean a second array per element.
+ *
+ * @param out - The chunk buffer to append to.
+ * @param record - The element's value.
+ * @param children - The child names, in the order to write them.
+ * @param depth - The depth the parent sits at; its children are one deeper.
+ * @param options - Resolved render options.
+ */
+const writeChildren = (out: Array<string>, record: XmlRecord, children: ReadonlyArray<string>, depth: number, options: ResolvedOptions): void => {
+  for (let i = 0; i < children.length; i++) {
+    const key = children[i] as string;
+    const child = record[key];
+    if (child === undefined) continue;
+    renderElement(out, key, child, depth + 1, options);
   }
-
-  const hasChildren = children !== undefined;
-  out.push('<', tag, attributes, '>');
-
-  // Character data sits inline when it is all an element has, and on its own
-  // line when the element also has children, so an indented document does not
-  // end up with its first line of text glued to its opening tag.
-  if (text !== '') {
-    if (hasChildren && options.format) openLine(out, depth + 1, options);
-    out.push(escapeText(text));
-  }
-
-  if (children !== undefined) {
-    for (let i = 0; i < children.length; i++) {
-      const key = children[i] as string;
-      const child = record[key];
-      if (child === undefined) continue;
-      renderElement(out, key, child, depth + 1, options);
-    }
-    if (options.format) openLine(out, depth, options);
-  }
-
-  out.push('</', tag, '>');
 };
 
 /**

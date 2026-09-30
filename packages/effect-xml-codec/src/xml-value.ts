@@ -79,7 +79,7 @@ export const isXmlValue = (input: unknown): input is XmlValue => check(input, 0)
  * @param input - The candidate value.
  * @param depth - How many levels down this value sits.
  *
- * @returns Whether the value is a legal `XmlValue` at this depth.
+ * @returns Whether this level is legal, and the rest of the value with it.
  */
 const check = (input: unknown, depth: number): boolean => {
   // `undefined` is a value in its own right: it is how an absent optional field survives a round trip, so a
@@ -88,16 +88,40 @@ const check = (input: unknown, depth: number): boolean => {
   if (input === null || typeof input !== 'object') return false;
   if (depth > MAX_GUARD_DEPTH) return false;
 
-  if (Array.isArray(input)) {
-    for (const member of input) {
-      if (!check(member, depth + 1)) return false;
-    }
-    return true;
-  }
+  // Arrays and records are the only two things left, and each is a walk of its
+  // own rather than another branch here: an array of them or a record of them.
+  return Array.isArray(input) ? everyMemberIs(input, depth) : everyFieldIs(input, depth);
+};
 
+/**
+ * @description Whether an array holds nothing but legal values one level down.
+ *
+ * @param members - The array's members.
+ * @param depth - The depth the array itself sits at.
+ *
+ * @returns Whether every member is a legal `XmlValue`.
+ */
+const everyMemberIs = (members: ReadonlyArray<unknown>, depth: number): boolean => {
+  for (const member of members) {
+    if (!check(member, depth + 1)) return false;
+  }
+  return true;
+};
+
+/**
+ * @description Whether an object is a plain record of legal values one level down. Plainness is checked here rather than by the caller because a `Date` or a `Map`
+ * has values a record cannot hold, and walking them would be walking something the model has no way to represent.
+ *
+ * @param input - The object to walk.
+ * @param depth - The depth the object itself sits at.
+ *
+ * @returns Whether the object is a plain record whose every field is a legal `XmlValue`.
+ */
+const everyFieldIs = (input: object, depth: number): boolean => {
   if (!isPlainRecord(input)) return false;
-  for (const key of Object.keys(input)) {
-    if (!check((input as Record<string, unknown>)[key], depth + 1)) return false;
+  const record = input as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!check(record[key], depth + 1)) return false;
   }
   return true;
 };
