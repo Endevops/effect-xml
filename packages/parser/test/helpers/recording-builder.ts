@@ -6,7 +6,7 @@ import { CompactBuilderFactory, makeCompactBuilder } from '@endevops/builder';
 import { Effect } from 'effect';
 
 import type { AttributeMeta, CloseMeta, OutputBuilderLike, TagDetailLike, XmlDeclaration } from '#/internal/parser-types.ts';
-import type { ResolvedOptions, X2jOptions } from '#/options.ts';
+import type { X2jOptions } from '#/options.ts';
 
 import { buildOptions } from '#/options-builder.ts';
 import { runParser } from '#/test/helpers/test-runner.ts';
@@ -208,23 +208,14 @@ class RecordingBuilder implements OutputBuilderLike {
 
 /**
  * @description An `XMLParser` wired to a {@link RecordingBuilder}, exposing the recorder as a real field. Tests need to read back what the builder intercepted
- * during a parse. Making `_events` a declared field on a one-line subclass gives it a type at every use site, instead of each test casting the parser
- * to reach an ad-hoc property.
+ * during a parse. Declaring `_events` on an interface that extends the parser's gives it a type at every use site, instead of each test casting the
+ * parser to reach an ad-hoc property.
  */
-export class RecordingXMLParser extends XMLParser {
+export interface RecordingXMLParser extends XMLParser {
   /**
    * @description Every position-bearing callback the recording builder saw, bucketed by callback.
    */
   readonly _events: RecordingEvents;
-
-  /**
-   * @param resolved - Fully-resolved parser options, from `buildOptions()`.
-   * @param events - Buckets to record into.
-   */
-  constructor(resolved: ResolvedOptions, events: RecordingEvents) {
-    super(resolved);
-    this._events = events;
-  }
 }
 
 /**
@@ -250,7 +241,7 @@ export function makeRecordingParser(parserOptions: X2jOptions = {}): RecordingXM
       },
     })
   );
-  return new RecordingXMLParser(resolved, events);
+  return Object.assign(XMLParser.fromResolved(resolved), { _events: events });
 }
 
 /**
