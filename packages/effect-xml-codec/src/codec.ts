@@ -12,8 +12,6 @@
 // Effect chose. What is added is the other direction, the attributes the `@`
 // convention carries, and a parser, none of which Effect has.
 
-import type { SchemaIssue } from 'effect';
-
 import { Effect, Schema, SchemaAST } from 'effect';
 
 import type { XmlDocument, XmlParseOptions } from './parse.ts';
@@ -34,8 +32,7 @@ import { isXmlRecord } from './xml-value.ts';
  *
  * @typeParam S - The schema being narrowed.
  */
-type ServiceFree<S extends Schema.Constraint> = S & Schema.ConstraintCodec<S['Type'], S['Encoded'], never, never>;
-
+export type ServiceFree<S extends Schema.Constraint> = S & Schema.ConstraintCodec<S['Type'], S['Encoded'], never, never>;
 /**
  * @description Options every direction of a codec accepts.
  */
@@ -395,18 +392,3 @@ const asParseError = (error: unknown): XmlParseError =>
   error instanceof XmlParseError
     ? error
     : new XmlParseError({ message: error instanceof Error ? error.message : String(error), position: -1, input: '' });
-
-/**
- * @description The `SchemaIssue` behind a `SchemaError`, for a caller that wants the structured form rather than the rendered message.
- *
- * @param error - A failure from one of this codec's methods.
- *
- * @returns The issue, when the failure is a schema mismatch rather than a parse or name failure.
- */
-export const issueOf = (error: SchemaErrorLike): SchemaIssue.Issue | undefined => (error._tag === 'SchemaError' ? error.issue : undefined);
-
-/**
- * @description The two failure shapes a codec method can report. Named rather than imported from `Schema` so this module's own public surface does not re-export
- * Effect's error hierarchy.
- */
-type SchemaErrorLike = Schema.SchemaError | XmlParseError | XmlNameError;

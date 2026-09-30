@@ -1,5 +1,5 @@
 // Main exports
-export { default as XMLParser, default } from './xml-parser.ts';
+export { XMLParser, default } from './xml-parser.ts';
 
 // Error handling. Every reason is its own class, so every reason is a named export: a caller
 // recovering from one writes `Effect.catchTag(program, 'LIMIT_MAX_NESTED_TAGS', ...)` and a caller

@@ -1,6 +1,6 @@
 import type { EntityDecoderOptions, XmlError } from '@endevops/common-xml';
 
-import { COMMON_HTML, ENTITY_ACTION, EntityDecoder, XML } from '@endevops/common-xml';
+import { ENTITY_ACTION, EntityDecoder, XML } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
 import type { BuilderError } from '../../errors.ts';
@@ -142,8 +142,3 @@ export default class EntitiesValueParser extends BaseValueParser {
     return yield* Effect.mapError(decoder.decode(val), fromDecoder(val));
   });
 }
-
-/**
- * @description The standard HTML entity set, re-exported so a caller building a custom `namedEntities` map does not need a second dependency.
- */
-export { COMMON_HTML };

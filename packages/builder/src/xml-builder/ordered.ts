@@ -23,9 +23,10 @@ export type OrderedTag = Record<string, unknown>;
 
 /**
  * @description A memoized QName validator. It returns an effect, as every validator in `common-xml` does, and the walk runs it before deciding a name needs
- * repairing — so a name the validator rejects is the one that reaches `sanitizeName`, the same rule as before with one more `yield*`.
+ * repairing — so a name the validator rejects is the one that reaches `sanitizeName`, the same rule as before with one more `yield*`. Exported
+ * because {@link nameValidatorFor} returns one.
  */
-type NameValidator = (name: string) => Effect.Effect<boolean, BuilderError>;
+export type NameValidator = (name: string) => Effect.Effect<boolean, BuilderError>;
 
 /**
  * @description Detect the XML version from the first element of the ordered array input. Only the first element can carry a declaration, and only if it is a

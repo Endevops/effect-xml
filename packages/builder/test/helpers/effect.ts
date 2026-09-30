@@ -94,20 +94,6 @@ export function failedWith<A>(effect: Effect.Effect<A, BuilderError>, tag: Build
 }
 
 /**
- * @description The message an effect failed with, or a marker if it succeeded. For the specs that collect error messages once and then assert on several
- * properties of them.
- *
- * @param effect - The effect to run.
- *
- * @returns The `BuilderError`'s `message`, or a marker naming the success.
- */
-export function failureMessage(effect: Effect.Effect<unknown, BuilderError>): string {
-  const exit = Effect.runSyncExit(effect);
-  if (Exit.isFailure(exit)) return errorOf(exit).message;
-  return '(nothing thrown)';
-}
-
-/**
  * @description Build an {@link XMLBuilder} synchronously. Construction compiles the caller's stop-node patterns, so it is a factory returning an effect. A spec
  * that configures a builder wants the builder, not the failure mode, so the failure is surfaced as a thrown message.
  *

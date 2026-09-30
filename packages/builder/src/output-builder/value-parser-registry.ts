@@ -29,13 +29,6 @@ import type { BuilderError } from '../errors.ts';
 
 import { BuilderError as BuilderErrorCtor } from '../errors.ts';
 
-export type BuiltInValueParserName = keyof typeof defaultValParsers;
-
-/**
- * @description A name a chain can use. Built-in names plus anything registered on the factory.
- */
-export type ValueParserName = BuiltInValueParserName | (string & {});
-
 /**
  * @description Holds the value parsers a builder's pipelines draw on, keyed by name.
  */

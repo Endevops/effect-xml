@@ -23,6 +23,5 @@ import type {
 
 import XMLBuilder from './xml-builder.ts';
 
-export { XMLBuilder };
 export type { EntityReplacement, IgnoreAttributesPredicate, NameResolver, ResolvedXmlBuilderOptions, SanitizeNameContext, XmlBuilderOptions };
 export default XMLBuilder;

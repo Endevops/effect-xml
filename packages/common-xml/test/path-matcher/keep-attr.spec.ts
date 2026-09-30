@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { Matcher } from '#/index.ts';
+import { Matcher, type MatcherView } from '#/index.ts';
 import { expr, run } from '#/test/helpers/effect.ts';
 
 describe('kept-attribute lookup', () => {
@@ -143,7 +143,7 @@ describe('kept-attribute lifetime', () => {
 describe('MatcherView', () => {
   it('mirrors the ancestor-attribute methods of the matcher it wraps', () => {
     const m = new Matcher();
-    const view = run(m.readOnly());
+    const view: MatcherView = run(m.readOnly());
     run(m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] }));
     run(m.push('Child'));
 

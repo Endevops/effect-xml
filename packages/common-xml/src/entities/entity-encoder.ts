@@ -152,10 +152,10 @@ export class EntityEncoder {
     const maxRep = this.maxReplacements;
     if (maxRep > 0 && this.replacementsCount >= maxRep) return Effect.succeed(str);
 
-    // Hoist to locals — avoids `this` property lookup inside the hot loop
+    // Hoist to locals — avoids `this` property lookup inside the hot loop, and
+    // the walk's own state stays in locals for the same reason. `#matchEntity`
+    // is a call per candidate, not per character, so the loop body stays inline.
     const encodeXmlSafe = this.encodeXmlSafe;
-    const encodeAllNamed = this.encodeAllNamed;
-
     const len = str.length;
 
     let result = '';
@@ -173,15 +173,9 @@ export class EntityEncoder {
       // ASCII branch
       if (c0 < 128) {
         if (encodeXmlSafe && IS_XML_UNSAFE[c0] === 1) {
-          result += (str.substring(last, i) + XML_UNSAFE_REPLACEMENT[c0]) as string;
+          result += str.substring(last, i) + XML_UNSAFE_REPLACEMENT[c0];
           last = ++i;
-          if (maxRep > 0) {
-            this.replacementsCount++;
-            if (this.replacementsCount >= maxRep) {
-              limitReached = true;
-              break;
-            }
-          }
+          if (this.#spendBudget()) limitReached = true;
         } else {
           // Bulk-skip: advance to the next interesting position without
           // touching the outer loop overhead on every safe character
@@ -198,74 +192,58 @@ export class EntityEncoder {
       // Non-ASCII: integer-keyed trie lookup, longest match first. c1 and c2
       // need no bounds checks because i <= mainEnd guarantees i+1 and i+2 are
       // both inside the string.
-      let matchedEntity: string | null = null;
-      let advance = 1;
-
-      const mid3 = trie3.get(c0);
-      if (mid3 !== undefined) {
-        const c1 = str.charCodeAt(i + 1);
-        const inner3 = mid3.get(c1);
-        if (inner3 !== undefined) {
-          const c2 = str.charCodeAt(i + 2);
-          const candidate = inner3.get(c2);
-          if (candidate !== undefined) {
-            matchedEntity = candidate;
-            advance = 3;
-          }
-        }
-      }
-
-      if (matchedEntity === null) {
-        const inner2 = trie2.get(c0);
-        if (inner2 !== undefined) {
-          const c1 = str.charCodeAt(i + 1);
-          const candidate = inner2.get(c1);
-          if (candidate !== undefined) {
-            matchedEntity = candidate;
-            advance = 2;
-          }
-        }
-      }
-
-      if (matchedEntity === null && encodeAllNamed) {
-        const candidate = trie1.get(c0);
-        if (candidate !== undefined) {
-          matchedEntity = candidate;
-        }
-      }
-
-      if (matchedEntity !== null) {
-        result += str.substring(last, i) + matchedEntity;
-        i += advance;
-        last = i;
-        if (maxRep > 0) {
-          this.replacementsCount++;
-          if (this.replacementsCount >= maxRep) {
-            limitReached = true;
-            break;
-          }
-        }
-      } else {
+      const matched = this.#matchEntity(str, i, true);
+      if (matched.entity === null) {
         i++;
+        continue;
       }
+
+      result += str.substring(last, i) + matched.entity;
+      i += matched.advance;
+      last = i;
+      if (this.#spendBudget()) limitReached = true;
     }
 
     // Tail: the last one or two characters, where no three-character match is
-    // possible
-    while (i < len && !limitReached) {
+    // possible.
+    const tail = this.#encodeTail(str, i, last, result, limitReached);
+
+    // Flush any remaining literal suffix. This is also what copies the rest of
+    // the input through when the budget ran out mid-string.
+    result = tail.result;
+    last = tail.last;
+    if (last < len) result += str.substring(last);
+    return Effect.succeed(result);
+  }
+
+  /**
+   * @description The tail pass: from wherever the main loop stopped to the end of the string. Split out because it is the same walk with one rule changed — no
+   * three-character entity can start within two characters of the end, so the probe is skipped rather than bounds-checked. Two or three characters is
+   * the whole of it, so this runs once per `encode` rather than per character, and its locals cost nothing.
+   *
+   * @param str - The string being scanned.
+   * @param from - Where the main loop stopped.
+   * @param last - Where the next literal run starts.
+   * @param result - What has been emitted so far.
+   * @param limitReached - Whether the budget was already spent, in which case this returns immediately.
+   *
+   * @returns The extended output and the new `last`, so the caller can flush the remaining literal.
+   */
+  #encodeTail(str: string, from: number, last: number, result: string, limitReached: boolean): { result: string; last: number } {
+    const encodeXmlSafe = this.encodeXmlSafe;
+    const len = str.length;
+
+    let i = from;
+    let done = limitReached;
+
+    while (i < len && !done) {
       const c0 = str.charCodeAt(i);
 
       if (c0 < 128) {
         if (encodeXmlSafe && IS_XML_UNSAFE[c0] === 1) {
-          result += (str.substring(last, i) + XML_UNSAFE_REPLACEMENT[c0]) as string;
+          result += str.substring(last, i) + XML_UNSAFE_REPLACEMENT[c0];
           last = ++i;
-          if (maxRep > 0) {
-            this.replacementsCount++;
-            if (this.replacementsCount >= maxRep) {
-              limitReached = true;
-              break;
-            }
-          }
+          done = this.#spendBudget();
         } else {
           i++;
         }
@@ -273,48 +251,72 @@ export class EntityEncoder {
       }
 
       // Non-ASCII tail — only two- and one-character matches are possible here
-      let matchedEntity: string | null = null;
-      let advance = 1;
-
-      if (i + 1 < len) {
-        const inner2 = trie2.get(c0);
-        if (inner2 !== undefined) {
-          const c1 = str.charCodeAt(i + 1);
-          const candidate = inner2.get(c1);
-          if (candidate !== undefined) {
-            matchedEntity = candidate;
-            advance = 2;
-          }
-        }
-      }
-
-      if (matchedEntity === null && encodeAllNamed) {
-        const candidate = trie1.get(c0);
-        if (candidate !== undefined) {
-          matchedEntity = candidate;
-        }
-      }
-
-      if (matchedEntity !== null) {
-        result += str.substring(last, i) + matchedEntity;
-        i += advance;
-        last = i;
-        if (maxRep > 0) {
-          this.replacementsCount++;
-          if (this.replacementsCount >= maxRep) {
-            limitReached = true;
-            break;
-          }
-        }
-      } else {
+      const matched = this.#matchEntity(str, i, false);
+      if (matched.entity === null) {
         i++;
+        continue;
+      }
+
+      result += str.substring(last, i) + matched.entity;
+      i += matched.advance;
+      last = i;
+      done = this.#spendBudget();
+    }
+
+    return { result, last };
+  }
+
+  /**
+   * @description Longest named entity starting at `index`, and how many characters it spans. Three- then two- then one-character, so `&mdash;`-style names win
+   * over a shorter prefix of themselves. `threeCharOK` is the caller's bounds guarantee rather than a re-check: the main loop has already established
+   * that `index + 2` is inside the string, and the tail has not.
+   *
+   * @param str - The string being scanned.
+   * @param index - Where the entity would start.
+   * @param threeCharOK - Whether three characters are readable from `index`.
+   *
+   * @returns The entity text and its width, or `{ entity: null }` when nothing starts here.
+   */
+  #matchEntity(str: string, index: number, threeCharOK: boolean): { entity: string | null; advance: number } {
+    const c0 = str.charCodeAt(index);
+
+    if (threeCharOK) {
+      const mid3 = trie3.get(c0);
+      if (mid3 !== undefined) {
+        const inner3 = mid3.get(str.charCodeAt(index + 1));
+        if (inner3 !== undefined) {
+          const candidate = inner3.get(str.charCodeAt(index + 2));
+          if (candidate !== undefined) return { entity: candidate, advance: 3 };
+        }
       }
     }
 
-    // Flush any remaining literal suffix. This is also what copies the rest of
-    // the input through when the budget ran out mid-string.
-    if (last < len) result += str.substring(last);
-    return Effect.succeed(result);
+    if (index + 1 < str.length) {
+      const inner2 = trie2.get(c0);
+      if (inner2 !== undefined) {
+        const candidate = inner2.get(str.charCodeAt(index + 1));
+        if (candidate !== undefined) return { entity: candidate, advance: 2 };
+      }
+    }
+
+    if (this.encodeAllNamed) {
+      const candidate = trie1.get(c0);
+      if (candidate !== undefined) return { entity: candidate, advance: 1 };
+    }
+
+    return { entity: null, advance: 1 };
+  }
+
+  /**
+   * @description Charge one replacement against the budget.
+   *
+   * @returns Whether that spent the last of it, in which case the scan stops where it stands. Every call site is a loop body that then sets its own
+   *   `limitReached`, so the four copies of that check collapse to one here and the accounting stays in one place.
+   */
+  #spendBudget(): boolean {
+    if (this.maxReplacements <= 0) return false;
+    this.replacementsCount++;
+    return this.replacementsCount >= this.maxReplacements;
   }
 
   /**

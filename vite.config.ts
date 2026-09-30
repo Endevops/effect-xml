@@ -10,19 +10,12 @@ import { defineConfig } from 'vite-plus';
 // package would also need belongs here, as a `lint.overrides` or `fmt.overrides`
 // entry keyed on workspace globs such as `packages/<name>/**`.
 export default defineConfig({
-  staged: { '*': 'vp check --fix' },
-  run: { cache: { scripts: true } },
-  test: {
-    // Every spec is a pure function of its input — no `vi.mock`, no fake timers, no global stubbing — so
-    // reusing a worker across files buys back the ~300ms spawn each file costs without changing what any of
-    // them observes. This is only safe while no spec leaves global state behind; `html.spec.ts`,
-    // `j2x.spec.ts` and `j2x-ordered.spec.ts` restore the `Object.prototype` key they pollute for exactly
-    // that reason. Run `vp test --isolate` to reproduce the old per-file isolation when a spec does leak.
-    isolate: false,
-    // The suite is 71 files of TypeScript with no bundler step, so transform dominated the run. Persisting
-    // transformed modules on disk makes every run after the first skip it.
-    fsModuleCache: true,
+  staged: {
+    '*': 'vp check --fix',
+    '*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx}': ["sh -c 'exec fallow --changed-since HEAD --type-aware --fail-on-issues'"],
   },
+  run: { cache: { scripts: true } },
+  test: { isolate: false, fsModuleCache: true },
   fmt: {
     arrowParens: 'avoid',
     bracketSameLine: true,

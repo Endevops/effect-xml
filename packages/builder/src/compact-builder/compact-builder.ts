@@ -22,9 +22,10 @@ export type CompactParserOptions = Record<string, unknown> & {
 };
 
 /**
- * @description A tag frame on {@link CompactBuilder.tagsStack}: the four fields the builder must restore when the tag closes.
+ * @description A tag frame on {@link CompactBuilder.tagsStack}: the four fields the builder must restore when the tag closes. Exported because `tagsStack` is a
+ * public readonly field, so the element type has to be nameable by whoever reads the stack.
  */
-interface TagFrame {
+export interface TagFrame {
   /**
    * @description The tag name in scope before this one was pushed.
    */

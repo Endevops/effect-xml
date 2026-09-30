@@ -1151,9 +1151,11 @@ type _EveryCodeHasAClass = Record<ErrorCodeValue, true> extends Record<ParseErro
 type _EveryClassHasACode = ParseError['_tag'] extends ErrorCodeValue ? true : never;
 
 /**
- * @description Compile-time proof that {@link ErrorCode} and the reason classes name the same set. Exported only so the declaration is read as used; nothing should
- * ever import it.
+ * @description Compile-time proof that {@link ErrorCode} and the reason classes name the same set. It resolves to `true` or it does not compile, and nothing
+ * imports it: the two checks it pairs are types a value cannot consume, so this is the one assertion in the file that has no runtime shape to hang
+ * off.
  */
+// fallow-ignore-next-line unused-type, private-type-leak
 export type _ErrorCodeParity = [_EveryCodeHasAClass, _EveryClassHasACode] extends [true, true] ? true : never;
 
 /**
@@ -1283,7 +1285,8 @@ type _EveryReasonIsListed = InstanceType<(typeof PARSE_ERROR_CLASSES)[number]> e
 type _NothingExtraIsListed = ParseError extends InstanceType<(typeof PARSE_ERROR_CLASSES)[number]> ? true : never;
 
 /**
- * @description Compile-time proof that {@link isParseError}'s class list is exactly the union. Exported only so the two declarations above are read as used;
- * nothing should ever import it.
+ * @description Compile-time proof that {@link isParseError}'s class list is exactly the union. Like {@link _ErrorCodeParity} it is exported for the compiler
+ * rather than for a consumer, and nothing should ever import it.
  */
+// fallow-ignore-next-line unused-type, private-type-leak
 export type _IsParseErrorExhaustive = [_EveryReasonIsListed, _NothingExtraIsListed] extends [true, true] ? true : never;

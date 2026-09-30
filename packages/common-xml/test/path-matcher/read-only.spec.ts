@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { PathNode } from '#/index.ts';
 
-import { Matcher } from '#/index.ts';
+import { Matcher, type MatcherView } from '#/index.ts';
 import { expr, run } from '#/test/helpers/effect.ts';
 
 describe('readOnly() hands back a view rather than the matcher itself', () => {
@@ -60,7 +60,7 @@ describe('the view serves every read and match method the matcher does', () => {
     const matcher = new Matcher();
     run(matcher.push('element', {}, 'ns'));
 
-    const ro = run(matcher.readOnly());
+    const ro: MatcherView = run(matcher.readOnly());
 
     expect(run(ro.getCurrentNamespace())).toBe('ns');
   });

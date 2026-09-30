@@ -116,7 +116,7 @@ const codePointsOf = (value: string): string[] => {
  * @returns The configured decoder.
  */
 const decoderWithBothTiers = (options: EntityDecoderOptions = {}): EntityDecoder => {
-  const decoder = run(EntityDecoder.make(options));
+  const decoder: EntityDecoder = run(EntityDecoder.make(options));
   run(decoder.setExternalEntities({ externalName: 'EXTERNAL' }));
   run(decoder.addInputEntities({ inputName: 'INPUT' }));
   return decoder;

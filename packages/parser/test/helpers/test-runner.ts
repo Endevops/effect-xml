@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { X2jOptions } from '#/options.ts';
 
-import XMLParser from '#/xml-parser.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 /**
  * @description Run one of the parser's effects and get the value out, or the `ParseError` thrown. `Effect.runSync` would do the first half, but not the second in

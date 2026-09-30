@@ -2,14 +2,40 @@ import { Effect, Exit, Option } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import {
+  AlreadyStreaming,
+  BooleanAttributeRejected,
+  DataMustBeString,
+  DependencyError,
+  DuplicateAttribute,
+  EncodingMismatch,
+  EntityInvalidKey,
+  EntityInvalidValue,
+  EntityMaxCount,
+  EntityMaxExpandedLength,
+  EntityMaxExpansions,
+  EntityMaxSize,
   ErrorCode,
   IllegalCharacter,
+  InvalidAttributeName,
+  InvalidDecoder,
+  InvalidInput,
+  InvalidStream,
+  InvalidTag,
+  InvalidTagName,
   LimitMaxAttributes,
   LimitMaxNestedTags,
   MismatchedCloseTag,
+  MultipleNamespaces,
+  NotStreaming,
   SecurityPrototypePollution,
   SecurityReservedOption,
   SecurityRestrictedName,
+  UnexpectedCloseTag,
+  UnexpectedEnd,
+  UnexpectedTrailingData,
+  UnclosedQuote,
+  UnsupportedEncoding,
+  UnquotedAttributeValue,
   XMLParser,
   isParseError,
   type ErrorCodeValue,
@@ -196,5 +222,80 @@ describe('ParseError — the code alias', () => {
     const code: ErrorCodeValue = error.code;
 
     expect(code).toBe('LIMIT_MAX_NESTED_TAGS');
+  });
+});
+
+/**
+ * @description What one reason reports, read off the instance at construction rather than inside a spec. `code` and `toString` are written out by hand on all 33
+ * classes, so they are the two members a copy can quietly lose: a class added without the getter, or with a `toString` that dropped the offset, looks
+ * identical in review and fails a caller at runtime. A hand-written case cannot catch that, because it can only construct the one or two classes it
+ * thought to. The generic parameter is what makes this work — it keeps each argument's own class, so `reason.code` is read on `AlreadyStreaming` when
+ * that is the class being built, and a class missing the member fails to type-check here instead of shipping.
+ *
+ * @param reason - The instance to read.
+ *
+ * @returns Its tag, its `code`, and its printed form.
+ */
+const reports = <A extends ParseError>(reason: A) => ({ tag: reason._tag, code: reason.code, printed: reason.toString(), message: reason.message });
+
+/**
+ * @description One observation per reason class, carrying only the fields that class requires. Every entry sits at offset 7 so the printed form has something to
+ * report; the one case with no offset is asserted separately.
+ */
+const EVERY_REASON = [
+  reports(new InvalidInput({ message: 'invalid input', index: 7 })),
+  reports(new InvalidStream({ message: 'not a stream', index: 7 })),
+  reports(new AlreadyStreaming({ message: 'already streaming', index: 7 })),
+  reports(new NotStreaming({ message: 'not streaming', index: 7 })),
+  reports(new DataMustBeString({ received: 'number', message: 'not a string', index: 7 })),
+  reports(new UnexpectedEnd({ message: 'unexpected end', index: 7 })),
+  reports(new UnexpectedCloseTag({ tag: '/a', message: 'unexpected close', index: 7 })),
+  reports(new MismatchedCloseTag({ tag: 'a', message: 'mismatched close', index: 7 })),
+  reports(new UnexpectedTrailingData({ message: 'trailing data', index: 7 })),
+  reports(new InvalidTag({ message: 'invalid tag', index: 7 })),
+  reports(new UnclosedQuote({ message: 'unclosed quote', index: 7 })),
+  reports(new InvalidTagName({ name: '1a', message: 'invalid tag name', index: 7 })),
+  reports(new InvalidAttributeName({ name: '1a', message: 'invalid attribute name', index: 7 })),
+  reports(new MultipleNamespaces({ name: 'a:b:c', message: 'multiple namespaces', index: 7 })),
+  reports(new IllegalCharacter({ charCode: 1, in: 'content', message: 'illegal character', index: 7 })),
+  reports(new DuplicateAttribute({ name: 'a', message: 'duplicate attribute', index: 7 })),
+  reports(new UnquotedAttributeValue({ name: 'a', message: 'unquoted value', index: 7 })),
+  reports(new BooleanAttributeRejected({ name: 'a', message: 'boolean attribute', index: 7 })),
+  reports(new SecurityPrototypePollution({ name: '__proto__', message: 'prototype pollution', index: 7 })),
+  reports(new SecurityReservedOption({ option: 'nameFor.text', value: '__proto__', message: 'reserved option', index: 7 })),
+  reports(new SecurityRestrictedName({ name: 'raw', kind: 'tag', message: 'restricted name', index: 7 })),
+  reports(new LimitMaxNestedTags({ limit: 3, depth: 4, message: 'too deep', index: 7 })),
+  reports(new LimitMaxAttributes({ limit: 2, count: 3, tag: 'a', message: 'too many attributes', index: 7 })),
+  reports(new EntityMaxCount({ actual: 2, limit: 1, message: 'too many entities', index: 7 })),
+  reports(new EntityMaxSize({ actual: 2, limit: 1, name: 'amp', message: 'entity too large', index: 7 })),
+  reports(new EntityMaxExpansions({ actual: 2, limit: 1, message: 'too many expansions', index: 7 })),
+  reports(new EntityMaxExpandedLength({ actual: 2, limit: 1, message: 'expansion too long', index: 7 })),
+  reports(new EntityInvalidKey({ name: 'amp', message: 'invalid entity key', index: 7 })),
+  reports(new EntityInvalidValue({ message: 'invalid entity value', index: 7 })),
+  reports(new UnsupportedEncoding({ encoding: 'EBCDIC', message: 'unsupported encoding', index: 7 })),
+  reports(new InvalidDecoder({ message: 'invalid decoder', index: 7 })),
+  reports(new EncodingMismatch({ declared: 'utf-8', actual: 'utf-16', message: 'encoding mismatch', index: 7 })),
+  reports(new DependencyError({ package: '@endevops/builder', cause: 'boom', message: 'boom', index: 7 })),
+] as const satisfies readonly { tag: ErrorCodeValue; code: ErrorCodeValue; printed: string; message: string }[];
+
+/**
+ * @description One case per reason class, so a failure names the class that broke rather than pointing at a loop over all thirty-three. Both members are asserted
+ * against literals rather than against the instance that produced them: the getter returning the tag is the contract, and comparing `code` to the
+ * `_tag` the same object also carries would pass even if the getter returned anything the instance happened to agree with.
+ */
+describe('ParseError — every reason reports the same way', () => {
+  it.each(EVERY_REASON)('$tag reports its code as its own tag', function ({ tag, code }) {
+    expect(code).toBe(tag);
+  });
+
+  it.each(EVERY_REASON)('$tag prints the tag, the offset and the message', function ({ tag, printed, message }) {
+    expect(printed).toBe(`${tag} at index 7: ${message}`);
+  });
+
+  it('drops the offset from the printed form when there is none', function () {
+    // A configuration failure is refused before the document is read, so it has no index. ` at index undefined` would be the bug this catches.
+    const { printed } = reports(new InvalidInput({ message: 'limit must be a positive integer' }));
+
+    expect(printed).toBe('INVALID_INPUT: limit must be a positive integer');
   });
 });

@@ -35,7 +35,7 @@ import EntitiesValueParser from './value-parsers/entity-parser.ts';
 import NumberValueParser from './value-parsers/number.ts';
 import toNumber from './value-parsers/to-number.ts';
 import Trim from './value-parsers/trim.ts';
-import WSNormalizer from './value-parsers/ws-normalizer.ts';
+import { WSNormalizer } from './value-parsers/ws-normalizer.ts';
 
 export {
   BaseOutputBuilder,
@@ -74,4 +74,3 @@ export type {
   XmlUnsafeMatch,
   XmlUnsafeRule,
 };
-export default BaseOutputBuilder;

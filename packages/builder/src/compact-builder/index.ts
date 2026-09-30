@@ -13,12 +13,10 @@
  *   ```;
  */
 
-import type { CloseMetaLike, TagDetailLike } from '../output-builder/index.ts';
 import type { CompactParserOptions, CompactValue } from './compact-builder.ts';
 import type { FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions } from './options.ts';
 
 import CompactBuilderFactory, { CompactBuilder } from './compact-builder.ts';
 
 export { CompactBuilder, CompactBuilderFactory };
-export type { CloseMetaLike, CompactParserOptions, CompactValue, FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions, TagDetailLike };
-export default CompactBuilderFactory;
+export type { CompactParserOptions, CompactValue, FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions };

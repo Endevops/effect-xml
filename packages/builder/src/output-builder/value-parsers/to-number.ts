@@ -272,7 +272,7 @@ function resolveExponent(original: string, value: string, options: ResolvedOptio
  *
  * @returns The number, or `value` unchanged when it is not numeric under `options`.
  */
-export function toNumber(value: string, options: ToNumberOptions = {}): string | number | null {
+function toNumber(value: string, options: ToNumberOptions = {}): string | number | null {
   const resolved: ResolvedOptions = { ...DEFAULTS, ...options };
 
   if (!value || typeof value !== 'string') return value;

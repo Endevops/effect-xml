@@ -88,16 +88,6 @@ const XML_PATTERNS: readonly XmlUnsafeRule[] = [
 ];
 
 /**
- * @description The context this module tests against. A single named context rather than a registry, because there is only one.
- */
-export const VALID_CONTEXTS = Object.freeze({ XML: 'XML' } as const);
-
-/**
- * @description The name of the one context.
- */
-export type ContextName = (typeof VALID_CONTEXTS)[keyof typeof VALID_CONTEXTS];
-
-/**
  * @description The rules, in the order they are tested. First match wins, so the order is part of the contract: `allUnsafe` reports every hit, but
  * {@link isUnsafeXml} and {@link whyUnsafeXml} report the first.
  */

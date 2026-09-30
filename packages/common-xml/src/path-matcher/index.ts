@@ -27,7 +27,7 @@ import type { KeptAttrEntry, MatcherOptions, MatcherSnapshot, PathNode, PushOpti
 
 import ExpressionSet from './expression-set.ts';
 import Expression from './expression.ts';
-import Matcher, { MatcherView } from './matcher.ts';
+import { Matcher, MatcherView } from './matcher.ts';
 
 export { Expression, ExpressionSet, Matcher, MatcherView };
 export type {
@@ -42,4 +42,3 @@ export type {
   Segment,
   SiblingLevel,
 };
-export default { Expression, Matcher, MatcherView, ExpressionSet };

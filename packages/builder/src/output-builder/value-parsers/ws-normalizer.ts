@@ -35,7 +35,7 @@ export interface WSNormalizerOptions {
  *   const ws = new WSNormalizer({ exclude: ['..pre', '..code'] });
  *   ```;
  */
-export default class WSNormalizer extends BaseValueParser {
+class WSNormalizer extends BaseValueParser {
   /**
    * @description The compiled exclusion patterns, sealed at construction so nothing can add to them mid-parse.
    */
@@ -117,3 +117,6 @@ export default class WSNormalizer extends BaseValueParser {
     return val.replace(/[ \t\r\n]+/g, ' ').trim();
   });
 }
+
+export { WSNormalizer };
+export default WSNormalizer;

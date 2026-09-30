@@ -43,7 +43,7 @@ import Xml2JsParser from './xml2-js-parser.js';
  *   );
  *   ```;
  */
-export default class XMLParser {
+class XMLParser {
   /**
    * @description Fully-resolved options, built once by {@link XMLParser.make} and shared by reference with every `Xml2JsParser` this instance creates.
    */
@@ -478,3 +478,6 @@ export default class XMLParser {
 // `isReadableStream` now lives in `input-source/stream-source.ts`, next to the
 // `ReadableLike` type it narrows to, so the runtime check and the type it
 // produces are read together rather than drifting apart across two files.
+
+export { XMLParser };
+export default XMLParser;

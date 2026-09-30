@@ -17,7 +17,7 @@ import { escapeAttribute, safeCdata, safeComment, valToStr } from './util.ts';
 /**
  * @description What {@link XMLBuilder.j2x} returns: the attribute string and the element body, kept apart so a caller can nest them.
  */
-export interface J2xResult {
+interface J2xResult {
   /**
    * @description The leading ` name="value"` pairs for this level.
    */

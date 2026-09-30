@@ -333,12 +333,15 @@ export class MatcherView {
   }
 
   /**
-   * @description Match the current path against every expression in a set.
+   * @description Match the current path against every expression in a set. Published API on a type a caller receives in their own callback, so nothing inside this
+   * repository calls it — every internal caller holds the {@link ExpressionSet} and calls `matchesAny` on that instead. Deleting it would be a
+   * breaking change to a released package to satisfy a reachability check that cannot see a caller's code.
    *
    * @param exprSet - The set to test against.
    *
    * @returns Whether any expression in the set matches.
    */
+  // fallow-ignore-next-line unused-class-member
   matchesAny(exprSet: ExpressionSet): Effect.Effect<boolean, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
@@ -368,7 +371,7 @@ export class MatcherView {
  *   matcher.matches(new Expression('root.users.user')); // false
  *   ```;
  */
-export default class Matcher {
+class Matcher {
   /**
    * @description The path separator, used by {@link Matcher.toString} when it is not given one.
    */
@@ -670,8 +673,12 @@ export default class Matcher {
    *
    * @deprecated Use {@link Matcher.getPosition} or {@link Matcher.getCounter} instead.
    *
+   * Kept because it is already released: the whole point of a deprecated alias is that callers who never migrate keep working, so there is nothing left to
+   * clean up once they do.
+   *
    * @returns The current node's sibling index.
    */
+  // fallow-ignore-next-line unused-class-member
   getIndex(): Effect.Effect<number, XmlError> {
     // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
     // not the instance. Captured here, once, and the body reads as it did.
@@ -722,10 +729,13 @@ export default class Matcher {
   }
 
   /**
-   * @description The current path as an array of tag names, namespaces omitted.
+   * @description The current path as an array of tag names, namespaces omitted. Released API, kept. The internal callers read `path` directly, and the equivalent
+   * member on {@link MatcherView} is the one a callback gets, so nothing here calls this — which is what a public method on a published class looks
+   * like from inside its own repository.
    *
    * @returns One entry per level, root first.
    */
+  // fallow-ignore-next-line unused-class-member
   toArray(): Effect.Effect<string[], XmlError> {
     // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
     // branches, and the compiler points at every call site that now has to run it.
@@ -921,12 +931,14 @@ export default class Matcher {
   }
 
   /**
-   * @description Match the current path against every expression in a set.
+   * @description Match the current path against every expression in a set. Released API, kept, and the mirror of {@link MatcherView.matchesAny}: both exist so a
+   * caller holding either side of the read-only split can ask the question without reaching for the other. Nothing inside the repository calls it.
    *
    * @param exprSet - The set to test against.
    *
    * @returns Whether any expression in the set matches.
    */
+  // fallow-ignore-next-line unused-class-member
   matchesAny(exprSet: ExpressionSet): Effect.Effect<boolean, XmlError> {
     return exprSet.matchesAny(this);
   }
@@ -993,3 +1005,7 @@ export default class Matcher {
  * @deprecated Use {@link MatcherView} instead.
  */
 export type ReadOnlyMatcher = MatcherView;
+
+export { Matcher };
+
+export default Matcher;

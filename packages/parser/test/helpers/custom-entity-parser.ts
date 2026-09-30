@@ -1,4 +1,4 @@
-import type { BuilderError, SharedContext } from '@endevops/builder';
+import type { BuilderError, SharedContext, ValueParser } from '@endevops/builder';
 import type { EntityDecoderOptions } from '@endevops/common-xml';
 import type { Effect } from 'effect';
 
@@ -12,9 +12,11 @@ import { runParser } from '#/test/helpers/test-runner.ts';
  * @description A value parser that expands DOCTYPE entities. `@nodable/entities`' `EntityDecoder` is a standalone decoder, not a `BaseValueParser`, so this adapts
  * it to the value-parser contract the builder's pipeline expects: `parse(val, context)` instead of `decode(str)`, plus the `init` / `reset` lifecycle
  * the pipeline calls. The DOCTYPE's entity map only arrives through the shared context, which the pipeline supplies after construction — so the
- * decoder is fed from the context rather than from constructor options.
+ * decoder is fed from the context rather than from constructor options. `implements ValueParser` is what makes the contract checkable rather than
+ * conventional. The pipeline calls `init`, `reset` and `parse` through the interface rather than through this class, so nothing here names them;
+ * without the clause a rename or a changed signature would compile cleanly and fail only when a DOCTYPE spec ran.
  */
-export default class EntityParser {
+export default class EntityParser implements ValueParser {
   /**
    * @description The shared context supplied by the pipeline, holding `xmlVersion` and `inputEntities`.
    */
@@ -62,13 +64,6 @@ export default class EntityParser {
    */
   addExternalEntity(key: string, value: string): void {
     runParser(this.#decoder.addExternalEntity(key, value));
-  }
-
-  /**
-   * @description Register a batch of external entities. See {@link addExternalEntity}.
-   */
-  setExternalEntities(map: Parameters<EntityDecoder['setExternalEntities']>[0]): void {
-    runParser(this.#decoder.setExternalEntities(map));
   }
 
   /**
