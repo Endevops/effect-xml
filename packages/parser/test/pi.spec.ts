@@ -1,4 +1,4 @@
-import { CompactBuilderFactory, CompactBuilder } from '@endevops/builder';
+import { CompactBuilderFactory, makeCompactBuilder } from '@endevops/builder';
 import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
@@ -59,16 +59,18 @@ describe('Processing Instructions — XML declaration', function () {
     const factory: OutputBuilderFactoryLike = {
       getInstance(parserOpts, readonlyMatcher) {
         const base = runParser(CompactBuilderFactory.make());
-        return Effect.succeed(
-          asOutputBuilder(
-            new (class extends CompactBuilder {
-              override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
-                if (xmlDef) seen.push(xmlDef);
-                super.addDeclaration(name, xmlDef);
-              }
-            })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
-          )
-        );
+        const inner = makeCompactBuilder(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
+        // Captured before the override replaces it, then assigned onto the same
+        // object: the builder is mutable state and a spread would leave two
+        // divergent copies.
+        const addDeclaration = inner.addDeclaration.bind(inner);
+        Object.assign(inner, {
+          addDeclaration(name: string, xmlDef?: XmlDeclaration) {
+            if (xmlDef) seen.push(xmlDef);
+            addDeclaration(name, xmlDef);
+          },
+        });
+        return Effect.succeed(asOutputBuilder(inner));
       },
     };
 
@@ -90,16 +92,18 @@ describe('Processing Instructions — XML declaration', function () {
     const factory: OutputBuilderFactoryLike = {
       getInstance(parserOpts, readonlyMatcher) {
         const base = runParser(CompactBuilderFactory.make());
-        return Effect.succeed(
-          asOutputBuilder(
-            new (class extends CompactBuilder {
-              override addDeclaration(name: string, xmlDef?: XmlDeclaration): void {
-                if (xmlDef) seen.push(xmlDef);
-                super.addDeclaration(name, xmlDef);
-              }
-            })(parserOpts, base.builderOptions, readonlyMatcher, base.registry)
-          )
-        );
+        const inner = makeCompactBuilder(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
+        // Captured before the override replaces it, then assigned onto the same
+        // object: the builder is mutable state and a spread would leave two
+        // divergent copies.
+        const addDeclaration = inner.addDeclaration.bind(inner);
+        Object.assign(inner, {
+          addDeclaration(name: string, xmlDef?: XmlDeclaration) {
+            if (xmlDef) seen.push(xmlDef);
+            addDeclaration(name, xmlDef);
+          },
+        });
+        return Effect.succeed(asOutputBuilder(inner));
       },
     };
 

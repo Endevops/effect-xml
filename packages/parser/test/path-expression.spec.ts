@@ -8,31 +8,43 @@
  */
 
 import type { BuilderError, Context, ValueParser } from '@endevops/builder';
+import type { CompactBuilder } from '@endevops/builder';
 import type { MatcherView } from '@endevops/common-xml';
 
-import { CompactBuilderFactory, CompactBuilder } from '@endevops/builder';
+import { CompactBuilderFactory, makeCompactBuilder } from '@endevops/builder';
 import { Expression } from '@endevops/common-xml';
 import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
-import type { OutputBuilderFactoryLike, TagDetailLike } from '#/internal/parser-types.ts';
+import type { OutputBuilderFactoryLike } from '#/internal/parser-types.ts';
 
 import { asOutputBuilder } from '#/test/helpers/recording-builder.ts';
 import { makeParser, parseDoc, runParser } from '#/test/helpers/test-runner.ts';
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
-type AnyCompactBuilderCtor = new (
-  parserOptions: object,
-  builderOptions: ConstructorParameters<typeof CompactBuilder>[1],
-  readonlyMatcher: MatcherView | null,
-  registry: ConstructorParameters<typeof CompactBuilder>[3]
-) => CompactBuilder;
+/**
+ * @description A per-document override of the compact builder. The callback runs once per document, so any closure state it keeps is per-document.
+ */
+type BuilderOverride = (base: CompactBuilder) => Partial<CompactBuilder>;
 
-function makeFactory(BuilderSubclass: AnyCompactBuilderCtor): OutputBuilderFactoryLike {
+/**
+ * @description Build a factory that produces a compact builder with a per-document override applied over it. The override's methods can delegate to `base`.
+ *
+ * @param override - Produces the members to override, given the fresh base builder.
+ *
+ * @returns The parser-facing factory.
+ */
+function makeFactory(override: BuilderOverride = () => ({}) as Partial<CompactBuilder>): OutputBuilderFactoryLike {
   return {
     getInstance(parserOptions, readonlyMatcher) {
-      const base = runParser(CompactBuilderFactory.make());
-      return Effect.succeed(asOutputBuilder(new BuilderSubclass(parserOptions, base.builderOptions, readonlyMatcher, base.registry)));
+      const f = runParser(CompactBuilderFactory.make());
+      const base = makeCompactBuilder(parserOptions, f.builderOptions, readonlyMatcher, f.registry);
+      // Overrides are assigned onto the same object rather than spread into a
+      // new one: the builder is mutable per-document state, and a spread would
+      // copy `tagName`/`value`/`textValue` by value and leave the base and the
+      // override operating on two divergent copies.
+      Object.assign(base, override(base));
+      return Effect.succeed(asOutputBuilder(base));
     },
   };
 }
@@ -469,14 +481,17 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   it('should pass ReadOnlyMatcher to addElement() override', function () {
     const tagPaths: string[] = [];
 
-    class CapturingBuilder extends CompactBuilder {
-      override addElement(tag: TagDetailLike, matcher: MatcherView): void {
-        tagPaths.push(runParser(matcher.toString()));
-        super.addElement(tag, matcher);
-      }
-    }
-
-    const parser = makeParser({ OutputBuilder: makeFactory(CapturingBuilder) });
+    const parser = makeParser({
+      OutputBuilder: makeFactory(base => {
+        const addElement = base.addElement.bind(base);
+        return {
+          addElement(tag, matcher) {
+            tagPaths.push(runParser(matcher.toString()));
+            addElement(tag, matcher);
+          },
+        };
+      }),
+    });
     runParser(parser.parse(`<root><child>text</child></root>`));
 
     expect(tagPaths).toContain('root');
@@ -486,22 +501,17 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   it('should pass ReadOnlyMatcher to closeElement() override', function () {
     const closedPaths: string[] = [];
 
-    class CapturingBuilder extends CompactBuilder {
-      // `closeElement` is a class field on `CompactBuilder`, not a prototype
-      // method, so an override written as one is shadowed by the base's own
-      // field and never runs — and `super.closeElement` is unreachable for the
-      // same reason (TS2855). The base implementation is read off the instance
-      // right after `super()` has installed it and re-declared as a field, which
-      // is the only shape the parser's `builder.closeElement(…)` call can reach.
-      readonly #baseClose = (this as unknown as CompactBuilder).closeElement;
-
-      override closeElement = (matcher: MatcherView): Effect.Effect<void, BuilderError> => {
-        closedPaths.push(runParser(matcher.toString()));
-        return this.#baseClose(matcher);
-      };
-    }
-
-    const parser = makeParser({ OutputBuilder: makeFactory(CapturingBuilder) });
+    const parser = makeParser({
+      OutputBuilder: makeFactory(base => {
+        const closeElement = base.closeElement.bind(base);
+        return {
+          closeElement(matcher, closeMeta) {
+            closedPaths.push(runParser(matcher.toString()));
+            return closeElement(matcher, closeMeta);
+          },
+        };
+      }),
+    });
     runParser(parser.parse(`<root><a>1</a><b>2</b></root>`));
 
     expect(closedPaths).toContain('root.a');
@@ -512,16 +522,17 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   it('should rename a tag based on its path using Expression matching in addTag', function () {
     const legacyExpr = runParser(Expression.make('root.oldName'));
 
-    class RenameBuilder extends CompactBuilder {
-      override addElement(tag: TagDetailLike, matcher: MatcherView): void {
-        if (runParser(matcher.matches(legacyExpr))) {
-          tag = { ...tag, name: 'newName' };
-        }
-        super.addElement(tag, matcher);
-      }
-    }
-
-    const parser = makeParser({ OutputBuilder: makeFactory(RenameBuilder) });
+    const parser = makeParser({
+      OutputBuilder: makeFactory(base => {
+        const addElement = base.addElement.bind(base);
+        return {
+          addElement(tag, matcher) {
+            const resolved = runParser(matcher.matches(legacyExpr)) ? { ...tag, name: 'newName' } : tag;
+            addElement(resolved, matcher);
+          },
+        };
+      }),
+    });
     const result = parseDoc(parser, `<root><oldName>content</oldName></root>`);
 
     expect(result.root.newName).toBe('content');
@@ -534,37 +545,33 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
     // The clean pattern is to set a flag in addTag and check it in closeTag.
     const skipExpr = runParser(Expression.make('root.internal'));
 
-    class SkipBuilder extends CompactBuilder {
-      #skipDepth: number;
-      // Same reason as `CapturingBuilder` above: `closeElement` is a class field
-      // on the base, so the base implementation is read off the instance and
-      // re-declared as a field rather than reached through `super`.
-      readonly #baseClose = (this as unknown as CompactBuilder).closeElement;
-      constructor(...args: ConstructorParameters<typeof CompactBuilder>) {
-        super(...args);
-        this.#skipDepth = 0;
-      }
-      override addElement(tag: TagDetailLike, matcher: MatcherView): void {
-        if (runParser(matcher.matches(skipExpr))) {
-          this.#skipDepth++;
-          return;
-        }
-        if (this.#skipDepth > 0) {
-          this.#skipDepth++;
-          return;
-        }
-        super.addElement(tag, matcher);
-      }
-      override closeElement = (matcher: MatcherView): Effect.Effect<void, BuilderError> => {
-        if (this.#skipDepth > 0) {
-          this.#skipDepth--;
-          return Effect.void;
-        }
-        return this.#baseClose(matcher);
-      };
-    }
-
-    const parser = makeParser({ OutputBuilder: makeFactory(SkipBuilder) });
+    const parser = makeParser({
+      OutputBuilder: makeFactory(base => {
+        const addElement = base.addElement.bind(base);
+        const closeElement = base.closeElement.bind(base);
+        let skipDepth = 0;
+        return {
+          addElement(tag, matcher) {
+            if (runParser(matcher.matches(skipExpr))) {
+              skipDepth++;
+              return;
+            }
+            if (skipDepth > 0) {
+              skipDepth++;
+              return;
+            }
+            addElement(tag, matcher);
+          },
+          closeElement(matcher, closeMeta) {
+            if (skipDepth > 0) {
+              skipDepth--;
+              return Effect.void;
+            }
+            return closeElement(matcher, closeMeta);
+          },
+        };
+      }),
+    });
     const result = parseDoc(parser, `<root><public>visible</public><internal>hidden</internal></root>`);
 
     expect(result.root.public).toBe('visible');

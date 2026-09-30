@@ -1,7 +1,8 @@
+import type { CompactBuilder } from '@endevops/builder';
 import type { BuilderError, ValueParserRegistryLike } from '@endevops/builder';
 import type { MatcherView } from '@endevops/common-xml';
 
-import { CompactBuilder, CompactBuilderFactory } from '@endevops/builder';
+import { CompactBuilderFactory, makeCompactBuilder } from '@endevops/builder';
 import { Effect } from 'effect';
 
 import type { AttributeMeta, CloseMeta, OutputBuilderLike, TagDetailLike, XmlDeclaration } from '#/internal/parser-types.ts';
@@ -133,12 +134,12 @@ class RecordingBuilder implements OutputBuilderLike {
   constructor(
     events: RecordingEvents,
     parserOptions: object,
-    builderOptions: ConstructorParameters<typeof CompactBuilder>[1],
+    builderOptions: Parameters<typeof makeCompactBuilder>[1],
     readonlyMatcher: MatcherView | null,
     registry: ValueParserRegistryLike
   ) {
     this.events = events;
-    this.#inner = new CompactBuilder(parserOptions, builderOptions, readonlyMatcher, registry);
+    this.#inner = makeCompactBuilder(parserOptions, builderOptions, readonlyMatcher, registry);
   }
 
   addElement(tag: TagDetailLike, matcher: MatcherView): void {

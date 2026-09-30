@@ -8,15 +8,25 @@
  *   import { CompactBuilderFactory } from '@endevops/builder';
  *   import XMLParser from '@endevops/parser';
  *
- *   const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ alwaysArray: ['..item'] }) });
- *   parser.parse('<root><item>a</item><item>b</item></root>'); // { root: { item: ['a', 'b'] } }
+ *   const factory = yield* CompactBuilderFactory.make({ alwaysArray: ['..item'] });
+ *   const parser = yield* XMLParser.make({ OutputBuilder: factory });
+ *   yield* parser.parse('<root><item>a</item><item>b</item></root>'); // { root: { item: ['a', 'b'] } }
  *   ```;
  */
 
-import type { CompactParserOptions, CompactValue } from './compact-builder.ts';
+import type { CompactBuilder, CompactParserOptions, CompactValue, OutputBuilderFactory, TagFrame } from './compact-builder.ts';
 import type { FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions } from './options.ts';
 
-import CompactBuilderFactory, { CompactBuilder } from './compact-builder.ts';
+import { CompactBuilderFactory, makeCompactBuilder } from './compact-builder.ts';
 
-export { CompactBuilder, CompactBuilderFactory };
-export type { CompactParserOptions, CompactValue, FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions };
+export { CompactBuilderFactory, makeCompactBuilder };
+export type {
+  CompactBuilder,
+  CompactParserOptions,
+  CompactValue,
+  FactoryOptions,
+  ForceArrayPredicate,
+  OutputBuilderFactory,
+  ResolvedFactoryOptions,
+  TagFrame,
+};

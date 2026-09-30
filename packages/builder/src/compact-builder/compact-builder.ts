@@ -1,13 +1,16 @@
 import type { MatcherView, XmlError } from '@endevops/common-xml';
 
-import { Effect } from 'effect';
+import { Context, Effect, Layer } from 'effect';
 
 import type { BuilderError } from '../errors.ts';
-import type { CloseMetaLike, Context, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
+import type { OutputBuilder, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
+import type { Context as ValueContext } from '../output-builder/index.ts';
+import type { ValueParser } from '../output-builder/index.ts';
+import type { ValueParserRegistry } from '../output-builder/index.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
 import { BuilderError as BuilderErrorCtor } from '../errors.ts';
-import { BaseOutputBuilder as BaseOutputBuilderClass, BaseOutputBuilderFactory, makeContext } from '../output-builder/index.ts';
+import { makeBaseOutputBuilder, makeContext, makeValueParserRegistry } from '../output-builder/index.ts';
 import { buildOptions } from './options-builder.ts';
 
 /**
@@ -22,8 +25,7 @@ export type CompactParserOptions = Record<string, unknown> & {
 };
 
 /**
- * @description A tag frame on {@link CompactBuilder.tagsStack}: the four fields the builder must restore when the tag closes. Exported because `tagsStack` is a
- * public readonly field, so the element type has to be nameable by whoever reads the stack.
+ * @description A tag frame on {@link CompactBuilder.tagsStack}: the four fields the builder must restore when the tag closes.
  */
 export interface TagFrame {
   /**
@@ -35,9 +37,7 @@ export interface TagFrame {
    */
   textValue: string;
   /**
-   * @description The value the enclosing tag had accumulated so far — which is the object this tag's own value gets written into on close. Not the same as
-   * {@link CompactBuilder.parent}, and deliberately so: the frame captures the parent's _value_, which changes as siblings are added, whereas a
-   * single `parent` reference set once in the constructor would be stale by the time a grandchild closed.
+   * @description The value the enclosing tag had accumulated so far — which is the object this tag's own value gets written into on close.
    */
   parentValue: CompactValue;
   /**
@@ -48,89 +48,12 @@ export interface TagFrame {
 
 /**
  * @description A node's value while it is being built: an object once it has children or attributes, a bare string while it is still only text. The union is the
- * whole design of this builder. A tag with nothing but text collapses to that string; anything else becomes an object, and that is why `_addChild`
- * has to promote a string to `{ [nameFor.text]: string }` before it can hold a child.
+ * whole design of this builder.
  */
 export type CompactValue = string | Record<string, unknown>;
 
 /**
- * @description Produces a {@link CompactBuilder} per document. Resolve the options once, in the constructor, and hand each document a builder that shares the
- * factory's value-parser registry — so a parser registered after construction still applies to every document, while a builder's own per-document
- * state does not survive between them.
- *
- * @example
- *   ```typescript
- *   const parser = new XMLParser({ OutputBuilder: new CompactBuilderFactory({ alwaysArray: ['..item'] }) });
- *   parser.parse('<root><item>a</item><item>b</item></root>');
- *   // { root: { item: ['a', 'b'] } }
- *   ```;
- */
-export class CompactBuilderFactory extends BaseOutputBuilderFactory {
-  /**
-   * @description This builder's resolved options. Narrower than the base's, which only knows the value-parser chains every builder shares.
-   */
-  declare builderOptions: ResolvedFactoryOptions;
-
-  /**
-   * @description Produce a builder for one document.
-   *
-   * @param parserOptions - The parser's options.
-   * @param readonlyMatcher - The live path, or `null`.
-   *
-   * @returns An effect producing a fresh builder. Constructing one cannot fail, so the error channel
-   * is only there to match the base class.
-   */
-  override getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): Effect.Effect<CompactBuilder, BuilderError> {
-    return Effect.succeed(
-      new CompactBuilder(
-        parserOptions as ConstructorParameters<typeof CompactBuilder>[0],
-        this.builderOptions as ResolvedFactoryOptions,
-        readonlyMatcher,
-        this.registry as ValueParserRegistryLike
-      )
-    );
-  }
-
-  /**
-   * @description Create a factory from options that are already resolved. Private because resolving them can fail, which is what {@link CompactBuilderFactory.make}
-   * does.
-   *
-   * @param resolved - The resolved options.
-   */
-  private constructor(resolved: ResolvedFactoryOptions) {
-    super(resolved);
-    this.builderOptions = resolved;
-  }
-
-  /**
-   * @description Create a factory, resolving its options on the way in. A factory rather than a constructor, because resolving the options can fail — an
-   * `alwaysArray` entry that is neither a pattern nor an expression, or a pattern that will not compile — and a constructor has nowhere to put an
-   * error channel.
-   *
-   * @example
-   *   ```typescript
-   *   const factory = yield* CompactBuilderFactory.make({ alwaysArray: ['..item'] });
-   *   ```;
-   *
-   * @param builderOptions - This builder's options.
-   *
-   * @returns An effect producing the factory. Fails with the `InvalidOptionEntry` or
-   * `PatternCompilationFailed` reason.
-   */
-  static make = (builderOptions: FactoryOptions = {}): Effect.Effect<CompactBuilderFactory, BuilderError> =>
-    Effect.map(buildOptions(builderOptions), resolved => new CompactBuilderFactory(resolved));
-}
-
-/**
- * @description Builds a minimal JavaScript object from a document: a tag with only text becomes that string, anything with children or attributes becomes an
- * object, and repeated tags become an array. That last rule is what makes the shape awkward to consume — a key is a string on the document's first
- * occurrence and an array from the second — and {@link FactoryOptions.alwaysArray} and {@link FactoryOptions.forceArray} exist to make a key's shape
- * predictable when it matters.
- */
-/**
- * @description Run a `common-xml` effect in the middle of a synchronous decision. `_resolveForceArray` is reached once per tag, from `closeElement`, and it asks
- * the path matcher a question. That question is an effect now, as everything in `common-xml` is, so it is run here rather than read as a value — an
- * effect is an object, and an object is truthy, which would make the `alwaysArray` vote unconditional.
+ * @description Run a `common-xml` effect in the middle of a synchronous decision.
  *
  * @param effect - The effect to run.
  *
@@ -144,7 +67,18 @@ const runXml = <A>(effect: Effect.Effect<A, XmlError>): A =>
     )
   );
 
-export class CompactBuilder extends BaseOutputBuilderClass {
+/**
+ * @description The minimal-object builder a parser drives for one document, and the methods the shape rules are written in. Built by {@link makeCompactBuilder}.
+ */
+export interface CompactBuilder extends OutputBuilder {
+  /**
+   * @description The parser's options, narrowed to the ones this builder reads.
+   */
+  readonly parserOptions: CompactParserOptions;
+  /**
+   * @description This builder's resolved options.
+   */
+  readonly builderOptions: ResolvedFactoryOptions;
   /**
    * @description One frame per open tag, holding the state to restore when that tag closes.
    */
@@ -170,321 +104,287 @@ export class CompactBuilder extends BaseOutputBuilderClass {
    */
   attributes: Record<string, unknown>;
   /**
-   * @description Whether {@link CompactBuilder.attributes} holds anything. Tracked explicitly so the leaf test never has to re-derive it from key names, prefixes,
-   * or a `groupBy` key.
+   * @description Whether {@link CompactBuilder.attributes} holds anything.
    */
   hasAttributes: boolean;
 
   /**
-   * @description Create a builder for one document.
-   *
-   * @param parserOptions - The parser's options, as `ResolvedOptions`.
-   * @param builderOptions - This builder's resolved options.
-   * @param readonlyMatcher - The live path, or `null`.
-   * @param registry - Where value-parser names resolve.
-   * @param resetPipelines - Whether to reset the value parsers. Defaults to true.
-   */
-  constructor(
-    parserOptions: object,
-    builderOptions: ResolvedFactoryOptions,
-    readonlyMatcher: MatcherView | null,
-    registry: ValueParserRegistryLike,
-    resetPipelines = true
-  ) {
-    super(parserOptions, builderOptions, readonlyMatcher, registry, resetPipelines);
-    this.parserOptions = parserOptions as CompactParserOptions;
-    this.builderOptions = builderOptions;
-    this.tagsStack = [];
-    this.root = {};
-    this.tagName = this._rootName;
-    this.value = {};
-    this.textValue = '';
-    this.attributes = {};
-    this.hasAttributes = false;
-  }
-
-  /**
-   * @description The parser's options, narrowed to the ones this builder reads.
-   */
-  declare readonly parserOptions: CompactParserOptions;
-
-  /**
-   * @description This builder's resolved options.
-   */
-  declare readonly builderOptions: ResolvedFactoryOptions;
-
-  /**
    * @description Fold the attributes seen so far into the value they belong to.
-   *
-   * @returns The attribute value, or `''` when there are none — an empty string rather than an empty object, so a bare tag's value starts as text.
    */
-  _buildAttributeValue(): CompactValue {
-    if (isEmpty(this.attributes)) {
-      this.hasAttributes = false;
-      return '';
-    }
-    this.hasAttributes = true;
-    const groupBy = this.parserOptions.attributes.groupBy;
-    if (groupBy) {
-      return { [groupBy]: this.attributes };
-    }
-    return this.attributes;
-  }
-
+  _buildAttributeValue(): CompactValue;
   /**
-   * @description Enter a tag: push the current frame, then start a fresh one seeded with the attributes just seen.
-   *
-   * @param tag - The tag being entered, with its name already prefixed and sanitised by the parser.
+   * @description Combine the `alwaysArray` and `forceArray` votes.
    */
-  override addElement(tag: TagDetailLike, matcher: MatcherView): void {
-    // The matcher is accepted because the parser supplies one, not because this
-    // builder needs it — it reads the live path from `this.matcher`, which the
-    // factory was given at construction.
-    void matcher;
-    const value = this._buildAttributeValue();
-    this.tagsStack.push({ tagName: this.tagName, textValue: this.textValue, parentValue: this.value, hasAttributes: this.hasAttributes });
-    this.tagName = tag.name;
-    this.value = value;
-    this.textValue = '';
-    this.attributes = {};
-  }
-
+  _resolveForceArray(isLeafNode: boolean): boolean;
   /**
-   * @description Combine the `alwaysArray` and `forceArray` votes. The two are treated as equal voters, which is why `forceArray` can return three states rather
-   * than a boolean:
-   *
-   * - `alwaysArray` votes `true` on a match and **abstains** otherwise — a non-match is not a veto
-   * - `forceArray` votes `true`, `false`, or abstains An explicit `false` from either wins, because it is the only way to say "not even though it
-   *   matched". Otherwise one `true` is enough. All abstaining means false, since that is the default shape.
-   *
-   * @param isLeafNode - Whether the tag turned out to have no child elements.
-   *
-   * @returns Whether to wrap this tag in an array.
+   * @description The `alwaysArray` half of the vote.
    */
-  _resolveForceArray(isLeafNode: boolean): boolean {
-    // `this.matcher` is dereferenced unguarded, so a builder constructed without
-    // one throws here rather than silently skipping both votes. That is upstream's
-    // behaviour and it is the right one: `alwaysArray` and `forceArray` are both
-    // path-based, so a builder with no path cannot honour either, and failing
-    // loudly beats quietly not forcing an array the caller asked for.
-    const alwaysVote = this._alwaysArrayVote();
-    const forceVote = this._forceArrayVote(isLeafNode);
-
-    // An explicit false is a veto and wins; otherwise one true is enough; all
-    // abstaining falls back to the default shape, which is not an array.
-    if (forceVote === false) return false;
-    if (alwaysVote === true || forceVote === true) return true;
-    return false;
-  }
-
+  _alwaysArrayVote(): boolean | undefined;
   /**
-   * @description The `alwaysArray` half of the vote: `true` on a path match, abstaining otherwise. A non-match is not a veto — "not in the `alwaysArray` list"
-   * says nothing about whether this tag should be an array, so the decision is left to the other voter.
-   *
-   * @returns The vote, or `undefined` to abstain.
+   * @description The `forceArray` half of the vote.
    */
-  private _alwaysArrayVote(): boolean | undefined {
-    return runXml(this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView)) ? true : undefined;
-  }
-
+  _forceArrayVote(isLeafNode: boolean): boolean | undefined;
   /**
-   * @description The `forceArray` half of the vote. Only an explicit `true` or `false` counts; anything else — `undefined`, `null`, a truthy string — is silence.
-   * That is what lets a callback return a conditional expression without guarding every branch.
-   *
-   * @param isLeafNode - Whether the tag turned out to have no child elements.
-   *
-   * @returns The vote, or `undefined` to abstain.
+   * @description A leaf's closing value.
    */
-  private _forceArrayVote(isLeafNode: boolean): boolean | undefined {
-    const forceArray = this.builderOptions.forceArray;
-    if (typeof forceArray !== 'function') return undefined;
-    const result = forceArray(this.matcher as MatcherView, isLeafNode);
-    return typeof result === 'boolean' ? result : undefined;
-  }
-
+  _closedLeafValue(value: CompactValue, textValue: string, hasAttributes: boolean, context: ValueContext): Effect.Effect<CompactValue, BuilderError>;
   /**
-   * @description Close a tag: work out the shape its accumulated state takes, then write it into the parent. The shape decision itself belongs to
-   * {@link CompactBuilder._closedLeafValue} and {@link CompactBuilder._closedContainerValue} — what decides a tag's shape is whether it is a leaf and
-   * whether it had attributes, and none of that is about the close.
-   *
-   * @param matcher - Not read; the builder tracks position through its own stack.
-   * @param closeMeta - Not read; closing metadata is the parser's business.
-   *
-   * @returns An effect producing `void`.
+   * @description A non-leaf's closing value.
    */
-  override closeElement = Effect.fnUntraced(function* (
-    this: CompactBuilder,
-    matcher: MatcherView,
-    closeMeta?: CloseMetaLike
-  ): Effect.fn.Return<void, BuilderError> {
-    // Neither argument is needed: the builder tracks position through its own
-    // stack, and closing metadata is the parser's business.
-    void matcher;
-    void closeMeta;
-    const tagName = this.tagName;
-    const value = this.value; // contains attributes if not skipped
-    const textValue = this.textValue;
-    const hasAttributes = this.hasAttributes;
-    const isLeafNode = isLeafValue(value, hasAttributes);
-
-    const context = makeContext(tagName, this.matcher, isLeafNode, false);
-
-    const closed = yield* isLeafNode
-      ? this._closedLeafValue(value, textValue, hasAttributes, context)
-      : this._closedContainerValue(value, textValue, context);
-
-    // Unchecked on purpose: a close with no matching open is a parser bug, and
-    // upstream threw here. The frame is written by addElement and read here, so
-    // a missing one means the two are out of step — which a caller needs to know
-    // about rather than have papered over with a default.
-    const frame = this.tagsStack.pop() as TagFrame;
-
-    // Check if this tag should be forced into an array
-    const shouldForceArray = this._resolveForceArray(isLeafNode);
-
-    const parentTag = this._addChildTo(tagName, closed, frame.parentValue, shouldForceArray);
-
-    this.tagName = frame.tagName;
-    this.textValue = frame.textValue;
-    this.value = parentTag;
-    this.hasAttributes = frame.hasAttributes; // restore parent tag's flag
-    this._pendingStopNode = false;
-  });
-
+  _closedContainerValue(value: CompactValue, textValue: string, context: ValueContext): Effect.Effect<CompactValue, BuilderError>;
   /**
-   * @description A leaf's closing value: the attributes as they stand, with the parsed text joined under `nameFor.text`. With no attributes there is nothing to
-   * join to, so the text is the value — bare, or wrapped under the text key when `forceTextNode` asks for a uniform shape.
-   *
-   * @param value - The value accumulated so far, which holds the attributes when there were any.
-   * @param textValue - The tag's accumulated text.
-   * @param hasAttributes - Whether the tag had attributes.
-   * @param context - The context to hand the value chain.
-   *
-   * @returns An effect producing the value to write into the parent.
+   * @description Run a closing tag's text through the element value chain.
    */
-  private _closedLeafValue(
-    value: CompactValue,
-    textValue: string,
-    hasAttributes: boolean,
-    context: Context
-  ): Effect.Effect<CompactValue, BuilderError> {
-    return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
-      if (hasAttributes) {
-        // Attributes are present — value is already an object. Only write the
-        // text node when there is actual text content; an empty parsedText
-        // alongside attributes would produce a spurious #text:"" key.
-        // forceTextNode overrides that and writes the node even when empty.
-        if (hasTextContent(parsedText) || this.builderOptions.forceTextNode) {
-          (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
-        }
-        return value;
-      }
-      // No attributes — wrap in an object so the shape is always consistent,
-      // or use the plain parsed value when nothing asks for the wrap.
-      return this.builderOptions.forceTextNode ? { [this.parserOptions.nameFor.text]: parsedText } : (parsedText as CompactValue);
-    });
-  }
-
-  /**
-   * @description A non-leaf's closing value: its children, unchanged, plus a text key when it also had text of its own — mixed content, an element with both child
-   * tags and text. A non-leaf with no text of its own gets no text key at all, since an empty one would be indistinguishable from a leaf's.
-   *
-   * @param value - The value accumulated so far, holding the children.
-   * @param textValue - The tag's accumulated text.
-   * @param context - The context to hand the value chain.
-   *
-   * @returns An effect producing the value to write into the parent.
-   */
-  private _closedContainerValue(value: CompactValue, textValue: string, context: Context): Effect.Effect<CompactValue, BuilderError> {
-    if (textValue.length === 0 && !this.builderOptions.forceTextNode) return Effect.succeed(value);
-    return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
-      (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
-      return value;
-    });
-  }
-
-  /**
-   * @description Run a closing tag's text through the element value chain. A stop node's content is raw text the parser already declined to decode, so running the
-   * chain over it would decode it twice — hence the bypass.
-   *
-   * @param text - The tag's accumulated text.
-   * @param context - The context to hand the chain.
-   *
-   * @returns An effect producing the parsed text.
-   */
-  private _parseText(text: string, context: Context): Effect.Effect<unknown, BuilderError> {
-    return this._pendingStopNode ? Effect.succeed(text) : this.tagsPipeline.run(text, context);
-  }
-
-  /**
-   * @description Append a named child to the current value, promoting a bare string to an object first.
-   *
-   * @param key - The child's key.
-   * @param val - The child's value.
-   */
-  override _addChild(key: string, val: unknown): void {
-    if (typeof this.value === 'string') {
-      this.value = { [this.parserOptions.nameFor.text]: this.value };
-    }
-    this._addChildTo(key, val, this.value, false);
-    this.attributes = {};
-  }
-
+  _parseText(text: string, context: ValueContext): Effect.Effect<unknown, BuilderError>;
   /**
    * @description Write `key` into `node`, turning it into an array when the key is already taken or the caller insists.
-   *
-   * @param key - The child's key.
-   * @param val - The child's value.
-   * @param node - The object to write into. A string is promoted to an empty object, since a bare string cannot hold a child.
-   * @param forceArray - Whether to wrap even on first occurrence.
-   *
-   * @returns `node`, promoted if it had to be.
    */
-  _addChildTo(key: string, val: unknown, node: CompactValue, forceArray: boolean): CompactValue {
-    const target: Record<string, unknown> = typeof node === 'string' ? {} : node;
-
-    if (!Object.prototype.hasOwnProperty.call(target, key)) {
-      target[key] = forceArray ? [val] : val;
-    } else {
-      const existing = target[key];
-      if (!Array.isArray(existing)) target[key] = [existing];
-      (target[key] as unknown[]).push(val);
-    }
-    return target;
-  }
-
-  /**
-   * @description Append a text chunk, joining with `textJoint` once more than one has arrived.
-   *
-   * @param text - The chunk.
-   */
-  override addValue(text: string, matcher: MatcherView): void {
-    void matcher;
-    if (this.textValue.length > 0) this.textValue += `${this.builderOptions.textJoint}${text}`;
-    else this.textValue = text;
-  }
-
-  /**
-   * @description Record a processing instruction as a child, seeding it with any attributes seen on it.
-   *
-   * @param name - The instruction's rendered text.
-   */
-  override addInstruction(name: string): void {
-    const value = this._buildAttributeValue();
-    this._addChild(name, value);
-    this.attributes = {};
-  }
-
-  /**
-   * @description The finished result. The builder's own value, not the root object — at depth 0 the two are the same, and at depth > 0 the root is only where the
-   * walk started.
-   *
-   * @returns The compact structure.
-   */
-  override getOutput(): unknown {
-    return this.value;
-  }
+  _addChildTo(key: string, val: unknown, node: CompactValue, forceArray: boolean): CompactValue;
 }
+
+/**
+ * @description Build a minimal-object builder for one document: a tag with only text becomes that string, anything with children or attributes becomes an object,
+ * and repeated tags become an array. Built on {@link makeBaseOutputBuilder}, whose shared methods it inherits through the object spread and whose
+ * `this`-calls resolve to the compact overrides below.
+ *
+ * @param parserOptions - The parser's options, as `ResolvedOptions`.
+ * @param builderOptions - This builder's resolved options.
+ * @param readonlyMatcher - The live path, or `null`.
+ * @param registry - Where value-parser names resolve.
+ * @param resetPipelines - Whether to reset the value parsers. Defaults to true.
+ *
+ * @returns The compact builder.
+ */
+export const makeCompactBuilder = (
+  parserOptions: object,
+  builderOptions: ResolvedFactoryOptions,
+  readonlyMatcher: MatcherView | null,
+  registry: ValueParserRegistryLike,
+  resetPipelines = true
+): CompactBuilder => {
+  const base = makeBaseOutputBuilder(parserOptions, builderOptions, readonlyMatcher, registry, resetPipelines);
+
+  const builder: CompactBuilder = {
+    ...base,
+    parserOptions: parserOptions as CompactParserOptions,
+    builderOptions,
+    tagsStack: [],
+    root: {},
+    tagName: base._rootName,
+    value: {},
+    textValue: '',
+    attributes: {},
+    hasAttributes: false,
+
+    /**
+     * @description Fold the attributes seen so far into the value they belong to.
+     *
+     * @returns The attribute value, or `''` when there are none.
+     */
+    _buildAttributeValue(): CompactValue {
+      if (isEmpty(this.attributes)) {
+        this.hasAttributes = false;
+        return '';
+      }
+      this.hasAttributes = true;
+      const groupBy = this.parserOptions.attributes.groupBy;
+      if (groupBy) {
+        return { [groupBy]: this.attributes };
+      }
+      return this.attributes;
+    },
+
+    /**
+     * @description Enter a tag: push the current frame, then start a fresh one seeded with the attributes just seen.
+     */
+    addElement(tag: TagDetailLike, matcher: MatcherView): void {
+      // The matcher is accepted because the parser supplies one, not because this
+      // builder needs it — it reads the live path from `this.matcher`.
+      void matcher;
+      const value = this._buildAttributeValue();
+      this.tagsStack.push({ tagName: this.tagName, textValue: this.textValue, parentValue: this.value, hasAttributes: this.hasAttributes });
+      this.tagName = tag.name;
+      this.value = value;
+      this.textValue = '';
+      this.attributes = {};
+    },
+
+    /**
+     * @description Combine the `alwaysArray` and `forceArray` votes.
+     *
+     * @param isLeafNode - Whether the tag turned out to have no child elements.
+     *
+     * @returns Whether to wrap this tag in an array.
+     */
+    _resolveForceArray(isLeafNode: boolean): boolean {
+      const alwaysVote = this._alwaysArrayVote();
+      const forceVote = this._forceArrayVote(isLeafNode);
+
+      // An explicit false is a veto and wins; otherwise one true is enough; all
+      // abstaining falls back to the default shape, which is not an array.
+      if (forceVote === false) return false;
+      if (alwaysVote === true || forceVote === true) return true;
+      return false;
+    },
+
+    /**
+     * @description The `alwaysArray` half of the vote: `true` on a path match, abstaining otherwise.
+     *
+     * @returns The vote, or `undefined` to abstain.
+     */
+    _alwaysArrayVote(): boolean | undefined {
+      return runXml(this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView)) ? true : undefined;
+    },
+
+    /**
+     * @description The `forceArray` half of the vote.
+     *
+     * @param isLeafNode - Whether the tag turned out to have no child elements.
+     *
+     * @returns The vote, or `undefined` to abstain.
+     */
+    _forceArrayVote(isLeafNode: boolean): boolean | undefined {
+      const forceArray = this.builderOptions.forceArray;
+      if (typeof forceArray !== 'function') return undefined;
+      const result = forceArray(this.matcher as MatcherView, isLeafNode);
+      return typeof result === 'boolean' ? result : undefined;
+    },
+
+    /**
+     * @description Close a tag: work out the shape its accumulated state takes, then write it into the parent.
+     */
+    closeElement: Effect.fnUntraced(function* (
+      this: CompactBuilder,
+      matcher: MatcherView,
+      closeMeta?: { name: string; index?: number | undefined; closeEnd?: number | undefined }
+    ): Effect.fn.Return<void, BuilderError> {
+      // Neither argument is needed: the builder tracks position through its own
+      // stack, and closing metadata is the parser's business.
+      void matcher;
+      void closeMeta;
+      const tagName = this.tagName;
+      const value = this.value; // contains attributes if not skipped
+      const textValue = this.textValue;
+      const hasAttributes = this.hasAttributes;
+      const isLeafNode = isLeafValue(value, hasAttributes);
+
+      const context = makeContext(tagName, this.matcher, isLeafNode, false);
+
+      const closed = yield* isLeafNode
+        ? this._closedLeafValue(value, textValue, hasAttributes, context)
+        : this._closedContainerValue(value, textValue, context);
+
+      // Unchecked on purpose: a close with no matching open is a parser bug.
+      const frame = this.tagsStack.pop() as TagFrame;
+
+      // Check if this tag should be forced into an array
+      const shouldForceArray = this._resolveForceArray(isLeafNode);
+
+      const parentTag = this._addChildTo(tagName, closed, frame.parentValue, shouldForceArray);
+
+      this.tagName = frame.tagName;
+      this.textValue = frame.textValue;
+      this.value = parentTag;
+      this.hasAttributes = frame.hasAttributes; // restore parent tag's flag
+      this._pendingStopNode = false;
+    }),
+
+    /**
+     * @description A leaf's closing value.
+     */
+    _closedLeafValue(
+      value: CompactValue,
+      textValue: string,
+      hasAttributes: boolean,
+      context: ValueContext
+    ): Effect.Effect<CompactValue, BuilderError> {
+      return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
+        if (hasAttributes) {
+          // Attributes are present — value is already an object. Only write the
+          // text node when there is actual text content; an empty parsedText
+          // alongside attributes would produce a spurious #text:"" key.
+          if (hasTextContent(parsedText) || this.builderOptions.forceTextNode) {
+            (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
+          }
+          return value;
+        }
+        return this.builderOptions.forceTextNode ? { [this.parserOptions.nameFor.text]: parsedText } : (parsedText as CompactValue);
+      });
+    },
+
+    /**
+     * @description A non-leaf's closing value: its children, unchanged, plus a text key when it also had text of its own.
+     */
+    _closedContainerValue(value: CompactValue, textValue: string, context: ValueContext): Effect.Effect<CompactValue, BuilderError> {
+      if (textValue.length === 0 && !this.builderOptions.forceTextNode) return Effect.succeed(value);
+      return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
+        (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
+        return value;
+      });
+    },
+
+    /**
+     * @description Run a closing tag's text through the element value chain.
+     */
+    _parseText(text: string, context: ValueContext): Effect.Effect<unknown, BuilderError> {
+      return this._pendingStopNode ? Effect.succeed(text) : this.tagsPipeline.run(text, context);
+    },
+
+    /**
+     * @description Append a named child to the current value, promoting a bare string to an object first.
+     */
+    _addChild(key: string, val: unknown): void {
+      if (typeof this.value === 'string') {
+        this.value = { [this.parserOptions.nameFor.text]: this.value };
+      }
+      this._addChildTo(key, val, this.value, false);
+      this.attributes = {};
+    },
+
+    /**
+     * @description Write `key` into `node`, turning it into an array when the key is already taken or the caller insists.
+     */
+    _addChildTo(key: string, val: unknown, node: CompactValue, forceArray: boolean): CompactValue {
+      const target: Record<string, unknown> = typeof node === 'string' ? {} : node;
+
+      if (!Object.prototype.hasOwnProperty.call(target, key)) {
+        target[key] = forceArray ? [val] : val;
+      } else {
+        const existing = target[key];
+        if (!Array.isArray(existing)) target[key] = [existing];
+        (target[key] as unknown[]).push(val);
+      }
+      return target;
+    },
+
+    /**
+     * @description Append a text chunk, joining with `textJoint` once more than one has arrived.
+     */
+    addValue(text: string, matcher: MatcherView): void {
+      void matcher;
+      if (this.textValue.length > 0) this.textValue += `${this.builderOptions.textJoint}${text}`;
+      else this.textValue = text;
+    },
+
+    /**
+     * @description Record a processing instruction as a child, seeding it with any attributes seen on it.
+     */
+    addInstruction(name: string): void {
+      const value = this._buildAttributeValue();
+      this._addChild(name, value);
+      this.attributes = {};
+    },
+
+    /**
+     * @description The finished result.
+     */
+    getOutput(): unknown {
+      return this.value;
+    },
+  };
+
+  return builder;
+};
 
 /**
  * @description Whether an object has no own enumerable keys.
@@ -498,10 +398,7 @@ function isEmpty(obj: object): boolean {
 }
 
 /**
- * @description Whether a closing tag's accumulated value is a single value rather than a set of children. A string, an array, or an object with nothing in it has
- * no children by construction, and a tag carrying attributes is a single value even when it also has children — the attributes are the object and the
- * text joins them. `hasAttributes` is tracked explicitly by {@link CompactBuilder._buildAttributeValue} so none of this has to be reverse-engineered
- * from key names, prefixes, or a `groupBy` key.
+ * @description Whether a closing tag's accumulated value is a single value rather than a set of children.
  *
  * @param value - The value accumulated so far.
  * @param hasAttributes - Whether the tag had attributes.
@@ -513,8 +410,7 @@ function isLeafValue(value: CompactValue, hasAttributes: boolean): boolean {
 }
 
 /**
- * @description Whether a parsed text value is worth writing under the text key. Empty and absent are the same thing here: a `#text: ''` would be indistinguishable
- * from a tag that had no text at all.
+ * @description Whether a parsed text value is worth writing under the text key.
  *
  * @param value - The parsed text.
  *
@@ -524,4 +420,73 @@ function hasTextContent(value: unknown): boolean {
   return value !== '' && value !== null && value !== undefined;
 }
 
-export default CompactBuilderFactory;
+/**
+ * @description What a parser needs from an output builder factory: one fresh builder per parse run, plus the registry and resolved options a caller wiring a
+ * custom builder needs. Deliberately narrow rather than the old base class.
+ */
+export interface OutputBuilderFactory {
+  /**
+   * @description This builder's resolved options.
+   */
+  readonly builderOptions: ResolvedFactoryOptions;
+  /**
+   * @description The value parsers available by name, shared with every builder this factory produces.
+   */
+  readonly registry: ValueParserRegistry;
+  /**
+   * @description Obtain a fresh builder instance. Called by the parser before each parse run.
+   */
+  getInstance(parserOptions: object, readonlyMatcher: MatcherView | null): Effect.Effect<OutputBuilder, BuilderError>;
+  /**
+   * @description Add or replace a named value parser, affecting every builder this factory produces afterwards.
+   */
+  registerValueParser(name: string, parserInstance: ValueParser): Effect.Effect<void, BuilderError>;
+}
+
+/**
+ * @description Build the factory service implementation from resolved options.
+ *
+ * @param resolved - The resolved options.
+ *
+ * @returns The factory.
+ */
+const makeCompactBuilderFactory = (resolved: ResolvedFactoryOptions): OutputBuilderFactory => {
+  const registry = makeValueParserRegistry();
+  return {
+    builderOptions: resolved,
+    registry,
+    getInstance: (parserOptions, readonlyMatcher) => Effect.succeed(makeCompactBuilder(parserOptions, resolved, readonlyMatcher, registry)),
+    registerValueParser: (name, parserInstance) => registry.register(name, parserInstance),
+  };
+};
+
+/**
+ * @description Produces a compact builder per document. A `Context.Service` rather than a class to be constructed: resolve the options once, in the layer, and
+ * hand each document a builder that shares the service's value-parser registry.
+ *
+ * @example
+ *   ```typescript
+ *   const factory = yield* CompactBuilderFactory.make({ alwaysArray: ['..item'] });
+ *   ```;
+ */
+export class CompactBuilderFactory extends Context.Service<CompactBuilderFactory, OutputBuilderFactory>()('@endevops/builder/CompactBuilderFactory') {
+  /**
+   * @description Create the factory, resolving its options on the way in.
+   *
+   * @param builderOptions - This builder's options.
+   *
+   * @returns An effect producing the factory. Fails with the `InvalidOptionEntry` or `PatternCompilationFailed` reason.
+   */
+  static make = (builderOptions: FactoryOptions = {}): Effect.Effect<OutputBuilderFactory, BuilderError> =>
+    Effect.map(buildOptions(builderOptions), resolved => makeCompactBuilderFactory(resolved));
+
+  /**
+   * @description The factory as a `Layer`.
+   *
+   * @param builderOptions - This builder's options.
+   *
+   * @returns A layer providing {@link CompactBuilderFactory}.
+   */
+  static layer = (builderOptions: FactoryOptions = {}): Layer.Layer<CompactBuilderFactory, BuilderError> =>
+    Layer.effect(CompactBuilderFactory, CompactBuilderFactory.make(builderOptions));
+}

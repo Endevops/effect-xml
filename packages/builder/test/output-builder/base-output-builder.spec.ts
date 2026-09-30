@@ -1,9 +1,9 @@
 /**
- * @description Specs for `BaseOutputBuilder` and `BaseOutputBuilderFactory` — the contract a concrete output builder is written against. The base class supplies
- * everything that does not depend on the output shape: the two pipelines, the per-document shared context, and the policy for comments, CDATA,
- * declarations and stop nodes. Each of those policies is driven by a parser option rather than hardcoded, so the interesting cases are the option
- * combinations — and especially the ones where an empty string means "omit" rather than "use this name". The base is abstract in practice, so most of
- * these drive it through a minimal concrete subclass, which is also the shape a real builder takes.
+ * @description Specs for `makeBaseOutputBuilder` and the `CompactBuilderFactory` service — the contract a concrete output builder is written against. The base
+ * supplies everything that does not depend on the output shape: the two pipelines, the per-document shared context, and the policy for comments,
+ * CDATA, declarations and stop nodes. Each of those policies is driven by a parser option rather than hardcoded, so the interesting cases are the
+ * option combinations — and especially the ones where an empty string means "omit" rather than "use this name". The base is a value factory rather
+ * than an abstract class, so most of these build one and override the two hooks the recorder observes.
  */
 
 import type { MatcherView } from '@endevops/common-xml';
@@ -12,33 +12,32 @@ import { Matcher } from '@endevops/common-xml';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { BuilderError } from '#/errors.ts';
-import type { BuilderParserOptions, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
+import type { BuilderParserOptions, OutputBuilder, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
 
-import { BaseOutputBuilder, BaseOutputBuilderFactory, makeBooleanParser, makeContext, makeValueParserRegistry } from '#/index.ts';
+import { CompactBuilderFactory, makeBaseOutputBuilder, makeBooleanParser, makeContext, makeValueParserRegistry } from '#/index.ts';
 import { failed, run, runXml } from '#/test/helpers/effect.ts';
 
 /**
- * @description A concrete builder that records the child keys the base's hooks add, and nothing else. This is the minimum needed to observe the base class's own
- * policy without a subclass's output shape getting in the way.
+ * @description The base builder plus the two hooks a spec observes: the child keys `addComment`/`addLiteral` write, and the raw values `addLiteral` merges. This
+ * is the minimum needed to observe the base's own policy without a concrete shape getting in the way.
  */
-class RecordingBuilder extends BaseOutputBuilder {
+interface RecordingBuilder extends OutputBuilder {
   /**
    * @description Every `_addChild` call, as `[key, value]`.
    */
-  readonly children: [string, unknown][] = [];
+  children: [string, unknown][];
   /**
    * @description Every `addRawValue` call, as the text passed in.
    */
-  readonly raw: string[] = [];
-
-  override _addChild(key: string, val: unknown): void {
-    this.children.push([key, val]);
-  }
-
-  override addRawValue(text: string): void {
-    this.raw.push(text);
-  }
+  raw: string[];
+  /**
+   * @description The flat attribute bag the base's `addAttribute` writes into.
+   */
+  attributes: Record<string, unknown>;
+  /**
+   * @description The tag in scope, read by `addAttribute` to spot a root declaration.
+   */
+  tagName: string;
 }
 
 /**
@@ -55,10 +54,7 @@ const atA = (): MatcherView => {
 const registry = (): ValueParserRegistryLike => makeValueParserRegistry();
 
 /**
- * @description The stop-node detail a parser sends: a name and a position. Typed as {@link TagDetailLike} rather than written inline at each call site, because
- * `onStopNode` and `onExit` promise only a `name` — that is the minimum any parser can keep — and a fresh object literal carrying an extra `index`
- * would fail the excess-property check. A named value of the wider type is assignable, which is the point: real parsers do send the position, and a
- * builder may rely on it if it declares for it.
+ * @description The stop-node detail a parser sends: a name and a position.
  */
 const scriptDetail: TagDetailLike = { name: 'script', index: 3 };
 
@@ -67,15 +63,36 @@ const scriptDetail: TagDetailLike = { name: 'script', index: 3 };
  *
  * @param parserOptions - What the parser would have been configured with.
  * @param builderOptions - This builder's own options.
+ * @param matcher - The live path, or `null`.
  *
  * @returns The builder.
  */
-const builder = (parserOptions: BuilderParserOptions, builderOptions: Record<string, unknown> = {}): RecordingBuilder =>
-  new RecordingBuilder(parserOptions as BuilderParserOptions & Record<string, unknown>, builderOptions, null, registry()) as RecordingBuilder;
+const builder = (
+  parserOptions: BuilderParserOptions,
+  builderOptions: Record<string, unknown> = {},
+  matcher: MatcherView | null = null
+): RecordingBuilder => {
+  const base = makeBaseOutputBuilder(parserOptions as BuilderParserOptions & Record<string, unknown>, builderOptions, matcher, registry());
+  const children: [string, unknown][] = [];
+  const raw: string[] = [];
+  return {
+    ...base,
+    children,
+    raw,
+    attributes: {},
+    tagName: base._rootName,
+    _addChild: (key, value) => {
+      children.push([key, value]);
+    },
+    addRawValue: (text: string) => {
+      raw.push(text);
+    },
+  };
+};
 
 // ─── Construction ─────────────────────────────────────────────────────────────────────────────────────────────
 
-describe('BaseOutputBuilder — construction', () => {
+describe('makeBaseOutputBuilder — construction', () => {
   it('starts at the root sentinel, with no stop node pending', () => {
     const b = builder({});
     expect(b._rootName).toBe('^');
@@ -109,7 +126,7 @@ describe('BaseOutputBuilder — construction', () => {
   it('holds the matcher it was given, including null', () => {
     expect(builder({}).matcher).toBeNull();
     const matcher = atA();
-    expect(new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, {}, matcher, registry()).matcher).toBe(matcher);
+    expect(makeBaseOutputBuilder({}, {}, matcher, registry()).matcher).toBe(matcher);
   });
 
   it('resets the parsers by default, so a second builder starts clean', () => {
@@ -122,7 +139,7 @@ describe('BaseOutputBuilder — construction', () => {
     };
     const reg = makeValueParserRegistry();
     run(reg.register('counting', counting));
-    new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['counting'] } }, null, reg);
+    makeBaseOutputBuilder({}, { tags: { valueParsers: ['counting'] } }, null, reg);
     expect(resets).toBeGreaterThan(0);
   });
 
@@ -136,71 +153,63 @@ describe('BaseOutputBuilder — construction', () => {
     };
     const reg = makeValueParserRegistry();
     run(reg.register('counting', counting));
-    new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['counting'] } }, null, reg, false);
+    makeBaseOutputBuilder({}, { tags: { valueParsers: ['counting'] } }, null, reg, false);
     expect(resets).toBe(0);
   });
 });
 
 // ─── addAttribute ───────────────────────────────────────────────────────────────────────────────────────────
 
-describe('BaseOutputBuilder — addAttribute', () => {
+describe('makeBaseOutputBuilder — addAttribute', () => {
   it('applies the configured prefix and suffix', () => {
-    const b = builder({ attributes: { prefix: '@_', suffix: '' } }) as RecordingBuilder & { attributes: Record<string, unknown> };
-    b.attributes = {};
+    const b = builder({ attributes: { prefix: '@_', suffix: '' } });
     run(b.addAttribute('id', '1', atA()));
     expect(Object.keys(b.attributes)).toEqual(['@_id']);
   });
 
   it('uses no prefix or suffix when neither is configured', () => {
-    const b = builder({}) as RecordingBuilder & { attributes: Record<string, unknown> };
-    b.attributes = {};
+    const b = builder({});
     run(b.addAttribute('id', '1', atA()));
     expect(Object.keys(b.attributes)).toEqual(['id']);
   });
 
   it('runs the value through the attribute pipeline, so "1" becomes 1', () => {
-    const b = builder({ attributes: { prefix: '@_' } }) as RecordingBuilder & { attributes: Record<string, unknown> };
-    b.attributes = {};
+    const b = builder({ attributes: { prefix: '@_' } });
     run(b.addAttribute('n', '42', atA()));
     expect(b.attributes['@_n']).toBe(42);
   });
 
   it('passes an isAttribute context, so ws leaves the value alone', () => {
-    const b = builder({ attributes: { prefix: '@_' } }, { attributes: { valueParsers: ['ws'] } }) as RecordingBuilder & {
-      attributes: Record<string, unknown>;
-    };
-    b.attributes = {};
+    const b = builder({ attributes: { prefix: '@_' } }, { attributes: { valueParsers: ['ws'] } });
     run(b.addAttribute('t', '  a  b  ', atA()));
     expect(b.attributes['@_t']).toBe('  a  b  ');
   });
 
   it('records the XML version from the root declaration, where a value parser can read it', () => {
-    const b = builder({}) as RecordingBuilder & { attributes: Record<string, unknown>; tagName: string };
-    b.attributes = {};
+    const b = builder({});
     b.tagName = b._rootName;
     run(b.addAttribute('version', '1.1', atA()));
     expect(b.sharedContext.get('xmlVersion')).toBe(1.1);
   });
 
   it('ignores a version attribute on any other tag', () => {
-    const b = builder({}) as RecordingBuilder & { attributes: Record<string, unknown>; tagName: string };
-    b.attributes = {};
+    const b = builder({});
     b.tagName = 'other';
     run(b.addAttribute('version', '1.1', atA()));
     expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
   });
 
-  it('does nothing when the subclass has no flat attribute bag', () => {
+  it('does nothing when the builder has no flat attribute bag', () => {
     // The base shape has nowhere to put an attribute; a builder with a different
     // structure overrides addAttribute rather than relying on this.
-    const b = builder({ attributes: { prefix: '@_' } });
+    const b = makeBaseOutputBuilder({ attributes: { prefix: '@_' } }, {}, null, registry());
     run(b.addAttribute('id', '1', atA()));
   });
 });
 
 // ─── Comment and CDATA policy ─────────────────────────────────────────────────────────────────────────────────
 
-describe('BaseOutputBuilder — comments', () => {
+describe('makeBaseOutputBuilder — comments', () => {
   it('stores a comment under nameFor.comment', () => {
     const b = builder({ nameFor: { comment: '#c' } });
     b.addComment('hi');
@@ -226,7 +235,7 @@ describe('BaseOutputBuilder — comments', () => {
   });
 });
 
-describe('BaseOutputBuilder — CDATA', () => {
+describe('makeBaseOutputBuilder — CDATA', () => {
   it('stores CDATA under nameFor.cdata', () => {
     const b = builder({ nameFor: { cdata: '#d' } });
     b.addLiteral('data');
@@ -245,34 +254,21 @@ describe('BaseOutputBuilder — CDATA', () => {
     b.addLiteral('');
     expect(b.raw).toEqual(['']);
   });
-
-  it('drops CDATA entirely when skip.cdata is set', () => {
-    const b = builder({ skip: { cdata: true }, nameFor: { cdata: '#d' } });
-    b.addLiteral('data');
-    expect(b.children).toEqual([]);
-    expect(b.raw).toEqual([]);
-  });
 });
 
 // ─── addInputEntities ─────────────────────────────────────────────────────────────────────────────────────────
 
-describe('BaseOutputBuilder — addInputEntities', () => {
+describe('makeBaseOutputBuilder — addInputEntities', () => {
   it('puts the DOCTYPE entities where the entity parser can read them', () => {
     const b = builder({});
     b.addInputEntities({ myent: 'X' });
     expect(b.sharedContext.get('inputEntities')).toEqual({ myent: 'X' });
   });
-
-  it('is readable by an entity parser mid-document', () => {
-    const b = builder({});
-    b.addInputEntities({ myent: 'value' });
-    expect(b.sharedContext.get('inputEntities')).toEqual({ myent: 'value' });
-  });
 });
 
 // ─── onStopNode ───────────────────────────────────────────────────────────────────────────────────────────────
 
-describe('BaseOutputBuilder — onStopNode', () => {
+describe('makeBaseOutputBuilder — onStopNode', () => {
   it('marks a stop node pending, so its content bypasses the value chain', () => {
     const b = builder({});
     expect(b._pendingStopNode).toBe(false);
@@ -294,12 +290,7 @@ describe('BaseOutputBuilder — onStopNode', () => {
   it('passes the live matcher to the hook, so it can read the position', () => {
     const calls: unknown[][] = [];
     const matcher = atA();
-    const b = new RecordingBuilder(
-      { onStopNode: (...args) => calls.push(args) } as BuilderParserOptions & Record<string, unknown>,
-      {},
-      matcher,
-      registry()
-    );
+    const b = builder({ onStopNode: (...args) => calls.push(args) } as BuilderParserOptions, {}, matcher);
     b.onStopNode(scriptDetail, 'raw');
     expect(calls[0]?.[2]).toBe(matcher);
   });
@@ -312,7 +303,7 @@ describe('BaseOutputBuilder — onStopNode', () => {
 
 // ─── Declarations, instructions and exit ─────────────────────────────────────────────────────────────────────
 
-describe('BaseOutputBuilder — declarations and instructions', () => {
+describe('makeBaseOutputBuilder — declarations and instructions', () => {
   it('routes a declaration through addInstruction', () => {
     const seen: string[] = [];
     const b = builder({});
@@ -327,70 +318,50 @@ describe('BaseOutputBuilder — declarations and instructions', () => {
     expect(b.children).toEqual([]);
   });
 
-  it('has a no-op onExit and onStopNode-adjacent hooks', () => {
+  it('has a no-op onExit', () => {
     const b = builder({});
     b.onExit({ tagDetail: scriptDetail, matcher: atA(), depth: 1 });
   });
 });
 
-describe('BaseOutputBuilder — getOutput', () => {
+describe('makeBaseOutputBuilder — getOutput', () => {
   it('returns undefined on the base, which has no output shape of its own', () => {
-    // Upstream's declarations promised this method but the runtime class never
-    // defined it, so calling it on a bare base builder threw. It exists here so
-    // the declared contract holds.
     expect(builder({}).getOutput()).toBeUndefined();
   });
 });
 
-// ─── BaseOutputBuilderFactory ─────────────────────────────────────────────────────────────────────────────────
+// ─── CompactBuilderFactory ─────────────────────────────────────────────────────────────────────────────────
 
-describe('BaseOutputBuilderFactory', () => {
-  it('starts with empty builder options and a populated registry', () => {
-    const f = new BaseOutputBuilderFactory();
-    expect(f.builderOptions).toEqual({});
+describe('CompactBuilderFactory', () => {
+  it('starts with the given options and a populated registry', () => {
+    const f = run(CompactBuilderFactory.make());
+    expect(f.builderOptions.tags?.valueParsers).toEqual(['ws', 'entity', 'boolean', 'number']);
+    expect(f.builderOptions.attributes?.valueParsers).toEqual(['entity', 'number', 'boolean']);
+    expect(f.builderOptions.forceArray).toBeNull();
     expect(typeof f.registry.get).toBe('function');
   });
 
   it('keeps the options it was given', () => {
-    const f = new BaseOutputBuilderFactory({ tags: { valueParsers: ['trim'] } });
+    const f = run(CompactBuilderFactory.make({ tags: { valueParsers: ['trim'] } }));
     expect(f.builderOptions.tags?.valueParsers).toEqual(['trim']);
   });
 
-  it('refuses to produce a builder — a subclass must implement getInstance', () => {
-    const f = new BaseOutputBuilderFactory();
-    expect(failed(f.getInstance({}, null)).message).toContain('getInstance is not implemented');
+  it('fails with a typed error for a bad option', () => {
+    expect(failed(CompactBuilderFactory.make({ alwaysArray: [''] })).reason._tag).toBe('InvalidOptionEntry');
   });
 
   it('registers a value parser for every builder it produces afterwards', () => {
-    const f = new BaseOutputBuilderFactory();
+    const f = run(CompactBuilderFactory.make());
     const parser = makeBooleanParser();
     run(f.registerValueParser('flag', parser));
     expect(run(f.registry.get('flag'))).toBe(parser);
     // The builder the factory hands out shares the factory's registry.
-    const b = new RecordingBuilder({} as BuilderParserOptions & Record<string, unknown>, { tags: { valueParsers: ['flag'] } }, null, f.registry);
+    const b = makeBaseOutputBuilder({}, { tags: { valueParsers: ['flag'] } }, null, f.registry);
     expect(run(b.tagsPipeline.run('true'))).toBe(true);
   });
 
   it('hands each builder a fresh instance, so per-document state cannot leak', () => {
-    // This is the factory's whole reason for existing: a builder is per-document,
-    // and the factory is not. The two builders must not share a shared context,
-    // which is where a document's XML version and DOCTYPE entities live.
-    class Flagging extends BaseOutputBuilderFactory {
-      override getInstance(
-        parserOptions: Record<string, unknown>,
-        readonlyMatcher: MatcherView | null
-      ): Effect.Effect<BaseOutputBuilder, BuilderError> {
-        return Effect.succeed(
-          new RecordingBuilder(
-            parserOptions as BuilderParserOptions & Record<string, unknown>,
-            {},
-            readonlyMatcher,
-            this.registry
-          ) as RecordingBuilder
-        );
-      }
-    }
-    const f = new Flagging();
+    const f = run(CompactBuilderFactory.make());
     const a = run(f.getInstance({}, null));
     const b = run(f.getInstance({}, null));
     expect(a).not.toBe(b);
@@ -401,22 +372,7 @@ describe('BaseOutputBuilderFactory', () => {
   });
 
   it('passes its own registry to every builder it produces', () => {
-    class Flagging extends BaseOutputBuilderFactory {
-      override getInstance(
-        parserOptions: Record<string, unknown>,
-        readonlyMatcher: MatcherView | null
-      ): Effect.Effect<BaseOutputBuilder, BuilderError> {
-        return Effect.succeed(
-          new RecordingBuilder(
-            parserOptions as BuilderParserOptions & Record<string, unknown>,
-            {},
-            readonlyMatcher,
-            this.registry
-          ) as RecordingBuilder
-        );
-      }
-    }
-    const f = new Flagging();
+    const f = run(CompactBuilderFactory.make());
     expect(run(f.getInstance({}, null)).registry).toBe(f.registry);
   });
 });

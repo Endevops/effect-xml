@@ -13,7 +13,7 @@
 
 import type { MatcherView } from '@endevops/common-xml';
 
-import { CompactBuilder, CompactBuilderFactory } from '@endevops/builder';
+import { CompactBuilderFactory, makeCompactBuilder } from '@endevops/builder';
 import { Effect } from 'effect';
 import { describe, expect } from 'vite-plus/test';
 
@@ -226,7 +226,7 @@ describe('Position metadata — addAttribute attrMeta', function () {
         skip: { attributes: false },
         OutputBuilder: {
           getInstance: (p, m) => {
-            const inner = new CompactBuilder(p, base.builderOptions, m, base.registry);
+            const inner = makeCompactBuilder(p, base.builderOptions, m, base.registry);
             return Effect.succeed({
               ...asOutputBuilder(inner),
               // Old 3-arg signature — no 4th param, so the `attrMeta` the
@@ -304,7 +304,7 @@ describe('Position metadata — backward compatibility', function () {
       return makeParser({
         OutputBuilder: {
           getInstance: (p, m) => {
-            const inner = new CompactBuilder(p, base.builderOptions, m, base.registry);
+            const inner = makeCompactBuilder(p, base.builderOptions, m, base.registry);
             return Effect.succeed({
               ...asOutputBuilder(inner),
               // Old single-arg signature — ignores closeMeta — must still work.

@@ -2,41 +2,47 @@
  * @description Everything that turns one JavaScript value into another XML-shaped one. Three libraries of equal standing, published as one package:
  *
  * - **`XMLBuilder`** — a JavaScript object in, an XML string out. The default export.
- * - **`BaseOutputBuilder`** / `BaseOutputBuilderFactory` — the base a parser calls as it walks a document. Whatever shape the output should take, this
- *   is where the two value-parser pipelines, the per-document shared context and the policy for comments, CDATA, declarations and stop nodes live.
- * - **`CompactBuilder`** / `CompactBuilderFactory` — a concrete `BaseOutputBuilder` that produces a minimal JavaScript object: a text-only tag becomes
- *   that string, a tag with children or attributes becomes an object, a repeated tag becomes an array. These were published separately as
- *   `@endevops/xml-builder`, `@endevops/base-output-builder` and `@endevops/compact-builder`. They were merged because the second and third are the
- *   base and the default implementation for the same parser API, and shipping them apart meant installing two packages to write one output builder.
- *   Splitting them again is a matter of moving directories back out. `XMLBuilder` is the default export. `BaseOutputBuilder` and
- *   `CompactBuilderFactory` were the default exports of the packages they came from; they are named exports here, because one module can only have
- *   one default.
+ * - **`OutputBuilder`** / `makeBaseOutputBuilder` — the per-document builder a parser calls as it walks a document. Whatever shape the output should
+ *   take, this is where the two value-parser pipelines, the per-document shared context and the policy for comments, CDATA, declarations and stop
+ *   nodes live.
+ * - **`CompactBuilderFactory`** — the service that produces a compact `OutputBuilder` per document: a text-only tag becomes that string, a tag with
+ *   children or attributes becomes an object, a repeated tag becomes an array.
  *
  * @example
  *   ```typescript
- *   import XMLBuilder, { CompactBuilderFactory, BaseOutputBuilderFactory } from '@endevops/builder';
+ *   import XMLBuilder, { CompactBuilderFactory } from '@endevops/builder';
  *   import XMLParser from '@endevops/parser';
  *
  *   // object -> XML string
- *   new XMLBuilder({ ignoreAttributes: false }).build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
+ *   const builder = yield* XMLBuilder.make({ ignoreAttributes: false });
+ *   yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
  *
  *   // XML -> minimal object, through the parser that drives the builder
- *   new XMLParser({ OutputBuilder: new CompactBuilderFactory() }).parse('<root><item>a</item></root>');
- *   // { root: { item: 'a' } }
+ *   const factory = yield* CompactBuilderFactory.make();
+ *   const parser = yield* XMLParser.make({ OutputBuilder: factory });
+ *   yield* parser.parse('<root><item>a</item></root>'); // { root: { item: 'a' } }
  *
  *   // a new output shape, on the same base the parser calls
- *   class MyFactory extends BaseOutputBuilderFactory {
- *     getInstance(parserOptions, readonlyMatcher) {
- *       return new MyBuilder(parserOptions, this.builderOptions, readonlyMatcher, this.registry);
- *     }
- *   }
+ *   const getInstance = (parserOptions, matcher) => Effect.succeed({
+ *     ...makeBaseOutputBuilder(parserOptions, builderOptions, matcher, registry),
+ *     // shape methods here
+ *   });
  *   ```;
  *
- * @see {@link BaseOutputBuilder} for the parser-side contract, {@link CompactBuilderFactory} for the shape rules, {@link XMLBuilder} for encoding.
+ * @see {@link OutputBuilder} for the parser-side contract, {@link CompactBuilderFactory} for the shape rules, {@link XMLBuilder} for encoding.
  */
 
-import type { CompactParserOptions, CompactValue, FactoryOptions, ForceArrayPredicate, ResolvedFactoryOptions } from './compact-builder/index.ts';
-// The base classes the parser calls, and the value-parser primitives they are built on.
+import type {
+  CompactBuilder,
+  CompactParserOptions,
+  CompactValue,
+  FactoryOptions,
+  ForceArrayPredicate,
+  OutputBuilderFactory,
+  ResolvedFactoryOptions,
+  TagFrame,
+} from './compact-builder/index.ts';
+// The per-document builder the parser calls, and the value-parser primitives it is built on.
 import type {
   BuiltInValueParserOptions,
   BuilderParserOptions,
@@ -46,6 +52,7 @@ import type {
   ExitInfoLike,
   FinalValue,
   NumberParserOptions,
+  OutputBuilder,
   SharedContext,
   TagDetailLike,
   TagNameLike,
@@ -70,15 +77,14 @@ import type {
   XmlBuilderOptions,
 } from './xml-builder/index.ts';
 
-import { CompactBuilder, CompactBuilderFactory } from './compact-builder/index.ts';
+import { CompactBuilderFactory, makeCompactBuilder } from './compact-builder/index.ts';
 import { BuilderError, BuilderErrorReason } from './errors.ts';
 import { XML_UNSAFE_RULES, allUnsafeXml, isUnsafeXml, whyUnsafeXml } from './output-builder/index.ts';
-import { BaseOutputBuilderFactory } from './output-builder/index.ts';
-import { BaseOutputBuilder } from './output-builder/index.ts';
 import {
   defaultValParsers,
   finalValue,
   isFinalValue,
+  makeBaseOutputBuilder,
   makeBooleanParser,
   makeContext,
   makeEntitiesValueParser,
@@ -96,14 +102,13 @@ import XMLBuilder from './xml-builder/index.ts';
 export { BuilderError, BuilderErrorReason };
 export { XMLBuilder };
 export {
-  BaseOutputBuilder,
-  BaseOutputBuilderFactory,
-  CompactBuilder,
   CompactBuilderFactory,
   defaultValParsers,
   finalValue,
   isFinalValue,
+  makeBaseOutputBuilder,
   makeBooleanParser,
+  makeCompactBuilder,
   makeContext,
   makeEntitiesValueParser,
   makeNumberValueParser,
@@ -123,6 +128,7 @@ export type {
   BuiltInValueParserOptions,
   BuilderParserOptions,
   CloseMetaLike,
+  CompactBuilder,
   CompactParserOptions,
   CompactValue,
   Context,
@@ -135,11 +141,14 @@ export type {
   IgnoreAttributesPredicate,
   NameResolver,
   NumberParserOptions,
+  OutputBuilder,
+  OutputBuilderFactory,
   ResolvedFactoryOptions,
   ResolvedXmlBuilderOptions,
   SanitizeNameContext,
   SharedContext,
   TagDetailLike,
+  TagFrame,
   TagNameLike,
   ToNumberOptions,
   ValueParser,

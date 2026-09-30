@@ -1,7 +1,7 @@
 /**
- * @description Base classes and value-parsing primitives for XML parser output builders. A parser calls a fixed set of methods on a builder as it walks a
- * document; the builder decides what structure comes out. Everything a builder needs regardless of that shape — the two value-parser pipelines, the
- * per-document shared context, and the policy for comments, CDATA, declarations and stop nodes — lives here. The value parsers and the shared data
+ * @description Primitives for XML parser output builders. A parser calls a fixed set of methods on a builder as it walks a document; the builder decides what
+ * structure comes out. Everything a builder needs regardless of that shape — the two value-parser pipelines, the per-document shared context, and the
+ * policy for comments, CDATA, declarations and stop nodes — lives here, built by {@link makeBaseOutputBuilder}. The value parsers and the shared data
  * structures are plain values built by factory functions, not classes: `makeContext`, `makeSharedContext`, `finalValue`, `makeValueParserPipeline`
  * and `makeValueParserRegistry`.
  *
@@ -15,7 +15,7 @@
  *   ```;
  */
 
-import type { CloseMetaLike, ExitInfoLike, TagDetailLike, TagNameLike } from './base-output-builder.ts';
+import type { CloseMetaLike, ExitInfoLike, OutputBuilder, TagDetailLike, TagNameLike } from './base-output-builder.ts';
 import type { BuiltInValueParserOptions, BuilderParserOptions, ValueParserChainOptions } from './options.ts';
 import type { XmlUnsafeMatch, XmlUnsafeRule } from './security/xml-unsafe.ts';
 import type { ValueParserRegistry } from './value-parser-registry.ts';
@@ -25,8 +25,7 @@ import type { NumberParserOptions } from './value-parsers/number.ts';
 import type { ToNumberOptions } from './value-parsers/to-number.ts';
 import type { WSNormalizerOptions } from './value-parsers/ws-normalizer.ts';
 
-import BaseOutputBuilderFactory from './base-output-builder-factory.ts';
-import BaseOutputBuilder from './base-output-builder.ts';
+import { makeBaseOutputBuilder } from './base-output-builder.ts';
 import { XML_UNSAFE_RULES, allUnsafeXml, isUnsafeXml, whyUnsafeXml } from './security/xml-unsafe.ts';
 import { defaultValParsers, makeValueParserRegistry } from './value-parser-registry.ts';
 import { finalValue, isFinalValue, makeContext, makeSharedContext, makeValueParserPipeline } from './value-parser.ts';
@@ -38,11 +37,10 @@ import { makeTrim } from './value-parsers/trim.ts';
 import { makeWSNormalizer, wsNormalizerBuiltin } from './value-parsers/ws-normalizer.ts';
 
 export {
-  BaseOutputBuilder,
-  BaseOutputBuilderFactory,
   defaultValParsers,
   finalValue,
   isFinalValue,
+  makeBaseOutputBuilder,
   makeBooleanParser,
   makeContext,
   makeEntitiesValueParser,
@@ -68,6 +66,7 @@ export type {
   ExitInfoLike,
   FinalValue,
   NumberParserOptions,
+  OutputBuilder,
   SharedContext,
   TagDetailLike,
   ToNumberOptions,

@@ -19,6 +19,7 @@ import type { XmlError } from '@endevops/common-xml';
 import { Effect, Exit, Option } from 'effect';
 import { expect } from 'vite-plus/test';
 
+import type { OutputBuilderFactory } from '#/compact-builder/compact-builder.ts';
 import type { FactoryOptions } from '#/compact-builder/options.ts';
 import type { BuilderError, BuilderErrorReason } from '#/errors.ts';
 import type { XmlBuilderOptions } from '#/xml-builder/options.ts';
@@ -113,7 +114,7 @@ export function makeBuilder(options?: XmlBuilderOptions): XmlBuilder {
  *
  * @returns The factory.
  */
-export function makeFactory(options: FactoryOptions = {}): CompactBuilderFactory {
+export function makeFactory(options: FactoryOptions = {}): OutputBuilderFactory {
   return run(CompactBuilderFactory.make(options));
 }
 
