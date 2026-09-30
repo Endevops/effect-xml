@@ -1,0 +1,41 @@
+{
+  // This file is JSONC: fallow reads these comments; generic JSON tools may not.
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  // Public API surfaces backing package.json exports, plus build scripts
+  // and the shared test matcher.
+  "duplicates": {
+    // Hide pair-only clones; focus on widespread copy-paste
+    // worth refactoring. Lower to 2 to report every duplicate pair.
+    "minOccurrences": 2,
+    "minTokens": 100,
+    "minLines": 5,
+    // Common additions (uncomment to enable):
+    // "ignore": [
+    //   "**/lib/**",          // for repos that publish transpiled output to lib/
+    //   "**/legacy/**",       // for repos with legacy-build artifacts
+    //   "**/__generated__/**", // Relay, GraphQL Code Generator
+    //   "**/generated/**"     // OpenAPI, Protobuf codegen
+    // ]
+  },
+  // `Identifier` (decode-identifier.ts) and `OpaqueSchema` (opaque.ts) are used
+  // only within their own files as return types; explicitly exempt these two
+  // same-file return types from unused-export/unused-type reporting.
+  // The entries below cover the same pattern: Schema classes referenced by a
+  // sibling public class in the same file without being exported themselves.
+  "ignoreDependencies": [
+    // tsdown `attw` build plugin (wired in tsdown.config.ts, never directly imported).
+    "@arethetypeswrong/core",
+    // tsdown `publint` build plugin (wired in tsdown.config.ts, never directly imported).
+    "publint",
+    // Build/generator tooling imported only from scripts/ (a configured `entry` root).
+    "picocolors",
+    "simple-git",
+  ],
+  "rules": { "circular-dependencies": "error", "unused-dependencies": "error", "private-type-leaks": "error" },
+  // Test suites are not published (see package.json `files`) and the
+  // `scripts/values` codegen tools are offline-only. Their long `describe`
+  // blocks and template literals dominate the unit-size signal without
+  // reflecting shipped-code health, so keep them out of the health score.
+  // Complexity findings, dead code and duplication still cover them.
+  "health": { "ignore": ["**/*.spec.ts", "**/*.test.ts", "test/**", "scripts/values/**"] },
+}
