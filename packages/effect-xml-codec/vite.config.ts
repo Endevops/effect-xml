@@ -13,4 +13,15 @@ import { defineConfig } from 'vite-plus';
 // `effect` is a peer dependency, so tsdown must not inline it. `deps.resolveDepSubpath`
 // plus the default external handling leaves it alone; `dts: true` still resolves
 // its types for the declaration files.
-export default defineConfig({ pack: { deps: { resolveDepSubpath: true }, dts: true, exports: true, unbundle: true, platform: 'neutral' } });
+export default defineConfig({
+  pack: {
+    deps: { onlyBundle: false, resolveDepSubpath: true },
+    dts: { sourcemap: true },
+    exports: { devExports: 'development', packageJson: true },
+    attw: true,
+    publint: true,
+    unbundle: true,
+    platform: 'neutral',
+    sourcemap: true,
+  },
+});

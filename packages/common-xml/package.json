@@ -35,17 +35,24 @@
   ],
   "type": "module",
   "sideEffects": false,
-  "types": "./dist/index.d.mts",
+  "types": "./dist/index.d.ts",
   "imports": {
     "#/*": "./src/*",
     "#/test/*": "./test/*",
     "#/bench/*": "./bench/*"
   },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./package.json": "./package.json"
+    },
     "access": "public"
   },
   "scripts": {
@@ -57,6 +64,8 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@arethetypeswrong/core": "catalog:",
+    "publint": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

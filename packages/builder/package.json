@@ -28,16 +28,22 @@
   ],
   "type": "module",
   "sideEffects": false,
-  "types": "./dist/index.d.mts",
   "imports": {
     "#/*": "./src/*",
     "#/test/*": "./test/*"
   },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./package.json": "./package.json"
+    },
     "access": "public"
   },
   "scripts": {
@@ -50,7 +56,9 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@arethetypeswrong/core": "catalog:",
     "fast-xml-parser": "^5.11.1",
+    "publint": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
