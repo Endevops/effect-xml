@@ -102,6 +102,26 @@ describe('Basic path tracking', () => {
 });
 
 describe('Pattern matching', () => {
+  it('echoes the pattern it was built from, whatever the matcher is sitting on', () => {
+    // The pattern is kept verbatim so a log line or an error can name what was
+    // configured. That only holds if it survives the segments being parsed into
+    // something else, and if it is read back independently of the matcher's own
+    // path — an expression built once and matched against many documents reads
+    // the same every time.
+    const e = expr('root.users.user');
+    const elsewhere = expr('root/ns:tag[..pre]');
+
+    expect(run(e.toString())).toBe('root.users.user');
+    expect(run(elsewhere.toString())).toBe('root/ns:tag[..pre]');
+
+    const matcher = new Matcher();
+    run(matcher.push('root'));
+    run(matcher.push('users'));
+    run(matcher.push('user'));
+    expect(run(matcher.matches(e))).toBe(true);
+    expect(run(e.toString())).toBe('root.users.user');
+  });
+
   it('matches an exact path', () => {
     const matcher = new Matcher();
     run(matcher.push('root'));

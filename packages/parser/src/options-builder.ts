@@ -44,7 +44,7 @@ const defaultOnDangerousProperty = (name: string): string => {
  * Documented per field where the reasoning isn't obvious from the code; the comments that were purely historical (why an option exists at all) are
  * kept, because they are the only record of why the default is what it is.
  */
-export const defaultOptions: ResolvedOptions = {
+const defaultOptions: ResolvedOptions = {
   // --- skip group ---
   // Controls which node types are excluded from output
   skip: {
@@ -224,7 +224,6 @@ export const defaultOptions: ResolvedOptions = {
 
 // All names that should never appear as property keys
 const ALL_RESERVED = new Set([...criticalProperties, ...DANGEROUS_PROPERTY_NAMES]);
-export { ALL_RESERVED as RESERVED_JS_NAMES };
 
 /**
  * @description Reject an option value that would become a reserved JavaScript property key in the output object. Silently ignored for anything that isn't a
