@@ -7,8 +7,8 @@
  *   ```typescript
  *   import { XMLBuilder } from '@endevops/builder';
  *
- *   const builder = new XMLBuilder({ ignoreAttributes: false });
- *   builder.build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
+ *   const builder = yield* XMLBuilder.make({ ignoreAttributes: false });
+ *   yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
  *   ```;
  */
 
@@ -20,8 +20,18 @@ import type {
   SanitizeNameContext,
   XmlBuilderOptions,
 } from './options.ts';
+import type { XmlBuilder } from './xml-builder.ts';
 
 import XMLBuilder from './xml-builder.ts';
 
-export type { EntityReplacement, IgnoreAttributesPredicate, NameResolver, ResolvedXmlBuilderOptions, SanitizeNameContext, XmlBuilderOptions };
+export type {
+  EntityReplacement,
+  IgnoreAttributesPredicate,
+  NameResolver,
+  ResolvedXmlBuilderOptions,
+  SanitizeNameContext,
+  XmlBuilder,
+  XmlBuilderOptions,
+};
+export { XMLBuilder };
 export default XMLBuilder;

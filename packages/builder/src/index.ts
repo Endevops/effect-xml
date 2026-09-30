@@ -66,6 +66,7 @@ import type {
   NameResolver,
   ResolvedXmlBuilderOptions,
   SanitizeNameContext,
+  XmlBuilder,
   XmlBuilderOptions,
 } from './xml-builder/index.ts';
 
@@ -147,6 +148,7 @@ export type {
   ValueParserRegistry,
   ValueParserRegistryLike,
   WSNormalizerOptions,
+  XmlBuilder,
   XmlBuilderOptions,
   XmlUnsafeMatch,
   XmlUnsafeRule,

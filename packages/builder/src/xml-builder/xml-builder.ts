@@ -2,7 +2,7 @@ import type { Expression, Matcher } from '@endevops/common-xml';
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { Matcher as PathMatcher } from '@endevops/common-xml';
-import { Effect } from 'effect';
+import { Context, Effect, Layer } from 'effect';
 
 import type { BuilderError } from '../errors.ts';
 import type { IgnoreAttributesPredicate, ResolvedXmlBuilderOptions, XmlBuilderOptions } from './options.ts';
@@ -152,473 +152,449 @@ function readDeclaredVersion(decl: unknown, options: ResolvedXmlBuilderOptions):
 }
 
 /**
- * @description Builds an XML string from a JavaScript object. Construct it once and reuse it. The constructor pre-compiles the stop-node expressions, resolves the
- * `ignoreAttributes` form, and binds the indent strategy, so a builder built per document pays that setup on every call.
- *
- * @example
- *   ```typescript
- *   const builder = new XMLBuilder({ ignoreAttributes: false });
- *   builder.build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
- *   ```;
+ * @description The configured, per-build engine behind the {@link XMLBuilder} service: the resolved options, the compiled stop-node patterns, the key
+ * classification and indent strategy, plus the methods the free-function walkers drive. A plain value created by {@link makeXmlBuilderState}, so
+ * nothing is `new`-ed and no constructor mutates shared state as a side effect.
  */
-export class XMLBuilder {
+interface XmlBuilderState {
   /**
    * @description The options in use, with defaults applied.
    */
   readonly options: ResolvedXmlBuilderOptions;
   /**
-   * @description The stop-node patterns, compiled once at construction.
+   * @description The stop-node patterns, compiled once when the state was built.
    */
-  declare readonly stopNodeExpressions: Expression[];
-
+  readonly stopNodeExpressions: Expression[];
   /**
    * @description Whether a key names an attribute. When attributes are ignored entirely, this is a constant `false` and the per-key work disappears.
    */
-  declare isAttribute: (name: string) => string | false;
+  readonly isAttribute: (name: string) => string | false;
   /**
-   * @description The resolved `ignoreAttributes` predicate. Only consulted when {@link XMLBuilder.isAttribute} can return a name, so it is left unassigned when
-   * attributes are ignored entirely and nothing can reach it.
+   * @description The resolved `ignoreAttributes` predicate. Only consulted when {@link XmlBuilderState.isAttribute} can return a name.
    */
-  ignoreAttributesFn!: IgnoreAttributesPredicate;
+  readonly ignoreAttributesFn: IgnoreAttributesPredicate;
   /**
-   * @description Length of the attribute prefix, precomputed so {@link XMLBuilder.isAttribute} is a substring rather than a search. Unassigned on the same
-   * condition as {@link XMLBuilder.ignoreAttributesFn}.
+   * @description Length of the attribute prefix, precomputed so {@link XmlBuilderState.isAttribute} is a substring rather than a search.
    */
-  attrPrefixLen!: number;
+  readonly attrPrefixLen: number;
   /**
    * @description Whether this builder is walking the plain-object form rather than the ordered form.
    */
-  declare processTextOrObjNode: boolean;
+  readonly processTextOrObjNode: boolean;
   /**
    * @description Indent for a given level. A no-op returning `''` unless `format` is on.
    */
-  declare indentate: (level: number) => string;
+  readonly indentate: (level: number) => string;
   /**
    * @description What follows a tag's attributes: `'>\\n'` when formatting, `'>'` otherwise.
    */
-  declare tagEndChar: string;
+  readonly tagEndChar: string;
   /**
    * @description Line separator, or `''` when not formatting.
    */
-  declare newLine: string;
-
-  /**
-   * @description Create a builder from options that are already resolved. Private because the patterns have to be compiled first, which is what
-   * {@link XMLBuilder.make} does.
-   *
-   * @param resolved - The options, defaults applied.
-   * @param stopNodeExpressions - The compiled stop-node patterns.
-   */
-  private constructor(resolved: ResolvedXmlBuilderOptions, stopNodeExpressions: Expression[]) {
-    this.options = resolved;
-    this.stopNodeExpressions = stopNodeExpressions;
-    this.configure();
-  }
-
-  /**
-   * @description Create a builder, compiling its stop-node patterns. A factory rather than a constructor, because compiling the patterns can fail — one that will
-   * not parse — and a constructor has nowhere to put an error channel. The rest of what construction did is shared, in {@link XMLBuilder.configure}.
-   *
-   * @example
-   *   ```typescript
-   *   const builder = yield* XMLBuilder.make({ ignoreAttributes: false });
-   *   yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
-   *   ```;
-   *
-   * @param options - Configuration. See {@link XmlBuilderOptions}.
-   *
-   * @returns An effect producing the builder. Fails with the `PatternCompilationFailed` reason.
-   */
-  static make = (options?: XmlBuilderOptions): Effect.Effect<XMLBuilder, BuilderError> =>
-    Effect.gen(function* () {
-      const resolved: ResolvedXmlBuilderOptions = {
-        ...defaultOptions,
-        ...options,
-        // The `*.tag` stop-node syntax predates `..tag`. Rewriting here rather than at each use means the rest of the builder only ever sees one form.
-        stopNodes: (options?.stopNodes ?? []).map(node => (typeof node === 'string' && node.startsWith('*.') ? '..' + node.substring(2) : node)),
-      };
-
-      // Pre-compile stopNode expressions for pattern matching
-      const stopNodeExpressions: Expression[] = yield* compileStopNodes(resolved.stopNodes);
-
-      return new XMLBuilder(resolved, stopNodeExpressions);
-    });
-
-  /**
-   * @description Everything construction does beyond compiling the patterns: the `ignoreAttributes` form, the indent strategy, and the special-key set.
-   */
-  private configure(): void {
-    if (this.options.ignoreAttributes === true || this.options.attributesGroupName) {
-      this.isAttribute = function () {
-        return false;
-      };
-    } else {
-      this.ignoreAttributesFn = getIgnoreAttributesFn(this.options.ignoreAttributes);
-      this.attrPrefixLen = this.options.attributeNamePrefix.length;
-      this.isAttribute = isAttribute;
-    }
-
-    this.processTextOrObjNode = true;
-
-    if (this.options.format) {
-      this.indentate = indentate;
-      this.tagEndChar = '>\n';
-      this.newLine = '\n';
-    } else {
-      this.indentate = function () {
-        return '';
-      };
-      this.tagEndChar = '>';
-      this.newLine = '';
-    }
-  }
-
+  readonly newLine: string;
   /**
    * @description Build an XML string from a JavaScript object.
-   *
-   * @example
-   *   ```typescript
-   *   const builder = yield* XMLBuilder.make({ ignoreAttributes: false });
-   *   yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
-   *   ```;
-   *
-   * @param jObj - The object, or the ordered array form when `preserveOrder` is on.
-   *
-   * @returns An effect producing the XML. Fails with {@link BuilderError} and the `MaxNestingExceeded` reason past `maxNestedTags`, or the
-   *   `NameResolutionFailed` reason when a configured `sanitizeName` throws.
    */
-  build = Effect.fnUntraced(function* (this: XMLBuilder, jObj: unknown): Effect.fn.Return<string, BuilderError> {
-    const options = this.options;
-    if (options.preserveOrder) {
-      return yield* buildFromOrderedJs(jObj as OrderedTag[], options);
-    } else {
-      if (Array.isArray(jObj) && options.arrayNodeName !== undefined && options.arrayNodeName.length > 1) {
-        jObj = { [options.arrayNodeName]: jObj };
-      }
-      // Initialize matcher for path tracking
-      const matcher = new PathMatcher();
-      const xmlVersion = detectXmlVersionFromObj(jObj as Record<string, unknown>, options);
-      const qNameValidator: NameValidator = yield* nameValidatorFor(xmlVersion);
-      return (yield* this.j2x(jObj as Record<string, unknown>, 0, matcher, qNameValidator)).val;
-    }
-  });
-
+  readonly build: (jObj: unknown) => Effect.Effect<string, BuilderError>;
   /**
-   * @description Walk one level of the object, appending to the accumulated attribute and element strings. The walk is the builder's hot path, so it is one flat
-   * loop over the object's own keys with a type test per key rather than a dispatch table. Each key contributes to `val`; attributes accumulate
-   * separately in `attrStr` because they have to precede the tag's `>`. What a key contributes is decided by {@link renderKeyValue}, which is where
-   * the per-shape rules live.
-   *
-   * @param jObj - The object at this level.
-   * @param level - Nesting depth, used for indentation.
-   * @param matcher - The live path, pushed and popped around recursion so stop-node patterns see the real position.
-   * @param qNameValidator - The memoized QName validator.
-   *
-   * @returns An effect producing the attributes and the element bodies for this level. Fails with the `MaxNestingExceeded` reason past
-   *   `maxNestedTags`, or the `NameResolutionFailed` reason when a `sanitizeName` throws.
+   * @description Walk one level of the object.
    */
-  j2x = Effect.fnUntraced(function* (
-    this: XMLBuilder,
+  readonly j2x: (
     jObj: Record<string, unknown>,
     level: number,
     matcher: Matcher,
     qNameValidator: NameValidator
-  ): Effect.fn.Return<J2xResult, BuilderError> {
-    let attrStr = '';
-    let val = '';
-    if (this.options.maxNestedTags && (yield* liftXml(matcher.getDepth())) >= this.options.maxNestedTags) {
-      return yield* nestingExceeded(this.options.maxNestedTags, yield* liftXml(matcher.getDepth()));
-    }
-    // Get jPath based on option: string for backward compatibility, or Matcher for new features
-    const jPath = this.options.jPath ? yield* liftXml(matcher.toString()) : matcher;
-
-    // Check if current node is a stopNode (will be used for attribute encoding)
-    const isCurrentStopNode = yield* this.checkStopNode(matcher);
-
-    const ctx: WalkContext = { level, matcher, qNameValidator, jPath, isCurrentStopNode };
-
-    for (const key in jObj) {
-      if (!Object.prototype.hasOwnProperty.call(jObj, key)) continue;
-
-      // Resolve the key through sanitizeName before any use.
-      const resolvedKey = isSpecialKey(this, key) ? key : yield* resolveTagName(key, false, this.options, matcher, qNameValidator);
-
-      const rendered = yield* renderKeyValue(this, key, resolvedKey, jObj[key], ctx);
-      attrStr += rendered.attrStr;
-      val += rendered.val;
-    }
-    return { attrStr, val };
-  });
-
+  ) => Effect.Effect<J2xResult, BuilderError>;
   /**
-   * @description Render one attribute pair, applying the value processor and entity substitution unless the node is a stop node.
-   *
-   * @param attrName - The resolved attribute name, without the prefix.
-   * @param val - The raw value.
-   * @param isStopNode - Whether the owning node is copied through verbatim.
-   *
-   * @returns An effect producing ` name="value"`, or ` name` for a suppressed boolean. Fails with the `ValueProcessingFailed` reason if the
-   *   configured `attributeValueProcessor` does.
+   * @description Render one attribute pair.
    */
-  buildAttrPairStr = Effect.fnUntraced(function* (
-    this: XMLBuilder,
-    attrName: string,
-    val: string,
-    isStopNode: boolean
-  ): Effect.fn.Return<string, BuilderError> {
-    if (!isStopNode) {
-      const processed = yield* runValueProcessor('attributeValueProcessor', attrName, () =>
-        this.options.attributeValueProcessor(attrName, valToStr(val))
-      );
-      val = valToStr(this.replaceEntitiesValue(processed));
-    }
-    if (this.options.suppressBooleanAttributes && val === 'true') {
-      return ' ' + attrName;
-    } else return ' ' + attrName + '="' + escapeAttribute(val) + '"';
-  });
-
+  readonly buildAttrPairStr: (attrName: string, val: string, isStopNode: boolean) => Effect.Effect<string, BuilderError>;
   /**
-   * @description Extract the attributes of one node, escaped and stripped of the prefix, for the path matcher.
-   *
-   * @param obj - The node.
-   *
-   * @returns The attribute values, or `null` when the node has none — which is what keeps the matcher's per-node memory at zero for a bare tag.
+   * @description Extract the attributes of one node for the path matcher.
    */
-  extractAttributes(obj: unknown): AttributeValues | null {
-    if (!obj || typeof obj !== 'object') return null;
-
-    const node = obj as Record<string, unknown>;
-    const groupName = this.options.attributesGroupName;
-
-    // Check for attributesGroupName (when attributes are grouped)
-    if (groupName !== false && node[groupName]) {
-      // The group accepts either spelling, so its resolver strips the prefix only when it is there
-      return collectAttributeValues(node[groupName] as Record<string, unknown>, key => stripAttributePrefix(key, this.options.attributeNamePrefix));
-    }
-
-    // Look for individual attributes (prefixed with attributeNamePrefix)
-    return collectAttributeValues(node, key => this.isAttribute(key));
-  }
-
+  readonly extractAttributes: (obj: unknown) => AttributeValues | null;
   /**
-   * @description Build a stop node's body verbatim, without entity substitution. A stop node is a parser's already-encoded output being re-emitted, so escaping it
-   * again would double-escape every entity. Attribute quotes are still escaped — that is structural, not encoding, and a quote must not be able to
-   * close the attribute.
-   *
-   * @param obj - The node.
-   *
-   * @returns The raw XML body.
+   * @description Build a stop node's body verbatim, without entity substitution.
    */
-  buildRawContent(obj: unknown): string {
-    if (typeof obj === 'string') {
-      return obj; // Already a string, return as-is
-    }
-
-    if (typeof obj !== 'object' || obj === null) {
-      return valToStr(obj);
-    }
-
-    const node = obj as Record<string, unknown>;
-
-    // Check if this is a stopNode data from parser: { "#text": "raw xml", "@_attr": "val" }
-    if (node[this.options.textNodeName] !== undefined) {
-      return valToStr(node[this.options.textNodeName]); // Return raw text without encoding
-    }
-
-    // Build raw XML from nested structure
-    return renderRawChildren(this, node);
-  }
-
+  readonly buildRawContent: (obj: unknown) => string;
   /**
-   * @description Render a stop node's attributes, skipping the value processor and entity substitution for the same reason as {@link XMLBuilder.buildRawContent}.
-   *
-   * @param obj - The node.
-   *
-   * @returns The attribute string, or `''` when the node has no attributes.
+   * @description Render a stop node's attributes, skipping processing and entity substitution.
    */
-  buildAttributesForStopNode(obj: unknown): string {
-    if (!obj || typeof obj !== 'object') return '';
-
-    const node = obj as Record<string, unknown>;
-    const groupName = this.options.attributesGroupName;
-
-    // Check for attributesGroupName (when attributes are grouped)
-    if (groupName !== false && node[groupName]) {
-      return renderStopNodeAttributes(
-        node[groupName] as Record<string, unknown>,
-        key => stripAttributePrefix(key, this.options.attributeNamePrefix),
-        this.options
-      );
-    }
-
-    // Look for individual attributes
-    return renderStopNodeAttributes(node, key => this.isAttribute(key), this.options);
-  }
-
+  readonly buildAttributesForStopNode: (obj: unknown) => string;
   /**
-   * @description Wrap a body in a tag, choosing between self-closing, PI and full forms. A body that itself contains markup is not inlined onto the tag line,
-   * because that would produce output no parser reads back the same way.
-   *
-   * @param val - The body.
-   * @param key - The tag name.
-   * @param attrStr - The attributes, already rendered.
-   * @param level - Nesting depth.
-   *
-   * @returns The rendered element.
+   * @description Wrap a body in a tag, choosing between self-closing, PI and full forms.
    */
-  buildObjectNode(val: string, key: string, attrStr: string, level: number): string {
-    // A PI/XML-declaration tag never has body content, so it takes the empty form whether or not there is a body.
-    if (val === '' || key[0] === '?') {
-      return buildEmptyObjectNode(this, key, attrStr, level);
-    }
-    return buildContentObjectNode(this, val, key, attrStr, level);
-  }
-
+  readonly buildObjectNode: (val: string, key: string, attrStr: string, level: number) => string;
   /**
-   * @description The closing half of a tag, decided by `unpairedTags` and `suppressEmptyNode`.
-   *
-   * @param key - The tag name.
-   *
-   * @returns `'/'` for a self-closing tag, or the full closing bracket.
+   * @description The closing half of a tag.
    */
-  closeTag(key: string): string {
-    let closeTag = '';
-    if (this.options.unpairedTags.indexOf(key) !== -1) {
-      //unpaired
-      if (!this.options.suppressUnpairedNode) closeTag = '/';
-    } else if (this.options.suppressEmptyNode) {
-      //empty
-      closeTag = '/';
-    } else {
-      closeTag = `></${key}`;
-    }
-    return closeTag;
-  }
-
+  readonly closeTag: (key: string) => string;
   /**
    * @description Whether the matcher's current position matches any stop-node pattern.
-   *
-   * @param matcher - The live path.
-   *
-   * @returns An effect producing whether this node should be copied through verbatim.
    */
-  checkStopNode = Effect.fnUntraced(function* (this: XMLBuilder, matcher: Matcher): Effect.fn.Return<boolean, BuilderError> {
-    return yield* matchesStopNode(matcher, this.stopNodeExpressions);
-  });
-
+  readonly checkStopNode: (matcher: Matcher) => Effect.Effect<boolean, BuilderError>;
   /**
    * @description Render a text-valued node, routing CDATA, comments and processing instructions to their own forms.
-   *
-   * @param val - The raw value.
-   * @param key - The tag name, which selects the form.
-   * @param attrStr - The attributes, already rendered.
-   * @param level - Nesting depth.
-   *
-   * @returns The rendered element.
    */
-  buildTextValNode = Effect.fnUntraced(function* (
-    this: XMLBuilder,
-    val: unknown,
-    key: string,
-    attrStr: string,
-    level: number
-  ): Effect.fn.Return<string, BuilderError> {
-    if (this.options.cdataPropName !== false && key === this.options.cdataPropName) {
-      const safeVal = safeCdata(val);
-      return this.indentate(level) + `<![CDATA[${safeVal}]]>` + this.newLine;
-    } else if (this.options.commentPropName !== false && key === this.options.commentPropName) {
-      const safeVal = safeComment(val);
-      return this.indentate(level) + `<!--${safeVal}-->` + this.newLine;
-    } else if (key[0] === '?') {
-      //PI tag
-      return this.indentate(level) + '<' + key + attrStr + '?' + this.tagEndChar;
-    } else {
-      // Normal processing: apply tagValueProcessor and entity replacement
-      const processed = yield* runValueProcessor('tagValueProcessor', key, () => this.options.tagValueProcessor(key, val));
-      let textValue = this.replaceEntitiesValue(processed);
-      // tagValueProcessor may return the raw value unchanged (default is identity), and
-      // replaceEntitiesValue no-ops on non-strings, so a plain number can still reach here;
-      // stringify it now, sign-preserving, before it's implicitly ToString'd below.
-      textValue = valToStr(textValue);
-
-      if (textValue === '') {
-        return this.indentate(level) + '<' + key + attrStr + this.closeTag(key) + this.tagEndChar;
-      } else {
-        return this.indentate(level) + '<' + key + attrStr + '>' + textValue + '</' + key + this.tagEndChar;
-      }
-    }
-  });
-
+  readonly buildTextValNode: (val: unknown, key: string, attrStr: string, level: number) => Effect.Effect<string, BuilderError>;
   /**
    * @description Apply the configured entity substitutions to a value.
-   *
-   * @param textValue - The value.
-   *
-   * @returns The substituted value, or the input unchanged when `processEntities` is off or the value is empty.
    */
-  replaceEntitiesValue(textValue: unknown): string {
-    let result = valToStr(textValue);
-    if (result.length > 0 && this.options.processEntities) {
-      for (let i = 0; i < this.options.entities.length; i++) {
-        const entity = this.options.entities[i];
-        if (entity) result = result.replace(entity.regex, entity.val);
-      }
-    }
-    return result;
-  }
-
+  readonly replaceEntitiesValue: (textValue: unknown) => string;
   /**
-   * @description Push a node, recurse into it, and wrap the result. Extracted from the array and nested-object branches of {@link XMLBuilder.j2x}, which differ
-   * only in whether they wrap the result in one shared tag for a whole list.
-   *
-   * @param object - The node.
-   * @param key - The resolved tag name.
-   * @param level - Nesting depth.
-   * @param matcher - The live path.
-   * @param qNameValidator - The memoized QName validator.
-   *
-   * @returns An effect producing the rendered element. Fails with the `MaxNestingExceeded` or `NameResolutionFailed` reason, propagated from
-   *   {@link XMLBuilder.j2x}.
+   * @description Push a node, recurse into it, and wrap the result.
    */
-  processTextOrObjNodeFor = Effect.fnUntraced(function* (
-    this: XMLBuilder,
+  readonly processTextOrObjNodeFor: (
     object: Record<string, unknown>,
     key: string,
     level: number,
     matcher: Matcher,
     qNameValidator: NameValidator
-  ): Effect.fn.Return<string, BuilderError> {
-    // Extract attributes to pass to matcher
-    const attrValues = this.extractAttributes(object);
+  ) => Effect.Effect<string, BuilderError>;
+}
 
-    // Push tag to matcher before recursion WITH attributes
-    yield* liftXml(matcher.push(key, attrValues));
+/**
+ * @description The public surface of the {@link XMLBuilder} service. Only the walk out is exposed; the state behind it is per-build and private.
+ */
+export interface XmlBuilder {
+  /**
+   * @description Build an XML string from a JavaScript object.
+   *
+   * @param jObj - The object, or the ordered array form when `preserveOrder` is on.
+   *
+   * @returns An effect producing the XML. Fails with {@link BuilderError}.
+   */
+  readonly build: (jObj: unknown) => Effect.Effect<string, BuilderError>;
+}
 
-    // Check if this entire node is a stopNode
-    const isStopNode = yield* this.checkStopNode(matcher);
+/**
+ * @description Resolve options and assemble the per-build state. Everything construction does, as an effect rather than a constructor: compiling the stop-node
+ * patterns can fail, and a constructor has nowhere to put an error channel.
+ *
+ * @param options - Configuration. See {@link XmlBuilderOptions}.
+ *
+ * @returns An effect producing the state. Fails with the `PatternCompilationFailed` reason.
+ */
+const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuilderState, BuilderError> =>
+  Effect.gen(function* () {
+    const resolved: ResolvedXmlBuilderOptions = {
+      ...defaultOptions,
+      ...options,
+      // The `*.tag` stop-node syntax predates `..tag`. Rewriting here rather than at each use means the rest of the builder only ever sees one form.
+      stopNodes: (options?.stopNodes ?? []).map(node => (typeof node === 'string' && node.startsWith('*.') ? '..' + node.substring(2) : node)),
+    };
 
-    if (isStopNode) {
-      // For stopNodes, build raw content without entity encoding
-      const rawContent = this.buildRawContent(object);
-      const attrStr = this.buildAttributesForStopNode(object);
-      yield* liftXml(matcher.pop());
-      return this.buildObjectNode(rawContent, key, attrStr, level);
-    }
+    // Pre-compile stopNode expressions for pattern matching
+    const stopNodeExpressions: Expression[] = yield* compileStopNodes(resolved.stopNodes);
 
-    const result = yield* this.j2x(object, level + 1, matcher, qNameValidator);
-    // Pop tag from matcher after recursion
-    yield* liftXml(matcher.pop());
-
-    // PI/XML-declaration tags must never emit text content — route through
-    // buildTextValNode which correctly ignores the text node for "?" tags.
-    if (key[0] === '?') {
-      return yield* this.buildTextValNode('', key, result.attrStr, level);
-    } else if (object[this.options.textNodeName] !== undefined && Object.keys(object).length === 1) {
-      return yield* this.buildTextValNode(object[this.options.textNodeName], key, result.attrStr, level);
+    // Everything construction does beyond compiling the patterns: the
+    // `ignoreAttributes` form, the indent strategy, and the special-key set.
+    let isAttribute: (name: string) => string | false;
+    let ignoreAttributesFn: IgnoreAttributesPredicate = () => false;
+    let attrPrefixLen = 0;
+    if (resolved.ignoreAttributes === true || resolved.attributesGroupName) {
+      isAttribute = function () {
+        return false;
+      };
     } else {
-      return this.buildObjectNode(result.val, key, result.attrStr, level);
+      ignoreAttributesFn = getIgnoreAttributesFn(resolved.ignoreAttributes);
+      attrPrefixLen = resolved.attributeNamePrefix.length;
+      isAttribute = isAttributeKey;
     }
+
+    const indentate = resolved.format
+      ? indentateFor
+      : function () {
+          return '';
+        };
+    const tagEndChar = resolved.format ? '>\n' : '>';
+    const newLine = resolved.format ? '\n' : '';
+
+    const state: XmlBuilderState = {
+      options: resolved,
+      stopNodeExpressions,
+      isAttribute,
+      ignoreAttributesFn,
+      attrPrefixLen,
+      processTextOrObjNode: true,
+      indentate,
+      tagEndChar,
+      newLine,
+
+      build: Effect.fnUntraced(function* (this: XmlBuilderState, jObj: unknown): Effect.fn.Return<string, BuilderError> {
+        const options = this.options;
+        if (options.preserveOrder) {
+          return yield* buildFromOrderedJs(jObj as OrderedTag[], options);
+        } else {
+          if (Array.isArray(jObj) && options.arrayNodeName !== undefined && options.arrayNodeName.length > 1) {
+            jObj = { [options.arrayNodeName]: jObj };
+          }
+          // Initialize matcher for path tracking
+          const matcher = new PathMatcher();
+          const xmlVersion = detectXmlVersionFromObj(jObj as Record<string, unknown>, options);
+          const qNameValidator: NameValidator = yield* nameValidatorFor(xmlVersion);
+          return (yield* this.j2x(jObj as Record<string, unknown>, 0, matcher, qNameValidator)).val;
+        }
+      }),
+
+      j2x: Effect.fnUntraced(function* (
+        this: XmlBuilderState,
+        jObj: Record<string, unknown>,
+        level: number,
+        matcher: Matcher,
+        qNameValidator: NameValidator
+      ): Effect.fn.Return<J2xResult, BuilderError> {
+        let attrStr = '';
+        let val = '';
+        if (this.options.maxNestedTags && (yield* liftXml(matcher.getDepth())) >= this.options.maxNestedTags) {
+          return yield* nestingExceeded(this.options.maxNestedTags, yield* liftXml(matcher.getDepth()));
+        }
+        // Get jPath based on option: string for backward compatibility, or Matcher for new features
+        const jPath = this.options.jPath ? yield* liftXml(matcher.toString()) : matcher;
+
+        // Check if current node is a stopNode (will be used for attribute encoding)
+        const isCurrentStopNode = yield* this.checkStopNode(matcher);
+
+        const ctx: WalkContext = { level, matcher, qNameValidator, jPath, isCurrentStopNode };
+
+        for (const key in jObj) {
+          if (!Object.prototype.hasOwnProperty.call(jObj, key)) continue;
+
+          // Resolve the key through sanitizeName before any use.
+          const resolvedKey = isSpecialKey(this, key) ? key : yield* resolveTagName(key, false, this.options, matcher, qNameValidator);
+
+          const rendered = yield* renderKeyValue(this, key, resolvedKey, jObj[key], ctx);
+          attrStr += rendered.attrStr;
+          val += rendered.val;
+        }
+        return { attrStr, val };
+      }),
+
+      buildAttrPairStr: Effect.fnUntraced(function* (
+        this: XmlBuilderState,
+        attrName: string,
+        val: string,
+        isStopNode: boolean
+      ): Effect.fn.Return<string, BuilderError> {
+        if (!isStopNode) {
+          const processed = yield* runValueProcessor('attributeValueProcessor', attrName, () =>
+            this.options.attributeValueProcessor(attrName, valToStr(val))
+          );
+          val = valToStr(this.replaceEntitiesValue(processed));
+        }
+        if (this.options.suppressBooleanAttributes && val === 'true') {
+          return ' ' + attrName;
+        } else return ' ' + attrName + '="' + escapeAttribute(val) + '"';
+      }),
+
+      extractAttributes: function (this: XmlBuilderState, obj: unknown): AttributeValues | null {
+        if (!obj || typeof obj !== 'object') return null;
+
+        const node = obj as Record<string, unknown>;
+        const groupName = this.options.attributesGroupName;
+
+        // Check for attributesGroupName (when attributes are grouped)
+        if (groupName !== false && node[groupName]) {
+          // The group accepts either spelling, so its resolver strips the prefix only when it is there
+          return collectAttributeValues(node[groupName] as Record<string, unknown>, key =>
+            stripAttributePrefix(key, this.options.attributeNamePrefix)
+          );
+        }
+
+        // Look for individual attributes (prefixed with attributeNamePrefix)
+        return collectAttributeValues(node, key => this.isAttribute(key));
+      },
+
+      buildRawContent: function (this: XmlBuilderState, obj: unknown): string {
+        if (typeof obj === 'string') {
+          return obj; // Already a string, return as-is
+        }
+
+        if (typeof obj !== 'object' || obj === null) {
+          return valToStr(obj);
+        }
+
+        const node = obj as Record<string, unknown>;
+
+        // Check if this is a stopNode data from parser: { "#text": "raw xml", "@_attr": "val" }
+        if (node[this.options.textNodeName] !== undefined) {
+          return valToStr(node[this.options.textNodeName]); // Return raw text without encoding
+        }
+
+        // Build raw XML from nested structure
+        return renderRawChildren(this, node);
+      },
+
+      buildAttributesForStopNode: function (this: XmlBuilderState, obj: unknown): string {
+        if (!obj || typeof obj !== 'object') return '';
+
+        const node = obj as Record<string, unknown>;
+        const groupName = this.options.attributesGroupName;
+
+        // Check for attributesGroupName (when attributes are grouped)
+        if (groupName !== false && node[groupName]) {
+          return renderStopNodeAttributes(
+            node[groupName] as Record<string, unknown>,
+            key => stripAttributePrefix(key, this.options.attributeNamePrefix),
+            this.options
+          );
+        }
+
+        // Look for individual attributes
+        return renderStopNodeAttributes(node, key => this.isAttribute(key), this.options);
+      },
+
+      buildObjectNode: function (this: XmlBuilderState, val: string, key: string, attrStr: string, level: number): string {
+        // A PI/XML-declaration tag never has body content, so it takes the empty form whether or not there is a body.
+        if (val === '' || key[0] === '?') {
+          return buildEmptyObjectNode(this, key, attrStr, level);
+        }
+        return buildContentObjectNode(this, val, key, attrStr, level);
+      },
+
+      closeTag: function (this: XmlBuilderState, key: string): string {
+        let closeTag = '';
+        if (this.options.unpairedTags.indexOf(key) !== -1) {
+          //unpaired
+          if (!this.options.suppressUnpairedNode) closeTag = '/';
+        } else if (this.options.suppressEmptyNode) {
+          //empty
+          closeTag = '/';
+        } else {
+          closeTag = `></${key}`;
+        }
+        return closeTag;
+      },
+
+      checkStopNode: Effect.fnUntraced(function* (this: XmlBuilderState, matcher: Matcher): Effect.fn.Return<boolean, BuilderError> {
+        return yield* matchesStopNode(matcher, this.stopNodeExpressions);
+      }),
+
+      buildTextValNode: Effect.fnUntraced(function* (
+        this: XmlBuilderState,
+        val: unknown,
+        key: string,
+        attrStr: string,
+        level: number
+      ): Effect.fn.Return<string, BuilderError> {
+        if (this.options.cdataPropName !== false && key === this.options.cdataPropName) {
+          const safeVal = safeCdata(val);
+          return this.indentate(level) + `<![CDATA[${safeVal}]]>` + this.newLine;
+        } else if (this.options.commentPropName !== false && key === this.options.commentPropName) {
+          const safeVal = safeComment(val);
+          return this.indentate(level) + `<!--${safeVal}-->` + this.newLine;
+        } else if (key[0] === '?') {
+          //PI tag
+          return this.indentate(level) + '<' + key + attrStr + '?' + this.tagEndChar;
+        } else {
+          // Normal processing: apply tagValueProcessor and entity replacement
+          const processed = yield* runValueProcessor('tagValueProcessor', key, () => this.options.tagValueProcessor(key, val));
+          let textValue = this.replaceEntitiesValue(processed);
+          // tagValueProcessor may return the raw value unchanged (default is identity), and
+          // replaceEntitiesValue no-ops on non-strings, so a plain number can still reach here;
+          // stringify it now, sign-preserving, before it's implicitly ToString'd below.
+          textValue = valToStr(textValue);
+
+          if (textValue === '') {
+            return this.indentate(level) + '<' + key + attrStr + this.closeTag(key) + this.tagEndChar;
+          } else {
+            return this.indentate(level) + '<' + key + attrStr + '>' + textValue + '</' + key + this.tagEndChar;
+          }
+        }
+      }),
+
+      replaceEntitiesValue: function (this: XmlBuilderState, textValue: unknown): string {
+        let result = valToStr(textValue);
+        if (result.length > 0 && this.options.processEntities) {
+          for (let i = 0; i < this.options.entities.length; i++) {
+            const entity = this.options.entities[i];
+            if (entity) result = result.replace(entity.regex, entity.val);
+          }
+        }
+        return result;
+      },
+
+      processTextOrObjNodeFor: Effect.fnUntraced(function* (
+        this: XmlBuilderState,
+        object: Record<string, unknown>,
+        key: string,
+        level: number,
+        matcher: Matcher,
+        qNameValidator: NameValidator
+      ): Effect.fn.Return<string, BuilderError> {
+        // Extract attributes to pass to matcher
+        const attrValues = this.extractAttributes(object);
+
+        // Push tag to matcher before recursion WITH attributes
+        yield* liftXml(matcher.push(key, attrValues));
+
+        // Check if this entire node is a stopNode
+        const isStopNode = yield* this.checkStopNode(matcher);
+
+        if (isStopNode) {
+          // For stopNodes, build raw content without entity encoding
+          const rawContent = this.buildRawContent(object);
+          const attrStr = this.buildAttributesForStopNode(object);
+          yield* liftXml(matcher.pop());
+          return this.buildObjectNode(rawContent, key, attrStr, level);
+        }
+
+        const result = yield* this.j2x(object, level + 1, matcher, qNameValidator);
+        // Pop tag from matcher after recursion
+        yield* liftXml(matcher.pop());
+
+        // PI/XML-declaration tags must never emit text content — route through
+        // buildTextValNode which correctly ignores the text node for "?" tags.
+        if (key[0] === '?') {
+          return yield* this.buildTextValNode('', key, result.attrStr, level);
+        } else if (object[this.options.textNodeName] !== undefined && Object.keys(object).length === 1) {
+          return yield* this.buildTextValNode(object[this.options.textNodeName], key, result.attrStr, level);
+        } else {
+          return this.buildObjectNode(result.val, key, result.attrStr, level);
+        }
+      }),
+    };
+
+    return state;
   });
+
+/**
+ * @description Builds an XML string from a JavaScript object. A `Context.Service` rather than a class to be constructed: the resolved options, the compiled
+ * stop-node patterns and the indent strategy are configuration, and a per-build engine is produced from them inside an effect. `XMLBuilder.make` and
+ * `XMLBuilder.layer` are the two ways in, and both reject a bad configuration in the error channel rather than throwing.
+ *
+ * @example
+ *   ```typescript
+ *   const builder = yield* XMLBuilder.make({ ignoreAttributes: false });
+ *   yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } }); // '<a id="1">hello</a>'
+ *   ```;
+ */
+export class XMLBuilder extends Context.Service<XMLBuilder, XmlBuilder>()('@endevops/builder/XMLBuilder') {
+  /**
+   * @description Create the builder service, compiling its stop-node patterns. A factory rather than a constructor, because compiling the patterns can fail — one
+   * that will not parse — and a constructor has nowhere to put an error channel.
+   *
+   * @param options - Configuration. See {@link XmlBuilderOptions}.
+   *
+   * @returns An effect producing the builder. Fails with the `PatternCompilationFailed` reason.
+   */
+  static make = (options?: XmlBuilderOptions): Effect.Effect<XmlBuilder, BuilderError> =>
+    Effect.map(makeXmlBuilderState(options), state => XMLBuilder.of({ build: jObj => state.build(jObj) }));
+
+  /**
+   * @description The builder as a `Layer`, for callers wiring it through the Effect environment.
+   *
+   * @param options - Configuration. See {@link XmlBuilderOptions}.
+   *
+   * @returns A layer providing {@link XMLBuilder}. Fails with the `PatternCompilationFailed` reason.
+   */
+  // fallow-ignore-next-line unused-class-member
+  static layer = (options?: XmlBuilderOptions): Layer.Layer<XMLBuilder, BuilderError> =>
+    Layer.effect(
+      XMLBuilder,
+      Effect.map(makeXmlBuilderState(options), state => XMLBuilder.of({ build: jObj => state.build(jObj) }))
+    );
 }
 
 /**
@@ -626,12 +602,12 @@ export class XMLBuilder {
  * commentPropName, attributesGroupName, attributeNamePrefix) are exempt from `sanitizeName` — they are builder-internal conventions, not XML names,
  * and a resolver cannot repair a name it was never meant to see. A `?` prefix marks a processing instruction, which is likewise not an element name.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The key from the input object.
  *
  * @returns Whether the key is exempt from name resolution.
  */
-function isSpecialKey(builder: XMLBuilder, key: string): boolean {
+function isSpecialKey(builder: XmlBuilderState, key: string): boolean {
   const options = builder.options;
   // `isAttribute` answers with the bare attribute name rather than a boolean, and what this decides
   // is only whether there is one — the name is derived later, from the prefixed key.
@@ -649,14 +625,14 @@ function isSpecialKey(builder: XMLBuilder, key: string): boolean {
 /**
  * @description Wrap a body-less tag: a processing instruction where one is called for, a self-closing or explicitly-closed element otherwise.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The tag name.
  * @param attrStr - The attributes, already rendered.
  * @param level - Nesting depth.
  *
  * @returns The rendered element.
  */
-function buildEmptyObjectNode(builder: XMLBuilder, key: string, attrStr: string, level: number): string {
+function buildEmptyObjectNode(builder: XmlBuilderState, key: string, attrStr: string, level: number): string {
   if (key[0] === '?') return builder.indentate(level) + '<' + key + attrStr + '?' + builder.tagEndChar;
   return builder.indentate(level) + '<' + key + attrStr + builder.closeTag(key) + builder.tagEndChar;
 }
@@ -665,7 +641,7 @@ function buildEmptyObjectNode(builder: XMLBuilder, key: string, attrStr: string,
  * @description Wrap a tag that has a body. Three forms: inline when the body is plain text, a comment when the key is the comment property, and the general form —
  * body on its own lines — otherwise.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param val - The body.
  * @param key - The tag name.
  * @param attrStr - The attributes, already rendered.
@@ -673,7 +649,7 @@ function buildEmptyObjectNode(builder: XMLBuilder, key: string, attrStr: string,
  *
  * @returns The rendered element.
  */
-function buildContentObjectNode(builder: XMLBuilder, val: string, key: string, attrStr: string, level: number): string {
+function buildContentObjectNode(builder: XmlBuilderState, val: string, key: string, attrStr: string, level: number): string {
   const tagEndExp = '</' + key + builder.tagEndChar;
   const piClosingChar = '';
 
@@ -692,17 +668,16 @@ function buildContentObjectNode(builder: XMLBuilder, val: string, key: string, a
  * object, so it has to be tested before the object shapes, and a primitive is neither. Which of the two strings a branch writes to is what it returns
  * — attributes for an attribute key, the body for everything else.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The key, as written in the input object.
  * @param resolvedKey - The key after `sanitizeName`, which is the name written when the key is a tag rather than a special name.
  * @param value - The value under that key.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing what the key contributes. Fails with the `MaxNestingExceeded` or `NameResolutionFailed` reason, propagated from
- *   whichever branch the value routes to.
+ * @returns An effect producing what the key contributes.
  */
 const renderKeyValue = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
   value: unknown,
@@ -741,14 +716,14 @@ const renderKeyValue = Effect.fnUntraced(function* (
  * @description Render a `null`-valued key. A `null` body has nothing to write, so the only choice left is between the three empty forms: nothing at all for an
  * attribute or for the CDATA and comment properties, a processing instruction for a `?`-prefixed name, and a self-closing tag otherwise.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The key, as written in the input object.
  * @param resolvedKey - The key after `sanitizeName`.
  * @param level - Nesting depth.
  *
  * @returns What the key contributes.
  */
-function renderNullValue(builder: XMLBuilder, key: string, resolvedKey: string, level: number): J2xResult {
+function renderNullValue(builder: XmlBuilderState, key: string, resolvedKey: string, level: number): J2xResult {
   if (builder.isAttribute(key)) {
     return { attrStr: '', val: '' };
   }
@@ -761,13 +736,13 @@ function renderNullValue(builder: XMLBuilder, key: string, resolvedKey: string, 
 /**
  * @description An empty element, or the processing instruction form for a `?`-prefixed name.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The resolved tag name.
  * @param level - Nesting depth.
  *
  * @returns The rendered element.
  */
-function renderEmptyNode(builder: XMLBuilder, key: string, level: number): string {
+function renderEmptyNode(builder: XmlBuilderState, key: string, level: number): string {
   if (key[0] === '?') return builder.indentate(level) + '<' + key + '?' + builder.tagEndChar;
   return builder.indentate(level) + '<' + key + '/' + builder.tagEndChar;
 }
@@ -776,17 +751,16 @@ function renderEmptyNode(builder: XMLBuilder, key: string, level: number): strin
  * @description Render a primitive value. A key that names an attribute contributes to `attrStr` unless the `ignoreAttributes` predicate drops it; anything else is
  * a tag body, contributed to `val`. The two cannot both apply to one key, which is why the attribute branch returns early.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The key, as written in the input object.
  * @param resolvedKey - The key after `sanitizeName`.
  * @param value - The primitive value.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing what the key contributes. Fails with the `ValueProcessingFailed` or `NameResolutionFailed` reason, propagated from the
- *   branch the value routes to.
+ * @returns An effect producing what the key contributes.
  */
 const renderPrimitiveValue = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
   value: unknown,
@@ -811,16 +785,16 @@ const renderPrimitiveValue = Effect.fnUntraced(function* (
  * @description Render a primitive as a tag body rather than as an attribute. The text-node key is handled without a tag at all — its value is the parent's content
  * — and everything else becomes a text-valued node, which a stop node takes verbatim.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The key, as written in the input object.
  * @param resolvedKey - The key after `sanitizeName`.
  * @param value - The primitive value.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing the rendered body. Fails with the `ValueProcessingFailed` reason if the configured `tagValueProcessor` does.
+ * @returns An effect producing the rendered body.
  */
 const renderPrimitiveTagValue = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
   value: unknown,
@@ -842,19 +816,17 @@ const renderPrimitiveTagValue = Effect.fnUntraced(function* (
 
 /**
  * @description Render a value under an array key, one item at a time. Two options change the shape of the result rather than of any single item: `oneListGroup`
- * collects the whole array into one shared tag at the end, and `stopNodes` decides per item whether it is copied through verbatim. Extracted from the
- * array branch of {@link XMLBuilder.j2x}, which was the longest arm of its dispatch chain.
+ * collects the whole array into one shared tag at the end, and `stopNodes` decides per item whether it is copied through verbatim.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param resolvedKey - The resolved tag name, which every item in the list shares.
  * @param value - The array.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing the rendered list. Fails with the `MaxNestingExceeded` or `NameResolutionFailed` reason, propagated from the per-item
- *   renderers.
+ * @returns An effect producing the rendered list.
  */
 const renderRepeatedNode = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   resolvedKey: string,
   value: unknown[],
   ctx: WalkContext
@@ -897,18 +869,18 @@ const renderRepeatedNode = Effect.fnUntraced(function* (
 
 /**
  * @description Render one object item of a list. The two options diverge here: under `oneListGroup` the items share one tag, so each is walked in place and its
- * attributes accumulate for the shared tag to carry; otherwise each item becomes its own tag through {@link XMLBuilder.processTextOrObjNodeFor}.
+ * attributes accumulate for the shared tag to carry; otherwise each item becomes its own tag through
+ * {@link XmlBuilderState.processTextOrObjNodeFor}.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param item - The item.
  * @param resolvedKey - The resolved tag name, which every item in the list shares.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing what the item contributes. Fails with the `MaxNestingExceeded` or `NameResolutionFailed` reason, propagated from the
- *   recursion into the item.
+ * @returns An effect producing what the item contributes.
  */
 const renderListObjectItem = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   item: Record<string, unknown>,
   resolvedKey: string,
   ctx: WalkContext
@@ -937,15 +909,15 @@ const renderListObjectItem = Effect.fnUntraced(function* (
  * entity-substituted, because the list is not a stop node's copy-through — and otherwise it becomes a text-valued tag, which a stop node takes
  * verbatim.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param item - The primitive item.
  * @param resolvedKey - The resolved tag name, which every item in the list shares.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing what the item contributes. Fails with the `ValueProcessingFailed` reason if the configured `tagValueProcessor` does.
+ * @returns An effect producing what the item contributes.
  */
 const renderListPrimitiveItem = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   item: unknown,
   resolvedKey: string,
   ctx: WalkContext
@@ -970,17 +942,16 @@ const renderListPrimitiveItem = Effect.fnUntraced(function* (
  * @description Render an object value. One of two things depends on which key it sits under: the attributes group, whose keys are attribute names rather than
  * tags, and every other key, whose value is a nested node.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The key, as written in the input object.
  * @param resolvedKey - The key after `sanitizeName`.
  * @param value - The object.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing what the key contributes. Fails with the `MaxNestingExceeded` or `NameResolutionFailed` reason, propagated from the
- *   recursion into the value.
+ * @returns An effect producing what the key contributes.
  */
 const renderNestedObject = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
   value: unknown,
@@ -1000,15 +971,14 @@ const renderNestedObject = Effect.fnUntraced(function* (
  * @description Render the attributes grouped under `attributesGroupName`. Unlike the flat layout, where the walk finds attribute keys as it goes, every key of a
  * group is an attribute — which is why the group is walked here rather than through the level's own loop.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param group - The group's value.
  * @param ctx - The level's walk context.
  *
- * @returns An effect producing the group's attribute string. Fails with the `ValueProcessingFailed` or `NameResolutionFailed` reason, propagated from
- *   the per-attribute rendering.
+ * @returns An effect producing the group's attribute string.
  */
 const renderGroupedAttributes = Effect.fnUntraced(function* (
-  builder: XMLBuilder,
+  builder: XmlBuilderState,
   group: Record<string, unknown>,
   ctx: WalkContext
 ): Effect.fn.Return<string, BuilderError> {
@@ -1031,13 +1001,13 @@ const renderGroupedAttributes = Effect.fnUntraced(function* (
  * @description Whether the child about to be written is a stop node. The key goes on the path for the question and comes off again, so a pattern anchored at that
  * child sees its own position rather than its parent's — which is what lets a stop-node pattern name the node it matches.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The child's resolved tag name.
  * @param matcher - The live path.
  *
  * @returns An effect producing whether the child is a stop node.
  */
-function checkStopNodeAt(builder: XMLBuilder, key: string, matcher: Matcher): Effect.Effect<boolean, BuilderError> {
+function checkStopNodeAt(builder: XmlBuilderState, key: string, matcher: Matcher): Effect.Effect<boolean, BuilderError> {
   return Effect.gen(function* () {
     yield* liftXml(matcher.push(key));
     const isStopNode = yield* builder.checkStopNode(matcher);
@@ -1048,17 +1018,17 @@ function checkStopNodeAt(builder: XMLBuilder, key: string, matcher: Matcher): Ef
 
 /**
  * @description Render a text value that belongs to a stop node, without entity substitution: the value is a parser's already-encoded output being re-emitted, and
- * escaping it again would double-escape every entity. The empty case still asks {@link XMLBuilder.closeTag}, because an empty stop-node body is
+ * escaping it again would double-escape every entity. The empty case still asks {@link XmlBuilderState.closeTag}, because an empty stop-node body is
  * written the way any other empty body is.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param value - The raw value.
  * @param key - The resolved tag name.
  * @param level - Nesting depth.
  *
  * @returns The rendered element.
  */
-function renderStopNodeText(builder: XMLBuilder, value: unknown, key: string, level: number): string {
+function renderStopNodeText(builder: XmlBuilderState, value: unknown, key: string, level: number): string {
   const textValue = valToStr(value);
   if (textValue === '') {
     return builder.indentate(level) + '<' + key + builder.closeTag(key) + builder.tagEndChar;
@@ -1069,14 +1039,14 @@ function renderStopNodeText(builder: XMLBuilder, value: unknown, key: string, le
 
 /**
  * @description Walk a stop node's own keys into its raw body. Attributes are skipped: they belong to the tag this body is written inside, and the parser's
- * already-encoded ones are rendered by {@link XMLBuilder.buildAttributesForStopNode}.
+ * already-encoded ones are rendered by {@link XmlBuilderState.buildAttributesForStopNode}.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param node - The stop node.
  *
  * @returns The raw XML body.
  */
-function renderRawChildren(builder: XMLBuilder, node: Record<string, unknown>): string {
+function renderRawChildren(builder: XmlBuilderState, node: Record<string, unknown>): string {
   let content = '';
 
   for (const key in node) {
@@ -1096,13 +1066,13 @@ function renderRawChildren(builder: XMLBuilder, node: Record<string, unknown>): 
  * @description Render one key of a stop node's raw body. An array repeats the tag once per item; a nested object and a primitive both write one element, and
  * differ only in whether their content has been walked yet.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The key, as written in the input object.
  * @param value - The value under that key.
  *
  * @returns The raw XML this key contributes.
  */
-function renderRawChild(builder: XMLBuilder, key: string, value: unknown): string {
+function renderRawChild(builder: XmlBuilderState, key: string, value: unknown): string {
   if (key === builder.options.textNodeName) {
     return valToStr(value); // Raw text
   }
@@ -1126,13 +1096,13 @@ function renderRawChild(builder: XMLBuilder, key: string, value: unknown): strin
  * @description Render an array inside a stop node, repeating the tag once per item. An item that is neither a scalar nor an object contributes nothing, which is
  * what the parser's own output never produces but hand-written input can.
  *
- * @param builder - The builder walking the level.
+ * @param builder - The state walking the level.
  * @param key - The tag name every item repeats.
  * @param items - The array.
  *
  * @returns The raw XML this array contributes.
  */
-function renderRawList(builder: XMLBuilder, key: string, items: unknown[]): string {
+function renderRawList(builder: XmlBuilderState, key: string, items: unknown[]): string {
   let content = '';
 
   for (const item of items) {
@@ -1154,7 +1124,7 @@ function renderRawList(builder: XMLBuilder, key: string, items: unknown[]): stri
  *
  * @returns The indent string.
  */
-function indentate(this: XMLBuilder, level: number): string {
+function indentateFor(this: XmlBuilderState, level: number): string {
   return this.options.indentBy.repeat(level);
 }
 
@@ -1165,7 +1135,7 @@ function indentate(this: XMLBuilder, level: number): string {
  *
  * @returns The attribute name without its prefix, or `false` if the key is not an attribute.
  */
-function isAttribute(this: XMLBuilder, name: string): string | false {
+function isAttributeKey(this: XmlBuilderState, name: string): string | false {
   if (name.startsWith(this.options.attributeNamePrefix) && name !== this.options.textNodeName) {
     return name.substring(this.attrPrefixLen);
   } else {

@@ -22,6 +22,7 @@ import { expect } from 'vite-plus/test';
 import type { FactoryOptions } from '#/compact-builder/options.ts';
 import type { BuilderError, BuilderErrorReason } from '#/errors.ts';
 import type { XmlBuilderOptions } from '#/xml-builder/options.ts';
+import type { XmlBuilder } from '#/xml-builder/xml-builder.ts';
 
 import { CompactBuilderFactory } from '#/compact-builder/compact-builder.ts';
 import { XMLBuilder } from '#/xml-builder/xml-builder.ts';
@@ -101,7 +102,7 @@ export function failedWith<A>(effect: Effect.Effect<A, BuilderError>, tag: Build
  *
  * @returns The builder.
  */
-export function makeBuilder(options?: XmlBuilderOptions): XMLBuilder {
+export function makeBuilder(options?: XmlBuilderOptions): XmlBuilder {
   return run(XMLBuilder.make(options));
 }
 
