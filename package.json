@@ -28,13 +28,14 @@
     "fmt": "vp fmt",
     "lint": "vp lint",
     "prepack": "pnpm build",
-    "prepare": "vp config",
+    "prepare": "effect-tsgo patch --oxlint && vp config",
     "release": "semantic-release",
     "release:dry": "semantic-release --dry-run",
     "test": "vp test",
     "version:sync": "node scripts/release/sync-versions.mjs"
   },
   "devDependencies": {
+    "@effect/tsgo": "^0.46.1",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^11.0.1",

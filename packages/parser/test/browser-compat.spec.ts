@@ -47,8 +47,8 @@ const codeOnly = (source: string): string => noComments(source).replace(/(['"`])
 /**
  * @description Every `.ts` file under `src/`, recursively. Symlinks are not followed — `src/` is a plain directory tree.
  */
-function sourceFiles(dir: string = SRC): string[] {
-  const out: string[] = [];
+function sourceFiles(dir: string = SRC): Array<string> {
+  const out: Array<string> = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
@@ -59,7 +59,7 @@ function sourceFiles(dir: string = SRC): string[] {
 
 describe('Browser compatibility', () => {
   it('imports nothing from node: builtins', () => {
-    const offenders: string[] = [];
+    const offenders: Array<string> = [];
     for (const file of sourceFiles()) {
       // Comments only, NOT strings: the specifier `from 'node:buffer'` is
       // itself a string literal.
@@ -69,7 +69,7 @@ describe('Browser compatibility', () => {
   });
 
   it('never uses Buffer as a value or a type', () => {
-    const offenders: string[] = [];
+    const offenders: Array<string> = [];
     for (const file of sourceFiles()) {
       // A `Buffer` *type* annotation would be just as bad as a call: it would
       // put a `@types/node` dependency into the emitted .d.ts, which is what

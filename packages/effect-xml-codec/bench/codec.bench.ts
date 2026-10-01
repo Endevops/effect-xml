@@ -1,3 +1,4 @@
+// oxlint-disable vitest/expect-expect
 /**
  * @description Throughput benchmarks for the two hot paths an application that serializes XML spends its time in: turning a typed value into a document, and
  * turning a document back into one. Split by layer as well as by direction, because the question "is the codec slow" has two very different answers
@@ -23,11 +24,11 @@ import { isXmlArray, isXmlRecord, parseXmlDocument, renderXml, toCodecXml } from
 const Order = Schema.Struct({
   '@id': Schema.String,
   '@currency': Schema.String,
-  total: Schema.Number,
+  total: Schema.Finite,
   placed: Schema.Boolean,
   note: Schema.String,
   customer: Schema.Struct({ '@id': Schema.String, name: Schema.String, email: Schema.String }),
-  line: Schema.Array(Schema.Struct({ sku: Schema.String, qty: Schema.Number, price: Schema.Number })),
+  line: Schema.Array(Schema.Struct({ sku: Schema.String, qty: Schema.Finite, price: Schema.Finite })),
 });
 
 /**
@@ -50,7 +51,7 @@ const order = {
  * @description A document with many rows, which is where per-element and per-character costs stop being noise: anything that scales with the number of elements or
  * the number of characters shows up here and nowhere else.
  */
-const Row = Schema.Struct({ '@id': Schema.String, '@qty': Schema.String, sku: Schema.String, name: Schema.String, price: Schema.Number });
+const Row = Schema.Struct({ '@id': Schema.String, '@qty': Schema.String, sku: Schema.String, name: Schema.String, price: Schema.Finite });
 
 /**
  * @description How many rows the large document has. Large enough that per-row costs dominate the per-call costs, small enough to keep the suite quick.

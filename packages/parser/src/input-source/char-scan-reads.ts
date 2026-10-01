@@ -1,7 +1,7 @@
-import type { CharScanReadContext } from './input-source.ts';
+import { UnexpectedEnd } from '#/parse-error.ts';
+import { isSpace } from '#/util.ts';
 
-import { UnexpectedEnd } from '../parse-error.js';
-import { isSpace } from '../util.js';
+import type { CharScanReadContext } from './input-source.ts';
 
 /**
  * @description The character-level reads shared by every string-backed scan context — `StringSource`, `FeedableSource` and the `CharScanStrategy` assigned onto

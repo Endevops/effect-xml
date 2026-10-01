@@ -10,8 +10,8 @@ import {
   InvalidTag,
   UnexpectedEnd,
   isParseError,
-} from './parse-error.js';
-import { expectMatch, ensureCanRead, errorPositionOf, isSpace } from './util.js';
+} from './parse-error.ts';
+import { expectMatch, ensureCanRead, errorPositionOf, isSpace } from './util.ts';
 
 /**
  * @description One entity declared in a DOCTYPE internal subset, kept in the shape the output builder's `EntitiesValueParser` consumes.

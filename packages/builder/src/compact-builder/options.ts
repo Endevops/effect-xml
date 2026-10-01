@@ -1,7 +1,7 @@
 import type { Expression, MatcherView } from '@endevops/common-xml';
 import type { ExpressionSet } from '@endevops/common-xml';
 
-import type { ValueParser } from '../output-builder/index.ts';
+import type { ValueParser } from '#/output-builder/index.ts';
 
 /**
  * @description Decides per tag whether to force array wrapping. Called with the live path and whether the element turned out to be a leaf, and returns one of
@@ -31,7 +31,7 @@ export interface FactoryOptions {
     /**
      * @description The chain, in order, as registry names or instances. Omit to use the default.
      */
-    valueParsers?: (string | ValueParser)[];
+    valueParsers?: Array<string | ValueParser>;
   };
   /**
    * @description The value-parser chain for attribute values. Defaults to `['entity', 'number', 'boolean']`.
@@ -40,13 +40,13 @@ export interface FactoryOptions {
     /**
      * @description The chain, in order, as registry names or instances. Omit to use the default.
      */
-    valueParsers?: (string | ValueParser)[];
+    valueParsers?: Array<string | ValueParser>;
   };
   /**
    * @description Tag paths that must always be arrays however many times they occur, so a single occurrence does not silently become a bare value. Accepts pattern
    * strings or pre-compiled `Expression`s. A match votes `true`; no match abstains. It never vetoes.
    */
-  alwaysArray?: (string | Expression)[];
+  alwaysArray?: Array<string | Expression>;
   /**
    * @description A per-tag vote, evaluated alongside {@link FactoryOptions.alwaysArray} with equal priority. An explicit `false` vetoes, overriding an
    * `alwaysArray` match. Defaults to `null`, meaning no such vote. The resolved options always carry the key.

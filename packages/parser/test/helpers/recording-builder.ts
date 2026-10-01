@@ -93,19 +93,19 @@ export interface RecordingEvents {
   /**
    * @description One record per `addElement()` call.
    */
-  tags: TagEvent[];
+  tags: Array<TagEvent>;
   /**
    * @description One record per `closeElement()` call.
    */
-  closes: CloseEvent[];
+  closes: Array<CloseEvent>;
   /**
    * @description One record per `addAttribute()` call.
    */
-  attrs: AttrEvent[];
+  attrs: Array<AttrEvent>;
   /**
    * @description One record per `onStopNode()` call.
    */
-  stopNodes: StopNodeEvent[];
+  stopNodes: Array<StopNodeEvent>;
 }
 
 /**

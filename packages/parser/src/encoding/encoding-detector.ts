@@ -1,6 +1,6 @@
-import type { EncodingRegistry, ResolvedEncodingDescriptor } from './encoding-registry.ts';
+import { EncodingMismatch } from '#/parse-error.ts';
 
-import { EncodingMismatch } from '../parse-error.ts';
+import type { EncodingRegistry, ResolvedEncodingDescriptor } from './encoding-registry.ts';
 
 const DECL_PEEK_BYTES = 200; // more than enough for a <?xml ... ?> declaration
 

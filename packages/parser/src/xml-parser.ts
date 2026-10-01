@@ -3,14 +3,15 @@ import { Context, Effect, Layer } from 'effect';
 import type { ReadableLike } from './input-source/stream-source.ts';
 import type { ParseErrorEntry } from './internal/parser-types.ts';
 import type { ResolvedOptions, X2jOptions } from './options.ts';
+import type { ParseError } from './parse-error.ts';
 
-import { defaultEncodingRegistry, makeEncodingRegistry } from './encoding/encoding-registry.js';
-import FeedableSource from './input-source/feedable-source.js';
-import StreamSource, { isReadableStream } from './input-source/stream-source.js';
-import { buildOptions } from './options-builder.js';
-import { ErrorCode, InvalidInput, InvalidStream, NotStreaming, type ParseError, isParseError, toParseError } from './parse-error.js';
-import { absolutePosition } from './util.js';
-import Xml2JsParser from './xml2-js-parser.js';
+import { defaultEncodingRegistry, makeEncodingRegistry } from './encoding/encoding-registry.ts';
+import FeedableSource from './input-source/feedable-source.ts';
+import StreamSource, { isReadableStream } from './input-source/stream-source.ts';
+import { buildOptions } from './options-builder.ts';
+import { ErrorCode, InvalidInput, InvalidStream, NotStreaming, isParseError, toParseError } from './parse-error.ts';
+import { absolutePosition } from './util.ts';
+import Xml2JsParser from './xml2-js-parser.ts';
 
 /**
  * @description XMLParser — the public entry point. Owns the resolved options, the shared name cache, and the three ways to get a document in: one-shot
@@ -97,19 +98,19 @@ export interface XMLParser {
    *
    * @returns An effect producing the collected entries. Infallible.
    */
-  getParseErrors(): Effect.Effect<ParseErrorEntry[], never>;
+  getParseErrors(): Effect.Effect<Array<ParseErrorEntry>>;
   /**
    * @description Characters currently retained in the incremental-parse buffer, or `null` when no `feed()` session is open.
    *
    * @returns An effect producing the retained character count, or `null`. Infallible.
    */
-  getFeedBufferLength(): Effect.Effect<number | null, never>;
+  getFeedBufferLength(): Effect.Effect<number | null>;
   /**
    * @description The pending-byte count at which the next `feed()` triggers a parse pass.
    *
    * @returns An effect producing the current threshold. Infallible.
    */
-  getFeedBatchThreshold(): Effect.Effect<number, never>;
+  getFeedBatchThreshold(): Effect.Effect<number>;
 }
 
 /**
@@ -127,7 +128,7 @@ interface ParserState {
   pendingBytes: number;
   batchThreshold: number;
   // Structural errors from the last run, populated only when autoClose.collectErrors is on.
-  lastParseErrors: ParseErrorEntry[];
+  lastParseErrors: Array<ParseErrorEntry>;
 }
 
 /**
@@ -452,21 +453,21 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
     /**
      * @description Structural errors collected during the last parse call.
      */
-    getParseErrors(): Effect.Effect<ParseErrorEntry[], never> {
+    getParseErrors(): Effect.Effect<Array<ParseErrorEntry>> {
       return Effect.succeed(state.lastParseErrors ?? []);
     },
 
     /**
      * @description Characters currently retained in the incremental-parse buffer, or `null` when no `feed()` session is open.
      */
-    getFeedBufferLength(): Effect.Effect<number | null, never> {
+    getFeedBufferLength(): Effect.Effect<number | null> {
       return Effect.succeed(state.feedSource === null ? null : state.feedSource.buffer.length);
     },
 
     /**
      * @description The pending-byte count at which the next `feed()` triggers a parse pass.
      */
-    getFeedBatchThreshold(): Effect.Effect<number, never> {
+    getFeedBatchThreshold(): Effect.Effect<number> {
       return Effect.succeed(state.batchThreshold);
     },
   };

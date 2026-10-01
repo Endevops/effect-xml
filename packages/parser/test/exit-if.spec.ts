@@ -1,3 +1,4 @@
+// oxlint-disable vitest/no-disabled-tests
 import { Expression } from '@endevops/common-xml';
 import { describe, it, expect } from 'vite-plus/test';
 

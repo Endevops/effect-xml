@@ -4,11 +4,13 @@ import type { XmlVersion } from '@endevops/common-xml';
 import { Matcher as PathMatcher } from '@endevops/common-xml';
 import { Context, Effect, Layer } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
+import type { BuilderError } from '#/errors.ts';
+
+import { nestingExceeded, runValueProcessor } from '#/errors.ts';
+
 import type { IgnoreAttributesPredicate, ResolvedXmlBuilderOptions, XmlBuilderOptions } from './options.ts';
 import type { NameValidator, OrderedTag } from './ordered.ts';
 
-import { nestingExceeded, runValueProcessor } from '../errors.ts';
 import getIgnoreAttributesFn from './ignore-attributes.ts';
 import buildFromOrderedJs, { nameValidatorFor } from './ordered.ts';
 import { escapeAttribute, safeCdata, safeComment, valToStr } from './util.ts';
@@ -164,7 +166,7 @@ interface XmlBuilderState {
   /**
    * @description The stop-node patterns, compiled once when the state was built.
    */
-  readonly stopNodeExpressions: Expression[];
+  readonly stopNodeExpressions: Array<Expression>;
   /**
    * @description Whether a key names an attribute. When attributes are ignored entirely, this is a constant `false` and the per-key work disappears.
    */
@@ -286,7 +288,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
     };
 
     // Pre-compile stopNode expressions for pattern matching
-    const stopNodeExpressions: Expression[] = yield* compileStopNodes(resolved.stopNodes);
+    const stopNodeExpressions: Array<Expression> = yield* compileStopNodes(resolved.stopNodes);
 
     // Everything construction does beyond compiling the patterns: the
     // `ignoreAttributes` form, the indent strategy, and the special-key set.
@@ -325,7 +327,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
       build: Effect.fnUntraced(function* (this: XmlBuilderState, jObj: unknown): Effect.fn.Return<string, BuilderError> {
         const options = this.options;
         if (options.preserveOrder) {
-          return yield* buildFromOrderedJs(jObj as OrderedTag[], options);
+          return yield* buildFromOrderedJs(jObj as Array<OrderedTag>, options);
         } else {
           if (Array.isArray(jObj) && options.arrayNodeName !== undefined && options.arrayNodeName.length > 1) {
             jObj = { [options.arrayNodeName]: jObj };
@@ -826,7 +828,7 @@ const renderPrimitiveTagValue = Effect.fnUntraced(function* (
 const renderRepeatedNode = Effect.fnUntraced(function* (
   builder: XmlBuilderState,
   resolvedKey: string,
-  value: unknown[],
+  value: Array<unknown>,
   ctx: WalkContext
 ): Effect.fn.Return<string, BuilderError> {
   const arrLen = value.length;
@@ -1098,7 +1100,7 @@ function renderRawChild(builder: XmlBuilderState, key: string, value: unknown): 
  *
  * @returns The raw XML this array contributes.
  */
-function renderRawList(builder: XmlBuilderState, key: string, items: unknown[]): string {
+function renderRawList(builder: XmlBuilderState, key: string, items: Array<unknown>): string {
   let content = '';
 
   for (const item of items) {

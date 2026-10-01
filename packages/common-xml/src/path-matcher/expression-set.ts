@@ -1,11 +1,12 @@
 import { Effect } from 'effect';
 
-import type { XmlError } from '../errors.ts';
+import type { XmlError } from '#/errors.ts';
+
+import { XmlError as XmlErrorCtor } from '#/errors.ts';
+
 import type Expression from './expression.ts';
 import type Matcher from './matcher.ts';
 import type { MatcherView } from './matcher.ts';
-
-import { XmlError as XmlErrorCtor } from '../errors.ts';
 
 /**
  * @description The failure a sealed set reports, built here so `add` reads as the guard rather than as the error's shape.
@@ -30,7 +31,7 @@ const sealedSetFailure = (size: number): Effect.Effect<never, XmlError> =>
  * @param key - The bucket's key.
  * @param expression - The expression to file.
  */
-const appendToBucket = <T>(buckets: Map<string | number, Expression<T>[]>, key: string | number, expression: Expression<T>): void => {
+const appendToBucket = <T>(buckets: Map<string | number, Array<Expression<T>>>, key: string | number, expression: Expression<T>): void => {
   const bucket = buckets.get(key);
   if (bucket === undefined) {
     buckets.set(key, [expression]);
@@ -48,7 +49,7 @@ const appendToBucket = <T>(buckets: Map<string | number, Expression<T>[]>, key: 
  *
  * @returns The first matching expression, or `null`.
  */
-const firstMatching = <T>(bucket: readonly Expression<T>[] | undefined, matcher: Matcher | MatcherView): Expression<T> | null => {
+const firstMatching = <T>(bucket: ReadonlyArray<Expression<T>> | undefined, matcher: Matcher | MatcherView): Expression<T> | null => {
   if (bucket === undefined) return null;
 
   for (const expression of bucket) {
@@ -66,7 +67,7 @@ const firstMatching = <T>(bucket: readonly Expression<T>[] | undefined, matcher:
  *
  * @returns The bucket, or `undefined`.
  */
-const deepBucketFor = <T>(byTag: Map<string, Expression<T>[]>, tag: string | undefined): readonly Expression<T>[] | undefined =>
+const deepBucketFor = <T>(byTag: Map<string, Array<Expression<T>>>, tag: string | undefined): ReadonlyArray<Expression<T>> | undefined =>
   tag === undefined ? undefined : byTag.get(tag);
 
 /**
@@ -93,19 +94,19 @@ export default class ExpressionSet<T = unknown> {
   /**
    * @description Exact depth + exact tag name. The tightest bucket, and where most expressions live.
    */
-  readonly #byDepthAndTag: Map<string, Expression<T>[]>;
+  readonly #byDepthAndTag: Map<string, Array<Expression<T>>>;
   /**
    * @description Exact depth, terminal tag `*`. Indexed by depth only.
    */
-  readonly #wildcardByDepth: Map<number, Expression<T>[]>;
+  readonly #wildcardByDepth: Map<number, Array<Expression<T>>>;
   /**
    * @description Expressions containing `..` whose terminal segment is a wildcard, so they cannot be indexed by tag either.
    */
-  readonly #deepWildcards: Expression<T>[];
+  readonly #deepWildcards: Array<Expression<T>>;
   /**
    * @description Expressions containing `..` with a concrete terminal tag, indexed by that tag.
    */
-  readonly #deepByTerminalTag: Map<string, Expression<T>[]>;
+  readonly #deepByTerminalTag: Map<string, Array<Expression<T>>>;
   /**
    * @description Pattern strings already added, for deduplication and for {@link ExpressionSet.size}.
    */
@@ -195,7 +196,7 @@ export default class ExpressionSet<T = unknown> {
    * @returns An effect producing `this`, for chaining. Fails with {@link XmlError} and the `SealedExpressionSet` reason if the set has been sealed.
    *   The expressions added before the failure are kept — the set is not rolled back, matching the original behaviour of a throw mid-loop.
    */
-  addAll = Effect.fnUntraced(function* (this: ExpressionSet<T>, expressions: readonly Expression<T>[]) {
+  addAll = Effect.fnUntraced(function* (this: ExpressionSet<T>, expressions: ReadonlyArray<Expression<T>>) {
     for (const expr of expressions) {
       yield* this.add(expr);
     }
@@ -210,7 +211,7 @@ export default class ExpressionSet<T = unknown> {
    * @returns An effect producing whether that pattern was already added. Infallible; the channel is empty because the package has one shape for its
    *   public surface.
    */
-  has(expression: Expression<unknown>): boolean {
+  has(expression: Expression): boolean {
     return this.#patterns.has(expression.pattern);
   }
 

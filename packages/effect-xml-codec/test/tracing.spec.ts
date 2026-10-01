@@ -16,7 +16,7 @@ import { parseXml } from '#/index.ts';
  *
  * @returns The successful value and the spans, in creation order.
  */
-const traced = <A, E>(effect: Effect.Effect<A, E, never>): { readonly spans: ReadonlyArray<Tracer.NativeSpan>; readonly value: A } => {
+const traced = <A, E>(effect: Effect.Effect<A, E>): { readonly spans: ReadonlyArray<Tracer.NativeSpan>; readonly value: A } => {
   const spans: Array<Tracer.NativeSpan> = [];
   const tracer = Tracer.make({
     span(options) {

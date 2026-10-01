@@ -1,11 +1,11 @@
+import type { EncodingProfile } from '#/encoding/encoding-profile.ts';
 import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
 
-import type { EncodingProfile } from '../encoding/encoding-profile.ts';
-import type { InputSourceLike } from './input-source.ts';
+import { createCharScanStrategy } from '#/encoding/scan-strategy/char-scan-strategy.ts';
+import { createTextDecoderAdapter } from '#/encoding/text-decoder-adapter.ts';
+import { QUOTE_PAIRS_CAPACITY } from '#/util.ts';
 
-import { createCharScanStrategy } from '../encoding/scan-strategy/char-scan-strategy.js';
-import { createTextDecoderAdapter } from '../encoding/text-decoder-adapter.js';
-import { QUOTE_PAIRS_CAPACITY } from '../util.js';
+import type { InputSourceLike } from './input-source.ts';
 
 /**
  * @description BufferSource — input source backed by a byte array.

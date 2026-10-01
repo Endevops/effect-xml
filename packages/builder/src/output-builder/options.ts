@@ -31,7 +31,7 @@ export interface ValueParserChainOptions {
   /**
    * @description The chain, in order. Omit to use the default for tags or attributes.
    */
-  valueParsers?: (string | ValueParser)[];
+  valueParsers?: Array<string | ValueParser>;
 }
 
 /**

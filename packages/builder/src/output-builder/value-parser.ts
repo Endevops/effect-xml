@@ -2,7 +2,7 @@ import type { MatcherView } from '@endevops/common-xml';
 
 import { Effect, Exit } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
+import type { BuilderError } from '#/errors.ts';
 
 /**
  * @description Where one value came from, handed to every {@link ValueParser.parse} call. A plain value built by {@link makeContext} rather than a class: it holds
@@ -203,7 +203,7 @@ export interface ValueParserPipeline {
    * @description The chain, as registry names or instances. Names are resolved against {@link ValueParserPipeline.registry} on every run, so a parser registered
    * after construction takes effect without rebuilding the pipeline.
    */
-  readonly valParsers: (string | ValueParser)[];
+  readonly valParsers: Array<string | ValueParser>;
   /**
    * @description Where names in {@link ValueParserPipeline.valParsers} resolve.
    */
@@ -248,7 +248,7 @@ export interface ValueParserPipeline {
  * @returns The pipeline.
  */
 export const makeValueParserPipeline = (
-  valParsers: (string | ValueParser)[] = [],
+  valParsers: Array<string | ValueParser> = [],
   registry: ValueParserRegistryLike,
   sharedContext: SharedContext | null = null
 ): ValueParserPipeline => {
@@ -269,7 +269,7 @@ export const makeValueParserPipeline = (
    *
    * @param instances - The chain entries, as names or instances.
    */
-  const initAll = (instances: (string | ValueParser)[]): void => {
+  const initAll = (instances: Array<string | ValueParser>): void => {
     const seen = new Set<ValueParser>();
     for (const entry of instances) {
       // Same skip-an-unregistered-name rule as `resetAll`: the factory wires up

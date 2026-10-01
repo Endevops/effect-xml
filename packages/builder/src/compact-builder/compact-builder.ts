@@ -2,14 +2,16 @@ import type { MatcherView } from '@endevops/common-xml';
 
 import { Context, Effect, Layer, Predicate } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
-import type { OutputBuilder, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
-import type { Context as ValueContext } from '../output-builder/index.ts';
-import type { ValueParser } from '../output-builder/index.ts';
-import type { ValueParserRegistry } from '../output-builder/index.ts';
+import type { BuilderError } from '#/errors.ts';
+import type { OutputBuilder, TagDetailLike, ValueParserRegistryLike } from '#/output-builder/index.ts';
+import type { Context as ValueContext } from '#/output-builder/index.ts';
+import type { ValueParser } from '#/output-builder/index.ts';
+import type { ValueParserRegistry } from '#/output-builder/index.ts';
+
+import { makeBaseOutputBuilder, makeContext, makeValueParserRegistry } from '#/output-builder/index.ts';
+
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
-import { makeBaseOutputBuilder, makeContext, makeValueParserRegistry } from '../output-builder/index.ts';
 import { buildOptions } from './options-builder.ts';
 
 /**
@@ -66,7 +68,7 @@ export interface CompactBuilder extends OutputBuilder {
   /**
    * @description One frame per open tag, holding the state to restore when that tag closes.
    */
-  readonly tagsStack: TagFrame[];
+  readonly tagsStack: Array<TagFrame>;
   /**
    * @description The object every top-level tag is written into.
    */
@@ -336,7 +338,7 @@ export const makeCompactBuilder = (
       } else {
         const existing = target[key];
         if (!Array.isArray(existing)) target[key] = [existing];
-        (target[key] as unknown[]).push(val);
+        (target[key] as Array<unknown>).push(val);
       }
       return target;
     },

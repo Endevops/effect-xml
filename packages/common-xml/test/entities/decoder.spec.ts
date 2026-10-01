@@ -1,3 +1,4 @@
+// oxlint-disable vitest/expect-expect
 /**
  * @description Specs for the entity decoder — the half of this package that is a parser rather than a table lookup, and therefore the half whose behaviour a
  * caller can actually depend on getting exactly right. The specs are in two layers, and the split is the point. Everything that works is asserted as
@@ -28,7 +29,7 @@ interface PostCheckSpy {
    * @description The `original` argument of every call, in call order. An empty array after a `decode` means the hook never ran, which is a different fact from
    * "it ran and found nothing to do".
    */
-  readonly seen: string[];
+  readonly seen: Array<string>;
   /**
    * @description The hook itself, ready to hand to the constructor.
    */
@@ -42,7 +43,7 @@ interface PostCheckSpy {
  * @returns The spy.
  */
 const spyPostCheck = (): PostCheckSpy => {
-  const seen: string[] = [];
+  const seen: Array<string> = [];
   return {
     seen,
     postCheck: (resolved, original) => {
@@ -58,7 +59,7 @@ const spyPostCheck = (): PostCheckSpy => {
  * @returns The spy.
  */
 const rejectingPostCheck = (): PostCheckSpy => {
-  const seen: string[] = [];
+  const seen: Array<string> = [];
   return {
     seen,
     postCheck: (_resolved, original) => {
@@ -97,8 +98,8 @@ const setXmlVersionWith = (decoder: EntityDecoder, version: unknown): void => {
  *
  * @returns One entry per codepoint, in order.
  */
-const codePointsOf = (value: string): string[] => {
-  const points: string[] = [];
+const codePointsOf = (value: string): Array<string> => {
+  const points: Array<string> = [];
   for (let index = 0; index < value.length; index++) {
     const point = value.codePointAt(index);
     points.push((point ?? 0).toString(16).toUpperCase().padStart(4, '0'));
@@ -668,7 +669,7 @@ describe('registration hooks', () => {
   it('reaches a name that looks like an array index before one registered before it', () => {
     // The merge is an object, not a `Map`, so `Object.keys` lifts integer-like keys to the front in numeric order. A hook that counts registration
     // order is therefore reading key order, not the order the caller wrote them in.
-    const seen: string[] = [];
+    const seen: Array<string> = [];
     const decoder = run(EntityDecoder.make({ onInputEntity: name => (seen.push(name), ENTITY_ACTION.ALLOW) }));
     run(decoder.addInputEntities({ brand: 'B', 2: 'TWO' }));
     expect(seen).toEqual(['2', 'brand']);
@@ -810,7 +811,7 @@ describe('preserved upstream quirk: four error messages say EntityReplacer and t
     readonly message: string;
   }
 
-  const ERROR_CASES: ErrorCase[] = [
+  const ERROR_CASES: Array<ErrorCase> = [
     { label: 'a # in an entity name', prefix: '[EntityReplacer]', message: failureMessage(run(EntityDecoder.make()).addExternalEntity('#x', 'V')) },
     {
       label: 'a special character in an entity name',

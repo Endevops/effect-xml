@@ -1,7 +1,7 @@
 import type Expression from './expression.ts';
 import type { PositionSelector, Segment } from './expression.ts';
 
-import ExpressionSet from './expression-set.ts';
+import type ExpressionSet from './expression-set.ts';
 
 /**
  * @description Options for {@link Matcher}.
@@ -83,15 +83,15 @@ export interface MatcherSnapshot {
   /**
    * @description Copy of the path stack.
    */
-  path: PathNode[];
+  path: Array<PathNode>;
   /**
    * @description Copy of the per-level sibling bookkeeping.
    */
-  siblingStacks: SiblingLevel[];
+  siblingStacks: Array<SiblingLevel>;
   /**
    * @description Copy of the kept-attributes stack. See {@link PushOptions.keep}.
    */
-  keptAttrs: KeptAttrEntry[];
+  keptAttrs: Array<KeptAttrEntry>;
 }
 
 /**
@@ -104,7 +104,7 @@ export interface PushOptions {
    * envelope's `version`, not a general substitute for {@link Matcher.getAttrValue}. Cost is proportional to `keep.length` and independent of path
    * depth.
    */
-  keep?: string[];
+  keep?: Array<string>;
 }
 
 /**
@@ -268,7 +268,7 @@ export class MatcherView {
    * @returns One entry per level, root first.
    */
   // fallow-ignore-next-line unused-class-member
-  toArray(): string[] {
+  toArray(): Array<string> {
     return this.#matcher.path.map(n => n.tag);
   }
 
@@ -495,11 +495,11 @@ class Matcher {
   /**
    * @description The path stack, root first. Attribute values live only on the last entry.
    */
-  path: PathNode[];
+  path: Array<PathNode>;
   /**
    * @description Sibling bookkeeping, parallel to {@link Matcher.path}.
    */
-  siblingStacks: SiblingLevel[];
+  siblingStacks: Array<SiblingLevel>;
 
   /**
    * @description Memoised result of the default-form {@link Matcher.toString}, dropped on every mutation.
@@ -512,7 +512,7 @@ class Matcher {
   /**
    * @description Depth-ordered stack of attributes retained via {@link PushOptions.keep}.
    */
-  #keptAttrs: KeptAttrEntry[];
+  #keptAttrs: Array<KeptAttrEntry>;
 
   /**
    * @description Create an empty matcher at the root.
@@ -610,7 +610,7 @@ class Matcher {
    *
    * @returns The names to retain.
    */
-  #keepNames(options: PushOptions | null): string[] | undefined {
+  #keepNames(options: PushOptions | null): Array<string> | undefined {
     const keep = options !== null ? options.keep : null;
     return keep !== null && keep !== undefined && keep.length > 0 ? keep : undefined;
   }
@@ -796,7 +796,7 @@ class Matcher {
    */
   toString(separator?: string, includeNamespace = true): string {
     const sep = separator || this.separator;
-    const isDefault = sep === this.separator && includeNamespace === true;
+    const isDefault = sep === this.separator &&  includeNamespace;
 
     if (isDefault) {
       if (this.#pathStringCache !== null) {
@@ -818,7 +818,7 @@ class Matcher {
    * @returns One entry per level, root first.
    */
   // fallow-ignore-next-line unused-class-member
-  toArray(): string[] {
+  toArray(): Array<string> {
     return this.path.map(n => n.tag);
   }
 
@@ -860,7 +860,7 @@ class Matcher {
    *
    * @returns Whether every segment matches.
    */
-  #matchSimple(segments: readonly Segment[]): boolean {
+  #matchSimple(segments: ReadonlyArray<Segment>): boolean {
     if (this.path.length !== segments.length) {
       return false;
     }
@@ -886,7 +886,7 @@ class Matcher {
    *
    * @returns Whether the pattern is exhausted against the path.
    */
-  #matchWithDeepWildcard(segments: readonly Segment[]): boolean {
+  #matchWithDeepWildcard(segments: ReadonlyArray<Segment>): boolean {
     let pathIdx = this.path.length - 1;
     let segIdx = segments.length - 1;
 
@@ -912,7 +912,7 @@ class Matcher {
    *
    * @returns Where the walk resumes, or how it ended.
    */
-  #deepStep(segments: readonly Segment[], segIdx: number, pathIdx: number): DeepStep {
+  #deepStep(segments: ReadonlyArray<Segment>, segIdx: number, pathIdx: number): DeepStep {
     const segment = segments[segIdx];
     if (segment === undefined) return DEEP_STEP_FAILED;
     if (segment.type === 'deep-wildcard') return this.#deepStepWildcard(segments, segIdx, pathIdx);
@@ -948,7 +948,7 @@ class Matcher {
    *
    * @returns Where the walk resumes, or how it ended.
    */
-  #deepStepWildcard(segments: readonly Segment[], segIdx: number, pathIdx: number): DeepStep {
+  #deepStepWildcard(segments: ReadonlyArray<Segment>, segIdx: number, pathIdx: number): DeepStep {
     if (segIdx === 0) return DEEP_STEP_EXHAUSTED;
     const absorbed = segments[segIdx - 1];
     if (absorbed === undefined) return DEEP_STEP_FAILED;

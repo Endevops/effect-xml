@@ -1,3 +1,4 @@
+// oxlint-disable vitest/expect-expect
 /**
  * @description Specs for `makeBaseOutputBuilder` and the `CompactBuilderFactory` service — the contract a concrete output builder is written against. The base
  * supplies everything that does not depend on the output shape: the two pipelines, the per-document shared context, and the policy for comments,
@@ -25,11 +26,11 @@ interface RecordingBuilder extends OutputBuilder {
   /**
    * @description Every `_addChild` call, as `[key, value]`.
    */
-  children: [string, unknown][];
+  children: Array<[string, unknown]>;
   /**
    * @description Every `addRawValue` call, as the text passed in.
    */
-  raw: string[];
+  raw: Array<string>;
   /**
    * @description The flat attribute bag the base's `addAttribute` writes into.
    */
@@ -73,8 +74,8 @@ const builder = (
   matcher: MatcherView | null = null
 ): RecordingBuilder => {
   const base = makeBaseOutputBuilder(parserOptions as BuilderParserOptions & Record<string, unknown>, builderOptions, matcher, registry());
-  const children: [string, unknown][] = [];
-  const raw: string[] = [];
+  const children: Array<[string, unknown]> = [];
+  const raw: Array<string> = [];
   return {
     ...base,
     children,
@@ -277,7 +278,7 @@ describe('makeBaseOutputBuilder — onStopNode', () => {
   });
 
   it('forwards to the parser option when the caller set one', () => {
-    const calls: unknown[][] = [];
+    const calls: Array<Array<unknown>> = [];
     const b = builder({ onStopNode: (...args) => calls.push(args) });
     const detail = { name: 'script', index: 3 };
     b.onStopNode(detail, 'raw');
@@ -288,7 +289,7 @@ describe('makeBaseOutputBuilder — onStopNode', () => {
   });
 
   it('passes the live matcher to the hook, so it can read the position', () => {
-    const calls: unknown[][] = [];
+    const calls: Array<Array<unknown>> = [];
     const matcher = atA();
     const b = builder({ onStopNode: (...args) => calls.push(args) } as BuilderParserOptions, {}, matcher);
     b.onStopNode(scriptDetail, 'raw');
@@ -305,7 +306,7 @@ describe('makeBaseOutputBuilder — onStopNode', () => {
 
 describe('makeBaseOutputBuilder — declarations and instructions', () => {
   it('routes a declaration through addInstruction', () => {
-    const seen: string[] = [];
+    const seen: Array<string> = [];
     const b = builder({});
     b.addInstruction = name => seen.push(name);
     b.addDeclaration('<?xml version="1.0"?>');

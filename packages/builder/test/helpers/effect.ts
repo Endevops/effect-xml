@@ -55,6 +55,8 @@ function errorOf(exit: Exit.Exit<unknown, BuilderError>): BuilderError {
 /**
  * @description Run an effect that is expected to succeed, and return its value.
  *
+ * @deprecated
+ *
  * @param effect - The effect to run.
  *
  * @returns The successful value.
@@ -70,6 +72,8 @@ export function run<A>(effect: Effect.Effect<A, BuilderError>): A {
 /**
  * @description Run an effect that is expected to fail, and return the {@link BuilderError} for the spec to assert on.
  *
+ * @deprecated
+ *
  * @param effect - The effect to run.
  *
  * @returns The error, so a spec can narrow `reason` and compare `message`.
@@ -83,6 +87,8 @@ export function failed(effect: Effect.Effect<unknown, BuilderError>): BuilderErr
 
 /**
  * @description Assert that an effect fails for one specific {@link BuilderError} reason, and return the error.
+ *
+ * @deprecated
  *
  * @param effect - The effect to run.
  * @param tag - The reason tag the failure must carry.
@@ -99,29 +105,35 @@ export function failedWith<A>(effect: Effect.Effect<A, BuilderError>, tag: Build
  * @description Build an {@link XMLBuilder} synchronously. Construction compiles the caller's stop-node patterns, so it is a factory returning an effect. A spec
  * that configures a builder wants the builder, not the failure mode, so the failure is surfaced as a thrown message.
  *
+ * @deprecated
+ *
  * @param options - The builder's options.
  *
  * @returns The builder.
  */
 export function makeBuilder(options?: XmlBuilderOptions): XmlBuilder {
-  return run(XMLBuilder.make(options));
+  return XMLBuilder.make(options).pipe(Effect.runSync);
 }
 
 /**
  * @description Build a {@link CompactBuilderFactory} synchronously, for the same reason as {@link makeBuilder}.
+ *
+ * @deprecated
  *
  * @param options - The factory's options.
  *
  * @returns The factory.
  */
 export function makeFactory(options: FactoryOptions = {}): OutputBuilderFactory {
-  return run(CompactBuilderFactory.make(options));
+  return CompactBuilderFactory.make(options).pipe(Effect.runSync);
 }
 
 /**
  * @description Run an effect from either package. The specs' document walks drive both — a builder method and `Expression.make` — so the walk's channel is the
  * union of the two, and neither {@link run} nor a plain call is typed for it. This is, and the message names which package reported so a failure says
  * where it came from.
+ *
+ * @deprecated
  *
  * @param effect - The effect to run.
  *

@@ -20,7 +20,7 @@ export function isSpaceCode(code: number): boolean {
  * @description `Object.prototype` members that a document could shadow. Shadowing these is a naming collision, not a prototype-pollution vector — renaming them is
  * cosmetic and skippable via `sanitizeNames: false`.
  */
-export const DANGEROUS_PROPERTY_NAMES: string[] = [
+export const DANGEROUS_PROPERTY_NAMES: Array<string> = [
   'hasOwnProperty',
   'toString',
   'valueOf',
@@ -36,7 +36,7 @@ export const DANGEROUS_PROPERTY_NAMES: string[] = [
 /**
  * @description Names whose use would actually pollute `Object.prototype` through the output object. Always rejected, whatever `sanitizeNames` says.
  */
-export const criticalProperties: string[] = ['__proto__', 'constructor', 'prototype'];
+export const criticalProperties: Array<string> = ['__proto__', 'constructor', 'prototype'];
 
 /**
  * @description Capacity (in numbers, i.e. `QUOTE_PAIRS_CAPACITY / 2` quoted-attribute-values) of the reusable typed array each InputSource uses to record quote

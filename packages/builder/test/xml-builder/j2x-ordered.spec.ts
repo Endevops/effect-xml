@@ -296,7 +296,7 @@ describe('XMLBuilder', function () {
       const options: X2jOptions = {
         ignoreAttributes: false,
         isArray: (_tagName, _jpath, isLeafNode, _isAttribute) => {
-          if (isLeafNode === true) return true;
+          if (isLeafNode) return true;
           return false;
         },
         preserveOrder: true,

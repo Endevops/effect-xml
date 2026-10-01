@@ -22,9 +22,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         skip: { attributes: false },
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: matcher => {
-              return matcher.matches(rootItemExp);
-            },
+            forceArray: matcher => 
+              matcher.matches(rootItemExp)
+            ,
           })
         ),
       }
@@ -46,10 +46,10 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: matcher => {
+            forceArray: matcher => 
               // Force all tags under 'items' to be arrays
-              return matcher.matches(runParser(Expression.make('root.items.*')));
-            },
+              matcher.matches(runParser(Expression.make('root.items.*')))
+            ,
           })
         ),
       }
@@ -71,10 +71,10 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: (_matcher, isLeafNode) => {
+            forceArray: (_matcher, isLeafNode) => 
               // Force only leaf nodes to be arrays
-              return isLeafNode === true;
-            },
+              isLeafNode === true
+            ,
           })
         ),
       }
@@ -98,9 +98,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: matcher => {
-              return matcher.matches(rootItemExp);
-            },
+            forceArray: matcher => 
+              matcher.matches(rootItemExp)
+            ,
           })
         ),
       }
@@ -123,10 +123,10 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         skip: { attributes: false },
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: matcher => {
+            forceArray: matcher => 
               // Force array only for items with type="special"
-              return matcher.matches(rootItemExp) && matcher.getAttrValue('type') === 'special';
-            },
+              matcher.matches(rootItemExp) && matcher.getAttrValue('type') === 'special'
+            ,
           })
         ),
       }
@@ -149,9 +149,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: matcher => {
-              return matcher.matches(runParser(Expression.make('..target')));
-            },
+            forceArray: matcher => 
+              matcher.matches(runParser(Expression.make('..target')))
+            ,
           })
         ),
       }
@@ -173,9 +173,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         skip: { attributes: false },
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: matcher => {
-              return matcher.matches(rootItemExp);
-            },
+            forceArray: matcher => 
+              matcher.matches(rootItemExp)
+            ,
           })
         ),
       }
@@ -326,12 +326,12 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: () => {
+            forceArray: () => 
               // Deliberately a truthy non-boolean: the contract is
               // boolean | undefined, so this is a type error by design and the
               // builder must not be relied on to coerce it.
-              return 'true' as unknown as boolean;
-            },
+              'true' as unknown as boolean
+            ,
           })
         ),
       }
@@ -371,9 +371,9 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
       {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
-            forceArray: matcher => {
-              return matcher.matches(runParser(Expression.make('root.a.b.c.d.e')));
-            },
+            forceArray: matcher => 
+              matcher.matches(runParser(Expression.make('root.a.b.c.d.e')))
+            ,
           })
         ),
       }

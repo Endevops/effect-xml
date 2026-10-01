@@ -8,9 +8,10 @@ import { Effect, Predicate } from 'effect';
 import type { OutputBuilderFactoryLike } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, StopNodeEntry, X2jOptions } from './options.ts';
+import type { ParseError } from './parse-error.ts';
 
-import { InvalidInput, SecurityReservedOption, fromUpstreamError, type ParseError } from './parse-error.js';
-import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.js';
+import { InvalidInput, SecurityReservedOption, fromUpstreamError } from './parse-error.ts';
+import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.ts';
 
 /**
  * @description A path expression carrying this parser's per-entry stop-node/skip-tag config. `@endevops/common-xml` is generic over the payload, so the type
@@ -281,7 +282,7 @@ type NormalizedTagList = {
   /**
    * @description The compiled entries, one per caller-supplied entry, in the caller's order.
    */
-  entries: ConfigExpression[];
+  entries: Array<ConfigExpression>;
   /**
    * @description The sealed set holding the same expressions, for O(1) hot-path matching.
    */
@@ -501,7 +502,7 @@ function validateExitIf(exitIf: unknown): Effect.Effect<void, ParseError> {
 function normalizeTagList(entries: ReadonlyArray<TagEntry>, optionName: string): Effect.Effect<NormalizedTagList, ParseError> {
   return Effect.gen(function* () {
     const set = new ExpressionSet<TagExpressionConfig>();
-    const compiled: ConfigExpression[] = [];
+    const compiled: Array<ConfigExpression> = [];
     for (const entry of entries) {
       compiled.push(yield* normalizeTagEntry(entry, optionName, set));
     }

@@ -17,9 +17,10 @@
 
 import { Effect } from 'effect';
 
-import type { XmlError } from '../errors.ts';
+import type { XmlError } from '#/errors.ts';
 
-import { XmlError as XmlErrorCtor } from '../errors.ts';
+import { XmlError as XmlErrorCtor } from '#/errors.ts';
+
 import { XML as DEFAULT_XML_ENTITIES } from './entity-tables.ts';
 
 // ---------------------------------------------------------------------------
@@ -129,7 +130,7 @@ export type EntityHookAction = 'allow' | 'block' | 'throw';
  * @description A function-valued entity replacement: the `val` of the legacy `{ regex, val }` form when it is not a string. This decoder cannot use one — a
  * function has no meaning without the regex it was meant to be matched against — so such an entry is dropped at registration rather than expanded.
  */
-export type EntityValFn = (match: string, captured: string, ...rest: unknown[]) => string;
+export type EntityValFn = (match: string, captured: string, ...rest: Array<unknown>) => string;
 
 /**
  * @description Called once per entity _at registration time_, never during {@link EntityDecoder.decode}. Receives the name without `&` and `;` and the resolved
@@ -273,7 +274,7 @@ export interface EntityDecoderOptions {
    *
    * @default [ ]
    */
-  leave?: string[];
+  leave?: Array<string>;
 
   /**
    * @description Names to delete outright, matched the same way as {@link EntityDecoderOptions.leave}. A removed reference is charged to the `external` tier even
@@ -282,7 +283,7 @@ export interface EntityDecoderOptions {
    *
    * @default [ ]
    */
-  remove?: string[];
+  remove?: Array<string>;
 
   /**
    * @description Ceilings on expansion count and expanded length. See {@link EntityDecoderLimitOptions}.
@@ -393,7 +394,7 @@ const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
  *   `constructor` or `toString` finds nothing. Each entry is read through {@link flattenEntityValue}, so an entry that cannot be reduced to a string
  *   is absent rather than present-and-unusable.
  */
-function mergeEntityMaps(...maps: readonly EntityInputMap[]): Record<string, string> {
+function mergeEntityMaps(...maps: ReadonlyArray<EntityInputMap>): Record<string, string> {
   const out: Record<string, string> = Object.create(null);
   for (const map of maps) {
     if (!map) continue;
@@ -536,7 +537,7 @@ function readHook(raw: EntityRegistrationHook | null | undefined): EntityRegistr
  *
  * @returns The names as a set, empty when the option is absent or is not an array.
  */
-function readNameList(raw: string[] | undefined): ReadonlySet<string> {
+function readNameList(raw: Array<string> | undefined): ReadonlySet<string> {
   if (Array.isArray(raw)) return new Set(raw);
   return new Set();
 }
@@ -956,8 +957,8 @@ export class EntityDecoder {
    *   its own result". Fails with {@link XmlError} and the reason the offending reference carries — `ProhibitedCharacterReference`,
    *   `ExpansionLimitExceeded` or `ExpandedLengthLimitExceeded`.
    */
-  #expandAll = Effect.fnUntraced(function* (this: EntityDecoder, str: string): Effect.fn.Return<string[], XmlError> {
-    const chunks: string[] = [];
+  #expandAll = Effect.fnUntraced(function* (this: EntityDecoder, str: string): Effect.fn.Return<Array<string>, XmlError> {
+    const chunks: Array<string> = [];
     const len = str.length;
     let last = 0; // start of the next unprocessed literal run
     let i = 0;

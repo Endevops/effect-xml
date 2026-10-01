@@ -1,33 +1,8 @@
-import { Effect } from 'effect';
+import type { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
-import XMLParser, {
-  ErrorCode,
-  LimitMaxNestedTags,
-  MismatchedCloseTag,
-  quoteEnclosures,
-  xmlEnclosures,
-  type AttributeOptions,
-  type AutoCloseInput,
-  type AutoCloseOptions,
-  type DecodingOptions,
-  type DoctypeOptions,
-  type EncodingDecoder,
-  type EncodingDescriptor,
-  type Enclosure,
-  type ErrorCodeValue,
-  type ExitIfPredicate,
-  type FeedableOptions,
-  type LimitsOptions,
-  type NameForOptions,
-  type ParseError,
-  type ParseErrorEntry,
-  type SkipOptions,
-  type SkipTagEntry,
-  type StopNodeEntry,
-  type TagOptions,
-  type X2jOptions,
-} from '#/index.ts';
+import XMLParser, { ErrorCode, LimitMaxNestedTags, MismatchedCloseTag, quoteEnclosures, xmlEnclosures } from '#/index.ts';
+import type { AttributeOptions, AutoCloseInput, AutoCloseOptions, DecodingOptions, DoctypeOptions, EncodingDecoder, EncodingDescriptor, Enclosure, ErrorCodeValue, ExitIfPredicate, FeedableOptions, LimitsOptions, NameForOptions, ParseError, ParseErrorEntry, SkipOptions, SkipTagEntry, StopNodeEntry, TagOptions, X2jOptions } from '#/index.ts';
 import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
@@ -85,7 +60,7 @@ describe('Public API surface', function () {
     const parser = makeParser({ autoClose: 'html' });
     runParser(parser.parse('<a><b></a>'));
 
-    const errors: ParseErrorEntry[] = runParser(parser.getParseErrors());
+    const errors: Array<ParseErrorEntry> = runParser(parser.getParseErrors());
 
     expect(Array.isArray(errors)).toBe(true);
   });
@@ -99,9 +74,9 @@ describe('Public API surface', function () {
     const parser: XMLParser = runParser(made);
 
     const parsed: Effect.Effect<unknown, ParseError> = parser.parse('<root><a>1</a></root>');
-    const errors: Effect.Effect<ParseErrorEntry[], never> = parser.getParseErrors();
-    const buffered: Effect.Effect<number | null, never> = parser.getFeedBufferLength();
-    const threshold: Effect.Effect<number, never> = parser.getFeedBatchThreshold();
+    const errors: Effect.Effect<Array<ParseErrorEntry>> = parser.getParseErrors();
+    const buffered: Effect.Effect<number | null> = parser.getFeedBufferLength();
+    const threshold: Effect.Effect<number> = parser.getFeedBatchThreshold();
 
     expect(runParser(parsed)).toEqual({ root: { a: 1 } });
     expect(runParser(errors)).toEqual([]);

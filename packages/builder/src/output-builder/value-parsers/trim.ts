@@ -1,7 +1,7 @@
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../../errors.ts';
-import type { ValueParser } from '../value-parser.ts';
+import type { BuilderError } from '#/errors.ts';
+import type { ValueParser } from '#/output-builder/value-parser.ts';
 
 /**
  * @description Trims leading and trailing whitespace from string values. Superseded by the whitespace normalizer, which also collapses internal runs, and kept

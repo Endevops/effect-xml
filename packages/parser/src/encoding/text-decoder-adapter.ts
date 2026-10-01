@@ -1,4 +1,4 @@
-import type { EncodingDecoder } from '../options.ts';
+import type { EncodingDecoder } from '#/options.ts';
 
 /**
  * @description Gives a `{ write(buf): string, end(): string }` shaped stateful decoder, the contract every `EncodingRegistry` descriptor already promises, but

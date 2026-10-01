@@ -1,10 +1,11 @@
 import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
 
+import { QUOTE_PAIRS_CAPACITY } from '#/util.ts';
+
 import type { InputSourceLike } from './input-source.ts';
 
-import { QUOTE_PAIRS_CAPACITY } from '../util.js';
-import { canRead, matchAhead, readCh, readChAt, readStr, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.js';
-import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.js';
+import { canRead, matchAhead, readCh, readChAt, readStr, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.ts';
+import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 
 /**
  * @description StringSource — input source backed by an in-memory string.

@@ -12,7 +12,7 @@ import { makeParser, parseDoc, endDoc, streamDoc, runParser } from '#/test/helpe
  * @description Build a Node.js Readable stream from an array of string chunks. Each chunk is pushed in a separate tick so the parser receives them one at a time —
  * identical to how fs.createReadStream delivers data.
  */
-function makeStream(chunks: (string | Buffer)[]): Readable {
+function makeStream(chunks: Array<string | Buffer>): Readable {
   return new Readable({
     read() {
       const chunk = chunks.shift();
@@ -28,8 +28,8 @@ function makeStream(chunks: (string | Buffer)[]): Readable {
 /**
  * @description Split a string into chunks of exactly `size` characters.
  */
-function chunkString(str: string, size: number): string[] {
-  const out: string[] = [];
+function chunkString(str: string, size: number): Array<string> {
+  const out: Array<string> = [];
   for (let i = 0; i < str.length; i += size) {
     out.push(str.slice(i, i + size));
   }

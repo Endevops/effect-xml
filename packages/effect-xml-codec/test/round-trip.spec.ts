@@ -1,3 +1,5 @@
+// oxlint-disable vitest/expect-expect effecttsgo/schema-number
+// oxlint-disable vitest/valid-title
 /**
  * @description Round-trip specs: every value here goes out as XML and comes back as the value it was. This is the spec that answers "does serialization fail". The
  * text path is a composition of two pieces this package keeps separate, the way `Schema.toCodecJson` and `JSON.stringify` are separate: the codec
@@ -17,7 +19,7 @@ import { parseXmlDocument, renderXml, toCodecXml } from '#/index.ts';
  * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
  * honest: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to be known.
  */
-type AnyCodec = Schema.ConstraintCodec<unknown, unknown, never, never>;
+type AnyCodec = Schema.ConstraintCodec<unknown, unknown>;
 
 /**
  * @description One schema-and-value pair to be taken through a full round trip.

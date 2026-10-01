@@ -63,7 +63,7 @@ const build = (
     const walk = Effect.fnUntraced(function* (node: WalkNode, tagName: string): Effect.fn.Return<void, BuilderError | XmlError> {
       const attributes: Record<string, unknown> = {};
       let text = '';
-      const children: [string, unknown][] = [];
+      const children: Array<[string, unknown]> = [];
 
       for (const [key, value] of Object.entries(node)) {
         if (key.startsWith('@_')) {

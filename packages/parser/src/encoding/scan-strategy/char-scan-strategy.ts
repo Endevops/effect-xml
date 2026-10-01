@@ -1,4 +1,4 @@
-import type { CharScanContext, ScanStrategy } from '../../input-source/input-source.ts';
+import type { CharScanContext, ScanStrategy } from '#/input-source/input-source.ts';
 
 import {
   canRead,
@@ -10,8 +10,8 @@ import {
   readUpto,
   readUptoChar,
   readUptoCloseTag,
-} from '../../input-source/char-scan-reads.js';
-import { scanTagExpEnd, scanTagExpEndFast } from '../../input-source/scan-tag-exp-end.js';
+} from '#/input-source/char-scan-reads.ts';
+import { scanTagExpEnd, scanTagExpEndFast } from '#/input-source/scan-tag-exp-end.ts';
 
 /**
  * @description CharScanStrategy — for encodings that are NOT self-synchronizing (UTF-16 LE/BE by default, or any custom multi-byte encoding that doesn't assert

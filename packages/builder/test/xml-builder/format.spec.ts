@@ -26,6 +26,7 @@ describe('Format without indentation', function () {
     expect(output).toEqual(expectedXml);
   });
 
+  // oxlint-disable-next-line vitest/no-disabled-tests
   it.skip('when order is not preserved', function () {
     // TODO: This test is failing due an extra line in the starting of the document
     // But not changing the behavior for backward compatibility.

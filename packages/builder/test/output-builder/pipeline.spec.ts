@@ -24,8 +24,8 @@ import { failed, run } from '#/test/helpers/effect.ts';
  *
  * @returns A parser that records every context it is handed.
  */
-const contextSpy = (inner: ValueParser): ValueParser & { seen: (Context | undefined)[] } => {
-  const seen: (Context | undefined)[] = [];
+const contextSpy = (inner: ValueParser): ValueParser & { seen: Array<Context | undefined> } => {
+  const seen: Array<Context | undefined> = [];
   return {
     seen,
     parse(val: unknown, ctx?: Context): Effect.Effect<unknown, BuilderError> {
@@ -42,8 +42,8 @@ const contextSpy = (inner: ValueParser): ValueParser & { seen: (Context | undefi
  *
  * @returns The parser, with its `calls` log exposed.
  */
-const countingParser = (tag: string): ValueParser & { calls: string[] } => {
-  const calls: string[] = [];
+const countingParser = (tag: string): ValueParser & { calls: Array<string> } => {
+  const calls: Array<string> = [];
   return {
     calls,
     parse(val: unknown): Effect.Effect<unknown, BuilderError> {
@@ -58,8 +58,8 @@ const countingParser = (tag: string): ValueParser & { calls: string[] } => {
  *
  * @returns The parser, with its `seen` log exposed.
  */
-const stickyParser = (): ValueParser & { seen: string[] } => {
-  const seen: string[] = [];
+const stickyParser = (): ValueParser & { seen: Array<string> } => {
+  const seen: Array<string> = [];
   return {
     seen,
     parse(val: unknown): Effect.Effect<unknown, BuilderError> {
@@ -236,7 +236,7 @@ describe('SharedContext', () => {
 // ─── ValueParserPipeline ─────────────────────────────────────────────────────────────────────────────────────
 
 describe('ValueParserPipeline', () => {
-  const pipeline = (parsers: (string | ValueParser)[]) => makeValueParserPipeline(parsers, makeValueParserRegistry());
+  const pipeline = (parsers: Array<string | ValueParser>) => makeValueParserPipeline(parsers, makeValueParserRegistry());
 
   it('returns the value untouched for an empty chain', () => {
     expect(run(pipeline([]).run('x'))).toBe('x');

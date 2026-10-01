@@ -12,7 +12,7 @@ import { trie1, trie2, trie3 } from './entity-tries.ts';
 // non-null assertion. The 123 empty entries are never read: every read is
 // guarded by IS_XML_UNSAFE, which marks exactly the five codes filled in below,
 // so an empty slot cannot be concatenated by accident.
-const XML_UNSAFE_REPLACEMENT: string[] = Array.from({ length: 128 }, () => '');
+const XML_UNSAFE_REPLACEMENT: Array<string> = Array.from({ length: 128 }, () => '');
 XML_UNSAFE_REPLACEMENT[38] = '&amp;'; // &
 XML_UNSAFE_REPLACEMENT[60] = '&lt;'; // <
 XML_UNSAFE_REPLACEMENT[62] = '&gt;'; // >

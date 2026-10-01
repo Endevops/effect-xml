@@ -14,7 +14,7 @@ function splitBufferAtByte(buf: Buffer, byteOffset: number): [Buffer, Buffer] {
   return [buf.subarray(0, byteOffset), buf.subarray(byteOffset)];
 }
 
-function makeBufferStream(chunks: Buffer[]): Readable {
+function makeBufferStream(chunks: Array<Buffer>): Readable {
   return new Readable({
     read() {
       const chunk = chunks.shift();

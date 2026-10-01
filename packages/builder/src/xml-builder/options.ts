@@ -11,7 +11,7 @@ import type { Expression, MatcherView } from '@endevops/common-xml';
  *
  * @returns An effect producing the replacement value.
  */
-import { Effect } from 'effect';
+import type { Effect } from 'effect';
 
 export type ValueProcessor = (name: string, value: unknown) => Effect.Effect<string | undefined, unknown>;
 
@@ -74,7 +74,7 @@ export interface XmlBuilderOptions {
    * @description Which attributes to emit. `true` drops them all, `false` keeps them all, an array of names and patterns drops the ones that match, and a function
    * drops the ones it returns `true` for. Defaults to `true`.
    */
-  ignoreAttributes?: boolean | (string | RegExp)[] | IgnoreAttributesPredicate;
+  ignoreAttributes?: boolean | Array<string | RegExp> | IgnoreAttributesPredicate;
   /**
    * @description Key holding CDATA content, or `false` to inline it as text. Defaults to `false`.
    */
@@ -114,12 +114,12 @@ export interface XmlBuilderOptions {
   /**
    * @description Tags that never have a closing tag, such as HTML void elements. Defaults to `[]`.
    */
-  unpairedTags?: string[];
+  unpairedTags?: Array<string>;
   /**
    * @description Subtrees to copy through verbatim, without entity encoding — a parser's `stopNodes` output re-emitted as XML. Accepts pattern strings or
    * pre-compiled `Expression`s; a leading `*.` is rewritten to `..` for compatibility with the older syntax. Defaults to `[]`.
    */
-  stopNodes?: (string | Expression)[];
+  stopNodes?: Array<string | Expression>;
   /**
    * @description Called for each non-empty tag value before entities are substituted. Return `undefined` or `null` to keep the original. Defaults to the identity
    * function. See {@link ValueProcessor} for the shape.
@@ -143,7 +143,7 @@ export interface XmlBuilderOptions {
    * would re-escape the ampersands the later entries introduce. Overriding this replaces the whole table rather than extending it, so an entry that
    * stops the `&` pass from running first will double-escape the ampersands the later entries introduce.
    */
-  entities?: EntityReplacement[];
+  entities?: Array<EntityReplacement>;
   /**
    * @description Whether to apply {@link XmlBuilderOptions.entities}. Defaults to `true`. Quotes inside attribute values are escaped either way, since that is what
    * stops a value breaking out of its attribute.
@@ -207,10 +207,10 @@ export interface ResolvedXmlBuilderOptions {
   suppressUnpairedNode: boolean;
   suppressBooleanAttributes: boolean;
   preserveOrder: boolean;
-  unpairedTags: string[];
+  unpairedTags: Array<string>;
   tagValueProcessor: ValueProcessor;
   attributeValueProcessor: ValueProcessor;
-  entities: EntityReplacement[];
+  entities: Array<EntityReplacement>;
   processEntities: boolean;
   oneListGroup: boolean;
   maxNestedTags: number;
@@ -221,5 +221,5 @@ export interface ResolvedXmlBuilderOptions {
    * tests its length.
    */
   arrayNodeName?: string;
-  stopNodes: (string | Expression)[];
+  stopNodes: Array<string | Expression>;
 }

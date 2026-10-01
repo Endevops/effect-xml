@@ -3,11 +3,11 @@ import type { EntityDecoderOptions, XmlError } from '@endevops/common-xml';
 import { ENTITY_ACTION, EntityDecoder, XML } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../../errors.ts';
-import type { Context, SharedContext, ValueParser } from '../value-parser.ts';
+import type { BuilderError } from '#/errors.ts';
+import type { Context, SharedContext, ValueParser } from '#/output-builder/value-parser.ts';
 
-import { BuilderError as BuilderErrorCtor } from '../../errors.ts';
-import { isUnsafeXml } from '../security/xml-unsafe.ts';
+import { BuilderError as BuilderErrorCtor } from '#/errors.ts';
+import { isUnsafeXml } from '#/output-builder/security/xml-unsafe.ts';
 
 /**
  * @description The options for the entities parser: everything `EntityDecoder` accepts, plus a hook for deciding what to do with an entity declared in the

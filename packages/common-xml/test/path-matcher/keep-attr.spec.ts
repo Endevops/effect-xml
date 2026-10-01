@@ -7,7 +7,8 @@
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { Matcher, type MatcherView } from '#/index.ts';
+import { Matcher } from '#/index.ts';
+import type { MatcherView } from '#/index.ts';
 import { expr } from '#/test/helpers/effect.ts';
 
 describe('kept-attribute lookup', () => {

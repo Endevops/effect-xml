@@ -18,7 +18,7 @@ describe('XMLBuilder', function () {
     expect(result).toEqual(expected);
   });
 
-  it('should parse text property to tag value ', function () {
+  it('should parse text property to tag value', function () {
     const jObj = { a: { b: { '#text': 'val1', d: 'val2' } } };
     const builder = makeBuilder();
     const result = run(builder.build(jObj));

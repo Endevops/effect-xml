@@ -11,13 +11,13 @@ import { defineConfig } from 'vite-plus';
 // file layout and the source layout stay recognisably the same thing.
 export default defineConfig({
   pack: {
+    attw: true,
     deps: { onlyBundle: false, resolveDepSubpath: true },
     dts: { sourcemap: true },
     exports: { devExports: 'development', packageJson: true },
-    attw: true,
-    publint: true,
-    unbundle: true,
     platform: 'neutral',
+    publint: true,
     sourcemap: true,
+    unbundle: true,
   },
 });

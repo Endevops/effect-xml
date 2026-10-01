@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder';
 import { describe, it, expect } from 'vite-plus/test';
 
-import { type ParseError } from '#/parse-error.ts';
+import type { ParseError } from '#/parse-error.ts';
 import { parseDoc, bytesDoc, endDoc, streamDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 describe('Encoding support', () => {

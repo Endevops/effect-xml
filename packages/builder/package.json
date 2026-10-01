@@ -60,6 +60,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/core": "catalog:",
+    "@effect/vitest": "^4.0.0",
     "fast-xml-parser": "^5.11.1",
     "publint": "catalog:",
     "vite": "catalog:",

@@ -3,10 +3,10 @@ import type { Expression } from '@endevops/common-xml';
 import { ExpressionSet } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../../errors.ts';
-import type { Context, ValueParser } from '../value-parser.ts';
+import type { BuilderError } from '#/errors.ts';
+import type { Context, ValueParser } from '#/output-builder/value-parser.ts';
 
-import { addToSet, compilePattern } from '../../errors.ts';
+import { addToSet, compilePattern } from '#/errors.ts';
 
 /**
  * @description Options for the whitespace normalizer.
@@ -16,7 +16,7 @@ export interface WSNormalizerOptions {
    * @description Tag paths whose whitespace must survive untouched — `["..pre", "..code"]` for verbatim blocks. Accepts pattern strings or pre-compiled
    * `Expression`s.
    */
-  exclude?: (string | Expression)[];
+  exclude?: Array<string | Expression>;
 }
 
 /**

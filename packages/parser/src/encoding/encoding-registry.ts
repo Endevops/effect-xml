@@ -1,6 +1,7 @@
-import type { EncodingDescriptor } from '../options.ts';
+import type { EncodingDescriptor } from '#/options.ts';
 
-import { InvalidDecoder, UnsupportedEncoding } from '../parse-error.ts';
+import { InvalidDecoder, UnsupportedEncoding } from '#/parse-error.ts';
+
 import { createTextDecoderAdapter, createUtf16BeAdapter } from './text-decoder-adapter.ts';
 
 /**
@@ -12,7 +13,7 @@ export type ResolvedEncodingDescriptor = Omit<EncodingDescriptor, 'aliases' | 'b
   /**
    * @description Alternative names this encoding is also resolvable by.
    */
-  aliases: string[];
+  aliases: Array<string>;
   /**
    * @description Byte-order-mark signature used by auto-detection, or `null` when the encoding has no BOM.
    */
@@ -54,7 +55,7 @@ export interface EncodingRegistry {
    * @description All descriptors that carry a BOM signature, for detection — longest signature first, so a longer BOM always wins over a shorter one that happens
    * to be its prefix.
    */
-  bomCandidates(): ResolvedEncodingDescriptor[];
+  bomCandidates(): Array<ResolvedEncodingDescriptor>;
 }
 
 /**
@@ -152,9 +153,9 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
       }
       return descriptor;
     },
-    bomCandidates: (): ResolvedEncodingDescriptor[] => {
+    bomCandidates: (): Array<ResolvedEncodingDescriptor> => {
       const seen = new Set<string>();
-      const out: ResolvedEncodingDescriptor[] = [];
+      const out: Array<ResolvedEncodingDescriptor> = [];
       for (const d of byName.values()) {
         if (d.bomBytes && !seen.has(d.name)) {
           seen.add(d.name);

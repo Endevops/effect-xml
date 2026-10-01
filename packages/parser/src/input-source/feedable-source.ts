@@ -1,11 +1,13 @@
-import type { EncodingRegistry } from '../encoding/encoding-registry.ts';
-import type { EncodingDecoder, FeedableOptions } from '../options.ts';
+import type { EncodingRegistry } from '#/encoding/encoding-registry.ts';
+import type { EncodingDecoder, FeedableOptions } from '#/options.ts';
+
+import { sniff } from '#/encoding/encoding-detector.ts';
+import { createTextDecoderAdapter } from '#/encoding/text-decoder-adapter.ts';
+import { DataMustBeString, InvalidInput } from '#/parse-error.ts';
+import { QUOTE_PAIRS_CAPACITY } from '#/util.ts';
+
 import type { InputSourceLike } from './input-source.ts';
 
-import { sniff } from '../encoding/encoding-detector.ts';
-import { createTextDecoderAdapter } from '../encoding/text-decoder-adapter.ts';
-import { DataMustBeString, InvalidInput } from '../parse-error.ts';
-import { QUOTE_PAIRS_CAPACITY } from '../util.ts';
 import { canRead, matchAhead, readCh, readChAt, readStr, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.ts';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 

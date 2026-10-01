@@ -1,8 +1,8 @@
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../../errors.ts';
+import type { BuilderError } from '#/errors.ts';
 
-import { BuilderError as BuilderErrorCtor } from '../../errors.ts';
+import { BuilderError as BuilderErrorCtor } from '#/errors.ts';
 
 /**
  * @description One rule: what it looks for, and why it matters.
@@ -54,7 +54,7 @@ export interface XmlUnsafeMatch {
  * These rules target parser-level attacks, not rendering: confusing or subverting an XML parser, triggering external entity resolution, or injecting
  * DTD content. HTML rendering concerns belong to a different context and are not covered here.
  */
-const XML_PATTERNS: readonly XmlUnsafeRule[] = [
+const XML_PATTERNS: ReadonlyArray<XmlUnsafeRule> = [
   { id: 'xml-cdata-injection', description: 'CDATA section injection: <![CDATA[ breaks out of text node context', pattern: /<!\[CDATA\[/i },
   { id: 'xml-cdata-close', description: 'CDATA close sequence: ]]> can terminate an enclosing CDATA section', pattern: /\]\]>/ },
   { id: 'xml-processing-instruction', description: 'XML processing instruction: <?xml-stylesheet or <?php etc.', pattern: /<\?(?:xml[- ]|php|asp)/i },
@@ -91,7 +91,7 @@ const XML_PATTERNS: readonly XmlUnsafeRule[] = [
  * @description The rules, in the order they are tested. First match wins, so the order is part of the contract: `allUnsafe` reports every hit, but
  * {@link isUnsafeXml} and {@link whyUnsafeXml} report the first.
  */
-export const XML_UNSAFE_RULES: readonly XmlUnsafeRule[] = XML_PATTERNS;
+export const XML_UNSAFE_RULES: ReadonlyArray<XmlUnsafeRule> = XML_PATTERNS;
 
 /**
  * @description Reject a value that is not a string, rather than coercing it. A silent `String(value)` would be the wrong trade here. An entity value that reached
@@ -170,9 +170,9 @@ export function whyUnsafeXml(value: string): Effect.Effect<XmlUnsafeMatch | null
  * @returns An effect producing all matches, in rule order, empty when the value is safe. Fails with {@link BuilderError} and the `InvalidArgument`
  *   reason if `value` is not a string.
  */
-export function allUnsafeXml(value: string): Effect.Effect<XmlUnsafeMatch[], BuilderError> {
+export function allUnsafeXml(value: string): Effect.Effect<Array<XmlUnsafeMatch>, BuilderError> {
   return Effect.map(assertString(value, 'allUnsafeXml'), () => {
-    const results: XmlUnsafeMatch[] = [];
+    const results: Array<XmlUnsafeMatch> = [];
     for (const rule of XML_PATTERNS) {
       const matched = rule.pattern.exec(value);
       if (matched) {

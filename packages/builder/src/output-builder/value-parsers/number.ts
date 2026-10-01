@@ -1,10 +1,12 @@
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../../errors.ts';
-import type { ValueParser } from '../value-parser.ts';
+import type { BuilderError } from '#/errors.ts';
+import type { ValueParser } from '#/output-builder/value-parser.ts';
+
+import { finalValue } from '#/output-builder/value-parser.ts';
+
 import type { ToNumberOptions } from './to-number.ts';
 
-import { finalValue } from '../value-parser.ts';
 import toNumber from './to-number.ts';
 
 /**

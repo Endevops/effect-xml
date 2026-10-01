@@ -7,7 +7,8 @@
 import { Effect, Exit, Option } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import { XMLParser, type ParseError } from '#/index.ts';
+import { XMLParser } from '#/index.ts';
+import type { ParseError } from '#/index.ts';
 import { runParser } from '#/test/helpers/test-runner.ts';
 
 /**

@@ -157,7 +157,7 @@ export default class Xml2JsParser implements TagExpressionParser {
   /**
    * @description Stack of open ancestors, innermost last. Index `0` is the synthetic root.
    */
-  tagsStack: TagDetailLike[];
+  tagsStack: Array<TagDetailLike>;
   /**
    * @description Whether a DOCTYPE has been seen. A second one is a hard error.
    */
@@ -337,7 +337,7 @@ export default class Xml2JsParser implements TagExpressionParser {
    * @description Returns true if the last parse call was terminated early by exitIf. Useful when the caller needs to know whether parsing completed or stopped.
    */
   wasExited(): boolean {
-    return this._exitIfTriggered === true;
+    return  this._exitIfTriggered;
   }
 
   /**

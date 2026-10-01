@@ -2,9 +2,10 @@ import type { BuilderError } from '@endevops/builder';
 import type { Matcher, MatcherView, MemoizedValidator } from '@endevops/common-xml';
 import type { Effect } from 'effect';
 
-import type { InputSourceLike } from '../input-source/input-source.ts';
-import type { ResolvedOptions } from '../options.ts';
-export type { ExitIfPredicate } from '../options.ts';
+import type { InputSourceLike } from '#/input-source/input-source.ts';
+import type { ResolvedOptions } from '#/options.ts';
+
+export type { ExitIfPredicate } from '#/options.ts';
 
 /**
  * @description Structural view of an open tag: where it is, what it is called, and where its expression ended. The synthetic root node and the real `TagDetail`
@@ -208,7 +209,7 @@ export interface ParserState {
   /**
    * @description Live stack of open ancestors, innermost last. Index `0` is the synthetic root.
    */
-  readonly tagsStack: TagDetailLike[];
+  readonly tagsStack: Array<TagDetailLike>;
   /**
    * @description The currently open tag, or `null` when nothing is open. Writable — `handleMismatch()` reassigns it after popping toward a match.
    */

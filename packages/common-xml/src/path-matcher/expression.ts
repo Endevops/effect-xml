@@ -1,8 +1,8 @@
 import { Effect } from 'effect';
 
-import type { XmlError } from '../errors.ts';
+import type { XmlError } from '#/errors.ts';
 
-import { XmlError as XmlErrorCtor } from '../errors.ts';
+import { XmlError as XmlErrorCtor } from '#/errors.ts';
 
 /**
  * @description Options for {@link Expression}.
@@ -111,12 +111,11 @@ export default class Expression<T = unknown> {
   /**
    * @description The parsed segments, in path order.
    */
-  readonly segments: readonly Segment[];
+  readonly segments: ReadonlyArray<Segment>;
   /**
    * @description The payload handed to the constructor, returned verbatim. Never read by this package.
    */
   readonly data: T | undefined;
-
   /**
    * @description Whether any segment is a `deep-wildcard`. Cached at construction because matching consults it on every tag.
    */
@@ -169,7 +168,7 @@ export default class Expression<T = unknown> {
    * @param segments - The parsed segments, in path order.
    * @param data - The opaque payload to carry.
    */
-  private constructor(pattern: string, separator: string, segments: readonly Segment[], data?: T) {
+  private constructor(pattern: string, separator: string, segments: ReadonlyArray<Segment>, data?: T) {
     this.pattern = pattern;
     this.separator = separator;
     this.segments = segments;
@@ -445,7 +444,7 @@ const readSeparatorStep = (pattern: string, separator: string, index: number): S
  *
  * @returns An effect that appends the parsed segment, if there was one to parse.
  */
-const flushPart = (segments: Segment[], part: string, pattern: string): Effect.Effect<void, XmlError> => {
+const flushPart = (segments: Array<Segment>, part: string, pattern: string): Effect.Effect<void, XmlError> => {
   const trimmed = part.trim();
   if (trimmed === '') return Effect.void;
   return Effect.map(parseSegment(trimmed, pattern), segment => {
@@ -462,9 +461,9 @@ const flushPart = (segments: Segment[], part: string, pattern: string): Effect.E
  * @returns An effect producing the segments, in path order. Fails with {@link XmlError} and the `InvalidPattern` reason on the first segment that
  *   will not parse, carrying the whole pattern and the offending segment.
  */
-const parsePattern = (pattern: string, separator: string): Effect.Effect<Segment[], XmlError> =>
+const parsePattern = (pattern: string, separator: string): Effect.Effect<Array<Segment>, XmlError> =>
   Effect.gen(function* () {
-    const segments: Segment[] = [];
+    const segments: Array<Segment> = [];
 
     // `charAt` rather than `pattern[i]`: both read one UTF-16 code unit, but
     // charAt is typed `string` instead of `string | undefined`, and the loop

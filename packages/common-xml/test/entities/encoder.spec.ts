@@ -48,8 +48,8 @@ const encodeValue = (encoder: EntityEncoder, value: unknown): unknown => encoder
  *
  * @returns One entry per codepoint, in order.
  */
-const codePointsOf = (value: string): string[] => {
-  const points: string[] = [];
+const codePointsOf = (value: string): Array<string> => {
+  const points: Array<string> = [];
   for (let index = 0; index < value.length; index++) {
     const point = value.codePointAt(index);
     points.push((point ?? 0).toString(16).toUpperCase().padStart(4, '0'));
@@ -64,7 +64,7 @@ const codePointsOf = (value: string): string[] => {
  *
  * @returns The distinct values.
  */
-const distinctValues = (): string[] => [...new Set(Object.values(ALL_ENTITIES))];
+const distinctValues = (): Array<string> => [...new Set(Object.values(ALL_ENTITIES))];
 
 /**
  * @description Every name in {@link ALL_ENTITIES} whose replacement is a given text, in key order. The last entry is the name the encoder emits for that text,
@@ -74,7 +74,7 @@ const distinctValues = (): string[] => [...new Set(Object.values(ALL_ENTITIES))]
  *
  * @returns The names, in key order.
  */
-const namesFor = (value: string): string[] =>
+const namesFor = (value: string): Array<string> =>
   Object.entries(ALL_ENTITIES)
     .filter(([, entry]) => entry === value)
     .map(([name]) => name);
@@ -361,7 +361,7 @@ describe('preserved upstream quirk: the name chosen for a character is the last 
   });
 
   it('is a wide problem, not a single one: 173 replacement texts have several names', () => {
-    const byValue = new Map<string, string[]>();
+    const byValue = new Map<string, Array<string>>();
     for (const [name, value] of Object.entries(ALL_ENTITIES)) byValue.set(value, [...(byValue.get(value) ?? []), name]);
     expect([...byValue.values()].filter(names => names.length > 1)).toHaveLength(173);
   });

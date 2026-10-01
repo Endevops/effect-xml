@@ -18,7 +18,7 @@ import { run, failed, expr } from '#/test/helpers/effect.ts';
  *
  * @returns A matcher sitting on that exact path.
  */
-const matcherAt = (...tags: string[]): Matcher => {
+const matcherAt = (...tags: Array<string>): Matcher => {
   const m = new Matcher();
   for (const t of tags) m.push(t);
   return m;
@@ -32,7 +32,7 @@ const matcherAt = (...tags: string[]): Matcher => {
  *
  * @returns A matcher whose current node holds `attrs`.
  */
-const matcherAtWithAttrs = (attrs: Record<string, unknown>, ...tags: string[]): Matcher => {
+const matcherAtWithAttrs = (attrs: Record<string, unknown>, ...tags: Array<string>): Matcher => {
   const m = new Matcher();
   for (let i = 0; i < tags.length - 1; i++) m.push(tags[i]);
   m.push(tags[tags.length - 1], attrs);

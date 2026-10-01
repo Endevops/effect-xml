@@ -1,8 +1,8 @@
 import type { ParseErrorEntry, ParserState } from './internal/parser-types.ts';
 import type { AutoCloseOptions } from './options.ts';
 
-import { MismatchedCloseTag, UnexpectedTrailingData } from './parse-error.js';
-import { absolutePosition } from './util.js';
+import { MismatchedCloseTag, UnexpectedTrailingData } from './parse-error.ts';
+import { absolutePosition } from './util.ts';
 
 /**
  * @description AutoCloseHandler. Handles two distinct failure modes that arise when XML is malformed or a data stream is interrupted:
@@ -72,7 +72,7 @@ export default class AutoCloseHandler {
   /**
    * @description Recoveries recorded so far. Empty unless `collectErrors` is true.
    */
-  errors: ParseErrorEntry[];
+  errors: Array<ParseErrorEntry>;
 
   /**
    * @param autoCloseOptions - Fully-resolved autoClose options.
@@ -223,7 +223,7 @@ export default class AutoCloseHandler {
   /**
    * @description Return a copy of the collected error list. Empty array when `collectErrors` is false or no errors occurred.
    */
-  getErrors(): ParseErrorEntry[] {
+  getErrors(): Array<ParseErrorEntry> {
     return this.errors.slice();
   }
 

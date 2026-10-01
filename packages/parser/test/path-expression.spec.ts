@@ -285,7 +285,7 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should provide correct elementType for tags vs attributes', function () {
-    const types: string[] = [];
+    const types: Array<string> = [];
 
     class TypeCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
@@ -306,7 +306,7 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should set isLeafNode:true for simple text-only tags', function () {
-    const leafFlags: { name: string; isLeaf: boolean | null }[] = [];
+    const leafFlags: Array<{ name: string; isLeaf: boolean | null }> = [];
 
     class LeafCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
@@ -326,7 +326,7 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should set isLeafNode:false for tags that contain child elements alongside text', function () {
-    const leafFlags: { name: string; isLeaf: boolean | null }[] = [];
+    const leafFlags: Array<{ name: string; isLeaf: boolean | null }> = [];
 
     class LeafCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
@@ -347,7 +347,7 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should always set isLeafNode:true for attribute values', function () {
-    const attrLeafFlags: (boolean | null)[] = [];
+    const attrLeafFlags: Array<boolean | null> = [];
 
     class AttrLeafCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
@@ -369,7 +369,7 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should provide elementName as the tag name in TAG context', function () {
-    const names: string[] = [];
+    const names: Array<string> = [];
 
     class NameCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
@@ -386,7 +386,7 @@ describe('PEM integration — matcher in value parser context', function () {
   });
 
   it('should provide elementName as the attribute name in ATTRIBUTE context', function () {
-    const attrNames: string[] = [];
+    const attrNames: Array<string> = [];
 
     class AttrNameCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
@@ -478,7 +478,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   // ══════════════════════════════════════════════════════════════════════════════
 
   it('should pass ReadOnlyMatcher to addElement() override', function () {
-    const tagPaths: string[] = [];
+    const tagPaths: Array<string> = [];
 
     const parser = makeParser({
       OutputBuilder: makeFactory(base => {
@@ -498,7 +498,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
   });
 
   it('should pass ReadOnlyMatcher to closeElement() override', function () {
-    const closedPaths: string[] = [];
+    const closedPaths: Array<string> = [];
 
     const parser = makeParser({
       OutputBuilder: makeFactory(base => {
@@ -654,7 +654,7 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
   });
 
   it('should reflect the correct path at the time the value parser runs', function () {
-    const capturedPaths: string[] = [];
+    const capturedPaths: Array<string> = [];
 
     class PathCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {

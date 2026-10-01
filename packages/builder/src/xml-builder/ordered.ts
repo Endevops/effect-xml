@@ -10,11 +10,13 @@ import type { XmlVersion } from '@endevops/common-xml';
 import { Matcher as PathMatcher } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
+import type { BuilderError } from '#/errors.ts';
+
+import { nestingExceeded, runValueProcessor } from '#/errors.ts';
+
 import type { ResolvedXmlBuilderOptions } from './options.ts';
 import type { NameValidator } from './walk.ts';
 
-import { nestingExceeded, runValueProcessor } from '../errors.ts';
 import { safeCdata, safeComment, valToStr } from './util.ts';
 import {
   attributePair,
@@ -65,7 +67,7 @@ interface OrderedWalkContext {
   /**
    * @description The pre-compiled stop-node patterns.
    */
-  stopNodeExpressions: Expression[];
+  stopNodeExpressions: Array<Expression>;
   /**
    * @description The memoized QName validator.
    */
@@ -159,7 +161,7 @@ function arrToStr(
   options: ResolvedXmlBuilderOptions,
   indentation: string,
   matcher: Matcher,
-  stopNodeExpressions: Expression[],
+  stopNodeExpressions: Array<Expression>,
   qNameValidator: NameValidator
 ): Effect.Effect<string, BuilderError> {
   return Effect.gen(function* () {

@@ -35,7 +35,7 @@ export interface SkipTagEntry {
    * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure awareness; the
    * parser normalizes a missing entry to `[]` (plain first-match).
    */
-  skipEnclosures?: Enclosure[];
+  skipEnclosures?: Array<Enclosure>;
 }
 
 export interface SkipOptions {
@@ -159,14 +159,14 @@ export interface StopNodeEntry {
    * @description Enclosure pairs to skip while scanning for the closing tag. Checked in array order — first open match wins. Omit for no enclosure skipping; the
    * parser normalizes a missing entry to `[]` (plain first-match, no depth tracking).
    */
-  skipEnclosures?: Enclosure[];
+  skipEnclosures?: Array<Enclosure>;
 }
 
 export interface TagOptions {
   /**
    * @description Tags that never have a closing tag (e.g. ['br', 'img', 'hr']). Default: []
    */
-  unpaired?: string[];
+  unpaired?: Array<string>;
   /**
    * @description Tag paths whose content is captured raw without further XML parsing. Each entry is either:
    *
@@ -355,7 +355,7 @@ export interface EncodingDescriptor {
    * by name.
    */
   bomBytes?: Uint8Array | null;
-  aliases?: string[];
+  aliases?: Array<string>;
 }
 
 /**
@@ -422,8 +422,8 @@ export interface X2jOptions {
   sanitizeNames?: boolean;
 
   // --- filtering (path-expression-matcher) ---
-  select?: string[];
-  only?: string[];
+  select?: Array<string>;
+  only?: Array<string>;
 
   // --- limits (DoS prevention) ---
   /**
@@ -486,7 +486,7 @@ export interface X2jOptions {
    * @param rawContent - Raw text content between the opening and closing tags.
    * @param matcher - Read-only path matcher positioned at the stop node.
    */
-  onStopNode?: (tagDetail: { name: string; index: number }, rawContent: string, matcher: any) => void;
+  onStopNode?: (tagDetail: { name: string; index: number }, rawContent: string, matcher: unknown) => void;
 
   /**
    * @description Predicate evaluated after each non-self-closing, non-stop, non-skip opening tag is pushed onto the parser stack. When the function answers `true`
@@ -532,7 +532,7 @@ export interface ResolvedOptions {
      * @description Compiled `skip.tags` expressions, each carrying its `{ nested, skipEnclosures }` config in `data`. Replaces the string/object entry forms
      * callers passed in.
      */
-    tags: Expression<TagExpressionConfig>[];
+    tags: Array<Expression<TagExpressionConfig>>;
     /**
      * @description The same expressions, sealed into an `ExpressionSet` so the parser's per-tag check is an O(1) indexed lookup rather than an O(E) scan.
      */
@@ -554,7 +554,7 @@ export interface ResolvedOptions {
      * @description Compiled `tags.stopNodes` expressions, each carrying its `{ nested, skipEnclosures }` config in `data`. Replaces the string/object entry forms
      * callers passed in.
      */
-    stopNodes: Expression<TagExpressionConfig>[];
+    stopNodes: Array<Expression<TagExpressionConfig>>;
     /**
      * @description The same expressions, sealed into an `ExpressionSet` for O(1) indexed lookup at each opening tag.
      */
@@ -579,11 +579,11 @@ export interface ResolvedOptions {
   /**
    * @description Path-expression filter list. Reserved; not yet applied by the parser.
    */
-  only: string[];
+  only: Array<string>;
   /**
    * @description Path-expression select list. Reserved; not yet applied by the parser.
    */
-  select?: string[];
+  select?: Array<string>;
   /**
    * @description Resolved structural limits. `null` for a limit means unlimited.
    */

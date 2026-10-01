@@ -55,7 +55,7 @@ describe('Processing Instructions — XML declaration', function () {
     // never evaluated because the override was never called — it passed
     // vacuously. The captured value is asserted after the parse so a missed
     // call is a real failure.
-    const seen: XmlDeclaration[] = [];
+    const seen: Array<XmlDeclaration> = [];
     const factory: OutputBuilderFactoryLike = {
       getInstance(parserOpts, readonlyMatcher) {
         const base = runParser(CompactBuilderFactory.make());
@@ -88,7 +88,7 @@ describe('Processing Instructions — XML declaration', function () {
   it('reaches the builder with the parsed def when only the declaration is skipped from the tree', function () {
     // Same builder, but with `skip.declaration` off: the def arrives intact,
     // which is what makes the guard above a suppression rather than a loss.
-    const seen: XmlDeclaration[] = [];
+    const seen: Array<XmlDeclaration> = [];
     const factory: OutputBuilderFactoryLike = {
       getInstance(parserOpts, readonlyMatcher) {
         const base = runParser(CompactBuilderFactory.make());

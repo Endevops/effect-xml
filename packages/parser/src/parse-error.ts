@@ -1255,7 +1255,7 @@ const PARSE_ERROR_CLASSES = [
   InvalidDecoder,
   EncodingMismatch,
   DependencyError,
-] as const satisfies readonly (new (...args: never[]) => Error)[];
+] as const satisfies ReadonlyArray<new (...args: Array<never>) => Error>;
 
 /**
  * @description Compile-time proof that {@link PARSE_ERROR_CLASSES} lists every member of the union, so {@link isParseError} cannot reject a real error.

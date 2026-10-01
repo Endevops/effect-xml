@@ -2,7 +2,8 @@ import type { MatcherView } from '@endevops/common-xml';
 
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
+import type { BuilderError } from '#/errors.ts';
+
 import type { BuiltInValueParserOptions, BuilderParserOptions } from './options.ts';
 import type { Context, SharedContext, ValueParserPipeline, ValueParserRegistryLike } from './value-parser.ts';
 
@@ -11,13 +12,13 @@ import { makeContext, makeSharedContext, makeValueParserPipeline } from './value
 /**
  * @description The chain a builder uses for element text when it configures nothing.
  */
-const DEFAULT_TAG_PARSERS: string[] = ['ws', 'entity', 'boolean', 'number'];
+const DEFAULT_TAG_PARSERS: Array<string> = ['ws', 'entity', 'boolean', 'number'];
 
 /**
  * @description The chain a builder uses for attribute values when it configures nothing. Note the difference from the tag chain: no `'ws'`. Attribute whitespace
  * is significant, so normalizing it would corrupt the value.
  */
-const DEFAULT_ATTR_PARSERS: string[] = ['entity', 'boolean', 'number'];
+const DEFAULT_ATTR_PARSERS: Array<string> = ['entity', 'boolean', 'number'];
 
 /**
  * @description The detail the parser reports for a tag, at the position it was seen.

@@ -124,7 +124,7 @@ describe('Builder (plain object) — sanitizeName option', function () {
   // --- special keys are never passed to sanitizeName ---
 
   it('should not call sanitizeName for textNodeName', function () {
-    const calls: string[] = [];
+    const calls: Array<string> = [];
     const input = { root: { '#text': 'hello' } };
     const builder = makeBuilder({
       sanitizeName: name => {
@@ -137,7 +137,7 @@ describe('Builder (plain object) — sanitizeName option', function () {
   });
 
   it('should not call sanitizeName for PI tags', function () {
-    const calls: string[] = [];
+    const calls: Array<string> = [];
     const input = { '?xml': { '@_version': '1.0' }, root: 'ok' };
     const builder = makeBuilder({
       ignoreAttributes: false,
@@ -234,7 +234,7 @@ describe('Builder (preserveOrder) — sanitizeName option', function () {
   // --- special keys exempt from sanitizeName ---
 
   it('should not call sanitizeName for textNodeName in ordered mode', function () {
-    const calls: string[] = [];
+    const calls: Array<string> = [];
     const input = [{ root: [{ '#text': 'hi' }] }];
     const builder = makeBuilder({
       preserveOrder: true,
@@ -248,7 +248,7 @@ describe('Builder (preserveOrder) — sanitizeName option', function () {
   });
 
   it('should not call sanitizeName for ?xml PI tag in ordered mode', function () {
-    const calls: string[] = [];
+    const calls: Array<string> = [];
     const input = [{ '?xml': [], ':@': { '@_version': '1.0' } }, { root: [{ '#text': 'x' }] }];
     const builder = makeBuilder({
       preserveOrder: true,

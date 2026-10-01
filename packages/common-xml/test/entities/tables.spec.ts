@@ -1,3 +1,4 @@
+// oxlint-disable vitest/valid-expect
 /**
  * @description Specs for the named-entity tables — 1,967 counted entries of transcribed data, which is the one part of this package that a spec cannot
  * meaningfully assert entry by entry. Asserting the data would be asserting a copy of a copy. The tables were verified byte-identical to the original
@@ -75,8 +76,8 @@ const ALL_TABLES = [...CATEGORY_TABLES, ...STANDALONE_TABLES] as const;
  *
  * @returns One entry per codepoint, in order.
  */
-const codePointsOf = (value: string): string[] => {
-  const points: string[] = [];
+const codePointsOf = (value: string): Array<string> => {
+  const points: Array<string> = [];
   for (let index = 0; index < value.length; index++) {
     const point = value.codePointAt(index);
     points.push((point ?? 0).toString(16).toUpperCase().padStart(4, '0'));
@@ -93,7 +94,7 @@ const codePointsOf = (value: string): string[] => {
  *
  * @returns The names, in key order.
  */
-const namesFor = (value: string): string[] =>
+const namesFor = (value: string): Array<string> =>
   Object.entries(ALL_ENTITIES)
     .filter(([, entry]) => entry === value)
     .map(([name]) => name);
@@ -217,7 +218,9 @@ describe('ALL_ENTITIES', () => {
 
   it('agrees with COMMON_HTML on the eighteen names the two have in common', () => {
     for (const [name, value] of Object.entries(COMMON_HTML)) {
-      if (name in ALL_ENTITIES) expect(ALL_ENTITIES[name], name).toBe(value);
+      if (name in ALL_ENTITIES) {
+        expect(ALL_ENTITIES[name], name).toBe(value);
+      }
     }
   });
 });
@@ -421,7 +424,9 @@ describe('the merged table as the encoder sees it', () => {
 
   it('covers the Latin-1 range the decoder reaches first, so a caller needs no second dependency for ordinary prose', () => {
     for (const [name, value] of Object.entries(COMMON_HTML)) {
-      if (name in ALL_ENTITIES) expect(ALL_ENTITIES[name], name).toBe(value);
+      if (name in ALL_ENTITIES) {
+        expect(ALL_ENTITIES[name], name).toBe(value);
+      }
     }
   });
 });

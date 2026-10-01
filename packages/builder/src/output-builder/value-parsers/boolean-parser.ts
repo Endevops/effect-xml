@@ -1,9 +1,9 @@
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../../errors.ts';
-import type { ValueParser } from '../value-parser.ts';
+import type { BuilderError } from '#/errors.ts';
+import type { ValueParser } from '#/output-builder/value-parser.ts';
 
-import { finalValue } from '../value-parser.ts';
+import { finalValue } from '#/output-builder/value-parser.ts';
 
 /**
  * @description Turns the strings `"true"` and `"false"` into booleans, case-insensitively. Anything not on either list passes through untouched, so a chain that
@@ -15,7 +15,7 @@ import { finalValue } from '../value-parser.ts';
  *
  * @returns The parser.
  */
-export const makeBooleanParser = (trueList?: string[], falseList?: string[], isFinal = false): ValueParser => {
+export const makeBooleanParser = (trueList?: Array<string>, falseList?: Array<string>, isFinal = false): ValueParser => {
   const trues = trueList || ['true'];
   const falses = falseList || ['false'];
 

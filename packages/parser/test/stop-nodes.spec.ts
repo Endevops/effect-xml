@@ -743,7 +743,7 @@ describe('Stop Nodes — skipEnclosures', function () {
   // ── 10g. onStopNode callback ───────────────────────────────────────────────
 
   it('onStopNode callback receives raw content, tagDetail and matcher', function () {
-    const collected: { name: string; content: string }[] = [];
+    const collected: Array<{ name: string; content: string }> = [];
     const xml = `<root><script>alert(1)</script><style>body{}</style></root>`;
     const parser = makeParser({
       tags: {

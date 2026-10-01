@@ -1,46 +1,8 @@
 import { Effect, Exit, Option } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import {
-  AlreadyStreaming,
-  BooleanAttributeRejected,
-  DataMustBeString,
-  DependencyError,
-  DuplicateAttribute,
-  EncodingMismatch,
-  EntityInvalidKey,
-  EntityInvalidValue,
-  EntityMaxCount,
-  EntityMaxExpandedLength,
-  EntityMaxExpansions,
-  EntityMaxSize,
-  ErrorCode,
-  IllegalCharacter,
-  InvalidAttributeName,
-  InvalidDecoder,
-  InvalidInput,
-  InvalidStream,
-  InvalidTag,
-  InvalidTagName,
-  LimitMaxAttributes,
-  LimitMaxNestedTags,
-  MismatchedCloseTag,
-  MultipleNamespaces,
-  NotStreaming,
-  SecurityPrototypePollution,
-  SecurityReservedOption,
-  SecurityRestrictedName,
-  UnexpectedCloseTag,
-  UnexpectedEnd,
-  UnexpectedTrailingData,
-  UnclosedQuote,
-  UnsupportedEncoding,
-  UnquotedAttributeValue,
-  XMLParser,
-  isParseError,
-  type ErrorCodeValue,
-  type ParseError,
-} from '#/index.ts';
+import { AlreadyStreaming, BooleanAttributeRejected, DataMustBeString, DependencyError, DuplicateAttribute, EncodingMismatch, EntityInvalidKey, EntityInvalidValue, EntityMaxCount, EntityMaxExpandedLength, EntityMaxExpansions, EntityMaxSize, ErrorCode, IllegalCharacter, InvalidAttributeName, InvalidDecoder, InvalidInput, InvalidStream, InvalidTag, InvalidTagName, LimitMaxAttributes, LimitMaxNestedTags, MismatchedCloseTag, MultipleNamespaces, NotStreaming, SecurityPrototypePollution, SecurityReservedOption, SecurityRestrictedName, UnexpectedCloseTag, UnexpectedEnd, UnexpectedTrailingData, UnclosedQuote, UnsupportedEncoding, UnquotedAttributeValue, XMLParser, isParseError } from '#/index.ts';
+import type { ErrorCodeValue, ParseError } from '#/index.ts';
 import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
@@ -276,7 +238,7 @@ const EVERY_REASON = [
   reports(new InvalidDecoder({ message: 'invalid decoder', index: 7 })),
   reports(new EncodingMismatch({ declared: 'utf-8', actual: 'utf-16', message: 'encoding mismatch', index: 7 })),
   reports(new DependencyError({ package: '@endevops/builder', cause: 'boom', message: 'boom', index: 7 })),
-] as const satisfies readonly { tag: ErrorCodeValue; code: ErrorCodeValue; printed: string; message: string }[];
+] as const satisfies ReadonlyArray<{ tag: ErrorCodeValue; code: ErrorCodeValue; printed: string; message: string }>;
 
 /**
  * @description One case per reason class, so a failure names the class that broke rather than pointing at a loop over all thirty-three. Both members are asserted

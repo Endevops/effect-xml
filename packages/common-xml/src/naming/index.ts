@@ -17,7 +17,7 @@
 // the guard for untyped JavaScript callers and for values that crossed a
 // boundary as `unknown`, and it is raised by throwing an {@link XmlError}.
 
-import { XmlError as XmlErrorCtor } from '../errors.ts';
+import { XmlError } from '#/errors.ts';
 
 /**
  * @description The XML specification version a production is validated against. The two differ only in their non-ASCII character ranges — see {@link getRegexes}.
@@ -111,7 +111,7 @@ export type ValidationResult =
 /**
  * @description The five productions, in the order the runtime error message lists them.
  */
-const PRODUCTIONS = ['name', 'ncName', 'qName', 'nmToken', 'nmTokens'] as const satisfies readonly Production[];
+const PRODUCTIONS = ['name', 'ncName', 'qName', 'nmToken', 'nmTokens'] as const satisfies ReadonlyArray<Production>;
 
 /**
  * @description One compiled regex per production.
@@ -365,7 +365,7 @@ export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false 
  */
 const checkProduction = (production: Production): void => {
   if (PRODUCTIONS.includes(production)) return;
-  throw new XmlErrorCtor({
+  throw new XmlError({
     reason: { _tag: 'InvalidProduction', production, expected: PRODUCTIONS.join(', ') },
     message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
   });
@@ -601,10 +601,10 @@ export const validate = (
  *   fail on the first element, and an empty input would silently succeed.
  */
 export const validateAll = (
-  strings: string[],
+  strings: Array<string>,
   production: Production,
   { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
-): ValidationResult[] => {
+): Array<ValidationResult> => {
   checkProduction(production);
   return strings.map(str => diagnose(str, production, xmlVersion, asciiOnly));
 };

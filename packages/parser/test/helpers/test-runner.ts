@@ -1,3 +1,4 @@
+// oxlint-disable vitest/expect-expect
 import type { Effect } from 'effect';
 
 import { Effect as Eff } from 'effect';
@@ -15,6 +16,8 @@ import { XMLParser } from '#/xml-parser.ts';
  * returning effects. So the failure is unpacked and the `ParseError` itself is thrown, which is what a test that asserts on a parse failure actually
  * wants to see. A test that wants the effect rather than the value should use `Effect` directly; this is here for the ordinary case, where the test
  * is about what the document parses to.
+ *
+ * @deprecated
  *
  * @param effect - The effect to run.
  *
@@ -35,6 +38,8 @@ export function runParser<A, E>(effect: Effect.Effect<A, E>): A {
  * @description Build a parser for a test from the caller's options. `XMLParser.make` rather than `new XMLParser`, for the reason the library has: a parser is
  * configured, and configuring one can fail. Tests that expect a configuration failure use {@link makeParserOrThrow}, which lets the failure out.
  *
+ * @deprecated
+ *
  * @param options - Parser options. Omit for defaults.
  *
  * @returns The parser.
@@ -47,6 +52,8 @@ export function makeParser(options?: X2jOptions): XMLParser {
  * @description Build a parser, letting a configuration failure escape as the thrown `ParseError`. This is what a test asserting on a rejected configuration wants
  * — `expect(() => makeParserOrThrow({ limits: ... })).toThrowError(...)` — and it is why it is a separate function from {@link makeParser}: the
  * difference is only visible when the options are bad, which is exactly when the distinction matters.
+ *
+ * @deprecated
  *
  * @param options - Parser options.
  *
@@ -148,7 +155,7 @@ export type ResultWithTypeCallback = (result: ParsedNode, inputType: InputSource
  * and a throw expectation, which no single runner covers — uses the same list the runners do, instead of re-typing the literal and drifting when a
  * mechanism is added.
  */
-export const INPUT_TYPES: readonly InputSourceType[] = ['string', 'buffer', 'feedable'];
+export const INPUT_TYPES: ReadonlyArray<InputSourceType> = ['string', 'buffer', 'feedable'];
 
 /**
  * @description Run a test across every input source, ensuring the parser behaves identically regardless of how the document is delivered.

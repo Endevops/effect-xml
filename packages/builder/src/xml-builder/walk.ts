@@ -12,10 +12,12 @@ import { Expression as CompiledExpression } from '@endevops/common-xml';
 import { createValidator } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
+import type { BuilderError } from '#/errors.ts';
+
+import { compilePattern, tryResolveName } from '#/errors.ts';
+
 import type { ResolvedXmlBuilderOptions } from './options.ts';
 
-import { compilePattern, tryResolveName } from '../errors.ts';
 import { escapeAttribute } from './util.ts';
 
 /**
@@ -72,9 +74,9 @@ export function resolveTagName(
  *
  * @returns An effect producing the compiled patterns. Fails with the `PatternCompilationFailed` reason for a string that does not compile.
  */
-export function compileStopNodes(stopNodes: (string | Expression)[]): Effect.Effect<Expression[], BuilderError> {
+export function compileStopNodes(stopNodes: Array<string | Expression>): Effect.Effect<Array<Expression>, BuilderError> {
   return Effect.gen(function* () {
-    const compiled: Expression[] = [];
+    const compiled: Array<Expression> = [];
     if (Array.isArray(stopNodes)) {
       for (let i = 0; i < stopNodes.length; i++) {
         const node = stopNodes[i];
@@ -97,7 +99,7 @@ export function compileStopNodes(stopNodes: (string | Expression)[]): Effect.Eff
  *
  * @returns Whether this node should be copied through verbatim.
  */
-export function checkStopNode(matcher: Matcher, stopNodeExpressions: Expression[]): boolean {
+export function checkStopNode(matcher: Matcher, stopNodeExpressions: Array<Expression>): boolean {
   if (!stopNodeExpressions || stopNodeExpressions.length === 0) return false;
 
   for (let i = 0; i < stopNodeExpressions.length; i++) {

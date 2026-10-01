@@ -10,7 +10,7 @@ import type { IgnoreAttributesPredicate } from './options.ts';
  * @returns The predicate to call per attribute.
  */
 const getIgnoreAttributesFn = (
-  ignoreAttributes: IgnoreAttributesPredicate | (string | RegExp)[] | boolean | undefined
+  ignoreAttributes: IgnoreAttributesPredicate | Array<string | RegExp> | boolean | undefined
 ): IgnoreAttributesPredicate => {
   if (typeof ignoreAttributes === 'function') {
     return ignoreAttributes;

@@ -1,7 +1,7 @@
-import FeedableSource from './feedable-source.js';
+import FeedableSource from './feedable-source.ts';
 
 /**
- * @description The subset of a Node.js `Readable` that `attachStream()` actually uses. Declared structurally rather than imported from `node:stream` so this
+ * @description The subset of a Node.ts `Readable` that `attachStream()` actually uses. Declared structurally rather than imported from `node:stream` so this
  * module carries no Node type dependency and the package's `.d.mts` stays loadable in a browser toolchain. A real `Readable` satisfies it
  * structurally, and so does any duck-typed stream — which is what `XMLParser.isReadableStream()` has always tested for at runtime, so the type and
  * the runtime check now agree.
@@ -18,7 +18,7 @@ export interface ReadableLike {
    * this interface for reasons that have nothing to do with this package. `attachStream()` re-types the `'data'` listener itself.
    */
   // oxlint-disable-next-line no-explicit-any
-  on(event: string, listener: (...args: any[]) => void): unknown;
+  on(event: string, listener: (...args: Array<any>) => void): unknown;
   /**
    * @description Tear the stream down after a parse failure, so a half-read socket or file handle is released rather than left open. Optional so a minimal
    * duck-typed stream is still accepted; the failure path guards on its presence.

@@ -3,9 +3,9 @@ import type { Expression, ExpressionSet } from '@endevops/common-xml';
 import { ExpressionSet as ExpressionSetImpl } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
-import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
+import { BuilderError, addToSet, compilePattern } from '#/errors.ts';
 
-import { BuilderError, addToSet, compilePattern } from '../errors.ts';
+import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
 /**
  * @description The chain used for element text when the caller configures none.
@@ -83,7 +83,7 @@ export function buildOptions(options: FactoryOptions | undefined): Effect.Effect
  *
  * @returns The sealed set.
  */
-function compileAlwaysArray(entries: (string | Expression)[]): Effect.Effect<ExpressionSet, BuilderError> {
+function compileAlwaysArray(entries: Array<string | Expression>): Effect.Effect<ExpressionSet, BuilderError> {
   return Effect.gen(function* () {
     const set = new ExpressionSetImpl();
     for (const entry of entries) {

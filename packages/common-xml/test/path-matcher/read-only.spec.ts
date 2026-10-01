@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { PathNode } from '#/index.ts';
 
-import { Matcher, type MatcherView } from '#/index.ts';
+import { Matcher } from '#/index.ts';
+import type { MatcherView } from '#/index.ts';
 import { expr } from '#/test/helpers/effect.ts';
 
 describe('readOnly() hands back a view rather than the matcher itself', () => {
@@ -376,7 +377,7 @@ describe('the view exposes neither the path array nor its nodes', () => {
     const view = matcher.readOnly() as unknown as Record<string, unknown>;
 
     try {
-      (view.path as PathNode[]).push({ tag: 'injected', position: 99, counter: 99 });
+      (view.path as Array<PathNode>).push({ tag: 'injected', position: 99, counter: 99 });
     } catch {
       // there is no path to push onto
     }
@@ -392,7 +393,7 @@ describe('the view exposes neither the path array nor its nodes', () => {
 
     const view = matcher.readOnly() as unknown as Record<string, unknown>;
 
-    expect((view.path as PathNode[] | undefined)?.[1]).toBeUndefined();
+    expect((view.path as Array<PathNode> | undefined)?.[1]).toBeUndefined();
   });
 
   it('leaves the current tag untouched when a node rewrite is aimed at the view', () => {
@@ -402,7 +403,7 @@ describe('the view exposes neither the path array nor its nodes', () => {
     const view = matcher.readOnly() as unknown as Record<string, unknown>;
 
     try {
-      (view.path as PathNode[])[0].tag = 'hacked';
+      (view.path as Array<PathNode>)[0].tag = 'hacked';
     } catch {
       // there is no node to rewrite
     }

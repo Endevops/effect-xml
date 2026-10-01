@@ -14,7 +14,7 @@ import { parseXmlDocument, renderXml, toCodecXml, XmlParseError } from '#/index.
  * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
  * honest: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to be known.
  */
-type AnyCodec = Schema.ConstraintCodec<unknown, unknown, never, never>;
+type AnyCodec = Schema.ConstraintCodec<unknown, unknown>;
 
 describe('toCodecXml() — the derivation', () => {
   it('is Effect’s toCodecStringTree derivation, unchanged', () => {

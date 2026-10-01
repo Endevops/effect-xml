@@ -1,3 +1,4 @@
+// oxlint-disable vitest/valid-title
 /**
  * @description Specs for the XML unsafe-value rules — the security control on the DOCTYPE entity path. This is the one place in the package where a missed match
  * is an exploitable bug rather than a wrong number, so the shape here is a table: every rule gets a string that must trip it and a near-miss that
@@ -7,7 +8,8 @@
  * unchanged as the code moves.
  */
 
-import { Effect } from 'effect';
+import type { Effect } from 'effect';
+
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { BuilderError } from '#/errors.ts';

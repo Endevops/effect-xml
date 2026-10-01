@@ -15,13 +15,13 @@ import { defineConfig } from 'vite-plus';
 // its types for the declaration files.
 export default defineConfig({
   pack: {
+    attw: true,
     deps: { onlyBundle: false, resolveDepSubpath: true },
     dts: { sourcemap: true },
     exports: { devExports: 'development', packageJson: true },
-    attw: true,
-    publint: true,
-    unbundle: true,
     platform: 'neutral',
+    publint: true,
     sourcemap: true,
+    unbundle: true,
   },
 });

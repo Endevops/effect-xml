@@ -1,9 +1,10 @@
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type { StopNodeResult } from './internal/parser-types.ts';
 import type { Enclosure } from './internal/tag-expression.ts';
+import type { ParseError } from './parse-error.ts';
 
-import { type ParseError, UnexpectedEnd } from './parse-error.js';
-import { isSpace, ensureCanRead, absolutePosition } from './util.js';
+import { UnexpectedEnd } from './parse-error.ts';
+import { isSpace, ensureCanRead, absolutePosition } from './util.ts';
 
 /**
  * @description Well-known enclosure presets. Import these in your parser config to compose `skipEnclosures` arrays:
@@ -26,7 +27,7 @@ import { isSpace, ensureCanRead, absolutePosition } from './util.js';
 /**
  * @description XML structural delimiters — comments, CDATA sections, processing instructions.
  */
-export const xmlEnclosures: readonly Enclosure[] = [
+export const xmlEnclosures: ReadonlyArray<Enclosure> = [
   { open: '<!--', close: '-->' }, // comment
   { open: '<![CDATA[', close: ']]>' }, // CDATA section
   { open: '<?', close: '?>' }, // processing instruction
@@ -35,7 +36,7 @@ export const xmlEnclosures: readonly Enclosure[] = [
 /**
  * @description String literal delimiters — useful for JS / CSS stop-node content.
  */
-export const quoteEnclosures: readonly Enclosure[] = [
+export const quoteEnclosures: ReadonlyArray<Enclosure> = [
   { open: "'", close: "'" },
   { open: '"', close: '"' },
   { open: '`', close: '`' }, // template literal
@@ -86,7 +87,7 @@ export interface StopNodeProcessorOptions {
   /**
    * @description Enclosure pairs whose interiors suppress closing-tag detection. Default is `[]`.
    */
-  skipEnclosures?: Enclosure[];
+  skipEnclosures?: Array<Enclosure>;
 }
 
 /**
@@ -119,7 +120,7 @@ export interface StopNodeProcessorOptions {
 export class StopNodeProcessor {
   #tagName: string;
   #nested: boolean;
-  #enclosures: Enclosure[];
+  #enclosures: Array<Enclosure>;
 
   // Runtime state — reset in activate() / resumeAfterOpenTag()
   #content: string;

@@ -7,8 +7,8 @@ import {
   LimitMaxAttributes,
   UnquotedAttributeValue,
   runBuilder,
-} from './parse-error.js';
-import { isSpaceCode, errorPositionOf } from './util.js';
+} from './parse-error.ts';
+import { isSpaceCode, errorPositionOf } from './util.ts';
 
 /**
  * @description AttributeProcessor — owns all attribute parsing logic. Two-pass attribute processing:
@@ -103,8 +103,8 @@ function parseAttributes(
   attrsOffset: number | undefined,
   quotePairsLen: number = 0,
   parser?: TagExpressionParser
-): RawAttributeMatch[] {
-  const results: RawAttributeMatch[] = [];
+): Array<RawAttributeMatch> {
+  const results: Array<RawAttributeMatch> = [];
   const ctx: AttrScanContext = {
     str: attrStr,
     len: attrStr.length,
@@ -307,7 +307,7 @@ export interface TagExpAttributeTarget {
   /**
    * @description The processed-name/value list pass 2 consumes directly.
    */
-  _parsedAttrs: ParsedAttribute[];
+  _parsedAttrs: Array<ParsedAttribute>;
 }
 
 /**
@@ -425,12 +425,12 @@ function acceptOccurrence(policy: AttrPolicy, m: RawAttributeMatch, parser: TagE
  * the surviving count, so `rawAttributesLen` needs no separate tally.
  */
 function keepAttributes(
-  matches: RawAttributeMatch[],
+  matches: Array<RawAttributeMatch>,
   parser: TagExpressionParser,
   tagExp: TagExpAttributeTarget,
   policy: AttrPolicy
-): ParsedAttribute[] {
-  const parsedAttrs: ParsedAttribute[] = [];
+): Array<ParsedAttribute> {
+  const parsedAttrs: Array<ParsedAttribute> = [];
 
   for (const m of matches) {
     if (!acceptOccurrence(policy, m, parser)) continue;
@@ -466,7 +466,7 @@ function keepAttributes(
  * @throws {ParseError} `LIMIT_MAX_ATTRIBUTES` when the tag carries more attributes than the limit allows.
  */
 export function flushAttributes(
-  parsedAttrs: ParsedAttribute[] | undefined,
+  parsedAttrs: Array<ParsedAttribute> | undefined,
   parser: TagExpressionParser,
   attrsExpStart: number | undefined,
   rawAttrMatchCount: number,

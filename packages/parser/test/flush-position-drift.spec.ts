@@ -62,7 +62,7 @@ describe('Flush position drift — feedable batch‑threshold', () => {
   it('does not falsely report zero progress (batch-threshold check) once a flush rebases startIndex', () => {
     const xml = buildPaddedDoc(50);
     const parser = makeParser({ feedable: { flushThreshold: 30, bufferSize: 64 } });
-    const thresholdsSeen: number[] = [];
+    const thresholdsSeen: Array<number> = [];
 
     for (let i = 0; i < xml.length; i += 64) {
       runParser(parser.feed(xml.slice(i, i + 64)));

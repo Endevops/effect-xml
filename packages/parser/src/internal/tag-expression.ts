@@ -30,5 +30,5 @@ export interface TagExpressionConfig {
    * @description Enclosure pairs skipped while scanning for the closing tag, checked in array order — first open match wins. Empty means plain first-match with no
    * depth tracking.
    */
-  skipEnclosures: Enclosure[];
+  skipEnclosures: Array<Enclosure>;
 }

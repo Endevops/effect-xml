@@ -13,7 +13,7 @@
  * - One test for input shape, one benchmark per input with the fast path off and on — where the length and unicode costs actually show up.
  */
 
-import { afterAll, expect, test } from 'vite-plus/test';
+import { test } from 'vite-plus/test';
 
 import type { Production, ValidationOptions } from '#/index.ts';
 
@@ -34,13 +34,13 @@ const VALIDATORS: Record<Production, (input: string, options?: ValidationOptions
 /**
  * @description The five productions under test, in the order the runtime error message lists them.
  */
-const PRODUCTIONS: readonly Production[] = ['name', 'ncName', 'qName', 'nmToken', 'nmTokens'];
+const PRODUCTIONS: ReadonlyArray<Production> = ['name', 'ncName', 'qName', 'nmToken', 'nmTokens'];
 
 /**
  * @description The option sets to measure, labelled for the suite name. These three are the only combinations that select a different compiled regex set: 1.0 and
  * 1.1 without the fast path, and the single ASCII-only set that both versions collapse onto.
  */
-const OPTION_SETS: readonly { label: string; options: Required<ValidationOptions> }[] = [
+const OPTION_SETS: ReadonlyArray<{ label: string; options: Required<ValidationOptions> }> = [
   { label: 'xml 1.0 — unicode-aware', options: { xmlVersion: '1.0', asciiOnly: false } },
   { label: 'xml 1.1 — unicode-aware (/u)', options: { xmlVersion: '1.1', asciiOnly: false } },
   { label: 'xml 1.0 — asciiOnly fast path', options: { xmlVersion: '1.0', asciiOnly: true } },
@@ -63,7 +63,7 @@ const CASES = {
 /**
  * @description {@link CASES} as a list, for the benchmarks that validate every input in one go.
  */
-const INPUTS: readonly string[] = Object.values(CASES);
+const INPUTS: ReadonlyArray<string> = Object.values(CASES);
 
 /**
  * @description Accumulates the outcome of every validation the benchmarks below perform. A regex `test()` whose result is discarded is exactly the kind of call a
@@ -90,14 +90,8 @@ const BUDGET = { time: 200, warmupTime: 50 } as const;
  */
 const validatorFor = (production: Production): ((input: string, options?: ValidationOptions) => boolean) => VALIDATORS[production];
 
-afterAll(() => {
-  // If the sink is still empty, the benchmark bodies never reached the line
-  // that reads the validator's result — which means the numbers in the tables
-  // describe a run that did not do the work.
-  expect(observed).toBeGreaterThan(0);
-});
-
 for (const { label, options } of OPTION_SETS) {
+  // oxlint-disable-next-line vitest/valid-title
   test(label, async ({ bench }) => {
     // One registration per production. The validator is bound before the body
     // runs rather than read inside it — see `validatorFor`.

@@ -1,9 +1,11 @@
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
+import type { BuilderError } from '#/errors.ts';
+
+import { BuilderError as BuilderErrorCtor } from '#/errors.ts';
+
 import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
 
-import { BuilderError as BuilderErrorCtor } from '../errors.ts';
 import { makeBooleanParser } from './value-parsers/boolean-parser.ts';
 import { makeEntitiesValueParser } from './value-parsers/entity-parser.ts';
 import { makeNumberValueParser } from './value-parsers/number.ts';

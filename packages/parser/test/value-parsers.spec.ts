@@ -1,5 +1,7 @@
-import { makeNumberValueParser, type Context, type ValueParser } from '@endevops/builder';
-import { CompactBuilderFactory, type BuilderError } from '@endevops/builder';
+import { makeNumberValueParser } from '@endevops/builder';
+import type { Context, ValueParser } from '@endevops/builder';
+import { CompactBuilderFactory } from '@endevops/builder';
+import type { BuilderError } from '@endevops/builder';
 import { COMMON_HTML, CURRENCY } from '@endevops/common-xml';
 import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
@@ -246,7 +248,7 @@ describe('Custom chain', () => {
   it('should pass context object to custom value parsers', function () {
     // The context minus its matcher (not plain-serialisable), plus a note of
     // whether one was supplied at all.
-    const seenContexts: (Record<string, unknown> & { hasMatcher: boolean })[] = [];
+    const seenContexts: Array<Record<string, unknown> & { hasMatcher: boolean }> = [];
 
     class ContextCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {

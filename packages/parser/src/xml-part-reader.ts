@@ -4,13 +4,13 @@ import type { InputSourceLike } from './input-source/input-source.ts';
 import type { TagExpressionParser } from './internal/parser-types.ts';
 import type { ParsedAttribute } from './internal/parser-types.ts';
 
-import { collectRawAttributes } from './attribute-processor.js';
-import { InvalidTagName, UnclosedQuote, UnexpectedEnd } from './parse-error.js';
-import { isSpace, absolutePosition } from './util.js';
+import { collectRawAttributes } from './attribute-processor.ts';
+import { InvalidTagName, UnclosedQuote, UnexpectedEnd } from './parse-error.ts';
+import { isSpace, absolutePosition } from './util.ts';
 
 // Re-export flushAttributes so Xml2JsParser and XmlSpecialTagsReader can
 // continue to import it from here without changing their import lines.
-export { flushAttributes } from './attribute-processor.js';
+export { flushAttributes } from './attribute-processor.ts';
 
 /**
  * @description A parsed tag expression: everything between `<` and `>` for an opening tag, or between `<?` and `?>` for a processing instruction. Carries two
@@ -52,7 +52,7 @@ export class TagExp {
   /**
    * @description Processed-name/value pairs consumed directly by `flushAttributes()`.
    */
-  _parsedAttrs: ParsedAttribute[];
+  _parsedAttrs: Array<ParsedAttribute>;
 
   constructor() {
     this.tagName = '';
