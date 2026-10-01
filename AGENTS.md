@@ -108,6 +108,40 @@ A third thing the guide does not warn about, and the one that actually bit:
 - Skip the commit when the user says not to commit, or when there is nothing worth committing (no file changes).
 - Never push. Leave the commit on the current branch for the user to review.
 - Before committing, review the diff and leave out unrelated changes, secrets, and generated noise.
-- Write the subject in the imperative mood under 72 characters. Match the existing history (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
 - One logical change per commit. Don't fold unrelated edits into a single commit.
 - If a commit hook rewrites files (formatter, linter), re-stage and amend rather than starting a new commit.
+
+## Commit messages
+
+Every commit message follows [Conventional Commits](https://www.conventionalcommits.org/)
+with the [Angular convention](https://github.com/angular/angular/blob/main/contributing-docs/commit-message-guidelines.md).
+The subject and any scope are lowercase, the subject is imperative and under 72
+characters, and no line in the body exceeds 100 characters.
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer(s)>
+```
+
+- **`type`** — one of `feat`, `fix`, `perf`, `refactor`, `docs`, `style`, `test`,
+  `build`, `ci`, `chore`. Use `docs` for documentation-only changes, `chore` for
+  things that touch no source or tests (tooling, dependencies, generated files).
+- **`scope`** — optional, but include it when the change is confined to one
+  package or area: `refactor(builder): make XMLBuilder an Effect service`,
+  `perf(effect-xml-codec): resolve names without an Effect per call`. Omit it for
+  workspace-wide changes.
+- **`subject`** — imperative mood, no leading capital, no trailing period. "add",
+  not "added" or "adds".
+- **`body`** — optional. Separate it from the subject with one blank line, and
+  explain what and why rather than repeating the diff.
+- **`footer`** — optional. Reference issues (`Refs #123`) or note a breaking
+  change.
+- **Breaking changes** — mark them with `!` after the type or scope
+  (`feat(api)!: drop the legacy parse entry point`) and add a
+  `BREAKING CHANGE: <description>` footer.
+- Match the existing history: `refactor(parser): make XMLParser an Effect service`,
+  `fix(parser): stop the parse benchmarks timing out`, and
+  `docs: record the effect-services refactor progress`.
