@@ -1,7 +1,7 @@
 /**
- * @description Specs for the tracing surface. `parseXml` is the package's one `Effect` entry point and carries a span with the size of the work it covers, so a
- * profile can attribute a slow parse to the input that produced it. `toCodecXml` is a Schema, and tracing a schema encode or decode is Effect's
- * concern rather than this package's; `renderXml` and `parseXmlDocument` are untraced on purpose.
+ * @description Specs for the tracing surface. `parseXml` carries a span with the size of the work it covers, so a profile can attribute a slow parse to the input
+ * that produced it. `toCodecXml` is a Schema, and tracing a schema encode or decode is Effect's concern rather than this package's; `renderXml` is an
+ * `Effect` too but opens no span, and `parseXmlDocument` is untraced on purpose.
  */
 
 import { Effect, Tracer } from 'effect';

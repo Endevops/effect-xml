@@ -27,12 +27,31 @@ export class XmlParseError extends Schema.TaggedError<XmlParseError>()('XmlParse
    * @description Character offset into the source text where the problem was found. `-1` when the failure is not tied to a position, such as trailing content
    * after the root element.
    */
-  position: Schema.Number,
+  position: Schema.Finite,
 
   /**
    * @description The source text that failed to parse, so a log can carry the document without the caller re-reading it.
    */
   input: Schema.String,
+}) {}
+
+/**
+ * @description A value could not be written as XML. A field name that is not a legal XML name fails here, in `'error'` name mode; repair mode rewrites the name
+ * instead. The depth cap fails here too, when a value nests past `maxDepth`. Reading uses {@link XmlParseError}, because the two directions fail for
+ * different reasons and a caller recovering from one usually does not want to catch the other.
+ *
+ * @example
+ *   ```typescript
+ *   import { XmlRenderError } from '@endevops/effect-xml-codec';
+ *
+ *   const error = new XmlRenderError({ message: 'Invalid XML name "not a name"' });
+ *   ```;
+ */
+export class XmlRenderError extends Schema.TaggedError<XmlRenderError>()('XmlRenderError', {
+  /**
+   * @description What was wrong with the value.
+   */
+  message: Schema.String,
 }) {}
 
 /**

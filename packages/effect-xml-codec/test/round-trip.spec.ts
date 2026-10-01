@@ -8,12 +8,21 @@
  * quietly drifting the document on every hop through the system.
  */
 
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { XmlValue } from '#/index.ts';
+import type { XmlRenderOptions } from '#/render.ts';
+import type { XmlValue } from '#/xml-value.ts';
 
-import { parseXmlDocument, renderXml, toCodecXml } from '#/index.ts';
+import { toCodecXml } from '#/codec.ts';
+import { parseXmlDocument } from '#/parse.ts';
+import { renderXml } from '#/render.ts';
+
+/**
+ * @description Renders a value the way a caller not already in an `Effect` would: `renderXml` answers with an `Effect` whose failure is an `XmlRenderError`, and
+ * `Effect.runSync` throws it. The round-trip cases chain render and parse, so keeping the synchronous wrapper here keeps them readable.
+ */
+const render = (value: XmlValue, options?: XmlRenderOptions): string => Effect.runSync(renderXml(value, options));
 
 /**
  * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
@@ -76,7 +85,7 @@ const decodeTree = (schema: AnyCodec, tree: XmlValue): unknown => Schema.decodeS
  * @returns The decoded value.
  */
 const roundTrip = (schema: AnyCodec, value: unknown, rootName = 'r'): unknown =>
-  decodeTree(schema, parseXmlDocument(renderXml(encodeTree(schema, value), { rootName })).value);
+  decodeTree(schema, parseXmlDocument(render(encodeTree(schema, value), { rootName })).value);
 
 const cases: ReadonlyArray<Case> = [
   { about: 'a string field', schema: Schema.Struct({ a: Schema.String }), value: { a: 'x' } },
@@ -192,7 +201,7 @@ describe('round trip — encoding never throws for a value the schema accepts', 
     for (const testCase of cases) {
       const rootName = testCase.rootName ?? 'r';
       for (const format of [false, true]) {
-        const text = renderXml(encodeTree(testCase.schema, testCase.value), { rootName, format });
+        const text = render(encodeTree(testCase.schema, testCase.value), { rootName, format });
         expect(decodeTree(testCase.schema, parseXmlDocument(text).value)).toEqual(testCase.value);
       }
     }
@@ -206,16 +215,16 @@ describe('round trip — a document reaches a fixed point', () => {
    * @param document - The document to start from.
    */
   const fixedPoint = (document: string): void => {
-    const first = renderXml(parseXmlDocument(document).value, { rootName: 'root' });
-    const second = renderXml(parseXmlDocument(first).value, { rootName: 'root' });
+    const first = render(parseXmlDocument(document).value, { rootName: 'root' });
+    const second = render(parseXmlDocument(first).value, { rootName: 'root' });
     expect(second).toBe(first);
   };
 
   it('holds for a document written by this package', () => {
     for (const testCase of cases) {
       const rootName = testCase.rootName ?? 'r';
-      const once = renderXml(parseXmlDocument(renderXml(encodeTree(testCase.schema, testCase.value), { rootName })).value, { rootName });
-      expect(renderXml(parseXmlDocument(once).value, { rootName })).toBe(once);
+      const once = render(parseXmlDocument(render(encodeTree(testCase.schema, testCase.value), { rootName })).value, { rootName });
+      expect(render(parseXmlDocument(once).value, { rootName })).toBe(once);
     }
   });
 
@@ -260,7 +269,7 @@ describe('round trip — what XML cannot spell, and the caller settles', () => {
     // leniency lives now.
     const schema = Schema.Struct({ a: Schema.Array(Schema.String) });
     const tolerant = Schema.toCodecArrayFromSingle(toCodecXml(schema));
-    const text = renderXml(encodeTree(schema, { a: ['only'] }), { rootName: 'r' });
+    const text = render(encodeTree(schema, { a: ['only'] }), { rootName: 'r' });
     expect(text).toBe('<r><a>only</a></r>');
     expect(Schema.decodeSync(tolerant)(parseXmlDocument(text).value)).toEqual({ a: ['only'] });
   });
@@ -275,7 +284,7 @@ describe('round trip — what XML cannot spell, and the caller settles', () => {
     // nothing to decode from it, and the plain codec reports that rather than
     // inventing `{}`.
     const schema = Schema.Struct({ a: Schema.optional(Schema.String) });
-    expect(renderXml(encodeTree(schema, {}), { rootName: 'r' })).toBe('<r/>');
+    expect(render(encodeTree(schema, {}), { rootName: 'r' })).toBe('<r/>');
     expect(parseXmlDocument('<r/>').value).toBe('');
     expect(() => decodeTree(schema, parseXmlDocument('<r/>').value)).toThrow();
   });
@@ -285,7 +294,7 @@ describe('round trip — what XML cannot spell, and the caller settles', () => {
     // Reading that back yields a record of the members, so the caller maps it
     // back to the array; the codec does not.
     const schema = Schema.Array(Schema.String);
-    const text = renderXml(encodeTree(schema, ['a', 'b']), { rootName: 'tags' });
+    const text = render(encodeTree(schema, ['a', 'b']), { rootName: 'tags' });
     expect(text).toBe('<tags><item>a</item><item>b</item></tags>');
     expect(parseXmlDocument(text).value).toEqual({ item: ['a', 'b'] });
     expect(Schema.decodeSync(toCodecXml(schema))(['a', 'b'])).toEqual(['a', 'b']);
@@ -298,7 +307,7 @@ describe('round trip — what XML cannot spell, and the caller settles', () => {
     // without touching the content in the middle, and `preserveWhitespace: false`
     // is what turns it off.
     const schema = Schema.Struct({ a: Schema.String });
-    const text = renderXml(encodeTree(schema, { a: '   ' }), { rootName: 'r' });
+    const text = render(encodeTree(schema, { a: '   ' }), { rootName: 'r' });
     expect(decodeTree(schema, parseXmlDocument(text).value)).toEqual({ a: '' });
     expect(decodeTree(schema, parseXmlDocument(text, { preserveWhitespace: true }).value)).toEqual({ a: '   ' });
   });
@@ -309,7 +318,7 @@ describe('round trip — what XML cannot spell, and the caller settles', () => {
     // has nothing in the document to match. A schema that uses the legal name
     // round-trips normally.
     const illegal = Schema.Struct({ 'not a name': Schema.String });
-    const text = renderXml(encodeTree(illegal, { 'not a name': 'x' }), { rootName: 'r' });
+    const text = render(encodeTree(illegal, { 'not a name': 'x' }), { rootName: 'r' });
     expect(text).toBe('<r><not_a_name>x</not_a_name></r>');
     expect(() => decodeTree(illegal, parseXmlDocument(text).value)).toThrow(/Missing key/);
 
@@ -324,6 +333,6 @@ describe('round trip — what XML cannot spell, and the caller settles', () => {
     // is asserted here and the decoded form is left alone rather than pinned to a
     // behaviour that is not this package's to promise.
     const schema = Schema.Struct({ a: Schema.BigInt });
-    expect(renderXml(encodeTree(schema, { a: 9007199254740993n }), { rootName: 'r' })).toBe('<r><a>9007199254740993</a></r>');
+    expect(render(encodeTree(schema, { a: 9007199254740993n }), { rootName: 'r' })).toBe('<r><a>9007199254740993</a></r>');
   });
 });

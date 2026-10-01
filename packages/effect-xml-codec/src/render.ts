@@ -19,10 +19,13 @@
 
 import type { XmlVersion } from '@endevops/common-xml';
 
+import { Effect } from 'effect';
+
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
 import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveName, TEXT_KEY } from './conventions.ts';
+import { asParseError, XmlRenderError } from './errors.ts';
 import { isXmlArray } from './xml-value.ts';
 
 /**
@@ -132,10 +135,10 @@ interface ResolvedOptions {
   readonly maxDepth: number;
 
   /**
-   * @description Resolves a field name to a legal XML name, in the mode this render was configured with. See {@link makeNamer} for why it is a function rather than
-   * a call to `resolveName`.
+   * @description Resolves a field name to a legal XML name, in the mode this render was configured with. See {@link makeNamer} for why it is an `Effect` rather
+   * than a call to `resolveName`.
    */
-  readonly namer: (name: string) => string;
+  readonly namer: (name: string) => Effect.Effect<string, XmlRenderError>;
 
   /**
    * @description The indent for a given depth, when pretty-printing. Built on first use at each depth and kept, so an indented document builds one string per
@@ -148,22 +151,26 @@ interface ResolvedOptions {
  * @description Builds the name resolver for one render. Every element and every attribute name goes through here, and a document repeats names: a thousand
  * `<item>` elements, or the same `id` on every row. A validator that runs a regex per occurrence pays that cost a thousand times for one answer, so
  * the first result is remembered and the rest are lookups. It also keeps the mode and version in one place, which is what stops a caller from
- * resolving a name with different settings than the render it is part of. The resolver is the synchronous one: this is a per-name call inside the
- * render loop, and running an `Effect` per name to read a boolean is the cost the synchronous spelling exists to avoid.
+ * resolving a name with different settings than the render it is part of. The resolver fails with an {@link XmlRenderError} rather than throwing:
+ * `resolveName` reports an illegal name in `'error'` mode by throwing an {@link XmlParseError}, and `Effect.try` is the one bridge that carries that
+ * into the error channel. The cache is checked first, so a name already seen resolves without allocating an effect.
  *
  * @param options - Resolved render options.
  *
- * @returns A function from field name to legal XML name.
+ * @returns A function from field name to an effect producing the legal XML name.
  */
-const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: string) => string) => {
+const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: string) => Effect.Effect<string, XmlRenderError>) => {
   const cache = new Map<string, string>();
-  return name => {
+  return Effect.fnUntraced(function* (name: string): Effect.fn.Return<string, XmlRenderError> {
     const hit = cache.get(name);
     if (hit !== undefined) return hit;
-    const resolved = resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion });
+    const resolved = yield* Effect.try({
+      try: () => resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion }),
+      catch: cause => new XmlRenderError({ message: asParseError(cause).message }),
+    });
     cache.set(name, resolved);
     return resolved;
-  };
+  });
 };
 
 /**
@@ -274,19 +281,22 @@ const escape = (value: string, pattern: RegExp, table: ReadonlyArray<string | un
 };
 
 /**
- * @description Renders an {@link XmlValue} as an XML document. A record becomes an element: `@`-prefixed keys become attributes, the reserved `#text` key becomes
- * character data, and every other key becomes a child element. An array repeats its name — a document whose root value is an array wraps it in the
- * root element and names each member `itemName`. A string is character data.
+ * @description Renders an {@link XmlValue} as an XML document.\
+ * A record becomes an element:
+ *
+ * - `@`-prefixed keys become attributes, the reserved `#text` key becomes character data, and every other key becomes a child element.
+ * - An array repeats its name — a document whose root value is an array wraps it in the root element and names each member `itemName`.
+ * - A string is character data. The walk is written as an `Effect` so that what can go wrong lands in the error channel rather than being thrown: each
+ *   step appends to the chunk buffer and either continues or fails with an {@link XmlRenderError}. `Effect.fnUntraced` is the shape for it because
+ *   the walk is a library hot path with no tracing boundary of its own. A caller not already in an `Effect` runs it with `Effect.runSync`, which
+ *   throws the failure it produced.
  *
  * @param value - The value to render.
  * @param options - Root name, formatting, empty-element and name-resolution settings.
  *
- * @returns The XML document as a string.
- *
- * @throws {TypeError} When `options.name` is `'error'` and a field name is not a legal XML name.
- * @throws {RangeError} When the value nests deeper than `options.maxDepth`.
+ * @returns An effect producing the XML document as a string.
  */
-export const renderXml = (value: XmlValue, options: XmlRenderOptions = {}): string => {
+export const renderXml = Effect.fnUntraced(function* (value: XmlValue, options: XmlRenderOptions = {}): Effect.fn.Return<string, XmlRenderError> {
   const resolved = resolveOptions(options);
   const out: Array<string> = [];
 
@@ -295,18 +305,18 @@ export const renderXml = (value: XmlValue, options: XmlRenderOptions = {}): stri
   // array repeats that element's own name, so this wrapping is the only place
   // `itemName` is ever used.
   if (isXmlArray(value)) {
-    const tag = resolved.namer(resolved.rootName);
+    const tag = yield* resolved.namer(resolved.rootName);
     out.push('<', tag, '>');
-    for (const member of value) renderElement(out, resolved.itemName, member, 1, resolved);
+    for (const member of value) yield* renderElement(out, resolved.itemName, member, 1, resolved);
     if (resolved.format) out.push('\n');
     out.push('</', tag, '>');
   } else {
-    renderElement(out, resolved.rootName, value, 0, resolved);
+    yield* renderElement(out, resolved.rootName, value, 0, resolved);
   }
 
   if (resolved.format) out.push('\n');
   return out.join('');
-};
+});
 
 /**
  * @description Renders one named element and its subtree. The value an {@link XmlValue} holds decides which of the four shapes below it takes — a repeated run of
@@ -318,14 +328,18 @@ export const renderXml = (value: XmlValue, options: XmlRenderOptions = {}): stri
  * @param value - The element's value.
  * @param depth - Current nesting depth, for indentation and the depth cap.
  * @param options - Resolved render options.
- *
- * @throws {RangeError} When the value nests deeper than `options.maxDepth`.
  */
-const renderElement = (out: Array<string>, name: string, value: XmlValue, depth: number, options: ResolvedOptions): void => {
-  assertWithinDepth(depth, options);
+const renderElement = Effect.fnUntraced(function* (
+  out: Array<string>,
+  name: string,
+  value: XmlValue,
+  depth: number,
+  options: ResolvedOptions
+): Effect.fn.Return<void, XmlRenderError> {
+  yield* assertWithinDepth(depth, options);
 
   if (isXmlArray(value)) {
-    renderRepeated(out, name, value, depth, options);
+    yield* renderRepeated(out, name, value, depth, options);
     return;
   }
 
@@ -334,15 +348,15 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
   // one element that has nothing in front of it.
   if (options.format && depth > 0) openLine(out, depth, options);
 
-  const tag = options.namer(name);
+  const tag = yield* options.namer(name);
 
   if (typeof value === 'string' || value === undefined) {
     renderLeaf(out, tag, value, options);
     return;
   }
 
-  renderRecord(out, tag, value, depth, options);
-};
+  yield* renderRecord(out, tag, value, depth, options);
+});
 
 /**
  * @description Refuses to walk deeper than the render allows. A value can nest without end, and every one of those levels costs a stack frame here, so the cap is
@@ -350,14 +364,14 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
  *
  * @param depth - The depth about to be written.
  * @param options - Resolved render options.
- *
- * @throws {RangeError} When `depth` is past `options.maxDepth`.
  */
-const assertWithinDepth = (depth: number, options: ResolvedOptions): void => {
+const assertWithinDepth = Effect.fnUntraced(function* (depth: number, options: ResolvedOptions): Effect.fn.Return<void, XmlRenderError> {
   if (depth > options.maxDepth) {
-    throw new RangeError(`XML nesting exceeded maxDepth (${options.maxDepth}). Raise the limit if the document is legitimately this deep.`);
+    return yield* new XmlRenderError({
+      message: `XML nesting exceeded maxDepth (${options.maxDepth}). Raise the limit if the document is legitimately this deep.`,
+    });
   }
-};
+});
 
 /**
  * @description Renders a repeated run of children under one name: `tags: ['a', 'b']` renders `<tags>a</tags><tags>b</tags>`, not one element wrapping both. The
@@ -371,18 +385,24 @@ const assertWithinDepth = (depth: number, options: ResolvedOptions): void => {
  * @param depth - The depth the run sits at.
  * @param options - Resolved render options.
  */
-const renderRepeated = (out: Array<string>, name: string, members: ReadonlyArray<XmlValue>, depth: number, options: ResolvedOptions): void => {
+const renderRepeated = Effect.fnUntraced(function* (
+  out: Array<string>,
+  name: string,
+  members: ReadonlyArray<XmlValue>,
+  depth: number,
+  options: ResolvedOptions
+): Effect.fn.Return<void, XmlRenderError> {
   // An empty array still gets an element. Writing nothing would make a field
   // that was present and empty indistinguishable from one that was never
   // there, and a document that came from a schema is easier to trust when the
   // element it describes is actually in the output.
   if (members.length === 0) {
     if (options.format && depth > 0) openLine(out, depth, options);
-    writeEmpty(out, options.namer(name), options);
+    writeEmpty(out, yield* options.namer(name), options);
     return;
   }
-  for (const member of members) renderElement(out, name, member, depth, options);
-};
+  for (const member of members) yield* renderElement(out, name, member, depth, options);
+});
 
 /**
  * @description Renders an element whose value is character data, or nothing. An empty string is character data that happens to be empty, and an element holding
@@ -413,8 +433,14 @@ const renderLeaf = (out: Array<string>, tag: string, value: string | undefined, 
  * @param depth - The depth the element sits at.
  * @param options - Resolved render options.
  */
-const renderRecord = (out: Array<string>, tag: string, record: XmlRecord, depth: number, options: ResolvedOptions): void => {
-  const fields = collectFields(record, options);
+const renderRecord = Effect.fnUntraced(function* (
+  out: Array<string>,
+  tag: string,
+  record: XmlRecord,
+  depth: number,
+  options: ResolvedOptions
+): Effect.fn.Return<void, XmlRenderError> {
+  const fields = yield* collectFields(record, options);
   const text = textOf(record);
   const children = fields.children;
 
@@ -438,12 +464,12 @@ const renderRecord = (out: Array<string>, tag: string, record: XmlRecord, depth:
   }
 
   if (children !== undefined) {
-    writeChildren(out, record, children, depth, options);
+    yield* writeChildren(out, record, children, depth, options);
     if (options.format) openLine(out, depth, options);
   }
 
   out.push('</', tag, '>');
-};
+});
 
 /**
  * @description An element's keys resolved into the roles they play.
@@ -472,9 +498,9 @@ interface Fields {
  * @param record - The element's value.
  * @param options - Resolved render options.
  *
- * @returns The element's rendered attributes and its child names.
+ * @returns An effect producing the element's rendered attributes and its child names.
  */
-const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
+const collectFields = Effect.fnUntraced(function* (record: XmlRecord, options: ResolvedOptions): Effect.fn.Return<Fields, XmlRenderError> {
   const keys = Object.keys(record);
   let attributes = '';
   let children: Array<string> | undefined;
@@ -493,7 +519,7 @@ const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
     if (isAttributeKey(key)) {
       // Only keys with a value are collected, so every name in `sortAttributes`
       // has one to read back out of.
-      if (sortAttributes === undefined) attributes += renderAttribute(key, child, options);
+      if (sortAttributes === undefined) attributes += yield* renderAttribute(key, child, options);
       else sortAttributes.push(key);
       continue;
     }
@@ -503,12 +529,12 @@ const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
 
   if (sortAttributes !== undefined) {
     sortAttributes.sort();
-    attributes += sortedAttributes(sortAttributes, record, options);
+    attributes += yield* sortedAttributes(sortAttributes, record, options);
     children?.sort();
   }
 
   return { attributes, children };
-};
+});
 
 /**
  * @description The attributes named by `keys`, rendered in the order given. Only reached when the render was asked to sort keys, where the names are collected
@@ -518,13 +544,17 @@ const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
  * @param record - The element's value, to read the attribute values out of.
  * @param options - Resolved render options.
  *
- * @returns The rendered attributes, each with its leading space.
+ * @returns An effect producing the rendered attributes, each with its leading space.
  */
-const sortedAttributes = (keys: ReadonlyArray<string>, record: XmlRecord, options: ResolvedOptions): string => {
+const sortedAttributes = Effect.fnUntraced(function* (
+  keys: ReadonlyArray<string>,
+  record: XmlRecord,
+  options: ResolvedOptions
+): Effect.fn.Return<string, XmlRenderError> {
   let attributes = '';
-  for (const key of keys) attributes += renderAttribute(key, record[key], options);
+  for (const key of keys) attributes += yield* renderAttribute(key, record[key], options);
   return attributes;
-};
+});
 
 /**
  * @description One attribute, written whole. The leading space is part of it so the caller can concatenate attributes and the opening tag without a separator of
@@ -534,10 +564,16 @@ const sortedAttributes = (keys: ReadonlyArray<string>, record: XmlRecord, option
  * @param value - The attribute's value.
  * @param options - Resolved render options.
  *
- * @returns The attribute, ready to write inside the opening tag.
+ * @returns An effect producing the attribute, ready to write inside the opening tag.
  */
-const renderAttribute = (key: string, value: XmlValue, options: ResolvedOptions): string =>
-  ' ' + options.namer(attributeName(key)) + '="' + escapeAttribute(attributeText(value)) + '"';
+const renderAttribute = Effect.fnUntraced(function* (
+  key: string,
+  value: XmlValue,
+  options: ResolvedOptions
+): Effect.fn.Return<string, XmlRenderError> {
+  const name = yield* options.namer(attributeName(key));
+  return ' ' + name + '="' + escapeAttribute(attributeText(value)) + '"';
+});
 
 /**
  * @description Writes an element's children, by name and in the order their keys were found. The names are what the key pass kept; the values are read back out of
@@ -549,14 +585,20 @@ const renderAttribute = (key: string, value: XmlValue, options: ResolvedOptions)
  * @param depth - The depth the parent sits at; its children are one deeper.
  * @param options - Resolved render options.
  */
-const writeChildren = (out: Array<string>, record: XmlRecord, children: ReadonlyArray<string>, depth: number, options: ResolvedOptions): void => {
+const writeChildren = Effect.fnUntraced(function* (
+  out: Array<string>,
+  record: XmlRecord,
+  children: ReadonlyArray<string>,
+  depth: number,
+  options: ResolvedOptions
+): Effect.fn.Return<void, XmlRenderError> {
   for (let i = 0; i < children.length; i++) {
     const key = children[i] as string;
     const child = record[key];
     if (child === undefined) continue;
-    renderElement(out, key, child, depth + 1, options);
+    yield* renderElement(out, key, child, depth + 1, options);
   }
-};
+});
 
 /**
  * @description Starts a new line at the given depth, when pretty-printing.

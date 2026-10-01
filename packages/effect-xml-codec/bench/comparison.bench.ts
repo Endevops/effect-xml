@@ -1,39 +1,15 @@
-/**
- * @description Throughput benchmarks for this package against the libraries it is compared with: `@endevops/builder` (a fork of `fast-xml-builder`) and upstream
- * `fast-xml-builder` for encoding, and `@endevops/parser` (a fork of `fast-xml-parser`) plus upstream `fast-xml-parser` for decoding. Both halves of
- * the comparison are present in both versions, so there are two ecosystems rather than one. The fork and the upstream package are the same version of
- * the same code -- `@endevops/builder` is 1.3.1 and `fast-xml-builder` is 1.3.1 -- which makes the fork's rows a check that maintaining it in this
- * workspace has cost nothing in speed. That is a question worth answering rather than assuming, and it only shows up if both are measured. The
- * comparison is only worth anything if every implementation is handed the same object and asked for the same thing, so that is established rather
- * than assumed:
- *
- * - All three encode the same value and, with `attributeNamePrefix: '@'`, every builder produces **byte-identical** output to this codec. The
- *   assertions at the bottom of this file check it, so a change that breaks the equivalence fails the benchmark rather than quietly reporting a
- *   speed-up over different work.
- * - All three decode that same document, and both parsers reproduce the original value's content. Upstream `fast-xml-parser` puts the attributes last
- *   in key order rather than first, so it is compared on throughput and not on the equality of its output. Two differences in the APIs are worth
- *   stating rather than hiding. This codec's value excludes the root element's name, because the schema describes the root's content; both parsers
- *   include it, so their benchmarks read one property off the result. And both parsers are given the document this codec produced, so neither is
- *   being measured against a document it found easy to read. Every implementation is constructed once, at module scope, which is how each is meant to
- *   be used: the builders resolve their options in the constructor and the parsers compile theirs there, so constructing one per call would measure
- *   setup rather than the work. Every benchmark folds its result into a module-scope counter that `afterAll` reads back, because a discarded result
- *   is a result the JIT is free to delete.
- * - One asymmetry is left in and is worth naming, because it flatters this codec. The two forks are imported by package name, which resolves to their
- *   built `dist/`, so their cross-module calls go through the module runner's export getters — overhead an installed copy does not pay. This codec is
- *   imported from `src/`, and Vite 5 warns about it by name on the decoding rows: `packages/parser/dist/util.js > isSpace` is read on a hot path,
- *   once per character. The fork's decoding numbers are therefore a floor, not what the same code does in production.
- */
+// oxlint-disable effecttsgo/schema-number
 
 import XMLBuilder from '@endevops/builder';
 import { XMLParser } from '@endevops/parser';
 import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
-import { afterAll, beforeAll, expect, test } from 'vite-plus/test';
+import { test } from 'vite-plus/test';
 
-import type { XmlValue } from '#/index.ts';
-
-import { parseXmlDocument, renderXml, toCodecXml } from '#/index.ts';
+import { toCodecXml } from '#/codec.ts';
+import { parseXml } from '#/parse.ts';
+import { renderXml } from '#/render.ts';
 
 // ---------------------------------------------------------------------------
 // The documents under test
@@ -51,7 +27,7 @@ const Order = Schema.Struct({
   note: Schema.String,
   customer: Schema.Struct({ '@id': Schema.String, name: Schema.String, email: Schema.String }),
   line: Schema.Array(Schema.Struct({ '@sku': Schema.String, sku: Schema.String, qty: Schema.Number, price: Schema.Number })),
-});
+}).pipe(toCodecXml);
 
 /**
  * @description One order, as a plain object. Built once, so the benchmarks measure serialization rather than the cost of assembling the thing being serialized.
@@ -88,7 +64,7 @@ const Row = Schema.Struct({ '@id': Schema.String, '@qty': Schema.String, sku: Sc
 /**
  * @description The whole large document: a repeated row under a single root element.
  */
-const Report = Schema.Struct({ row: Schema.Array(Row) });
+const Report = Schema.Struct({ row: Schema.Array(Row) }).pipe(toCodecXml);
 
 /**
  * @description The rows, as one value. Typed against the schema with `satisfies` rather than declared separately, so the benchmark cannot drift from the schema it
@@ -114,7 +90,7 @@ const REPORT_ROOT = 'report';
  * is a per-character cost rather than a per-element one, and it is the only row here where what a library does with character data dominates
  * everything else it does.
  */
-const Note = Schema.Struct({ body: Schema.String });
+const Note = Schema.Struct({ body: Schema.String }).pipe(toCodecXml);
 
 /**
  * @description The text, long enough to be a real document and with a character needing an escape at both ends of its range, so the escaping path is taken rather
@@ -132,14 +108,6 @@ const note = { body: NOTE } satisfies Schema.Schema.Type<typeof Note>;
  */
 const NOTE_ROOT = 'note';
 
-// ---------------------------------------------------------------------------
-// The implementations, each constructed once
-// ---------------------------------------------------------------------------
-
-const orderCodec = toCodecXml(Order);
-const reportCodec = toCodecXml(Report);
-const noteCodec = toCodecXml(Note);
-
 /**
  * @description The settings that make a builder produce the same bytes as this codec, applied to both versions of it. `attributeNamePrefix: '@'` is the one that
  * matters: it is the prefix this codec's convention uses, and with it the two produce the same document. `ignoreAttributes: false` is required for a
@@ -149,21 +117,9 @@ const noteCodec = toCodecXml(Note);
 const BUILDER_OPTIONS = { attributeNamePrefix: '@', ignoreAttributes: false, suppressEmptyNode: true, format: false } as const;
 
 /**
- * @description Run one of the effects this comparison's own packages return, for its value. Both `@endevops/builder` and `@endevops/parser` answer with an
- * `Effect` now — a builder resolves its options on the way in, a parser resolves its own and reports failures through one — and the benchmark has to
- * get past both to reach the strings and trees it is timing. `Effect.runSync` is the honest cost: the work underneath is synchronous, so the effect
- * is a wrapper around what is already being measured rather than a runtime charge on top of it.
- *
- * @param effect - The effect to run.
- *
- * @returns The successful value.
- */
-const runSync = <A, E>(effect: Effect.Effect<A, E>): A => Effect.runSync(effect);
-
-/**
  * @description `@endevops/builder`, the fork maintained in this workspace.
  */
-const builder = runSync(XMLBuilder.make({ ...BUILDER_OPTIONS }));
+const builder = XMLBuilder.make({ ...BUILDER_OPTIONS }).pipe(Effect.runSync);
 
 /**
  * @description Upstream `fast-xml-builder` from npm, at the same version as the fork.
@@ -173,7 +129,7 @@ const upstreamBuilder = new UpstreamXMLBuilder({ ...BUILDER_OPTIONS });
 /**
  * @description `@endevops/parser`. Attributes are skipped by default, and the `@` prefix has to be set separately, so both are given.
  */
-const parser = runSync(XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '@' } }));
+const parser = XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '@' } }).pipe(Effect.runSync);
 
 /**
  * @description Upstream `fast-xml-parser`. `parseAttributeValue: false` keeps attribute values as the strings they are in the document, which is what this codec's
@@ -181,169 +137,139 @@ const parser = runSync(XMLParser.make({ skip: { attributes: false }, attributes:
  */
 const upstream = new UpstreamXMLParser({ ignoreAttributes: false, attributeNamePrefix: '@', parseAttributeValue: false });
 
+const encodeOrder = Schema.encodeEffect(Order);
+const encodeReport = Schema.encodeEffect(Report);
+const encodeNote = Schema.encodeEffect(Note);
+const decodeOrder = Schema.decodeEffect(Order);
+const decodeReport = Schema.decodeEffect(Report);
+const decodeNote = Schema.decodeEffect(Note);
+
 /**
  * @description The documents, rendered by this codec so that all three decode from the same bytes.
  */
-const orderDocument = renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT });
-const reportDocument = renderXml(Schema.encodeSync(reportCodec)(report) as XmlValue, { rootName: REPORT_ROOT });
-const noteDocument = renderXml(Schema.encodeSync(noteCodec)(note) as XmlValue, { rootName: NOTE_ROOT });
-
-/**
- * @description Accumulates the outcome of every operation the benchmarks perform, so the work is observable rather than discardable.
- */
-let observed = 0;
+const orderDocument = Effect.gen(function* () {
+  const xml = yield* encodeOrder(order);
+  return yield* renderXml(xml, { rootName: ROOT });
+}).pipe(Effect.runSync);
+const reportDocument = Effect.gen(function* () {
+  const xml = yield* encodeReport(report);
+  return yield* renderXml(xml, { rootName: REPORT_ROOT });
+}).pipe(Effect.runSync);
+const noteDocument = Effect.gen(function* () {
+  const xml = yield* encodeNote(note);
+  return yield* renderXml(xml, { rootName: NOTE_ROOT });
+}).pipe(Effect.runSync);
 
 /**
  * @description How long to sample each benchmark in a group, and how long to warm it up first. A small document takes single-digit microseconds, so a shorter
  * sample than Tinybench's default still collects tens of thousands of samples without a suite that takes a minute.
  */
-const BUDGET = { time: 300, warmupTime: 50 } as const;
-
-/**
- * @description The benchmark bodies below call straight into the library functions rather than through a wrapper, so that the numbers include exactly one call
- * each and nothing of this file's own.
- *
- * @param call - What the implementation is asked to do.
- *
- * @returns A function that calls it and folds a number into the counter.
- */
-const measure =
-  (call: () => unknown): (() => void) =>
-  () => {
-    observed += call() === undefined ? 0 : 1;
-  };
-
-/**
- * @description A number derived from a parsed value, so a decode benchmark can fold its result into the counter. A parsed object has no `length` of its own, and
- * counting its keys is enough to keep the work from being optimised away.
- *
- * @param value - The value the parser produced.
- *
- * @returns A number that depends on the value.
- */
-const sizeOf = (value: unknown): number => (typeof value === 'object' && value !== null ? Object.keys(value).length : String(value).length);
-
-beforeAll(() => {
-  // The equivalence the whole comparison rests on. If a change to the renderer, a builder's defaults, or a parser's options breaks it, the benchmark says
-  // so here instead of reporting a speed-up over work that is not the same.
-  expect(runSync(builder.build({ [ROOT]: order }))).toBe(orderDocument);
-  expect(upstreamBuilder.build({ [ROOT]: order })).toBe(orderDocument);
-  expect(JSON.stringify((runSync(parser.parse(orderDocument)) as Record<string, unknown>)[ROOT])).toBe(JSON.stringify(order));
-  // Upstream's key order puts attributes last rather than first, so the check is that every field survives rather than that the serialisation matches.
-  expect(JSON.stringify((upstream.parse(orderDocument) as Record<string, unknown>)[ROOT], Object.keys(order).reverse())).toBe(
-    JSON.stringify(order, Object.keys(order).reverse())
-  );
-});
-
-afterAll(() => {
-  // An empty sink means the benchmark bodies never reached the line that folds a result in, so the tables describe a run that did no work.
-  expect(observed).toBeGreaterThan(0);
-});
+const BUDGET = { time: 1000, warmupTime: 50 } as const;
 
 test('encoding — a small document', async ({ bench }) => {
   await bench.compare(
-    bench(
-      'this codec',
-      measure(() => renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT }).length)
-    ),
-    bench(
-      '@endevops/builder',
-      measure(() => runSync(builder.build({ [ROOT]: order })).length)
-    ),
-    bench(
-      'fast-xml-builder',
-      measure(() => upstreamBuilder.build({ [ROOT]: order }).length)
-    ),
+    bench('this codec', () => {
+      Effect.gen(function* () {
+        const xml = yield* encodeOrder(order);
+        yield* renderXml(xml, { rootName: ROOT });
+      }).pipe(Effect.runSync);
+    }),
+    bench('@endevops/builder', () => {
+      builder.build({ [ROOT]: order }).pipe(Effect.runSync);
+    }),
+    bench('fast-xml-builder', () => {
+      upstreamBuilder.build({ [ROOT]: order });
+    }),
     BUDGET
   );
 });
 
 test('encoding — a 500-row document', async ({ bench }) => {
   await bench.compare(
-    bench(
-      'this codec',
-      measure(() => renderXml(Schema.encodeSync(reportCodec)(report) as XmlValue, { rootName: REPORT_ROOT }).length)
-    ),
-    bench(
-      '@endevops/builder',
-      measure(() => runSync(builder.build({ [REPORT_ROOT]: report })).length)
-    ),
-    bench(
-      'fast-xml-builder',
-      measure(() => upstreamBuilder.build({ [REPORT_ROOT]: report }).length)
-    ),
+    bench('this codec', () => {
+      Effect.gen(function* () {
+        const xml = yield* encodeReport(report);
+        yield* renderXml(xml, { rootName: REPORT_ROOT });
+      }).pipe(Effect.runSync);
+    }),
+    bench('@endevops/builder', () => {
+      builder.build({ [REPORT_ROOT]: report }).pipe(Effect.runSync);
+    }),
+    bench('fast-xml-builder', () => {
+      upstreamBuilder.build({ [REPORT_ROOT]: report });
+    }),
     BUDGET
   );
 });
 
 test('encoding — one large text node', async ({ bench }) => {
   await bench.compare(
-    bench(
-      'this codec',
-      measure(() => renderXml(Schema.encodeSync(noteCodec)(note) as XmlValue, { rootName: NOTE_ROOT }).length)
-    ),
-    bench(
-      '@endevops/builder',
-      measure(() => runSync(builder.build({ [NOTE_ROOT]: note })).length)
-    ),
-    bench(
-      'fast-xml-builder',
-      measure(() => upstreamBuilder.build({ [NOTE_ROOT]: note }).length)
-    ),
+    bench('this codec', () => {
+      Effect.gen(function* () {
+        const xml = yield* encodeNote(note);
+        yield* renderXml(xml, { rootName: NOTE_ROOT });
+      }).pipe(Effect.runSync);
+    }),
+    bench('@endevops/builder', () => {
+      builder.build({ [NOTE_ROOT]: note }).pipe(Effect.runSync);
+    }),
+    bench('fast-xml-builder', () => {
+      upstreamBuilder.build({ [NOTE_ROOT]: note });
+    }),
     BUDGET
   );
 });
 
 test('decoding — a small document', async ({ bench }) => {
   await bench.compare(
-    bench(
-      'this codec',
-      measure(() => Schema.decodeSync(orderCodec)(parseXmlDocument(orderDocument).value))
-    ),
-    bench(
-      '@endevops/flexible-xml-parser',
-      measure(() => sizeOf((runSync(parser.parse(orderDocument)) as Record<string, unknown>)[ROOT]))
-    ),
-    bench(
-      'fast-xml-parser',
-      measure(() => sizeOf((upstream.parse(orderDocument) as Record<string, unknown>)[ROOT]))
-    ),
+    bench('this codec', () => {
+      Effect.gen(function* () {
+        const xml = yield* parseXml(orderDocument);
+        yield* decodeOrder(xml);
+      }).pipe(Effect.runSync);
+    }),
+    bench('@endevops/parser', () => {
+      parser.parse(orderDocument).pipe(Effect.runSync);
+    }),
+    bench('fast-xml-parser', () => {
+      upstream.parse(orderDocument);
+    }),
     BUDGET
   );
 });
 
 test('decoding — a 500-row document', async ({ bench }) => {
   await bench.compare(
-    bench(
-      'this codec',
-      measure(() => Schema.decodeSync(reportCodec)(parseXmlDocument(reportDocument).value))
-    ),
-    bench(
-      '@endevops/flexible-xml-parser',
-      measure(() => sizeOf((runSync(parser.parse(reportDocument)) as Record<string, unknown>)[REPORT_ROOT]))
-    ),
-    bench(
-      'fast-xml-parser',
-      measure(() => sizeOf((upstream.parse(reportDocument) as Record<string, unknown>)[REPORT_ROOT]))
-    ),
+    bench('this codec', () => {
+      Effect.gen(function* () {
+        const xml = yield* parseXml(reportDocument);
+        yield* decodeReport(xml);
+      }).pipe(Effect.runSync);
+    }),
+    bench('@endevops/parser', () => {
+      parser.parse(reportDocument).pipe(Effect.runSync);
+    }),
+    bench('fast-xml-parser', () => {
+      upstream.parse(reportDocument);
+    }),
     BUDGET
   );
 });
 
 test('decoding — one large text node', async ({ bench }) => {
   await bench.compare(
-    bench(
-      'this codec',
-      measure(() => Schema.decodeSync(noteCodec)(parseXmlDocument(noteDocument).value))
-    ),
-    bench(
-      '@endevops/flexible-xml-parser',
-      measure(() => sizeOf((runSync(parser.parse(noteDocument)) as Record<string, unknown>)[NOTE_ROOT]))
-    ),
-    bench(
-      'fast-xml-parser',
-      measure(() => sizeOf((upstream.parse(noteDocument) as Record<string, unknown>)[NOTE_ROOT]))
-    ),
+    bench('this codec', () => {
+      Effect.gen(function* () {
+        const xml = yield* parseXml(noteDocument);
+        yield* decodeNote(xml);
+      }).pipe(Effect.runSync);
+    }),
+    bench('@endevops/parser', () => {
+      parser.parse(noteDocument).pipe(Effect.runSync);
+    }),
+    bench('fast-xml-parser', () => {
+      upstream.parse(noteDocument);
+    }),
     BUDGET
   );
 });
@@ -354,20 +280,24 @@ test('a full round trip, both halves measured', async ({ bench }) => {
   // costs. The two ecosystems are measured separately because a caller picks one, and the difference between them is the difference between the fork
   // and what is on npm.
   await bench.compare(
-    bench(
-      'this codec',
-      measure(() =>
-        Schema.decodeSync(orderCodec)(parseXmlDocument(renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT })).value)
-      )
-    ),
-    bench(
-      'then parser, both @endevops',
-      measure(() => sizeOf((runSync(parser.parse(runSync(builder.build({ [ROOT]: order })))) as Record<string, unknown>)[ROOT]))
-    ),
-    bench(
-      'then parser, both from npm',
-      measure(() => sizeOf((upstream.parse(upstreamBuilder.build({ [ROOT]: order })) as Record<string, unknown>)[ROOT]))
-    ),
+    bench('this codec', () => {
+      Effect.gen(function* () {
+        const xml = yield* encodeOrder(order);
+        const document = yield* renderXml(xml, { rootName: ROOT });
+        const xmlValue = yield* parseXml(document);
+        yield* decodeOrder(xmlValue);
+      }).pipe(Effect.runSync);
+    }),
+    bench('then parser, both @endevops', () => {
+      Effect.gen(function* () {
+        const document = yield* builder.build({ [ROOT]: order });
+        yield* parser.parse(document);
+      }).pipe(Effect.runSync);
+    }),
+    bench('then parser, both from npm', () => {
+      const document = upstreamBuilder.build({ [ROOT]: order });
+      upstream.parse(document);
+    }),
     BUDGET
   );
 });

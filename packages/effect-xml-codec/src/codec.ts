@@ -15,7 +15,7 @@
 //
 //   const codec = toCodecXml(Book);
 //
-//   const document = renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
+//   const document = Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
 //   const value = Schema.decodeSync(codec)(parseXmlDocument(document).value);
 //
 // The conventions are in the keys, not in a transformation: a key starting with
@@ -32,7 +32,7 @@ import { Schema } from 'effect';
  *
  * @example
  *   ```typescript
- *   import { Schema } from 'effect';
+ *   import { Effect, Schema } from 'effect';
  *   import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
  *
  *   const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: Schema.Number });
@@ -40,7 +40,7 @@ import { Schema } from 'effect';
  *
  *   const value = { '@id': '1', title: 'Dune', pages: 412 };
  *
- *   renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
+ *   Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
  *   // => '<book id="1"><title>Dune</title><pages>412</pages></book>'
  *
  *   Schema.decodeSync(codec)(parseXmlDocument('<book id="1"><title>Dune</title><pages>412</pages></book>').value);

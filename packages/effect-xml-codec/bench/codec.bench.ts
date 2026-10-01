@@ -1,4 +1,3 @@
-// oxlint-disable vitest/expect-expect
 /**
  * @description Throughput benchmarks for the two hot paths an application that serializes XML spends its time in: turning a typed value into a document, and
  * turning a document back into one. Split by layer as well as by direction, because the question "is the codec slow" has two very different answers
@@ -10,12 +9,22 @@
  * with content rather than with structure, and the two rows between them say how much of a document's serialization is escaping.
  */
 
-import { Schema } from 'effect';
-import { afterAll, expect, test } from 'vite-plus/test';
+import { afterAll, expect, test } from '@effect/vitest';
+import { Effect, Schema } from 'effect';
 
-import type { XmlValue } from '#/index.ts';
+import type { XmlRenderOptions } from '#/render.ts';
+import type { XmlValue } from '#/xml-value.ts';
 
-import { isXmlArray, isXmlRecord, parseXmlDocument, renderXml, toCodecXml } from '#/index.ts';
+import { toCodecXml } from '#/codec.ts';
+import { parseXmlDocument } from '#/parse.ts';
+import { renderXml } from '#/render.ts';
+import { isXmlArray, isXmlRecord } from '#/xml-value.ts';
+
+/**
+ * @description Renders a value the way a benchmark body that is not already in an `Effect` would: `renderXml` answers with an `Effect`, and `Effect.runSync` gets
+ * past it. The work underneath is synchronous, so this is the honest cost rather than a runtime charge on top of it.
+ */
+const render = (value: XmlValue, options?: XmlRenderOptions): string => Effect.runSync(renderXml(value, options));
 
 /**
  * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document like this is
@@ -77,14 +86,14 @@ const rows: { row: Array<Schema.Schema.Type<typeof Row>> } = {
  */
 const reportCodec = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }));
 
-const rowsDocument = renderXml(Schema.encodeSync(reportCodec)(rows) as XmlValue, { rootName: 'report' });
+const rowsDocument = render(Schema.encodeSync(reportCodec)(rows) as XmlValue, { rootName: 'report' });
 
 /**
  * @description The small document's codec and its document, built once for the same reason.
  */
 const orderCodec = toCodecXml(Order);
 
-const orderDocument = renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: 'order' });
+const orderDocument = render(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: 'order' });
 
 /**
  * @description A record of plain character data, for isolating the renderer from the escaping it normally does.
@@ -133,7 +142,7 @@ const BUDGET = { time: 300, warmupTime: 50 } as const;
  */
 const encoderFor = (schema: Schema.Constraint, rootName: string): ((value: never) => string) => {
   const codec = toCodecXml(schema as never);
-  return value => renderXml(Schema.encodeSync(codec)(value) as XmlValue, { rootName });
+  return value => render(Schema.encodeSync(codec)(value) as XmlValue, { rootName });
 };
 
 /**
@@ -195,7 +204,7 @@ test('codec — the layer underneath', async ({ bench }) => {
 
   await bench.compare(
     bench('render, no schema', () => {
-      observed += renderXml(xml, { rootName: 'r' }).length;
+      observed += render(xml, { rootName: 'r' }).length;
     }),
     bench('parse, no schema', () => {
       observed += sizeOf(
@@ -214,16 +223,16 @@ test('codec — what escaping costs', async ({ bench }) => {
 
   await bench.compare(
     bench('render clean text', () => {
-      observed += renderXml(cleanValue, { rootName: 'r' }).length;
+      observed += render(cleanValue, { rootName: 'r' }).length;
     }),
     bench('render text needing escapes', () => {
-      observed += renderXml(dirtyValue, { rootName: 'r' }).length;
+      observed += render(dirtyValue, { rootName: 'r' }).length;
     }),
     bench('render 20k of clean text', () => {
-      observed += renderXml({ body: long }, { rootName: 'r' }).length;
+      observed += render({ body: long }, { rootName: 'r' }).length;
     }),
     bench('render 20k of text with one unsafe character', () => {
-      observed += renderXml({ body: `${long}&` }, { rootName: 'r' }).length;
+      observed += render({ body: `${long}&` }, { rootName: 'r' }).length;
     }),
     BUDGET
   );
@@ -236,10 +245,10 @@ test('codec — the document shape', async ({ bench }) => {
 
   await bench.compare(
     bench('render, compact', () => {
-      observed += renderXml(xml, { rootName: 'report' }).length;
+      observed += render(xml, { rootName: 'report' }).length;
     }),
     bench('render, indented', () => {
-      observed += renderXml(xml, { rootName: 'report', format: true }).length;
+      observed += render(xml, { rootName: 'report', format: true }).length;
     }),
     bench('parse, 500 rows', () => {
       observed += sizeOf(parseXmlDocument(rowsDocument).value);

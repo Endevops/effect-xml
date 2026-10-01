@@ -7,7 +7,7 @@ the same way `Schema.toCodecJson` does. `renderXml` and `parseXml` are the text
 layer, the counterpart of `JSON.stringify` and `JSON.parse`.
 
 ```typescript
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
 
 const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: Schema.Number, tag: Schema.Array(Schema.String) });
@@ -15,7 +15,7 @@ const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: 
 const codec = toCodecXml(Book);
 const value = { '@id': '1', title: 'Dune', pages: 412, tag: ['sci-fi', 'classic'] };
 
-renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
+Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
 // => '<book id="1"><title>Dune</title><pages>412</pages><tag>sci-fi</tag><tag>classic</tag></book>'
 
 Schema.decodeSync(codec)(parseXmlDocument('<book id="1"><title>Dune</title><pages>412</pages><tag>sci-fi</tag><tag>classic</tag></book>').value);
@@ -66,7 +66,7 @@ decision rather than the parser's:
 | Export                                    | What it does                                                      |
 | ----------------------------------------- | ----------------------------------------------------------------- |
 | `toCodecXml(schema)`                      | The codec. Effect's `Schema.toCodecStringTree`, as a `Schema`.    |
-| `renderXml(value, options?)`              | An XML value tree to XML text.                                    |
+| `renderXml(value, options?)`              | An XML value tree to XML text. Returns an `Effect`.               |
 | `parseXml(text, options?)`                | XML text to an XML value tree. Returns an `Effect`.               |
 | `parseXmlDocument(text, options?)`        | The same, synchronously, throwing; keeps the root element's name. |
 | `escapeText` / `escapeAttribute`          | The escaping the renderer applies.                                |
@@ -74,13 +74,15 @@ decision rather than the parser's:
 | `isXmlValue`, `isXmlRecord`, `isXmlArray` | Runtime guards for the value model.                               |
 | `XmlValueSchema`                          | A `Schema` for an `XmlValue`, for a value from outside.           |
 | `XmlParseError`                           | The failure a malformed document reports.                         |
+| `XmlRenderError`                          | The failure a value that cannot be written reports.               |
 
 `toCodecXml` returns a `Schema`, so encoding and decoding are `Schema.encodeSync`
 and `Schema.decodeSync` (or the `Effect` forms), and every other Schema operation
 — `Schema.toFormatter`, `Schema.toJsonSchemaDocument`, the guards — applies to it
 unchanged. The text path is two calls either side of those:
-`renderXml(Schema.encodeSync(codec)(value), options)` writes a document and
-`Schema.decodeSync(codec)(parseXmlDocument(text).value)` reads one back.
+`Effect.runSync(renderXml(Schema.encodeSync(codec)(value), options))` writes a
+document and `Schema.decodeSync(codec)(parseXmlDocument(text).value)` reads one
+back.
 
 ## Design notes
 
@@ -96,8 +98,11 @@ are exercising.
 value tree, the service requirements are preserved, and it composes with the
 rest of Schema. There is no wrapper object, no per-call `Effect` allocation, and
 no derivation pinned to a release candidate. The one thing a `Schema` cannot
-carry is XML text, so `renderXml` and `parseXml` are plain functions, the way
-`JSON.stringify` and `JSON.parse` are separate from `Schema.toCodecJson`.
+carry is XML text, so `renderXml` and `parseXml` are the two ends of the text
+path, the way `JSON.stringify` and `JSON.parse` are separate from
+`Schema.toCodecJson`. Both answer with an `Effect`, so a value that will not
+write and a document that will not read are typed failures in the error channel
+rather than exceptions.
 
 **Escaping is XML's, not HTML's.** `EntityEncoder` from `@endevops/common-xml`
 is used with `encodeAllNamed: false`. Its named tables are HTML's, and an HTML
@@ -172,12 +177,12 @@ each depth built once per render rather than once per line.
 
 `parseXml` opens a span named `XmlCodec.parseXml`, carrying the document length
 as an attribute, so a slow parse in a trace can be attributed to the input that
-caused it. It is the package's one `Effect` entry point: `toCodecXml` is a
-`Schema`, so tracing a schema encode or decode is Effect's concern, and
-`renderXml` and the `…Sync` forms are untraced on purpose. Provide a `Tracer` to
-a program to collect the span, as `test/tracing.spec.ts` does. A failed parse is
-a typed `XmlParseError` in the error channel, not a defect, so `catchTag`,
-`retry` and a fallback all see it.
+caused it. It is the package's traced entry point; `renderXml` is an `Effect`
+too but opens no span, and `toCodecXml` is a `Schema`, so tracing a schema
+encode or decode is Effect's concern. Provide a `Tracer` to a program to collect
+the span, as `test/tracing.spec.ts` does. A failed parse is a typed
+`XmlParseError` in the error channel, not a defect, so `catchTag`, `retry` and a
+fallback all see it.
 
 ### Against the libraries in this workspace and on npm
 

@@ -5,9 +5,10 @@
 import { assert, describe, expect, it } from '@effect/vitest';
 import { Cause, Effect, Exit, Result } from 'effect';
 
-import type { XmlParseOptions } from '#/index.ts';
+import type { XmlParseOptions } from '#/parse.ts';
 
-import { XmlParseError, parseXml, parseXmlDocument } from '#/index.ts';
+import { XmlParseError } from '#/errors.ts';
+import { parseXml, parseXmlDocument } from '#/parse.ts';
 
 /**
  * @description Parse a document expected to fail and hand back the parse error, which is the only way to reach a message this class reports. A helper rather than

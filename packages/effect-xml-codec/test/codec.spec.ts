@@ -6,9 +6,19 @@
 import { Effect, Exit, Schema } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { XmlValue } from '#/index.ts';
+import type { XmlRenderOptions } from '#/render.ts';
+import type { XmlValue } from '#/xml-value.ts';
 
-import { parseXmlDocument, renderXml, toCodecXml, XmlParseError } from '#/index.ts';
+import { toCodecXml } from '#/codec.ts';
+import { XmlParseError } from '#/errors.ts';
+import { parseXmlDocument } from '#/parse.ts';
+import { renderXml } from '#/render.ts';
+
+/**
+ * @description Renders a value the way a caller not already in an `Effect` would: `renderXml` answers with an `Effect` whose failure is an `XmlRenderError`, and
+ * `Effect.runSync` throws it. The specs here compare a codec's document, so each case stays a one-liner.
+ */
+const render = (value: XmlValue, options?: XmlRenderOptions): string => Effect.runSync(renderXml(value, options));
 
 /**
  * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
@@ -42,7 +52,7 @@ describe('toCodecXml() — with the text layer', () => {
   const text = '<book id="1" xmlns="urn:books"><title>Dune</title><tag>sci-fi</tag><tag>classic</tag></book>';
 
   it('renders the encoded value as a document under the root name the caller gives', () => {
-    expect(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' })).toBe(text);
+    expect(render(Schema.encodeSync(codec)(value), { rootName: 'book' })).toBe(text);
   });
 
   it('parses a document into the value tree and decodes it', () => {
@@ -50,14 +60,14 @@ describe('toCodecXml() — with the text layer', () => {
   });
 
   it('round-trips a value through text', () => {
-    expect(Schema.decodeSync(codec)(parseXmlDocument(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' })).value)).toEqual(value);
+    expect(Schema.decodeSync(codec)(parseXmlDocument(render(Schema.encodeSync(codec)(value), { rootName: 'book' })).value)).toEqual(value);
   });
 
   it('keeps an @-prefixed key as an attribute and #text as character data', () => {
     const Anchor = Schema.Struct({ '@href': Schema.String, '#text': Schema.String });
     const anchor = toCodecXml(Anchor);
     const anchorValue = { '@href': '/a', '#text': 'link' };
-    const anchorText = renderXml(Schema.encodeSync(anchor)(anchorValue), { rootName: 'a' });
+    const anchorText = render(Schema.encodeSync(anchor)(anchorValue), { rootName: 'a' });
     expect(anchorText).toBe('<a href="/a">link</a>');
     expect(Schema.decodeSync(anchor)(parseXmlDocument(anchorText).value)).toEqual(anchorValue);
   });
@@ -66,7 +76,7 @@ describe('toCodecXml() — with the text layer', () => {
 describe('toCodecXml() — schema shapes through the text layer', () => {
   const roundTrip = (schema: AnyCodec, value: unknown): unknown => {
     const codec = toCodecXml(schema);
-    return Schema.decodeSync(codec)(parseXmlDocument(renderXml(Schema.encodeSync(codec)(value) as XmlValue, { rootName: 'r' })).value);
+    return Schema.decodeSync(codec)(parseXmlDocument(render(Schema.encodeSync(codec)(value) as XmlValue, { rootName: 'r' })).value);
   };
 
   it('handles a number field, as decimal text', () => {
@@ -153,10 +163,10 @@ describe('toCodecXml() — failures', () => {
   });
 
   it('refuses a name it cannot spell when the render is in error mode', () => {
-    expect(() => renderXml({ 'not a name': 'x' }, { rootName: 'r', name: 'error' })).toThrow(/Invalid XML name/);
+    expect(() => render({ 'not a name': 'x' }, { rootName: 'r', name: 'error' })).toThrow(/Invalid XML name/);
   });
 
   it('repairs a name it cannot spell by default', () => {
-    expect(renderXml({ 'not a name': 'x' }, { rootName: 'r' })).toBe('<r><not_a_name>x</not_a_name></r>');
+    expect(render({ 'not a name': 'x' }, { rootName: 'r' })).toBe('<r><not_a_name>x</not_a_name></r>');
   });
 });

@@ -284,7 +284,9 @@ export const isName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: V
   getRegexes(xmlVersion, asciiOnly).name.test(str);
 
 /**
- * @description Whether the string is a valid NCName (Non-Colonized Name). Colons are not permitted. Used for: namespace prefixes, local names, SVG id attributes.
+ * @description Whether the string is a valid NCName (Non-Colonized Name).\
+ * Colons are not permitted.\
+ * Used for: namespace prefixes, local names, SVG id attributes.
  *
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -295,8 +297,9 @@ export const isNcName = (str: string, { xmlVersion = '1.0', asciiOnly = false }:
   getRegexes(xmlVersion, asciiOnly).ncName.test(str);
 
 /**
- * @description Whether the string is a valid QName (Qualified Name). Allows exactly one colon as a prefix separator: `prefix:localName`. Used for: element and
- * attribute names in namespace-aware XML/SVG.
+ * @description Whether the string is a valid QName (Qualified Name).\
+ * Allows exactly one colon as a prefix separator: `prefix:localName`.\
+ * Used for: element and attribute names in namespace-aware XML/SVG.
  *
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).

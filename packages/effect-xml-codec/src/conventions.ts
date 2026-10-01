@@ -16,6 +16,7 @@
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { isQName, sanitize, validate } from '@endevops/common-xml';
+import { Match } from 'effect';
 
 import { XmlParseError } from './errors.ts';
 
@@ -115,21 +116,14 @@ export const isReservedKey = (key: string): boolean => isTextKey(key);
 export const resolveName = (name: string, { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}): string => {
   if (isQName(name, { xmlVersion })) return name;
 
-  switch (mode) {
-    case 'ignore':
-      return name;
-    case 'error': {
-      // `qName` above has already rejected the name, so the diagnostic's failure branch is the
-      // invalid one. Reading it directly rather than through a cast means a change in the naming
-      // package that made the two disagree would surface here.
+  return Match.value(mode).pipe(
+    Match.when('ignore', () => name),
+    Match.when('error', () => {
       const result = validate(name, 'qName', { xmlVersion });
       const reason = !result.valid ? result.reason : 'is not a legal XML name';
       throw new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
-    }
-    case 'repair':
-      // `sanitize` needs the 'name' production, not 'qName': its NCName branch would strip the
-      // namespace prefix off `ns:local`, losing information rather than repairing it. The 'name'
-      // production keeps colons.
-      return sanitize(name, 'name', { replacement: '_' });
-  }
+    }),
+    Match.when('repair', () => sanitize(name, 'name', { replacement: '_' })),
+    Match.exhaustive
+  );
 };

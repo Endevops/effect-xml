@@ -61,7 +61,7 @@ export interface XMLParser {
    *
    * @returns An effect producing the built output. Fails with a `ParseError` on any well-formedness or limit violation.
    */
-  parse<T>(xmlData: string | ArrayBufferView | { toString(): string }): Effect.Effect<T, ParseError>;
+  parse<T = Record<string, unknown>>(xmlData: string | ArrayBufferView | { toString(): string }): Effect.Effect<T, ParseError>;
   /**
    * @description Parse a Uint8Array / byte array and produce a JS object.
    *

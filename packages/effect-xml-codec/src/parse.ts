@@ -1,3 +1,4 @@
+// oxlint-disable effecttsgo/prefer-schema-over-json
 // Parsing: XML text to an `XmlValue`.
 //
 // The parser is a hand-written scanner rather than a regular expression or a
@@ -105,6 +106,8 @@ export const parseXml = (text: string, options: XmlParseOptions = {}): Effect.Ef
 /**
  * @description Parses an XML document, keeping the root element's name. This is the synchronous form of {@link parseXml}: it runs the same walk and throws the
  * {@link XmlParseError} the effect would have failed with, for a caller that is not already in an `Effect`.
+ *
+ * @deprecated
  *
  * @param text - The document to read.
  * @param options - Whitespace, depth and name-handling settings.

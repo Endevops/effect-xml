@@ -6,7 +6,7 @@
  *
  * @example
  *   ```typescript
- *   import { Schema } from 'effect';
+ *   import { Effect, Schema } from 'effect';
  *   import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
  *
  *   const Book = Schema.Struct({
@@ -18,7 +18,7 @@
  *   const codec = toCodecXml(Book);
  *   const value = { '@id': '1', title: 'Dune', tag: ['sci-fi'] };
  *
- *   const text = renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
+ *   const text = Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
  *   // => '<book id="1"><title>Dune</title><tag>sci-fi</tag></book>'
  *
  *   Schema.decodeSync(codec)(parseXmlDocument(text).value); // => value
@@ -42,10 +42,10 @@ export {
   TEXT_KEY,
 } from './conventions.ts';
 
-export { XmlParseError } from './errors.ts';
+export { XmlParseError, XmlRenderError } from './errors.ts';
 
 export type { XmlDocument, XmlParseOptions } from './parse.ts';
-export { parseXml, parseXmlDocument } from './parse.ts';
+export { parseXml } from './parse.ts';
 
 export type { XmlRenderOptions } from './render.ts';
 export { escapeAttribute, escapeText, renderXml } from './render.ts';
