@@ -1,6 +1,6 @@
 {
   "name": "@endevops/parser",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "XML parser in pure JavaScript with pluggable output builders and composable value parsers. Fork of @nodable/flexible-xml-parser, with static types across the source tree and a fully typed test suite.",
   "keywords": [
     "buffer",
@@ -31,7 +31,9 @@
     "directory": "packages/parser"
   },
   "files": [
-    "dist"
+    "dist",
+    "src/**/*.ts",
+    "!src/**/*.{spec,test}.ts"
   ],
   "type": "module",
   "sideEffects": false,
