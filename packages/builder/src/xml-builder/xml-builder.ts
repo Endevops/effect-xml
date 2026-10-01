@@ -335,7 +335,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
           // Initialize matcher for path tracking
           const matcher = new PathMatcher();
           const xmlVersion = detectXmlVersionFromObj(jObj as Record<string, unknown>, options);
-          const qNameValidator: NameValidator = nameValidatorFor(xmlVersion);
+          const qNameValidator = yield* nameValidatorFor(xmlVersion);
           return (yield* this.j2x(jObj as Record<string, unknown>, 0, matcher, qNameValidator)).val;
         }
       }),
@@ -1100,6 +1100,7 @@ function renderRawChild(builder: XmlBuilderState, key: string, value: unknown): 
  *
  * @returns The raw XML this array contributes.
  */
+// fallow-ignore-next-line complexity
 function renderRawList(builder: XmlBuilderState, key: string, items: Array<unknown>): string {
   let content = '';
 

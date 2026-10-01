@@ -14,7 +14,7 @@ import { Effect } from 'effect';
 
 import type { BuilderError } from '#/errors.ts';
 
-import { compilePattern, tryResolveName } from '#/errors.ts';
+import { compilePattern, fromPatternError, tryResolveName } from '#/errors.ts';
 
 import type { ResolvedXmlBuilderOptions } from './options.ts';
 
@@ -27,14 +27,18 @@ import { escapeAttribute } from './util.ts';
 export type NameValidator = (name: string) => boolean;
 
 /**
- * @description Build the memoized QName validator for an XML version. Validating a name is a regex test that cannot fail, so `createValidator` answers with a
- * plain predicate.
+ * @description Build the memoized QName validator for an XML version. The validator itself is a plain predicate — validating a name is a regex test that cannot
+ * fail — but `createValidator` answers with an `Effect`, because an unknown production is a failure it reports in its error channel. The production
+ * here is the literal `'qName'`, so that failure is unreachable; it is mapped into this package's own error type rather than left to widen the
+ * channel.
  *
  * @param xmlVersion - The version detected from the document.
  *
- * @returns The validator.
+ * @returns An effect producing the validator. Fails with the `PatternCompilationFailed` reason only for an unknown production, which cannot happen
+ *   here.
  */
-export const nameValidatorFor = (xmlVersion: XmlVersion): NameValidator => createValidator('qName', { xmlVersion });
+export const nameValidatorFor = (xmlVersion: XmlVersion): Effect.Effect<NameValidator, BuilderError> =>
+  Effect.mapError(createValidator('qName', { xmlVersion }), cause => fromPatternError('qName', cause));
 
 /**
  * @description Resolve a tag or attribute name through `sanitizeName` if one is configured. QName validation runs first, so the resolver is only invoked for names

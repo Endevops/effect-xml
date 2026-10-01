@@ -135,7 +135,7 @@ export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOption
 
     // Detect XML version for use in name validation
     const xmlVersion = detectXmlVersionFromArray(jArray, options);
-    const qNameValidator: NameValidator = nameValidatorFor(xmlVersion);
+    const qNameValidator = yield* nameValidatorFor(xmlVersion);
     // Initialize matcher for path tracking
     const matcher = new PathMatcher();
 

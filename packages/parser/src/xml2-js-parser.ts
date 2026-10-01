@@ -41,6 +41,7 @@ import {
   UnexpectedCloseTag,
   UnexpectedEnd,
   UnexpectedTrailingData,
+  fromUpstreamError,
   isParseError,
   runBuilder,
 } from './parse-error.ts';
@@ -990,36 +991,36 @@ export default class Xml2JsParser implements TagExpressionParser {
    * already-validated opening name instead (`readClosingTag`), so they never need shape validation of their own. Only valid names are cached — an
    * invalid name throws every time it's seen, never silently let through after a first failure.
    */
-  isValidQName(name: string): boolean {
+  isValidQName = Effect.fnUntraced(function* (this: Xml2JsParser, name: string): Effect.fn.Return<boolean, ParseError> {
     const cache = this._validQNames;
     if (cache.has(name)) return true;
-    // `common-xml`'s validator answers as an effect, and this is a per-tag
-    // question asked mid-walk, so it is run rather than read — an effect read
-    // as a value is an object, and an object is truthy, so every name would
-    // validate.
-    const ok = this.getNameValidator('qName')(name);
+    // Building the validator is the only step here that can fail, and it is the
+    // cached one: once built, validating a name is a plain regex test.
+    const validator = yield* this.getNameValidator('qName');
+    const ok = validator(name);
     if (ok) {
       if (cache.size >= NAME_CACHE_LIMIT) cache.clear();
       cache.add(name);
     }
     return ok;
-  }
+  });
 
   /**
    * @description Returns a memoized xml-naming validator for the given production (`'qName'` for tag/attribute names, `'name'` for DOCTYPE entity/element names),
    * built lazily on first use and cached per parser instance for the rest of the document/session. `xmlDec.version` is stored as a number (1 / 1.1)
    * but xml-naming's `xmlVersion` option is the string `'1.0'` / `'1.1'` — normalized here rather than changing `xmlDec`'s public shape (it's
-   * forwarded as-is to `outputBuilder.addDeclaration()`, so its type is part of the builder contract, not just an internal detail).
+   * forwarded as-is to `outputBuilder.addDeclaration()`, so its type is part of the builder contract, not just an internal detail). Construction
+   * reports an unknown production as a `common-xml` `XmlError`, mapped into `DEPENDENCY_ERROR` here.
    */
-  getNameValidator(production: Production): NameValidator {
+  getNameValidator = Effect.fnUntraced(function* (this: Xml2JsParser, production: Production): Effect.fn.Return<NameValidator, ParseError> {
     let validator = this._nameValidators[production];
     if (!validator) {
       const xmlVersion = this.xmlDec.version === 1.1 ? '1.1' : '1.0';
-      validator = createValidator(production, { xmlVersion });
+      validator = yield* createValidator(production, { xmlVersion }).pipe(Effect.mapError(fromUpstreamError));
       this._nameValidators[production] = validator;
     }
     return validator;
-  }
+  });
 
   /**
    * @description Process a raw attribute name: resolve its namespace prefix, validate it, sanitize it, and apply the reserved-name check. Cached.
@@ -1032,7 +1033,8 @@ export default class Xml2JsParser implements TagExpressionParser {
       const options = this.options;
       let attrName = yield* resolveNsPrefix(rawAttrName, options.skip.nsPrefix, this.source);
       if (attrName === false) return false;
-      if (!this.getNameValidator('qName')(attrName)) {
+      const qName = yield* this.getNameValidator('qName');
+      if (!qName(attrName)) {
         //TODO: make it optional
         return yield* new InvalidAttributeName({
           name: attrName,

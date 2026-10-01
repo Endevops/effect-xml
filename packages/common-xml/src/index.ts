@@ -13,7 +13,7 @@
  *   import { COMMON_HTML, EntityDecoder, Expression, Matcher, createValidator, sanitize } from '@endevops/common-xml';
  *
  *   // Infallible operations are plain synchronous functions — a regex test cannot fail.
- *   const isQName = createValidator('qName');
+ *   const isQName = Effect.runSync(createValidator('qName'));
  *   isQName('svg:circle'); // true
  *   sanitize('not a name', 'ncName'); // 'not_a_name'
  *

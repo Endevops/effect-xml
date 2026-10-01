@@ -284,7 +284,7 @@ const buildTagExpObj = Effect.fnUntraced(function* (
   // the metadata is then unavailable, not an error.
   if (expStart !== undefined) tagExp._attrsExpStart = expStart + split.attrsOffset;
 
-  if (!parser.isValidQName(tagExp.tagName)) {
+  if (!(yield* parser.isValidQName(tagExp.tagName))) {
     return yield* new InvalidTagName({ name: tagExp.tagName, message: 'Invalid tag name' });
   }
 

@@ -403,7 +403,8 @@ const readElementExp = Effect.fnUntraced(function* (
 
   yield* ensureCanRead(source, 1, 'ELEMENT name');
 
-  if (!parser.getNameValidator('name')(elementName)) {
+  const elementNameValidator = yield* parser.getNameValidator('name');
+  if (!elementNameValidator(elementName)) {
     return yield* new InvalidTag({ tag: elementName, message: `Invalid element name: "${elementName}"`, index: errorPositionOf(source).index });
   }
 
@@ -543,7 +544,8 @@ const skipSourceWhitespace = (source: InputSourceLike): void => {
  *
  * @returns An effect producing the name. Fails with `ENTITY_INVALID_KEY` when the name is not a valid XML Name.
  */
-const validateEntityName = Effect.fnUntraced(function* (name: string, parser: TagExpressionParser): Effect.fn.Return<string, EntityInvalidKey> {
-  if (parser.getNameValidator('name')(name)) return name;
+const validateEntityName = Effect.fnUntraced(function* (name: string, parser: TagExpressionParser): Effect.fn.Return<string, ParseError> {
+  const nameValidator = yield* parser.getNameValidator('name');
+  if (nameValidator(name)) return name;
   return yield* new EntityInvalidKey({ name, message: `Invalid entity name "${name}"` });
 });

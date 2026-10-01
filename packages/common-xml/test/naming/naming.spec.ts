@@ -4,11 +4,33 @@
  * guard exists to catch, which is the only way to exercise that branch from a type-checked suite.
  */
 
+import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { Production, ValidationResult } from '#/index.ts';
+import type { CreateValidatorOptions, MemoizedValidator, Production, ValidationOptions, ValidationResult } from '#/index.ts';
 
-import { createValidator, isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate, validateAll } from '#/index.ts';
+import {
+  createValidator as createValidatorEffect,
+  isName,
+  isNcName,
+  isNmToken,
+  isNmTokens,
+  isQName,
+  sanitize,
+  validate as validateEffect,
+  validateAll as validateAllEffect,
+} from '#/index.ts';
+
+/**
+ * @description Runs an effectful validator the way a caller not already in an `Effect` would: `Effect.runSync` throws the failure, so a spec asserting on a thrown
+ * `XmlError` keeps reading the same, and a spec asserting on the value does too.
+ */
+const validate = (str: string, production: Production, options?: ValidationOptions): ValidationResult =>
+  Effect.runSync(validateEffect(str, production, options));
+const validateAll = (strings: Array<string>, production: Production, options?: ValidationOptions): Array<ValidationResult> =>
+  Effect.runSync(validateAllEffect(strings, production, options));
+const createValidator = (production: Production, options?: CreateValidatorOptions): MemoizedValidator =>
+  Effect.runSync(createValidatorEffect(production, options));
 
 /**
  * @description Narrows a validation result to its diagnostics. Throws if the result was valid, so a spec that expected a failure cannot pass on a success.

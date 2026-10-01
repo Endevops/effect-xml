@@ -361,13 +361,14 @@ export interface TagExpressionParser {
    */
   processAttrName(rawAttrName: string): Effect.Effect<string | false, ParseError>;
   /**
-   * @description Validate a tag name against the document's XML version, memoized.
+   * @description Validate a tag name against the document's XML version, memoized. Effectful because building the validator can fail — an unknown production is a
+   * `common-xml` `XmlError`, mapped into the parser's channel.
    */
-  isValidQName(name: string): boolean;
+  isValidQName(name: string): Effect.Effect<boolean, ParseError>;
   /**
    * @description A memoized `xml-naming` validator for one production — `'qName'` for tag and attribute names, `'name'` for DOCTYPE entity and element names.
    * Built lazily on first use and cached for the rest of the document, because the production set depends on the declared XML version, which is not
-   * final until the optional `<?xml?>` declaration has been read.
+   * final until the optional `<?xml?>` declaration has been read. Effectful for the same reason as {@link isValidQName}.
    */
-  getNameValidator(production: 'name' | 'qName'): NameValidator;
+  getNameValidator(production: 'name' | 'qName'): Effect.Effect<NameValidator, ParseError>;
 }

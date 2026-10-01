@@ -120,11 +120,19 @@ export const resolveName = Effect.fnUntraced(function* (
 
   return yield* Match.value(mode).pipe(
     Match.when('ignore', () => Effect.succeed(name)),
-    Match.when('error', () => {
-      const result = validate(name, 'qName', { xmlVersion });
-      const reason = !result.valid ? result.reason : 'is not a legal XML name';
-      return new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
-    }),
+    Match.when('error', () =>
+      validate(name, 'qName', { xmlVersion }).pipe(
+        // `validate` only fails for an unknown production, which `'qName'` is not,
+        // so this mapping is unreachable; it is here so the channel stays typed.
+        Effect.mapError(
+          cause => new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${cause.message}`, position: -1, input: name })
+        ),
+        Effect.flatMap(result => {
+          const reason = !result.valid ? result.reason : 'is not a legal XML name';
+          return new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
+        })
+      )
+    ),
     Match.when('repair', () => Effect.succeed(sanitize(name, 'name', { replacement: '_' }))),
     Match.exhaustive
   );
