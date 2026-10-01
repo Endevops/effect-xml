@@ -1,8 +1,6 @@
 import { Effect } from 'effect';
 
-import type { BuilderError } from '#/errors.ts';
-
-import { BuilderError as BuilderErrorCtor } from '#/errors.ts';
+import { BuilderError } from '#/errors.ts';
 
 import type { ValueParser, ValueParserRegistryLike } from './value-parser.ts';
 
@@ -89,7 +87,7 @@ export const makeValueParserRegistry = (): ValueParserRegistry => {
     get: (name: string): Effect.Effect<ValueParser, BuilderError> => {
       const ret = registered[name];
       if (ret) return Effect.succeed(ret);
-      return Effect.fail(new BuilderErrorCtor({ reason: { _tag: 'ValueParserNotFound', name }, message: 'parser not found: ' + name }));
+      return Effect.fail(new BuilderError({ reason: { _tag: 'ValueParserNotFound', name }, message: 'parser not found: ' + name }));
     },
   };
 };
@@ -105,7 +103,7 @@ export const makeValueParserRegistry = (): ValueParserRegistry => {
  */
 const registerChecked = (name: string, parser: ValueParser): Effect.Effect<void, BuilderError> => {
   const reject = (problem: 'name must be a string' | 'parser is required' | 'parser must implement reset()' | 'parser must implement parse()') =>
-    Effect.fail(new BuilderErrorCtor({ reason: { _tag: 'InvalidValueParser', name: String(name), problem }, message: problem }));
+    Effect.fail(new BuilderError({ reason: { _tag: 'InvalidValueParser', name: String(name), problem }, message: problem }));
 
   if (!name || typeof name !== 'string') return reject('name must be a string');
   if (!parser) return reject('parser is required');

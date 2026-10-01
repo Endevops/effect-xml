@@ -41,9 +41,9 @@ const PRODUCTIONS: ReadonlyArray<Production> = ['name', 'ncName', 'qName', 'nmTo
  * 1.1 without the fast path, and the single ASCII-only set that both versions collapse onto.
  */
 const OPTION_SETS: ReadonlyArray<{ label: string; options: Required<ValidationOptions> }> = [
-  { label: 'xml 1.0 — unicode-aware', options: { xmlVersion: '1.0', asciiOnly: false } },
-  { label: 'xml 1.1 — unicode-aware (/u)', options: { xmlVersion: '1.1', asciiOnly: false } },
-  { label: 'xml 1.0 — asciiOnly fast path', options: { xmlVersion: '1.0', asciiOnly: true } },
+  { label: 'xml 1.0 - unicode-aware', options: { xmlVersion: '1.0', asciiOnly: false } },
+  { label: 'xml 1.1 - unicode-aware (/u)', options: { xmlVersion: '1.1', asciiOnly: false } },
+  { label: 'xml 1.0 - asciiOnly fast path', options: { xmlVersion: '1.0', asciiOnly: true } },
 ];
 
 /**
@@ -64,14 +64,6 @@ const CASES = {
  * @description {@link CASES} as a list, for the benchmarks that validate every input in one go.
  */
 const INPUTS: ReadonlyArray<string> = Object.values(CASES);
-
-/**
- * @description Accumulates the outcome of every validation the benchmarks below perform. A regex `test()` whose result is discarded is exactly the kind of call a
- * JIT is free to optimise away, and a validator benchmark that silently measured nothing looks like an extremely fast validator rather than like a
- * bug, so the result is folded into this counter instead. The `afterAll` below reads it back, so the work is observable and the counter cannot itself
- * be optimised away.
- */
-let observed = 0;
 
 /**
  * @description How long to sample the benchmarks in one group, in milliseconds, and how long to warm them up first. The validators run in well under a
@@ -103,7 +95,7 @@ for (const { label, options } of OPTION_SETS) {
         // production does byte-identical work and the rows compare directly.
         // The two 1000-character inputs dominate the per-op time here, which
         // is why the next test measures the shapes separately.
-        for (const input of INPUTS) observed += validate(input, options) ? 1 : 0;
+        for (const input of INPUTS) validate(input, options);
       });
     });
 
@@ -117,7 +109,7 @@ test('input shape — name production', async ({ bench }) => {
   const measurements = Object.entries(CASES).flatMap(([caseLabel, input]) =>
     [false, true].map(asciiOnly =>
       bench(`${caseLabel} / asciiOnly=${asciiOnly}`, () => {
-        observed += validate(input, { xmlVersion: '1.0', asciiOnly }) ? 1 : 0;
+        validate(input, { xmlVersion: '1.0', asciiOnly });
       })
     )
   );

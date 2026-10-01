@@ -3,10 +3,9 @@ import type { EntityDecoderOptions, XmlError } from '@endevops/common-xml';
 import { ENTITY_ACTION, EntityDecoder, XML } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
-import type { BuilderError } from '#/errors.ts';
 import type { Context, SharedContext, ValueParser } from '#/output-builder/value-parser.ts';
 
-import { BuilderError as BuilderErrorCtor } from '#/errors.ts';
+import { BuilderError } from '#/errors.ts';
 import { isUnsafeXml } from '#/output-builder/security/xml-unsafe.ts';
 
 /**
@@ -44,7 +43,7 @@ const defaultOptions: EntitiesValueParserOptions = {
 const fromDecoder =
   (value: string) =>
   (cause: XmlError): BuilderError =>
-    new BuilderErrorCtor({ reason: { _tag: 'EntityDecodingFailed', value, cause: cause.message }, message: cause.message });
+    new BuilderError({ reason: { _tag: 'EntityDecodingFailed', value, cause: cause.message }, message: cause.message });
 
 /**
  * @description Expands XML and HTML entity references. The decoder is built on first use rather than at construction, because the document's XML version and its

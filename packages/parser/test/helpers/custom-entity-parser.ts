@@ -1,10 +1,9 @@
-import type { BuilderError, SharedContext, ValueParser } from '@endevops/builder';
+import type { SharedContext, ValueParser } from '@endevops/builder';
 import type { EntityDecoderOptions } from '@endevops/common-xml';
-import type { Effect } from 'effect';
 
-import { BuilderError as BuilderErrorCtor } from '@endevops/builder';
+import { BuilderError } from '@endevops/builder';
 import { EntityDecoder } from '@endevops/common-xml';
-import { Effect as Eff } from 'effect';
+import { Effect } from 'effect';
 
 /**
  * @description A value parser that expands DOCTYPE entities. `@nodable/entities`' `EntityDecoder` is a standalone decoder, not a `BaseValueParser`, so this adapts
@@ -35,7 +34,7 @@ export default class EntityParser implements ValueParser {
    * @param options - Decoder options.
    */
   constructor(options?: EntityDecoderOptions) {
-    this.#decoder = Eff.runSync(EntityDecoder.make(options));
+    this.#decoder = Effect.runSync(EntityDecoder.make(options));
   }
 
   /**
@@ -56,7 +55,7 @@ export default class EntityParser implements ValueParser {
   #ensureDecoder(): void {
     if (!this.#seen) {
       const entities = this.ctx?.get('inputEntities');
-      if (entities) Eff.runSync(this.#decoder.addInputEntities(entities as Parameters<EntityDecoder['addInputEntities']>[0]));
+      if (entities) Effect.runSync(this.#decoder.addInputEntities(entities as Parameters<EntityDecoder['addInputEntities']>[0]));
       this.#seen = true;
     }
   }
@@ -66,7 +65,7 @@ export default class EntityParser implements ValueParser {
    * tests exercise. Run for its value — see {@link EntityParser.reset} for why that matters.
    */
   addExternalEntity(key: string, value: string): void {
-    Eff.runSync(this.#decoder.addExternalEntity(key, value));
+    Effect.runSync(this.#decoder.addExternalEntity(key, value));
   }
 
   /**
@@ -88,12 +87,15 @@ export default class EntityParser implements ValueParser {
   parse(val: unknown): Effect.Effect<unknown, BuilderError> {
     if (typeof val === 'string') {
       this.#ensureDecoder();
-      return Eff.mapError(
-        this.#decoder.decode(val),
-        cause => new BuilderErrorCtor({ reason: { _tag: 'EntityDecodingFailed', value: val, cause: cause.message }, message: cause.message })
-      );
+      return this.#decoder
+        .decode(val)
+        .pipe(
+          Effect.mapError(
+            cause => new BuilderError({ reason: { _tag: 'EntityDecodingFailed', value: val, cause: cause.message }, message: cause.message })
+          )
+        );
     }
 
-    return Eff.succeed(val);
+    return Effect.succeed(val);
   }
 }

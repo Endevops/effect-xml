@@ -3,12 +3,13 @@ import type { MatcherView } from '@endevops/common-xml';
 import { Context, Effect, Layer, Predicate } from 'effect';
 
 import type { BuilderError } from '#/errors.ts';
-import type { OutputBuilder, TagDetailLike, ValueParserRegistryLike } from '#/output-builder/index.ts';
-import type { Context as ValueContext } from '#/output-builder/index.ts';
-import type { ValueParser } from '#/output-builder/index.ts';
-import type { ValueParserRegistry } from '#/output-builder/index.ts';
+import type { OutputBuilder, TagDetailLike } from '#/output-builder/base-output-builder.ts';
+import type { Context as ValueContext, ValueParser, ValueParserRegistryLike } from '#/output-builder/value-parser';
+import type { ValueParserRegistry } from '#/output-builder/value-parser-registry.ts';
 
-import { makeBaseOutputBuilder, makeContext, makeValueParserRegistry } from '#/output-builder/index.ts';
+import { makeBaseOutputBuilder } from '#/output-builder/base-output-builder.ts';
+import { makeContext } from '#/output-builder/value-parser';
+import { makeValueParserRegistry } from '#/output-builder/value-parser-registry.ts';
 
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
@@ -463,7 +464,7 @@ export class CompactBuilderFactory extends Context.Service<CompactBuilderFactory
    *
    * @returns An effect producing the factory. Fails with the `InvalidOptionEntry` or `PatternCompilationFailed` reason.
    */
-  static make = (builderOptions: FactoryOptions = {}): Effect.Effect<OutputBuilderFactory, BuilderError> =>
+  static readonly make = (builderOptions: FactoryOptions = {}): Effect.Effect<OutputBuilderFactory, BuilderError> =>
     Effect.map(buildOptions(builderOptions), resolved => makeCompactBuilderFactory(resolved));
 
   /**
@@ -473,6 +474,6 @@ export class CompactBuilderFactory extends Context.Service<CompactBuilderFactory
    *
    * @returns A layer providing {@link CompactBuilderFactory}.
    */
-  static layer = (builderOptions: FactoryOptions = {}): Layer.Layer<CompactBuilderFactory, BuilderError> =>
+  static readonly layer = (builderOptions: FactoryOptions = {}): Layer.Layer<CompactBuilderFactory, BuilderError> =>
     Layer.effect(CompactBuilderFactory, CompactBuilderFactory.make(builderOptions));
 }

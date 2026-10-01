@@ -1,8 +1,6 @@
 import { Effect } from 'effect';
 
-import type { XmlError } from '#/errors.ts';
-
-import { XmlError as XmlErrorCtor } from '#/errors.ts';
+import { XmlError } from '#/errors.ts';
 
 /**
  * @description Options for {@link Expression}.
@@ -389,7 +387,7 @@ const parseSegment = (part: string, pattern: string): Effect.Effect<Segment, Xml
     const split = splitNamespace(withoutBrackets);
 
     if (split.namespace === '') {
-      return yield* new XmlErrorCtor({
+      return yield* new XmlError({
         reason: { _tag: 'InvalidPattern', pattern, segment: part, detail: 'EmptyNamespace' },
         message: `Invalid namespace in pattern: ${part}`,
       });
@@ -397,7 +395,7 @@ const parseSegment = (part: string, pattern: string): Effect.Effect<Segment, Xml
 
     const { tag, position } = splitTagAndPosition(split.rest);
     if (tag === '') {
-      return yield* new XmlErrorCtor({
+      return yield* new XmlError({
         reason: { _tag: 'InvalidPattern', pattern, segment: part, detail: 'MissingTag' },
         message: `Invalid segment pattern: ${part}`,
       });

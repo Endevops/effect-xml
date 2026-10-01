@@ -1,8 +1,6 @@
 import { Effect } from 'effect';
 
-import type { XmlError } from '#/errors.ts';
-
-import { XmlError as XmlErrorCtor } from '#/errors.ts';
+import { XmlError } from '#/errors.ts';
 
 import type Expression from './expression.ts';
 import type Matcher from './matcher.ts';
@@ -17,7 +15,7 @@ import type { MatcherView } from './matcher.ts';
  */
 const sealedSetFailure = (size: number): Effect.Effect<never, XmlError> =>
   Effect.fail(
-    new XmlErrorCtor({
+    new XmlError({
       reason: { _tag: 'SealedExpressionSet', size },
       message: 'ExpressionSet is sealed. Create a new ExpressionSet to add more expressions.',
     })

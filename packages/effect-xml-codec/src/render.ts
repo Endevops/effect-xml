@@ -26,7 +26,6 @@ import type { XmlRecord, XmlValue } from './xml-value.ts';
 
 import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveName, TEXT_KEY } from './conventions.ts';
 import { XmlRenderError } from './errors.ts';
-import { isXmlArray } from './xml-value.ts';
 
 /**
  * @description The five characters XML predefines an entity for, and the names to write for them. Written out rather than referenced from `@endevops/common-xml`
@@ -303,7 +302,7 @@ export const renderXml = Effect.fnUntraced(function* (value: XmlValue, options: 
   // is wrapped rather than emitted as several roots. Inside a named element an
   // array repeats that element's own name, so this wrapping is the only place
   // `itemName` is ever used.
-  if (isXmlArray(value)) {
+  if (Array.isArray(value)) {
     const tag = yield* resolved.namer(resolved.rootName);
     out.push('<', tag, '>');
     for (const member of value) yield* renderElement(out, resolved.itemName, member, 1, resolved);
@@ -337,7 +336,7 @@ const renderElement = Effect.fnUntraced(function* (
 ): Effect.fn.Return<void, XmlRenderError> {
   yield* assertWithinDepth(depth, options);
 
-  if (isXmlArray(value)) {
+  if (Array.isArray(value)) {
     yield* renderRepeated(out, name, value, depth, options);
     return;
   }

@@ -41,7 +41,7 @@ import type {
   OutputBuilderFactory,
   ResolvedFactoryOptions,
   TagFrame,
-} from './compact-builder/index.ts';
+} from '#/compact-builder/index.ts';
 // The per-document builder the parser calls, and the value-parser primitives it is built on.
 import type {
   BuiltInValueParserOptions,
@@ -65,7 +65,7 @@ import type {
   WSNormalizerOptions,
   XmlUnsafeMatch,
   XmlUnsafeRule,
-} from './output-builder/index.ts';
+} from '#/output-builder/index.ts';
 // The XML builder, which is this package's default export.
 import type {
   EntityReplacement,
@@ -75,11 +75,11 @@ import type {
   SanitizeNameContext,
   XmlBuilder,
   XmlBuilderOptions,
-} from './xml-builder/index.ts';
+} from '#/xml-builder/index.ts';
 
-import { CompactBuilderFactory, makeCompactBuilder } from './compact-builder/index.ts';
-import { BuilderError, BuilderErrorReason } from './errors.ts';
-import { XML_UNSAFE_RULES, allUnsafeXml, isUnsafeXml, whyUnsafeXml } from './output-builder/index.ts';
+import { CompactBuilderFactory, makeCompactBuilder } from '#/compact-builder/index.ts';
+import { BuilderError, BuilderErrorReason } from '#/errors.ts';
+import { XML_UNSAFE_RULES, allUnsafeXml, isUnsafeXml, whyUnsafeXml } from '#/output-builder/index.ts';
 import {
   defaultValParsers,
   finalValue,
@@ -96,8 +96,8 @@ import {
   makeWSNormalizer,
   toNumber,
   wsNormalizerBuiltin,
-} from './output-builder/index.ts';
-import XMLBuilder from './xml-builder/index.ts';
+} from '#/output-builder/index.ts';
+import XMLBuilder from '#/xml-builder/index.ts';
 
 export { BuilderError, BuilderErrorReason };
 export { XMLBuilder };
@@ -162,4 +162,5 @@ export type {
   XmlUnsafeMatch,
   XmlUnsafeRule,
 };
+
 export default XMLBuilder;

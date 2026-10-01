@@ -95,12 +95,13 @@ const BUDGET = { time: 1000, warmupTime: 50 } as const;
 
 describe('encoding', () => {
   test('a small document', async ({ bench }) => {
+    const buildDocumentOrder = builder.build({ [ROOT]: order });
     await bench.compare(
       bench('this codec', () => {
-        Effect.runSync(encodeOrderDocument);
+        encodeOrderDocument.pipe(Effect.runSync);
       }),
       bench('@endevops/builder', () => {
-        builder.build({ [ROOT]: order }).pipe(Effect.runSync);
+        buildDocumentOrder.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
         upstreamBuilder.build({ [ROOT]: order });
@@ -110,12 +111,13 @@ describe('encoding', () => {
   });
 
   test('a 500-row document', async ({ bench }) => {
+    const buildReportDocument = builder.build({ [REPORT_ROOT]: report });
     await bench.compare(
       bench('this codec', () => {
-        Effect.runSync(encodeReportDocument);
+        encodeReportDocument.pipe(Effect.runSync);
       }),
       bench('@endevops/builder', () => {
-        builder.build({ [REPORT_ROOT]: report }).pipe(Effect.runSync);
+        buildReportDocument.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
         upstreamBuilder.build({ [REPORT_ROOT]: report });
@@ -125,12 +127,13 @@ describe('encoding', () => {
   });
 
   test('one large text node', async ({ bench }) => {
+    const buildNote = builder.build({ [NOTE_ROOT]: note });
     await bench.compare(
       bench('this codec', () => {
-        Effect.runSync(encodeNoteDocument);
+        encodeNoteDocument.pipe(Effect.runSync);
       }),
       bench('@endevops/builder', () => {
-        builder.build({ [NOTE_ROOT]: note }).pipe(Effect.runSync);
+        buildNote.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
         upstreamBuilder.build({ [NOTE_ROOT]: note });
@@ -142,15 +145,17 @@ describe('encoding', () => {
 
 describe('decoding', () => {
   test('a small document', async ({ bench }) => {
+    const decode = Effect.gen(function* () {
+      const xml = yield* parseXml(orderDocument);
+      yield* decodeOrder(xml);
+    });
+    const parseOrder = parser.parse(orderDocument);
     await bench.compare(
       bench('this codec', () => {
-        Effect.gen(function* () {
-          const xml = yield* parseXml(orderDocument);
-          yield* decodeOrder(xml);
-        }).pipe(Effect.runSync);
+        decode.pipe(Effect.runSync);
       }),
       bench('@endevops/parser', () => {
-        parser.parse(orderDocument).pipe(Effect.runSync);
+        parseOrder.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(orderDocument);
@@ -160,15 +165,17 @@ describe('decoding', () => {
   });
 
   test('a 500-row document', async ({ bench }) => {
+    const decode = Effect.gen(function* () {
+      const xml = yield* parseXml(reportDocument);
+      yield* decodeReport(xml);
+    });
+    const parse = parser.parse(reportDocument);
     await bench.compare(
       bench('this codec', () => {
-        Effect.gen(function* () {
-          const xml = yield* parseXml(reportDocument);
-          yield* decodeReport(xml);
-        }).pipe(Effect.runSync);
+        decode.pipe(Effect.runSync);
       }),
       bench('@endevops/parser', () => {
-        parser.parse(reportDocument).pipe(Effect.runSync);
+        parse.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(reportDocument);
@@ -178,15 +185,18 @@ describe('decoding', () => {
   });
 
   test('one large text node', async ({ bench }) => {
+    const decode = Effect.gen(function* () {
+      const xml = yield* parseXml(noteDocument);
+      yield* decodeNote(xml);
+    });
+    const parse = parser.parse(noteDocument);
+
     await bench.compare(
       bench('this codec', () => {
-        Effect.gen(function* () {
-          const xml = yield* parseXml(noteDocument);
-          yield* decodeNote(xml);
-        }).pipe(Effect.runSync);
+        decode.pipe(Effect.runSync);
       }),
       bench('@endevops/parser', () => {
-        parser.parse(noteDocument).pipe(Effect.runSync);
+        parse.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(noteDocument);
@@ -197,19 +207,21 @@ describe('decoding', () => {
 });
 
 test('a full round trip, both halves measured', async ({ bench }) => {
+  const decode = Effect.gen(function* () {
+    const document = yield* encodeOrderDocument;
+    const xmlValue = yield* parseXml(document);
+    yield* decodeOrder(xmlValue);
+  });
+  const parse = Effect.gen(function* () {
+    const document = yield* builder.build({ [ROOT]: order });
+    yield* parser.parse(document);
+  });
   await bench.compare(
     bench('this codec', () => {
-      Effect.gen(function* () {
-        const document = yield* encodeOrderDocument;
-        const xmlValue = yield* parseXml(document);
-        yield* decodeOrder(xmlValue);
-      }).pipe(Effect.runSync);
+      decode.pipe(Effect.runSync);
     }),
     bench('then parser, both @endevops', () => {
-      Effect.gen(function* () {
-        const document = yield* builder.build({ [ROOT]: order });
-        yield* parser.parse(document);
-      }).pipe(Effect.runSync);
+      parse.pipe(Effect.runSync);
     }),
     bench('then parser, both from npm', () => {
       const document = upstreamBuilder.build({ [ROOT]: order });

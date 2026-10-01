@@ -1,8 +1,6 @@
 import { Effect } from 'effect';
 
-import type { BuilderError } from '#/errors.ts';
-
-import { BuilderError as BuilderErrorCtor } from '#/errors.ts';
+import { BuilderError } from '#/errors.ts';
 
 /**
  * @description One rule: what it looks for, and why it matters.
@@ -107,7 +105,7 @@ export const XML_UNSAFE_RULES: ReadonlyArray<XmlUnsafeRule> = XML_PATTERNS;
 function assertString(value: string, fn: 'isUnsafeXml' | 'whyUnsafeXml' | 'allUnsafeXml'): Effect.Effect<void, BuilderError> {
   if (typeof value === 'string') return Effect.void;
   return Effect.fail(
-    new BuilderErrorCtor({
+    new BuilderError({
       reason: { _tag: 'InvalidArgument', function: fn, received: typeof value },
       message: `${fn}: first argument must be a string, got ${typeof value}`,
     })

@@ -1,24 +1,3 @@
-// oxlint-disable effecttsgo/prefer-schema-over-json
-// Parsing: XML text to an `XmlValue`.
-//
-// The parser is a hand-written scanner rather than a regular expression or a
-// pre-split token array, because a document is mostly text: this walks the
-// source string once, copying spans straight out of it, and allocates only for
-// the values it keeps.
-//
-// It is deliberately lenient in the places where being strict would reject
-// documents that are worth reading, and strict everywhere else:
-//
-//   - A bare `&` that is not a character reference is kept as text rather than
-//     rejected, and is escaped on the way out. Refusing to read a document
-//     because of one unescaped ampersand is not a useful default.
-//   - Comments and processing instructions are skipped: they are markup, not
-//     data, and `@endevops/builder` drops them by default too.
-//   - CDATA becomes character data, since that is what it is.
-//   - A mismatched or unclosed tag, a malformed attribute, or content after the
-//     root element *is* an error, because silently accepting those produces a
-//     document that means something different from the one that was written.
-
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { EntityDecoder } from '@endevops/common-xml';
@@ -30,13 +9,7 @@ import type { XmlValue } from './xml-value.ts';
 import { ATTRIBUTE_PREFIX, resolveName, TEXT_KEY } from './conventions.ts';
 import { XmlParseError } from './errors.ts';
 
-/**
- * @description Resolves character references. The default expansion limits are zero, which the decoder treats as unlimited, so one instance can be shared for the
- * process; the counters it keeps are only ever compared against a non-zero limit. `make` is effectful only because it refuses a `null` options
- * object, and the argument here is a literal — so `runSync` is sound rather than a cast, and it keeps the decoder a module constant instead of a
- * promise of one.
- */
-const decoder = Effect.runSync(EntityDecoder.make());
+const decoder = EntityDecoder.make().pipe(Effect.runSync);
 
 /**
  * @description A parsed document: the root element's name, and its content as an {@link XmlValue}.
@@ -312,12 +285,11 @@ const parseDocument = Effect.fnUntraced(function* (text: string, options: XmlPar
     // which the guard establishes; the `?? ''` is unreachable and exists only to
     // keep the type of the index lookup a `string`.
     if (quote !== '"' && quote !== "'")
-      return yield* new XmlParseError({ message: `Attribute ${JSON.stringify(name)} has no quoted value`, position: nameStart, input: text });
+      return yield* new XmlParseError({ message: `Attribute "${name}" has no quoted value`, position: nameStart, input: text });
     at++;
     const end = text.indexOf(quote ?? '', at);
     // A raw quote cannot appear inside a quoted value — it would have to be written `&quot;` — so the next quote of the same kind always closes it.
-    if (end === -1)
-      return yield* new XmlParseError({ message: `Unterminated value for attribute ${JSON.stringify(name)}`, position: at, input: text });
+    if (end === -1) return yield* new XmlParseError({ message: `Unterminated value for attribute "${name}"`, position: at, input: text });
     const raw = text.slice(at, end);
     at = end + 1;
     return yield* decodeEntities(raw);
@@ -343,8 +315,7 @@ const parseDocument = Effect.fnUntraced(function* (text: string, options: XmlPar
       const nameStart = at;
       const name = yield* resolve(yield* readName('attribute name'), 'Attribute', nameStart);
       skipSpaces();
-      if (text.charCodeAt(at) !== EQUALS)
-        return yield* new XmlParseError({ message: `Attribute ${JSON.stringify(name)} has no "="`, position: at, input: text });
+      if (text.charCodeAt(at) !== EQUALS) return yield* new XmlParseError({ message: `Attribute "${name}" has no "="`, position: at, input: text });
       at++;
       skipSpaces();
       record[ATTRIBUTE_PREFIX + name] = yield* readAttributeValue(name, nameStart);

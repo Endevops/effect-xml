@@ -29,26 +29,26 @@
 
 export { toCodecXml } from './codec.ts';
 
-export type { NameMode, ResolveNameOptions } from './conventions.ts';
 export {
   ATTRIBUTE_PREFIX,
-  attributeName,
   DEFAULT_ITEM_NAME,
   DEFAULT_ROOT_NAME,
+  TEXT_KEY,
+  attributeName,
   isAttributeKey,
   isReservedKey,
   isTextKey,
   resolveName,
-  TEXT_KEY,
 } from './conventions.ts';
+export type { NameMode, ResolveNameOptions } from './conventions.ts';
 
 export { XmlParseError, XmlRenderError } from './errors.ts';
 
-export type { XmlDocument, XmlParseOptions } from './parse.ts';
 export { parseXml } from './parse.ts';
+export type { XmlDocument, XmlParseOptions } from './parse.ts';
 
-export type { XmlRenderOptions } from './render.ts';
 export { escapeAttribute, escapeText, renderXml } from './render.ts';
+export type { XmlRenderOptions } from './render.ts';
 
+export { XmlValue as XmlValueSchema, isXmlValue } from './xml-value.ts';
 export type { XmlRecord, XmlValue } from './xml-value.ts';
-export { isXmlArray, isXmlRecord, isXmlValue, XmlValue as XmlValueSchema } from './xml-value.ts';

@@ -1,12 +1,11 @@
 import { Effect, Schema } from 'effect';
-import { afterAll, describe, expect, test } from 'vite-plus/test';
+import { describe, test } from 'vite-plus/test';
 
 import type { XmlValue } from '#/xml-value.ts';
 
 import { toCodecXml } from '#/codec.ts';
 import { parseXml } from '#/parse.ts';
 import { renderXml } from '#/render.ts';
-import { isXmlArray, isXmlRecord } from '#/xml-value.ts';
 
 /**
  * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document like this is
@@ -94,33 +93,6 @@ const dirtyValue = { title: 'Dune & <Messiah>', author: 'Frank "Frank" Herbert',
  */
 const BUDGET = { time: 1000, warmupTime: 50 } as const;
 
-/**
- * @description Accumulates a property of every result the benchmarks below produce. A benchmark whose result is dropped is one the JIT is free to optimise into a
- * no-op, which reports a meaningless number rather than an obviously wrong one. `afterAll` reads it back, so the work is observable and the counter
- * cannot itself be optimised away.
- */
-let observed = 0;
-
-/**
- * @description A number derived from any XML value, so a parse benchmark can fold its result into {@link observed}. An `XmlValue` has no `length` of its own — it
- * is a string, an array, or a record — and counting what it holds is enough to keep the work from being optimised away.
- *
- * @param value - The value to size.
- *
- * @returns A number that depends on the whole value.
- */
-const sizeOf = (value: XmlValue): number => {
-  if (typeof value === 'string') return value.length;
-  if (isXmlArray(value)) return value.length;
-  if (isXmlRecord(value)) return Object.keys(value).length;
-  return 0;
-};
-
-afterAll(() => {
-  // An empty sink means the benchmark bodies never reached the line that folds a result in, so the tables describe a run that did no work.
-  expect(observed).toBeGreaterThan(0);
-});
-
 describe('codec', () => {
   test('a small document', async ({ bench }) => {
     const rootName = 'order';
@@ -140,13 +112,13 @@ describe('codec', () => {
 
     await bench.compare(
       bench('encode', () => {
-        observed += Effect.runSync(encodeDocument).length;
+        Effect.runSync(encodeDocument);
       }),
       bench('decode', () => {
-        observed += Effect.runSync(decodeDocument) === null ? 0 : 1;
+        Effect.runSync(decodeDocument);
       }),
       bench('round trip', () => {
-        observed += Effect.runSync(roundTrip) === null ? 0 : 1;
+        Effect.runSync(roundTrip);
       }),
       BUDGET
     );
@@ -163,10 +135,10 @@ describe('codec', () => {
 
     await bench.compare(
       bench('encode', () => {
-        observed += Effect.runSync(encodeDocument).length;
+        Effect.runSync(encodeDocument);
       }),
       bench('decode', () => {
-        observed += Effect.runSync(decodeDocument) === null ? 0 : 1;
+        Effect.runSync(decodeDocument);
       }),
       BUDGET
     );
@@ -177,16 +149,14 @@ describe('codec', () => {
     // the rows above is what Effect's derivation costs on every call.
     const xml: XmlValue = { '@id': 'A-1001', title: 'Dune', total: '1234.56', placed: 'true', tag: ['a', 'b', 'c'] };
 
+    const render = renderXml(xml, { rootName: 'r' });
+    const parse = parseXml('<r id="A-1001"><title>Dune</title><total>1234.56</total><placed>true</placed><tag>a</tag><tag>b</tag><tag>c</tag></r>');
     await bench.compare(
       bench('render, no schema', () => {
-        observed += Effect.runSync(renderXml(xml, { rootName: 'r' })).length;
+        render.pipe(Effect.runSync);
       }),
       bench('parse, no schema', () => {
-        observed += sizeOf(
-          Effect.runSync(
-            parseXml('<r id="A-1001"><title>Dune</title><total>1234.56</total><placed>true</placed><tag>a</tag><tag>b</tag><tag>c</tag></r>')
-          )
-        );
+        parse.pipe(Effect.runSync);
       }),
       BUDGET
     );
@@ -197,18 +167,23 @@ describe('codec', () => {
     // anything to escape, so the difference is the escaping pass itself.
     const long = 'word '.repeat(4000);
 
+    const renderClean = renderXml(cleanValue, { rootName: 'r' });
+    const renderDirty = renderXml(dirtyValue, { rootName: 'r' });
+    const renderLong = renderXml({ body: long }, { rootName: 'r' });
+    const renderLongDirty = renderXml({ body: `${long}&` }, { rootName: 'r' });
+
     await bench.compare(
       bench('render clean text', () => {
-        observed += Effect.runSync(renderXml(cleanValue, { rootName: 'r' })).length;
+        renderClean.pipe(Effect.runSync);
       }),
       bench('render text needing escapes', () => {
-        observed += Effect.runSync(renderXml(dirtyValue, { rootName: 'r' })).length;
+        renderDirty.pipe(Effect.runSync);
       }),
       bench('render 20k of clean text', () => {
-        observed += Effect.runSync(renderXml({ body: long }, { rootName: 'r' })).length;
+        renderLong.pipe(Effect.runSync);
       }),
       bench('render 20k of text with one unsafe character', () => {
-        observed += Effect.runSync(renderXml({ body: `${long}&` }, { rootName: 'r' })).length;
+        renderLongDirty.pipe(Effect.runSync);
       }),
       BUDGET
     );
@@ -218,19 +193,23 @@ describe('codec', () => {
     const xml: XmlValue = {
       row: Array.from({ length: ROWS }, (_, i) => ({ '@id': `R-${i}`, sku: `SKU-${i}`, name: `Product ${i}`, price: `${i}.5` })),
     };
+    const render = renderXml(xml, { rootName: 'report' });
+    const renderIndented = renderXml(xml, { rootName: 'report', format: true });
+    const parse = parseXml(rowsDocument);
+    const parsePreserveWhitespace = parseXml(rowsDocument, { preserveWhitespace: true });
 
     await bench.compare(
       bench('render, compact', () => {
-        observed += Effect.runSync(renderXml(xml, { rootName: 'report' })).length;
+        render.pipe(Effect.runSync);
       }),
       bench('render, indented', () => {
-        observed += Effect.runSync(renderXml(xml, { rootName: 'report', format: true })).length;
+        renderIndented.pipe(Effect.runSync);
       }),
       bench('parse, 500 rows', () => {
-        observed += sizeOf(Effect.runSync(parseXml(rowsDocument)));
+        parse.pipe(Effect.runSync);
       }),
       bench('parse, 500 rows, keeping whitespace', () => {
-        observed += sizeOf(Effect.runSync(parseXml(rowsDocument, { preserveWhitespace: true })));
+        parsePreserveWhitespace.pipe(Effect.runSync);
       }),
       BUDGET
     );

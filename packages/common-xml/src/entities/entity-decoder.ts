@@ -17,9 +17,7 @@
 
 import { Effect } from 'effect';
 
-import type { XmlError } from '#/errors.ts';
-
-import { XmlError as XmlErrorCtor } from '#/errors.ts';
+import { XmlError } from '#/errors.ts';
 
 import { XML as DEFAULT_XML_ENTITIES } from './entity-tables.ts';
 
@@ -363,7 +361,7 @@ type HookContext = 'external' | 'input';
 const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
   if (name.charCodeAt(0) === CODE_HASH) {
     return Effect.fail(
-      new XmlErrorCtor({
+      new XmlError({
         reason: { _tag: 'InvalidEntityName', name, character: '#' },
         message: `[EntityReplacer] Invalid character '#' in entity name: "${name}"`,
       })
@@ -372,7 +370,7 @@ const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
   for (const ch of name) {
     if (SPECIAL_CHARS.has(ch)) {
       return Effect.fail(
-        new XmlErrorCtor({
+        new XmlError({
           reason: { _tag: 'InvalidEntityName', name, character: ch },
           message: `[EntityReplacer] Invalid character '${ch}' in entity name: "${name}"`,
         })
@@ -560,10 +558,6 @@ function scanTokenEnd(str: string, ampersand: number): number {
   return j;
 }
 
-// ---------------------------------------------------------------------------
-// EntityDecoder
-// ---------------------------------------------------------------------------
-
 /**
  * @description Single-pass, zero-regex entity decoder for XML and HTML content.
  *
@@ -722,7 +716,7 @@ export class EntityDecoder {
   static make = (options: EntityDecoderOptions = {}): Effect.Effect<EntityDecoder, XmlError> =>
     options === null || options === undefined
       ? Effect.fail(
-          new XmlErrorCtor({
+          new XmlError({
             reason: { _tag: 'MissingOptions', parameter: 'options' },
             message: 'EntityDecoder.make: options is required. Use make({}) for a decoder with every default.',
           })
@@ -783,7 +777,7 @@ export class EntityDecoder {
     if (action === ENTITY_ACTION.BLOCK) return Effect.succeed(false);
     if (action === ENTITY_ACTION.THROW) {
       return Effect.fail(
-        new XmlErrorCtor({
+        new XmlError({
           reason: { _tag: 'EntityRejected', context, name },
           message: `[EntityDecoder] Registration of ${context} entity "&${name};" was rejected by hook`,
         })
@@ -1083,7 +1077,7 @@ export class EntityDecoder {
     this.#totalExpansions++;
     if (this.#totalExpansions > this.#maxTotalExpansions) {
       return Effect.fail(
-        new XmlErrorCtor({
+        new XmlError({
           reason: { _tag: 'ExpansionLimitExceeded', actual: this.#totalExpansions, limit: this.#maxTotalExpansions },
           message: `[EntityReplacer] Entity expansion count limit exceeded: ${this.#totalExpansions} > ${this.#maxTotalExpansions}`,
         })
@@ -1111,7 +1105,7 @@ export class EntityDecoder {
     this.#expandedLength += delta;
     if (this.#expandedLength > this.#maxExpandedLength) {
       return Effect.fail(
-        new XmlErrorCtor({
+        new XmlError({
           reason: { _tag: 'ExpandedLengthLimitExceeded', actual: this.#expandedLength, limit: this.#maxExpandedLength },
           message: `[EntityReplacer] Expanded content length limit exceeded: ${this.#expandedLength} > ${this.#maxExpandedLength}`,
         })
@@ -1200,10 +1194,11 @@ export class EntityDecoder {
       case NCR_LEVEL.remove:
         return Effect.succeed('');
       case NCR_LEVEL.leave:
+        // oxlint-disable-next-line effecttsgo/effect-succeed-with-void
         return Effect.succeed(undefined);
       case NCR_LEVEL.throw:
         return Effect.fail(
-          new XmlErrorCtor({
+          new XmlError({
             reason: { _tag: 'ProhibitedCharacterReference', token, codepoint: cp },
             message: `[EntityDecoder] Prohibited numeric character reference &${token}; ` + `(U+${cp.toString(16).toUpperCase().padStart(4, '0')})`,
           })
