@@ -4,6 +4,7 @@ import type { Effect } from 'effect';
 
 import type { InputSourceLike } from '#/input-source/input-source.ts';
 import type { ResolvedOptions } from '#/options.ts';
+import type { ParseError } from '#/parse-error.ts';
 
 export type { ExitIfPredicate } from '#/options.ts';
 
@@ -235,13 +236,13 @@ export interface ParserState {
    */
   tagTextData: string;
   /**
-   * @description Bound `Xml2JsParser.addTextNode()`.
+   * @description Bound `Xml2JsParser.addTextNode()`. Effectful because flushing text runs the value-parser chain, which can fail.
    */
-  addTextNode(): void;
+  addTextNode(): Effect.Effect<void, ParseError>;
   /**
-   * @description Bound `Xml2JsParser.popTag()`.
+   * @description Bound `Xml2JsParser.popTag()`. Effectful because closing a tag runs the builder's close pipeline, which can fail.
    */
-  popTag(closeMeta?: CloseMeta): void;
+  popTag(closeMeta?: CloseMeta): Effect.Effect<void, ParseError>;
 }
 
 /**
@@ -355,9 +356,10 @@ export interface TagExpressionParser {
    */
   readonlyMatcher: MatcherView;
   /**
-   * @description Validate, prefix-resolve and sanitize a raw attribute name. Returns `false` for a dropped `xmlns:` declaration.
+   * @description Validate, prefix-resolve and sanitize a raw attribute name. Returns `false` for a dropped `xmlns:` declaration. Effectful: namespace resolution
+   * and the security checks report their failures in the effect channel.
    */
-  processAttrName(rawAttrName: string): string | false;
+  processAttrName(rawAttrName: string): Effect.Effect<string | false, ParseError>;
   /**
    * @description Validate a tag name against the document's XML version, memoized.
    */

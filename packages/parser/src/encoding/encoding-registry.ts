@@ -1,3 +1,5 @@
+import { Effect } from 'effect';
+
 import type { EncodingDescriptor } from '#/options.ts';
 
 import { InvalidDecoder, UnsupportedEncoding } from '#/parse-error.ts';
@@ -34,23 +36,24 @@ export type ResolvedEncodingDescriptor = Omit<EncodingDescriptor, 'aliases' | 'b
  */
 export interface EncodingRegistry {
   /**
-   * @description Register a descriptor. Validates shape immediately (fail-fast): a broken custom encoding should throw at registration time, not silently corrupt
+   * @description Register a descriptor. Validates shape immediately (fail-fast): a broken custom encoding should fail at registration time, not silently corrupt
    * data three parses later.
    *
    * @param descriptor - Descriptor to store. Missing optional fields take their safe defaults.
    *
-   * @throws {ParseError} `INVALID_DECODER` when `name` is missing/non-string, `createDecoder` is absent, or `createDecoder()` doesn't return a `{
-   *   write, end }` pair.
+   * @returns An effect that registers the descriptor. Fails with `INVALID_DECODER` when `name` is missing/non-string, `createDecoder` is absent, or
+   *   `createDecoder()` doesn't return a `{ write, end }` pair.
    */
-  register(descriptor: EncodingDescriptor): void;
+  register(descriptor: EncodingDescriptor): Effect.Effect<void, InvalidDecoder>;
   /**
    * @description Look up a descriptor by name or alias, case-insensitively.
    *
    * @param name - Encoding name as configured, declared in a `<?xml?>` document, or passed to `decoding.encoding`.
    *
-   * @throws {ParseError} `UNSUPPORTED_ENCODING` when no descriptor is registered under that name or any of its aliases.
+   * @returns An effect producing the descriptor. Fails with `UNSUPPORTED_ENCODING` when no descriptor is registered under that name or any of its
+   *   aliases.
    */
-  resolve(name: string): ResolvedEncodingDescriptor;
+  resolve(name: string): Effect.Effect<ResolvedEncodingDescriptor, UnsupportedEncoding>;
   /**
    * @description All descriptors that carry a BOM signature, for detection — longest signature first, so a longer BOM always wins over a shorter one that happens
    * to be its prefix.
@@ -69,16 +72,16 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
    */
   const byName = new Map<string, ResolvedEncodingDescriptor>();
 
-  const register = (descriptor: EncodingDescriptor): void => {
+  const register = Effect.fnUntraced(function* (descriptor: EncodingDescriptor): Effect.fn.Return<void, InvalidDecoder> {
     if (!descriptor || typeof descriptor.name !== 'string' || !descriptor.name) {
-      throw new InvalidDecoder({ message: 'Encoding descriptor requires a non-empty "name"' });
+      return yield* new InvalidDecoder({ message: 'Encoding descriptor requires a non-empty "name"' });
     }
     if (typeof descriptor.createDecoder !== 'function') {
-      throw new InvalidDecoder({ encoding: descriptor.name, message: `Encoding "${descriptor.name}" is missing createDecoder()` });
+      return yield* new InvalidDecoder({ encoding: descriptor.name, message: `Encoding "${descriptor.name}" is missing createDecoder()` });
     }
     const probe = descriptor.createDecoder();
     if (!probe || typeof probe.write !== 'function' || typeof probe.end !== 'function') {
-      throw new InvalidDecoder({
+      return yield* new InvalidDecoder({
         encoding: descriptor.name,
         message: `Encoding "${descriptor.name}"'s createDecoder() must return an object with write()/end()`,
       });
@@ -92,9 +95,14 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
     };
     byName.set(resolved.name.toLowerCase(), resolved);
     for (const alias of resolved.aliases) byName.set(alias.toLowerCase(), resolved);
-  };
+  });
 
-  register({
+  // The built-in descriptors are module constants known to be well-formed, so
+  // their registration cannot fail; `runSync` here seeds the table once at
+  // construction rather than leaving five unrun effects behind.
+  const seed = (descriptor: EncodingDescriptor): void => Effect.runSync(register(descriptor));
+
+  seed({
     name: 'utf8',
     aliases: ['utf-8'],
     bomBytes: new Uint8Array([0xef, 0xbb, 0xbf]),
@@ -102,7 +110,7 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
     variableWidth: true,
     createDecoder: () => createTextDecoderAdapter('utf-8'),
   });
-  register({
+  seed({
     name: 'ascii',
     aliases: [],
     bomBytes: null,
@@ -114,7 +122,7 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
     // for real ASCII input is unchanged.
     createDecoder: () => createTextDecoderAdapter('windows-1252'),
   });
-  register({
+  seed({
     name: 'latin1',
     aliases: ['iso-8859-1', 'binary'],
     bomBytes: null,
@@ -125,7 +133,7 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
     // take down the whole registry at module load.
     createDecoder: () => createTextDecoderAdapter('iso-8859-1'),
   });
-  register({
+  seed({
     name: 'utf16le',
     aliases: ['utf-16le', 'ucs2', 'ucs-2'],
     bomBytes: new Uint8Array([0xff, 0xfe]),
@@ -133,7 +141,7 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
     variableWidth: true,
     createDecoder: () => createTextDecoderAdapter('utf-16le'),
   });
-  register({
+  seed({
     name: 'utf16be',
     aliases: ['utf-16be'],
     // No native TextDecoder label for utf16be either; byte-swap then
@@ -146,12 +154,12 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
 
   return {
     register,
-    resolve: (name: string): ResolvedEncodingDescriptor => {
-      const descriptor = byName.get(String(name).toLowerCase());
+    resolve: (name: string): Effect.Effect<ResolvedEncodingDescriptor, UnsupportedEncoding> => {
+      const descriptor = byName.get(name.toLowerCase());
       if (!descriptor) {
-        throw new UnsupportedEncoding({ encoding: name, message: `Unsupported encoding "${name}"` });
+        return Effect.fail(new UnsupportedEncoding({ encoding: name, message: `Unsupported encoding "${name}"` }));
       }
-      return descriptor;
+      return Effect.succeed(descriptor);
     },
     bomCandidates: (): Array<ResolvedEncodingDescriptor> => {
       const seen = new Set<string>();

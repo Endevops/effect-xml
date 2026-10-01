@@ -83,7 +83,7 @@ describe('Line-ending normalization', function () {
 
   it('sanitizeContent returns the same string reference when no CR is present (no reallocation)', function () {
     const s = 'no carriage returns here\n\njust newlines';
-    expect(sanitizeContent(s)).toBe(s);
+    expect(Effect.runSync(sanitizeContent(s))).toBe(s);
   });
 });
 

@@ -1,3 +1,7 @@
+import type { Effect } from 'effect';
+
+import type { ParseError } from '#/parse-error.ts';
+
 /**
  * @description The read interface every parser reader is written against. `StringSource`, `FeedableSource` and `BufferSource` each satisfy it, and every consumer
  * — `util`, `XmlPartReader`, `DocTypeReader`, `StopNodeProcessor` — depends on this interface rather than on a concrete source. That is what lets the
@@ -7,6 +11,8 @@
  *
  * - `readCh()` / `readChAt()` return `string | undefined`: reading past the end yields `undefined`, and several readers test for it explicitly (a chunk
  *   boundary mid-token is signalled that way, not by an exception). Callers that have already established `canRead()` narrow the result away.
+ * - The three scanning reads (`readUpto`, `readUptoChar`, `readUptoCloseTag`) report a missing terminator by failing with `UNEXPECTED_END` in the
+ *   effect error channel rather than by throwing. The caller yields them and decides whether to rewind or propagate.
  * - `markTokenStart(0)` is the outer mark `rewindToMark()` restores to; level `1` is the inner mark `flush()` uses as its safe trim boundary. Sources
  *   that always hold the whole document implement `rewindToMark()` as a no-op so callers never branch on source type.
  * - `startIndex` is an offset into the _live_ buffer, not the document. Use `util.absolutePosition()` for any position reported to a caller.
@@ -66,23 +72,25 @@ export interface InputSourceLike {
   /**
    * @description Read up to and including `stopStr`, returning the text before it.
    *
-   * @throws {import('../parse-error.ts').ParseError} `UNEXPECTED_END` when `stopStr` is not present.
+   * @returns An effect producing the text before `stopStr`. Fails with `UNEXPECTED_END` when `stopStr` is not present.
    */
-  readUpto(stopStr: string): string;
+  readUpto(stopStr: string): Effect.Effect<string, ParseError>;
   /**
    * @description Single-character variant of {@link readUpto} — no inner match loop, so it is materially faster.
    *
    * @param stopChar - Exactly one character.
    *
-   * @throws {import('../parse-error.ts').ParseError} `UNEXPECTED_END` when `stopChar` is not present.
+   * @returns An effect producing the text before `stopChar`. Fails with `UNEXPECTED_END` when `stopChar` is not present.
    */
-  readUptoChar(stopChar: string): string;
+  readUptoChar(stopChar: string): Effect.Effect<string, ParseError>;
   /**
    * @description Read until a full closing tag (`stopStr` plus optional whitespace plus `>`) is found, returning the raw content before it.
    *
    * @param stopStr - The closing tag's name part, e.g. `"</script"`.
+   *
+   * @returns An effect producing the raw content. Fails with `UNEXPECTED_END` when the closing tag is not present.
    */
-  readUptoCloseTag(stopStr: string): string;
+  readUptoCloseTag(stopStr: string): Effect.Effect<string, ParseError>;
   /**
    * @description Read one or more characters, optionally advancing the cursor. Optional: only the full-document sources implement it, and no reader function calls
    * it — it exists as a convenience read on those sources.

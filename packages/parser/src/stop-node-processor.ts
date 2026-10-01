@@ -1,3 +1,5 @@
+import { Effect } from 'effect';
+
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type { StopNodeResult } from './internal/parser-types.ts';
 import type { Enclosure } from './internal/tag-expression.ts';
@@ -183,90 +185,110 @@ export class StopNodeProcessor {
    *
    * @param source Any source object with the standard read interface.
    *
-   * @returns `content` is the raw text between the opening and closing tags. `end` is the position immediately after the matched closing tag's `>` —
-   *   mirrors `TagDetail.openEnd` / `closeMeta.closeEnd` for the opening-tag side, letting a caller recover the exact span of `<tag>...</tag>`
-   *   including both delimiters, not just the inner content.
-   *
-   * @throws {ParseError} `UNEXPECTED_END` when the input runs out before the stop node is closed.
+   * @returns An effect producing the collection result: `content` is the raw text between the opening and closing tags, and `end` is the position
+   *   immediately after the matched closing tag's `>` — mirrors `TagDetail.openEnd` / `closeMeta.closeEnd` for the opening-tag side, letting a caller
+   *   recover the exact span of `<tag>...</tag>` including both delimiters, not just the inner content. Fails with `UNEXPECTED_END` when the input
+   *   runs out before the stop node is closed.
    */
-  collect(source: InputSourceLike): StopNodeResult {
+  collect = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<StopNodeResult, ParseError> {
     source.markTokenStart(1);
 
     const enclosuresLen = this.#enclosures.length; //dont inline
 
     if (!this.#nested && enclosuresLen === 0) {
-      return this.#collectPlain(source);
+      return yield* this.#collectPlain(source);
     }
     if (this.#nested && enclosuresLen === 0) {
-      return this.#collectDepthOnly(source);
+      return yield* this.#collectDepthOnly(source);
     }
     if (!this.#nested && enclosuresLen > 0) {
-      return this.#collectEnclosureOnly(source);
+      return yield* this.#collectEnclosureOnly(source);
     }
     // nested && enclosures.length > 0
-    return this.#collectFull(source);
-  }
+    return yield* this.#collectFull(source);
+  });
+
+  // ── Shared scans ───────────────────────────────────────────────────────────
+
+  /**
+   * @description The scan Strategies 1 and 3 share: walk the source and stop at the first `</tagName>` found outside an enclosure. `skipEnclosures` is what tells
+   * the two apart; neither tracks nesting depth, which is what lets them share one loop.
+   */
+  #scanForClose = Effect.fnUntraced(function* (
+    this: StopNodeProcessor,
+    source: InputSourceLike,
+    skipEnclosures: boolean
+  ): Effect.fn.Return<StopNodeResult, ParseError> {
+    while (source.canRead()) {
+      // Enclosure openers take priority over everything else when skipping them.
+      if (skipEnclosures && (yield* this.#trySkipEnclosure(source))) continue;
+
+      const ch = source.readChAt(0);
+
+      if (ch !== '<') {
+        this.#content += source.readCh();
+        continue;
+      }
+
+      // At '<' outside any enclosure — check for our closing tag.
+      if (this.#tryConsumeCloseTag(source)) return this.#finish(source);
+      this.#content += source.readCh();
+    }
+
+    return yield* this.#unclosedError();
+  });
+
+  /**
+   * @description The scan Strategies 2 and 4 share: walk the source until the stop node's own depth reaches zero, optionally skipping enclosure interiors.
+   * `skipEnclosures` is what tells the two apart.
+   */
+  #scanForCloseDepth = Effect.fnUntraced(function* (
+    this: StopNodeProcessor,
+    source: InputSourceLike,
+    skipEnclosures: boolean
+  ): Effect.fn.Return<StopNodeResult, ParseError> {
+    while (this.#depth > 0) {
+      yield* ensureCanRead(source, 0, `stop node <${this.#tagName}> content`);
+
+      // Enclosure openers take priority over tag scanning when skipping them.
+      if (skipEnclosures && (yield* this.#trySkipEnclosure(source))) continue;
+
+      if (yield* this.#stepDepthTracking(source)) return this.#finish(source);
+    }
+
+    /* istanbul ignore next */
+    return yield* this.#unclosedError();
+  });
 
   // ── Strategy 1: Plain ──────────────────────────────────────────────────────
 
   /**
    * @description Fastest path. No depth tracking, no enclosure skipping. Scans for the literal `</tagName>` followed by optional whitespace then `>`.
    */
-  #collectPlain(source: InputSourceLike): StopNodeResult {
-    while (source.canRead()) {
-      const ch = source.readChAt(0);
-
-      if (ch !== '<') {
-        this.#content += source.readCh();
-        continue;
-      }
-
-      if (this.#tryConsumeCloseTag(source)) return this.#finish(source);
-      this.#content += source.readCh();
-    }
-
-    throw this.#unclosedError();
-  }
+  #collectPlain = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<StopNodeResult, ParseError> {
+    return yield* this.#scanForClose(source, false);
+  });
 
   // ── Strategy 2: Depth-only ─────────────────────────────────────────────────
 
   /**
    * @description Depth tracking without enclosure skipping. Properly handles nested same-name open tags. No enclosure awareness.
    */
-  #collectDepthOnly(source: InputSourceLike): StopNodeResult {
-    while (this.#depth > 0) {
-      ensureCanRead(source, 0, `stop node <${this.#tagName}> content`);
-      if (this.#stepDepthTracking(source)) return this.#finish(source);
-    }
-
-    /* istanbul ignore next */
-    throw this.#unclosedError();
-  }
+  #collectDepthOnly = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<StopNodeResult, ParseError> {
+    return yield* this.#scanForCloseDepth(source, false);
+  });
 
   // ── Strategy 3: Enclosure-only ─────────────────────────────────────────────
 
   /**
    * @description Enclosure skipping without depth tracking. Skips enclosure interiors; stops at the first `</tagName>` found outside them.
    */
-  #collectEnclosureOnly(source: InputSourceLike): StopNodeResult {
-    while (source.canRead()) {
-      // Enclosure openers take priority over everything else
-      if (this.#trySkipEnclosure(source)) continue;
-
-      const ch = source.readChAt(0);
-
-      if (ch !== '<') {
-        this.#content += source.readCh();
-        continue;
-      }
-
-      // At '<' outside any enclosure — check for our closing tag
-      if (this.#tryConsumeCloseTag(source)) return this.#finish(source);
-      this.#content += source.readCh();
-    }
-
-    throw this.#unclosedError();
-  }
+  #collectEnclosureOnly = Effect.fnUntraced(function* (
+    this: StopNodeProcessor,
+    source: InputSourceLike
+  ): Effect.fn.Return<StopNodeResult, ParseError> {
+    return yield* this.#scanForClose(source, true);
+  });
 
   // ── Strategy 4: Full (nested + enclosures) ─────────────────────────────────
 
@@ -274,19 +296,9 @@ export class StopNodeProcessor {
    * @description Full mode: enclosure skipping AND depth tracking. Enclosure interiors suppress all closing-tag and depth logic for their span. Depth tracks
    * nested same-name open tags; the stop node ends at depth zero.
    */
-  #collectFull(source: InputSourceLike): StopNodeResult {
-    while (this.#depth > 0) {
-      ensureCanRead(source, 0, `stop node <${this.#tagName}> content`);
-
-      // Enclosure openers take priority over tag scanning
-      if (this.#trySkipEnclosure(source)) continue;
-
-      if (this.#stepDepthTracking(source)) return this.#finish(source);
-    }
-
-    /* istanbul ignore next */
-    throw this.#unclosedError();
-  }
+  #collectFull = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<StopNodeResult, ParseError> {
+    return yield* this.#scanForCloseDepth(source, true);
+  });
 
   // ── Shared finish helper ───────────────────────────────────────────────────
 
@@ -309,16 +321,16 @@ export class StopNodeProcessor {
    * @description If an enclosure opens at the current position, consume it and its whole interior (added to `#content` verbatim) and return true. Returns false,
    * consuming nothing, if no enclosure opens here. Shared by the two enclosure-aware strategies (`#collectEnclosureOnly`, `#collectFull`).
    */
-  #trySkipEnclosure(source: InputSourceLike): boolean {
+  #trySkipEnclosure = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<boolean, ParseError> {
     const encIdx = this.#matchEnclosureOpen(source);
     if (encIdx === -1) return false;
     const enc = this.#enclosures[encIdx] as Enclosure;
     this.#skipChars(source, enc.open.length);
     this.#content += enc.open;
-    const interior = this.#readUpto(source, enc.close);
+    const interior = yield* this.#readUpto(source, enc.close);
     this.#content += interior + enc.close;
     return true;
-  }
+  });
 
   /**
    * @description At a '<' that isn't inside an enclosure: check whether it starts our own closing tag (`</tagName` + optional whitespace + `>`). If so, consume it
@@ -359,7 +371,7 @@ export class StopNodeProcessor {
    * verbatim and, for a same-name non-self-closing opener, increments depth. Shared by the two depth-tracking strategies (`#collectDepthOnly`,
    * `#collectFull`), which differ only in whether they check for enclosures before calling this.
    */
-  #stepDepthTracking(source: InputSourceLike): boolean {
+  #stepDepthTracking = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<boolean, ParseError> {
     const ch = source.readChAt(0);
 
     if (ch !== '<') {
@@ -369,7 +381,7 @@ export class StopNodeProcessor {
 
     // Consume '<'
     source.readCh();
-    ensureCanRead(source, 0, `stop node <${this.#tagName}> tag after '<'`);
+    yield* ensureCanRead(source, 0, `stop node <${this.#tagName}> tag after '<'`);
 
     const c0 = source.readChAt(0);
 
@@ -377,7 +389,7 @@ export class StopNodeProcessor {
       // Closing tag
       source.readCh(); // consume '/'
       const closeName = this.#readTagName(source);
-      const closeSuffix = this.#readToAngleClose(source);
+      const closeSuffix = yield* this.#readToAngleClose(source);
 
       if (closeName === this.#tagName) {
         this.#depth--;
@@ -391,19 +403,19 @@ export class StopNodeProcessor {
     const openName = this.#readTagName(source);
     this.#content += '<' + openName;
 
-    const { selfClosing, attrText } = this.#readTagTail(source);
+    const { selfClosing, attrText } = yield* this.#readTagTail(source);
     this.#content += attrText;
 
     if (!selfClosing && openName === this.#tagName) {
       this.#depth++;
     }
     return false;
-  }
+  });
 
   /**
    * @description The "ran out of input before the stop node closed" error, identical across all four collection strategies.
    */
-  #unclosedError(): ParseError {
+  #unclosedError(): UnexpectedEnd {
     return new UnexpectedEnd({
       reading: `stop node <${this.#tagName}> content`,
       message: `Unclosed stop node <${this.#tagName}> — unexpected end of input`,
@@ -425,9 +437,13 @@ export class StopNodeProcessor {
   /**
    * @description Read until `stopStr` is found, consuming `stopStr` itself. Returns the text before `stopStr`.
    *
-   * @throws {ParseError} `UNEXPECTED_END` when the input runs out.
+   * @returns An effect producing the text before `stopStr`. Fails with `UNEXPECTED_END` when the input runs out.
    */
-  #readUpto(source: InputSourceLike, stopStr: string): string {
+  #readUpto = Effect.fnUntraced(function* (
+    this: StopNodeProcessor,
+    source: InputSourceLike,
+    stopStr: string
+  ): Effect.fn.Return<string, UnexpectedEnd> {
     const s0 = stopStr[0];
     const sLen = stopStr.length;
     const start = source.startIndex;
@@ -443,8 +459,11 @@ export class StopNodeProcessor {
       len++;
     }
 
-    throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unclosed stop node <${this.#tagName}> — unexpected end looking for '${stopStr}'` });
-  }
+    return yield* new UnexpectedEnd({
+      reading: `'${stopStr}'`,
+      message: `Unclosed stop node <${this.#tagName}> — unexpected end looking for '${stopStr}'`,
+    });
+  });
 
   /**
    * @description Check whether the source (starting at current position) starts with `str`. Does NOT consume.
@@ -485,9 +504,9 @@ export class StopNodeProcessor {
    * allowed to run, and once inside, a value can only be left by its own delimiter. Holding a pair of flags instead would have made both answers
    * depend on the _other_ flag, so every character would have needed the same mutually-exclusive guards whether or not a value was open.
    *
-   * @throws {ParseError} `UNEXPECTED_END` when the input runs out inside the tag.
+   * @returns An effect producing the finished tag tail. Fails with `UNEXPECTED_END` when the input runs out inside the tag.
    */
-  #readTagTail(source: InputSourceLike): TagTail {
+  #readTagTail = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<TagTail, UnexpectedEnd> {
     const start = source.startIndex;
     let len = 0;
     let quote: QuoteDelimiter | null = null;
@@ -509,11 +528,11 @@ export class StopNodeProcessor {
       quote = openQuoteDelimiter(ch);
     }
 
-    throw new UnexpectedEnd({
+    return yield* new UnexpectedEnd({
       reading: `stop node <${this.#tagName}> tag`,
       message: `Unclosed stop node <${this.#tagName}> — unexpected end inside tag`,
     });
-  }
+  });
 
   /**
    * @description Test whether the character just consumed ends the tag, consuming the `>` of a `/>` when it does. Its own method so that "which characters can
@@ -540,9 +559,10 @@ export class StopNodeProcessor {
    * @description After reading a closing tag name, read optional whitespace and the `>` returning them as a raw string (e.g. `' >'` or `'>'`). Preserves original
    * spacing when reconstructing inner closing tags.
    *
-   * @throws {ParseError} `UNEXPECTED_END` when the input runs out, or the tag turns out to be malformed.
+   * @returns An effect producing the whitespace and `>` as written. Fails with `UNEXPECTED_END` when the input runs out, or the tag turns out to be
+   *   malformed.
    */
-  #readToAngleClose(source: InputSourceLike): string {
+  #readToAngleClose = Effect.fnUntraced(function* (this: StopNodeProcessor, source: InputSourceLike): Effect.fn.Return<string, UnexpectedEnd> {
     const start = source.startIndex;
     let len = 0;
     while (source.canRead()) {
@@ -550,9 +570,9 @@ export class StopNodeProcessor {
       len++;
       if (ch === '>') return source.readStr(len, start);
       if (!isSpace(ch)) {
-        throw new UnexpectedEnd({ reading: `malformed </${this.#tagName}>`, message: `Malformed closing tag for </${this.#tagName}>` });
+        return yield* new UnexpectedEnd({ reading: `malformed </${this.#tagName}>`, message: `Malformed closing tag for </${this.#tagName}>` });
       }
     }
-    throw new UnexpectedEnd({ reading: `'>'`, message: `Unclosed stop node <${this.#tagName}> — unexpected end looking for '>'` });
-  }
+    return yield* new UnexpectedEnd({ reading: `'>'`, message: `Unclosed stop node <${this.#tagName}> — unexpected end looking for '>'` });
+  });
 }

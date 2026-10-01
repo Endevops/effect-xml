@@ -1,3 +1,5 @@
+import { Effect } from 'effect';
+
 import type { InputSourceLike } from './input-source/input-source.ts';
 
 import { IllegalCharacter, InvalidTag, UnexpectedEnd } from './parse-error.ts';
@@ -85,17 +87,16 @@ function isIllegalControlCode(c: number): boolean {
  * @param str - The finished token.
  * @param source - Source to report an error position from. Omit when unavailable.
  *
- * @returns The normalized text, or `str` itself when there is no `\r` to fold (the fast path allocates nothing).
- *
- * @throws {ParseError} `ILLEGAL_CHARACTER` on any illegal control code.
+ * @returns An effect producing the normalized text, or `str` itself when there is no `\r` to fold (the fast path allocates nothing). Fails with
+ *   `ILLEGAL_CHARACTER` on any illegal control code.
  */
-export function sanitizeContent(str: string, source?: InputSourceLike): string {
+export const sanitizeContent = Effect.fnUntraced(function* (str: string, source?: InputSourceLike): Effect.fn.Return<string, IllegalCharacter> {
   const len = str.length;
   let hasCR = false;
   for (let i = 0; i < len; i++) {
     const c = str.charCodeAt(i);
     if (isIllegalControlCode(c)) {
-      throw new IllegalCharacter({
+      return yield* new IllegalCharacter({
         charCode: c,
         in: 'content',
         message: `Illegal control character 0x${c.toString(16).padStart(2, '0')} in document content`,
@@ -117,43 +118,52 @@ export function sanitizeContent(str: string, source?: InputSourceLike): string {
   }
   out += str.substring(segStart);
   return out;
-}
+});
 
 /**
- * @description Assert that the upcoming characters in the source match the expected string. If not enough data → throws UNEXPECTED_END. If mismatch → throws
- * INVALID_TAG with the given errorMsg. On success, consumes the matched characters (advances startIndex).
+ * @description Assert that the upcoming characters in the source match the expected string. If not enough data → fails with `UNEXPECTED_END`. If mismatch → fails
+ * with `INVALID_TAG`. On success, consumes the matched characters (advances startIndex).
  *
  * @param source - Input source.
  * @param expected - String to match.
  * @param errorMsg - Description of what is being read (used in error messages).
  * @param caseInsensitive - Lowercase both sides before comparing. `expected` must already be lowercase. Default is `false`
  *
- * @throws {ParseError} `UNEXPECTED_END` when the buffer is too short to decide, `INVALID_TAG` on a definite mismatch.
+ * @returns An effect that fails with `UNEXPECTED_END` when the buffer is too short to decide, `INVALID_TAG` on a definite mismatch.
  */
-export function expectMatch(source: InputSourceLike, expected: string, errorMsg: string, caseInsensitive: boolean = false): void {
+export const expectMatch = Effect.fnUntraced(function* (
+  source: InputSourceLike,
+  expected: string,
+  errorMsg: string,
+  caseInsensitive: boolean = false
+): Effect.fn.Return<void, UnexpectedEnd | InvalidTag> {
   const len = expected.length;
   if (!source.canRead(len)) {
-    throw new UnexpectedEnd({ reading: errorMsg, message: `Unexpected end of source reading ${errorMsg}`, index: absolutePosition(source) });
+    return yield* new UnexpectedEnd({ reading: errorMsg, message: `Unexpected end of source reading ${errorMsg}`, index: absolutePosition(source) });
   }
   const matched = source.matchAhead(expected, caseInsensitive);
   if (matched !== true) {
-    throw new InvalidTag({ message: `Invalid ${errorMsg}`, index: absolutePosition(source) });
+    return yield* new InvalidTag({ message: `Invalid ${errorMsg}`, index: absolutePosition(source) });
   }
   source.updateBufferBoundary(len);
-}
+});
 
 /**
- * @description Assert that the source has at least `n` characters available from the current position. Throws UNEXPECTED_END if not enough data. Does NOT consume
- * any characters.
+ * @description Assert that the source has at least `n` characters available from the current position. Fails with `UNEXPECTED_END` if not enough data. Does NOT
+ * consume any characters.
  *
  * @param source - Input source.
  * @param n - Number of characters needed.
  * @param errorMsg - Description of what is being read (used in error message).
  *
- * @throws {ParseError} `UNEXPECTED_END` when fewer than `n` characters are buffered.
+ * @returns An effect that fails with `UNEXPECTED_END` when fewer than `n` characters are buffered.
  */
-export function ensureCanRead(source: InputSourceLike, n: number, errorMsg: string): void {
+export const ensureCanRead = Effect.fnUntraced(function* (
+  source: InputSourceLike,
+  n: number,
+  errorMsg: string
+): Effect.fn.Return<void, UnexpectedEnd> {
   if (!source.canRead(n)) {
-    throw new UnexpectedEnd({ reading: errorMsg, message: `Unexpected end of source reading ${errorMsg}`, index: absolutePosition(source) });
+    return yield* new UnexpectedEnd({ reading: errorMsg, message: `Unexpected end of source reading ${errorMsg}`, index: absolutePosition(source) });
   }
-}
+});

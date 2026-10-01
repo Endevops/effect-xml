@@ -1,8 +1,11 @@
 'use strict';
 
+import { Effect } from 'effect';
+
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type { TagExpressionParser } from './internal/parser-types.ts';
 import type { ParsedAttribute } from './internal/parser-types.ts';
+import type { ParseError } from './parse-error.ts';
 
 import { collectRawAttributes } from './attribute-processor.ts';
 import { InvalidTagName, UnclosedQuote, UnexpectedEnd } from './parse-error.ts';
@@ -101,12 +104,10 @@ export function tryMatchClosingTagName(source: InputSourceLike, expectedRawName:
  *
  * @param source - Input source.
  *
- * @returns Tag name.
- *
- * @throws {ParseError} `UNEXPECTED_END` when the buffer ran out before `>`, with the partial name embedded in the message so autoClose's truncation
- *   recovery can still report something useful.
+ * @returns An effect producing the tag name. Fails with `UNEXPECTED_END` when the buffer ran out before `>`, with the partial name embedded in the
+ *   message so autoClose's truncation recovery can still report something useful.
  */
-export function readClosingTagName(source: InputSourceLike): string {
+export const readClosingTagName = Effect.fnUntraced(function* (source: InputSourceLike): Effect.fn.Return<string, UnexpectedEnd> {
   source.markTokenStart(1);
   // Closing tags never carry attributes, so unlike an opening tag's
   // expression there is no quoting to worry about — the very first '>' is
@@ -114,19 +115,21 @@ export function readClosingTagName(source: InputSourceLike): string {
   // direct scan of whatever is already buffered (readUptoChar), instead of
   // asking "is there more data yet?" before every single character.
   const start = source.startIndex;
-  try {
-    const str = source.readUptoChar('>');
-    return str.trimEnd();
-  } catch {
-    // Buffer ran out before '>' showed up — the retryable chunk-boundary
-    // case (readUptoChar didn't consume anything on failure). Re-throw with
-    // whatever was buffered so far in the message so autoClose's truncation
-    // recovery (which reads it back out of the message) can still report a
-    // useful partial tag name.
-    const partial = source.readStr(Number.MAX_SAFE_INTEGER, start);
-    throw new UnexpectedEnd({ reading: `closing tag '</${partial}'`, message: `Unexpected end of source reading closing tag '</${partial}'` });
-  }
-}
+  const str = yield* source.readUptoChar('>').pipe(
+    Effect.catchTag('UNEXPECTED_END', () => {
+      // Buffer ran out before '>' showed up — the retryable chunk-boundary
+      // case (readUptoChar didn't consume anything on failure). Fail with
+      // whatever was buffered so far in the message so autoClose's truncation
+      // recovery (which reads it back out of the message) can still report a
+      // useful partial tag name.
+      const partial = source.readStr(Number.MAX_SAFE_INTEGER, start);
+      return Effect.fail(
+        new UnexpectedEnd({ reading: `closing tag '</${partial}'`, message: `Unexpected end of source reading closing tag '</${partial}'` })
+      );
+    })
+  );
+  return str.trimEnd();
+});
 
 /**
  * @description Read an XML opening tag expression and return a tag descriptor. Handles normal tags — not comments, CDATA, or DOCTYPE. Example input (from source,
@@ -134,11 +137,10 @@ export function readClosingTagName(source: InputSourceLike): string {
  *
  * @param parser - Parser context.
  *
- * @returns The parsed tag expression.
- *
- * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary mid-tag, `INVALID_TAG_NAME` when the name fails XML's `QName` production.
+ * @returns An effect producing the parsed tag expression. Fails with `UNEXPECTED_END` on a chunk boundary mid-tag, `INVALID_TAG_NAME` when the name
+ *   fails XML's `QName` production.
  */
-export function readTagExp(parser: TagExpressionParser): TagExp {
+export const readTagExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<TagExp, ParseError> {
   parser.source.markTokenStart(1);
   // Absolute document offset where `exp` (tag name onward, right after '<')
   // begins — captured before any reads so buildTagExpObj can compute each
@@ -154,7 +156,7 @@ export function readTagExp(parser: TagExpressionParser): TagExp {
 
   if (relEnd === -1) {
     // Buffer exhausted before an unquoted '>' was found — chunk boundary
-    // mid-tag. Throw UNEXPECTED_END so feed()/parseStream() rewinds to the
+    // mid-tag. Fail with UNEXPECTED_END so feed()/parseStream() rewinds to the
     // level-0 outer mark and retries. (Note: scanTagExpEnd() only returns a
     // non-negative index once both quote flags are already balanced-closed —
     // by construction, not by a separate post-scan check — so there is no
@@ -162,7 +164,7 @@ export function readTagExp(parser: TagExpressionParser): TagExp {
     // the old UNCLOSED_QUOTE branch here was checking the same two flags
     // immediately after the only code path that requires them both false,
     // making it permanently unreachable.)
-    throw new UnexpectedEnd({ reading: `'>'`, message: "Unexpected closing of source waiting for '>'" });
+    return yield* new UnexpectedEnd({ reading: `'>'`, message: "Unexpected closing of source waiting for '>'" });
   }
 
   const exp = parser.source.readStr(relEnd);
@@ -182,19 +184,18 @@ export function readTagExp(parser: TagExpressionParser): TagExp {
   const quotePairs = usableQuotes ? parser.source._quotePairs : undefined;
   const quotePairsLen = usableQuotes ? parser.source._quotePairsLen : 0;
 
-  return buildTagExpObj(exp, parser, expStart, false, quotePairs, quotePairsLen);
-}
+  return yield* buildTagExpObj(exp, parser, expStart, false, quotePairs, quotePairsLen);
+});
 
 /**
  * @description Read a processing-instruction tag expression (`<?name attrs?>`). Uses the level-1 (inner) mark — see `readClosingTagName()` for rationale.
  *
  * @param parser - Parser context.
  *
- * @returns The parsed tag expression.
- *
- * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary mid-PI-tag, `UNCLOSED_QUOTE` when `?>` is found inside an unterminated quoted value.
+ * @returns An effect producing the parsed tag expression. Fails with `UNEXPECTED_END` on a chunk boundary mid-PI-tag, `UNCLOSED_QUOTE` when `?>` is
+ *   found inside an unterminated quoted value.
  */
-export function readPiExp(parser: TagExpressionParser): TagExp {
+export const readPiExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<TagExp, ParseError> {
   parser.source.markTokenStart(1);
   const expStart = absolutePosition(parser.source);
   let inSingleQuotes = false;
@@ -226,10 +227,10 @@ export function readPiExp(parser: TagExpressionParser): TagExp {
 
   if (!EOE) {
     // Buffer exhausted before '?>' — chunk boundary mid-PI-tag.
-    throw new UnexpectedEnd({ reading: `'?>'`, message: "Unexpected closing of source waiting for '?>'" });
+    return yield* new UnexpectedEnd({ reading: `'?>'`, message: "Unexpected closing of source waiting for '?>'" });
   } else if (inSingleQuotes || inDoubleQuotes) {
     // '?>' found but a quote was never closed — real syntax error.
-    throw new UnclosedQuote({ message: 'Invalid attribute expression. Quote is not properly closed in PI tag expression' });
+    return yield* new UnclosedQuote({ message: 'Invalid attribute expression. Quote is not properly closed in PI tag expression' });
   }
 
   // if (!parser.options.skip.attributes) {
@@ -238,8 +239,8 @@ export function readPiExp(parser: TagExpressionParser): TagExp {
 
   const exp = parser.source.readStr(i);
   parser.source.updateBufferBoundary(i + 2);
-  return buildTagExpObj(exp, parser, expStart, true);
-}
+  return yield* buildTagExpObj(exp, parser, expStart, true);
+});
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -257,18 +258,17 @@ export function readPiExp(parser: TagExpressionParser): TagExp {
  *   (`readPiExp()` never supplies one) — `collectRawAttributes()` falls back to its own scan in that case.
  * @param quotePairsLen - How many entries in `quotePairs` are valid (it's a reused fixed-capacity array, not sized to this tag).
  *
- * @returns The populated tag expression.
- *
- * @throws {ParseError} `INVALID_TAG_NAME` when the name fails XML's `QName` production, plus anything the attribute pass throws.
+ * @returns An effect producing the populated tag expression. Fails with `INVALID_TAG_NAME` when the name fails XML's `QName` production, plus
+ *   anything the attribute pass reports.
  */
-function buildTagExpObj(
+const buildTagExpObj = Effect.fnUntraced(function* (
   exp: string,
   parser: TagExpressionParser,
   expStart: number | undefined,
   forceToReadAttrs: boolean = false,
   quotePairs?: Int32Array,
   quotePairsLen: number = 0
-): TagExp {
+): Effect.fn.Return<TagExp, ParseError> {
   const tagExp = new TagExp();
 
   if (exp[exp.length - 1] === '/') {
@@ -285,7 +285,7 @@ function buildTagExpObj(
   if (expStart !== undefined) tagExp._attrsExpStart = expStart + split.attrsOffset;
 
   if (!parser.isValidQName(tagExp.tagName)) {
-    throw new InvalidTagName({ name: tagExp.tagName, message: 'Invalid tag name' });
+    return yield* new InvalidTagName({ name: tagExp.tagName, message: 'Invalid tag name' });
   }
 
   // Pass 1: collect raw attribute values for matcher.updateCurrent().
@@ -299,11 +299,11 @@ function buildTagExpObj(
   // document-validity problem, not an output-shaping one, so skip.attributes
   // must not be able to silently let broken markup through.
   if (forceToReadAttrs || split.attrsExp.length > 0) {
-    collectRawAttributes(split.attrsExp, parser, tagExp, quotePairs, split.attrsOffset, quotePairsLen);
+    yield* collectRawAttributes(split.attrsExp, parser, tagExp, quotePairs, split.attrsOffset, quotePairsLen);
   }
 
   return tagExp;
-}
+});
 
 /**
  * @description Split a raw tag expression into its tag name and its attribute expression, which the first whitespace separates. A tag with no whitespace has no

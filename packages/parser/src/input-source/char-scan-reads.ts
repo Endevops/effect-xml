@@ -1,3 +1,5 @@
+import { Effect } from 'effect';
+
 import { UnexpectedEnd } from '#/parse-error.ts';
 import { isSpace } from '#/util.ts';
 
@@ -44,7 +46,7 @@ export function canRead(this: CharScanReadContext, n: number = 0) {
   return this.startIndex + n < this.buffer.length;
 }
 
-export function readUpto(this: CharScanReadContext, stopStr: string): string {
+export const readUpto = Effect.fnUntraced(function* (this: CharScanReadContext, stopStr: string): Effect.fn.Return<string, UnexpectedEnd> {
   const inputLength = this.buffer.length;
   const stopLength = stopStr.length;
 
@@ -63,18 +65,18 @@ export function readUpto(this: CharScanReadContext, stopStr: string): string {
     }
   }
 
-  throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
-}
+  return yield* new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
+});
 
-export function readUptoChar(this: CharScanReadContext, stopChar: string): string {
+export const readUptoChar = Effect.fnUntraced(function* (this: CharScanReadContext, stopChar: string): Effect.fn.Return<string, UnexpectedEnd> {
   const i = this.buffer.indexOf(stopChar, this.startIndex);
   if (i === -1) {
-    throw new UnexpectedEnd({ reading: `'${stopChar}'`, message: `Unexpected end of source reading '${stopChar}'` });
+    return yield* new UnexpectedEnd({ reading: `'${stopChar}'`, message: `Unexpected end of source reading '${stopChar}'` });
   }
   const result = this.buffer.substring(this.startIndex, i);
   this.startIndex = i + 1;
   return result;
-}
+});
 
 /**
  * @description Whether `str` occurs in `buffer` starting exactly at `at`. Reading past the end yields `undefined`, which never equals `str[j]`, so a truncated
@@ -105,7 +107,8 @@ function closeTagEnd(buffer: string, from: number): number {
  * @description Read up to but not including a closing tag (used for stop nodes). `stopStr` is the `"</tagname"` prefix. A match only counts once the following `>`
  * is found, so `</scriptX>` does not terminate a `<script>` stop node.
  */
-export function readUptoCloseTag(this: CharScanReadContext, stopStr: string): string {
+// fallow-ignore-next-line complexity
+export const readUptoCloseTag = Effect.fnUntraced(function* (this: CharScanReadContext, stopStr: string): Effect.fn.Return<string, UnexpectedEnd> {
   const buffer = this.buffer;
   const first = stopStr[0];
 
@@ -123,8 +126,8 @@ export function readUptoCloseTag(this: CharScanReadContext, stopStr: string): st
     return result;
   }
 
-  throw new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
-}
+  return yield* new UnexpectedEnd({ reading: `'${stopStr}'`, message: `Unexpected end of source reading '${stopStr}'` });
+});
 
 export function readFromBuffer(this: CharScanReadContext, n: number, shouldUpdate?: boolean) {
   const ch = n === 1 ? this.buffer[this.startIndex] : this.buffer.substring(this.startIndex, this.startIndex + n);

@@ -95,7 +95,7 @@ describe('FeedableSource autoFlush', function () {
     let fed = '';
     for (let i = 0; i < 50; i++) {
       const chunk = `x${i}`.padEnd(10, '_');
-      source.feed(chunk);
+      Effect.runSync(source.feed(chunk));
       fed += chunk;
 
       // Simulate parseXml()'s loop: mark before "reading a token", then
@@ -125,7 +125,7 @@ describe('FeedableSource autoFlush', function () {
     let fed = '';
     for (let i = 0; i < 50; i++) {
       const chunk = `x${i}`.padEnd(10, '_');
-      source.feed(chunk);
+      Effect.runSync(source.feed(chunk));
       fed += chunk;
 
       source.markTokenStart(0);

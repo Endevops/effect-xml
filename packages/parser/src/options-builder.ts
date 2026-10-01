@@ -10,6 +10,7 @@ import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { AutoCloseInput, AutoCloseOptions, ResolvedOptions, StopNodeEntry, X2jOptions } from './options.ts';
 import type { ParseError } from './parse-error.ts';
 
+import { defaultEncodingRegistry, makeEncodingRegistry } from './encoding/encoding-registry.ts';
 import { InvalidInput, SecurityReservedOption, fromUpstreamError } from './parse-error.ts';
 import { DANGEROUS_PROPERTY_NAMES, criticalProperties } from './util.ts';
 
@@ -346,6 +347,24 @@ export const buildOptions = (options?: X2jOptions | null): Effect.Effect<Resolve
       const { entries, set } = yield* normalizeTagList(finalOptions.skip.tags, 'skip.tags');
       finalOptions.skip.tags = entries;
       finalOptions.skip.tagsSet = set;
+    }
+
+    // Encoding registry. Built here, inside the effect, because registering a
+    // malformed custom descriptor fails — the failure belongs at construction,
+    // alongside every other option validation. A per-instance registry is used
+    // only when the caller supplied custom decoders, so registering one on a
+    // parser never leaks into any other parser in the process; the common case
+    // reuses the shared default seeded once at module load.
+    if (finalOptions.decoding.customDecoders) {
+      const registry = makeEncodingRegistry();
+      for (const [name, descriptor] of Object.entries(finalOptions.decoding.customDecoders)) {
+        // The map key is authoritative for `name`; spread first so a
+        // descriptor that also carries `name` can't override the key.
+        yield* registry.register({ ...descriptor, name });
+      }
+      finalOptions.decoding._registry = registry;
+    } else {
+      finalOptions.decoding._registry = defaultEncodingRegistry;
     }
 
     if (finalOptions.onDangerousProperty === null) {

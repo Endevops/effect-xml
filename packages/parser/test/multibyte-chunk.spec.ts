@@ -42,9 +42,9 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
       const [c1, c2] = splitBufferAtByte(buf, idx + 1); // split mid-character
 
       const source = new FeedableSource();
-      source.feed(c1);
-      source.feed(c2);
-      source.end();
+      Effect.runSync(source.feed(c1));
+      Effect.runSync(source.feed(c2));
+      Effect.runSync(source.end());
       expect(source.buffer).toBe(`<a>${TWO_BYTE}</a>`);
     });
 
@@ -56,9 +56,9 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
       for (let cut = charStart + 1; cut <= charStart + 2; cut++) {
         const [c1, c2] = splitBufferAtByte(buf, cut);
         const source = new FeedableSource();
-        source.feed(c1);
-        source.feed(c2);
-        source.end();
+        Effect.runSync(source.feed(c1));
+        Effect.runSync(source.feed(c2));
+        Effect.runSync(source.end());
         expect(source.buffer).toBe(full);
       }
     });
@@ -71,9 +71,9 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
       for (let cut = charStart + 1; cut <= charStart + 3; cut++) {
         const [c1, c2] = splitBufferAtByte(buf, cut);
         const source = new FeedableSource();
-        source.feed(c1);
-        source.feed(c2);
-        source.end();
+        Effect.runSync(source.feed(c1));
+        Effect.runSync(source.feed(c2));
+        Effect.runSync(source.end());
         expect(source.buffer).toBe(full);
       }
     });
@@ -84,24 +84,25 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
       const charStart = buf.indexOf(Buffer.from('文', 'utf8'));
 
       const source = new FeedableSource();
-      source.feed(buf.subarray(0, charStart + 1)); // ends mid-char
-      source.feed(buf.subarray(charStart + 1, charStart + 2)); // still mid-char
-      source.feed(buf.subarray(charStart + 2)); // completes it + rest
-      source.end();
+      Effect.runSync(source.feed(buf.subarray(0, charStart + 1))); // ends mid-char
+      Effect.runSync(source.feed(buf.subarray(charStart + 1, charStart + 2))); // still mid-char
+      Effect.runSync(source.feed(buf.subarray(charStart + 2))); // completes it + rest
+      Effect.runSync(source.end());
       expect(source.buffer).toBe(full);
     });
 
     it('still accepts plain strings unchanged (no regression)', () => {
       const source = new FeedableSource();
-      source.feed('<a>hello</a>');
-      source.end();
+      Effect.runSync(source.feed('<a>hello</a>'));
+      Effect.runSync(source.end());
       expect(source.buffer).toBe('<a>hello</a>');
     });
 
-    it('throws DATA_MUST_BE_STRING for unsupported input', () => {
+    it('fails DATA_MUST_BE_STRING for unsupported input', () => {
       const source = new FeedableSource();
       const noToString = Object.create(null); // no .toString at all
-      expect(() => source.feed(noToString)).toThrowError(/string or a byte array/);
+      const error = Effect.runSync(source.feed(noToString).pipe(Effect.match({ onFailure: e => e, onSuccess: () => null })));
+      expect(error?._tag).toBe('DATA_MUST_BE_STRING');
     });
   });
 

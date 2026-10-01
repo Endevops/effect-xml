@@ -1,3 +1,7 @@
+import { Effect } from 'effect';
+
+import type { ParseError } from '#/parse-error.ts';
+
 import FeedableSource from './feedable-source.ts';
 
 /**
@@ -67,8 +71,10 @@ export default class StreamSource extends FeedableSource {
         // decodes bytes via a persistent stateful decoder so a multi-byte
         // UTF-8 character split across two chunks decodes correctly instead
         // of each half being independently mangled by a per-chunk decode.
-        this.feed(chunk);
-        onChunk(null); // chunk appended successfully — caller runs parseXml()
+        // The effect is folded to a value so the callback keeps its
+        // `error | null` contract without a thrown `FiberFailure` in between.
+        const error = Effect.runSync(this.feed(chunk).pipe(Effect.match({ onFailure: (e: ParseError): Error => e, onSuccess: (): null => null })));
+        onChunk(error); // chunk appended successfully — caller runs parseXml()
       } catch (err) {
         onChunk(err as Error | null); // buffer overflow or coercion failure
       }
@@ -78,7 +84,11 @@ export default class StreamSource extends FeedableSource {
 
     readable.on('end', () => {
       try {
-        this.end();
+        const error = Effect.runSync(this.end().pipe(Effect.match({ onFailure: (e: ParseError): Error => e, onSuccess: (): null => null })));
+        if (error) {
+          onError(error);
+          return;
+        }
         onEnd();
       } catch (err) {
         onError(err as Error);

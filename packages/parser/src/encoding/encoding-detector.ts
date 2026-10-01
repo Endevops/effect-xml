@@ -1,3 +1,5 @@
+import { Effect } from 'effect';
+
 import { EncodingMismatch } from '#/parse-error.ts';
 
 import type { EncodingRegistry, ResolvedEncodingDescriptor } from './encoding-registry.ts';
@@ -43,14 +45,17 @@ interface BomMatch {
  * @param bytes - Leading bytes of the document. Only the first `DECL_PEEK_BYTES` past any BOM are inspected.
  * @param registry - Registry to resolve BOM signatures and encoding names against.
  *
- * @throws {ParseError} `ENCODING_MISMATCH` when the BOM and the declaration disagree.
+ * @returns An effect producing the detection. Fails with `ENCODING_MISMATCH` when the BOM and the declaration disagree.
  */
-export function sniff(bytes: Uint8Array, registry: EncodingRegistry): EncodingDetection {
+export const sniff = Effect.fnUntraced(function* (
+  bytes: Uint8Array,
+  registry: EncodingRegistry
+): Effect.fn.Return<EncodingDetection, EncodingMismatch> {
   const bomMatch = matchBom(bytes, registry);
   const declaredEncoding = sniffDeclaration(bytes, bomMatch ? bomMatch.bomLength : 0);
 
-  if (bomMatch && declaredEncoding && !sameEncoding(bomMatch.descriptor.name, declaredEncoding, registry)) {
-    throw new EncodingMismatch({
+  if (bomMatch && declaredEncoding && !(yield* sameEncoding(bomMatch.descriptor.name, declaredEncoding, registry))) {
+    return yield* new EncodingMismatch({
       declared: declaredEncoding,
       actual: bomMatch.descriptor.name,
       message: `Byte-order mark indicates "${bomMatch.descriptor.name}" but the XML declaration says encoding="${declaredEncoding}"`,
@@ -64,7 +69,7 @@ export function sniff(bytes: Uint8Array, registry: EncodingRegistry): EncodingDe
     return { encoding: declaredEncoding, bomLength: 0, declaredEncoding };
   }
   return { encoding: 'utf8', bomLength: 0, declaredEncoding: null };
-}
+});
 
 function matchBom(bytes: Uint8Array, registry: EncodingRegistry): BomMatch | null {
   for (const descriptor of registry.bomCandidates()) {
@@ -93,10 +98,11 @@ function sniffDeclaration(bytes: Uint8Array, offset: number): string | null {
   return encMatch ? (encMatch[1] as string).toLowerCase() : null;
 }
 
-function sameEncoding(a: string, b: string, registry: EncodingRegistry): boolean {
-  try {
-    return registry.resolve(a).name === registry.resolve(b).name;
-  } catch {
-    return false;
-  }
-}
+const sameEncoding = (a: string, b: string, registry: EncodingRegistry): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    // An unknown name is "not the same encoding", not a failure: the caller is
+    // only asking whether the two names agree, and an unregistered one cannot.
+    const first = yield* Effect.orElseSucceed(registry.resolve(a), (): ResolvedEncodingDescriptor | null => null);
+    const second = yield* Effect.orElseSucceed(registry.resolve(b), (): ResolvedEncodingDescriptor | null => null);
+    return first !== null && second !== null && first.name === second.name;
+  });

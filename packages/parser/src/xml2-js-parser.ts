@@ -3,6 +3,7 @@ import type { Production } from '@endevops/common-xml';
 
 import { ExpressionSet, Matcher } from '@endevops/common-xml';
 import { createValidator } from '@endevops/common-xml';
+import { Effect } from 'effect';
 
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type {
@@ -19,6 +20,7 @@ import type {
 } from './internal/parser-types.ts';
 import type { TagExpressionConfig } from './internal/tag-expression.ts';
 import type { DecodingOptions, ResolvedOptions } from './options.ts';
+import type { ParseError } from './parse-error.ts';
 import type { TagExp } from './xml-part-reader.ts';
 
 import AutoCloseHandler from './auto-close-handler.ts';
@@ -64,20 +66,30 @@ const NAME_CACHE_LIMIT = 2000;
 const keepSpace: PushOptions = { keep: ['xml:space'] };
 
 /**
- * @description Returns the cached result of `computeFn(rawName)` if present, otherwise calls `computeFn()`, caches the result, and returns it. If `computeFn()`
- * throws (invalid name, restricted name, prototype-pollution attempt, etc.) nothing is cached — the next occurrence of the same bad name re-runs the
- * full check and throws again from scratch. These are rare error paths where correctness matters, not speed. A plain `Map` is used (not a plain
- * object) so a legitimately falsy cached value (`resolveNsPrefix` returns `false` for a dropped `xmlns` declaration) is never confused with "not
- * cached" — `Map.get()` only returns `undefined` when the key is genuinely absent.
+ * @description Returns the cached result of `computeFn(rawName)` if present, otherwise the result of running `computeFn()` — caching it on success. If
+ * `computeFn()` fails (invalid name, restricted name, prototype-pollution attempt, etc.) nothing is cached — the next occurrence of the same bad name
+ * re-runs the full check and fails again from scratch. These are rare error paths where correctness matters, not speed. A plain `Map` is used (not a
+ * plain object) so a legitimately falsy cached value (`resolveNsPrefix` returns `false` for a dropped `xmlns` declaration) is never confused with
+ * "not cached" — `Map.get()` only returns `undefined` when the key is genuinely absent, and `undefined` is never a computed value here.
+ *
+ * @param cache - The name cache to consult and fill.
+ * @param rawName - The name as written, the cache key.
+ * @param compute - The effectful computation to run on a miss.
+ *
+ * @returns An effect producing the cached or freshly computed value.
  */
-function getCachedName<T>(cache: Map<string, T>, rawName: string, computeFn: () => T): T {
-  // `has()` is what actually proves a hit: `processAttrName` caches `false` for a
-  // dropped xmlns declaration, and `get()` alone would re-run computeFn for it.
-  if (cache.has(rawName)) return cache.get(rawName) as T;
-  const result = computeFn();
-  if (cache.size >= NAME_CACHE_LIMIT) cache.clear();
-  cache.set(rawName, result);
-  return result;
+function getCachedName<T>(cache: Map<string, T>, rawName: string, compute: () => Effect.Effect<T, ParseError>): Effect.Effect<T, ParseError> {
+  return Effect.gen(function* () {
+    // A `has` check would be needed if a computed value could itself be
+    // `undefined`; it cannot here, so a single `get` and a `!== undefined` guard
+    // serves the same purpose and keeps the value typed without a cast.
+    const cached = cache.get(rawName);
+    if (cached !== undefined) return cached;
+    const result = yield* compute();
+    if (cache.size >= NAME_CACHE_LIMIT) cache.clear();
+    cache.set(rawName, result);
+    return result;
+  });
 }
 
 /**
@@ -291,8 +303,10 @@ export default class Xml2JsParser implements TagExpressionParser {
    * Everything document-scoped is reset here: the tag stack, accumulated text, the memoized name validators (the declared XML version isn't final
    * until the optional `<?xml?>` is read, and that happens after this method runs), and the collected `validQNames`. The shared name cache is
    * deliberately _not_ reset — it depends only on options, not on the document.
+   *
+   * @returns An effect that initializes the run. Fails when the output builder cannot be created.
    */
-  initializeParser(): void {
+  initializeParser = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<void, ParseError> {
     this.tagTextData = '';
     this.tagsStack = [];
     this.doctypeFound = false;
@@ -319,70 +333,76 @@ export default class Xml2JsParser implements TagExpressionParser {
       this.readonlyMatcher = this.matcher.readOnly();
     }
 
-    this.outputBuilder = this._createOutputBuilder();
+    this.outputBuilder = yield* this._createOutputBuilder();
 
     this.root = { root: true, name: '', index: 0, openEnd: undefined, rawName: undefined };
     this.currentTagDetail = this.root;
-  }
+  });
 
   /**
    * @description Create an OutputBuilder instance for this parse run. The output builder owns all value parser registration, including EntitiesValueParser — no
    * injection needed from the parser side.
+   *
+   * @returns An effect producing the builder. Fails with a `DependencyError` when the factory refuses to build one.
    */
-  _createOutputBuilder(): OutputBuilderLike {
-    return runBuilder(this.options.OutputBuilder.getInstance(this.options, this.readonlyMatcher));
-  }
+  _createOutputBuilder = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<OutputBuilderLike, ParseError> {
+    return yield* runBuilder(this.options.OutputBuilder.getInstance(this.options, this.readonlyMatcher));
+  });
 
   /**
    * @description Returns true if the last parse call was terminated early by exitIf. Useful when the caller needs to know whether parsing completed or stopped.
    */
   wasExited(): boolean {
-    return  this._exitIfTriggered;
+    return this._exitIfTriggered;
   }
 
   /**
    * @description Parse an XML string and return the built output.
    *
    * @param strData - The whole document as a string.
+   *
+   * @returns An effect producing the built output. Fails with any `ParseError` the walk reports.
    */
   // fallow-ignore-next-line unused-class-member
-  parse(strData: string): unknown {
+  parse = Effect.fnUntraced(function* (this: Xml2JsParser, strData: string): Effect.fn.Return<unknown, ParseError> {
     this.source = new StringSource(strData);
-    this.initializeParser();
-    this._parseAndFinalize();
+    yield* this.initializeParser();
+    yield* this._parseAndFinalize();
     return this.outputBuilder.getOutput();
-  }
+  });
 
   /**
    * @description Parse raw bytes and return the built output, resolving the encoding first (see `encoding/encoding-profile.ts`).
    *
    * @param data - The whole document as bytes.
+   *
+   * @returns An effect producing the built output. Fails with any `ParseError` the encoding resolution or the walk reports.
    */
   // fallow-ignore-next-line unused-class-member
-  parseBytesArr(data: Uint8Array): unknown {
+  parseBytesArr = Effect.fnUntraced(function* (this: Xml2JsParser, data: Uint8Array): Effect.fn.Return<unknown, ParseError> {
     const registry = this.options.decoding?._registry;
-    const profile = buildProfileForBuffer(data, this.options.decoding as DecodingOptions, registry);
+    const profile = yield* buildProfileForBuffer(data, this.options.decoding as DecodingOptions, registry);
     this.source = new BufferSource(data, {}, profile);
-    this.initializeParser();
-    this._parseAndFinalize();
+    yield* this.initializeParser();
+    yield* this._parseAndFinalize();
     return this.outputBuilder.getOutput();
-  }
+  });
 
   /**
    * @description Advance the parser state machine as far as the source buffer allows. Stops naturally when `canRead()` returns false — no EOF handling here. Call
    * {@link finalizeXml} once all input is consumed to validate end-of-document. `parseStream()` and `feed()`/`end()` call this per chunk;
    * {@link _parseAndFinalize} (used by `parse()` / `parseBytesArr()`) calls it then `finalizeXml()` immediately.
    *
-   * @throws {ParseError} `UNEXPECTED_END` when a token is cut short by a chunk boundary. The caller is expected to rewind and retry on the next
-   *   chunk.
+   * @returns An effect that advances the walk. Fails with `UNEXPECTED_END` when a token is cut short by a chunk boundary. The caller is expected to
+   *   rewind and retry on the next chunk.
    */
-  parseXml(): void {
+  parseXml = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<void, ParseError> {
     while (this.source.canRead()) {
       // exitIf triggered in this iteration — stop consuming input immediately.
       if (this._exitIfTriggered) break;
 
       // Level-0 outer mark: set before consuming any character so that if a
-      // '<' dispatch throws UNEXPECTED_END (chunk boundary mid-tag), feed()
+      // '<' dispatch fails with UNEXPECTED_END (chunk boundary mid-tag), feed()
       // rewinds to here and the full token — including '<', '![', '</' etc. —
       // is re-read on the next chunk. Inner reader functions use level-1 marks
       // which never overwrite this position.
@@ -400,12 +420,12 @@ export default class Xml2JsParser implements TagExpressionParser {
       if (ch === undefined || ch === '') break;
 
       if (ch === '<') {
-        this._dispatchTagStart(preReadPos);
+        yield* this._dispatchTagStart(preReadPos);
       } else {
         this._accumulateTextRun(ch);
       }
     }
-  }
+  });
 
   /**
    * @description Read the character following a `<` and route the token to the reader for its kind. The arms are ordered by frequency, so the two most common in
@@ -414,29 +434,33 @@ export default class Xml2JsParser implements TagExpressionParser {
    *
    * @param tagStart - Position of the `<` itself, captured before it was read.
    *
-   * @throws {ParseError} `UNEXPECTED_END` when the `<` is the last character available.
+   * @returns An effect that dispatches the token. Fails with `UNEXPECTED_END` when the `<` is the last character available.
    */
-  _dispatchTagStart(tagStart: { index: number }): void {
+  _dispatchTagStart = Effect.fnUntraced(function* (this: Xml2JsParser, tagStart: { index: number }): Effect.fn.Return<void, ParseError> {
     const nextChar = this.source.readChAt(0);
     if (nextChar === '' || nextChar === undefined)
-      throw new UnexpectedEnd({ reading: `after '<'`, message: "Unexpected end of source after '<'", index: errorPositionOf(this.source).index });
+      return yield* new UnexpectedEnd({
+        reading: `after '<'`,
+        message: "Unexpected end of source after '<'",
+        index: errorPositionOf(this.source).index,
+      });
 
     //sorted frequency wise
     if (nextChar === '/') {
       this.source.updateBufferBoundary();
-      this.readClosingTag(tagStart);
+      yield* this.readClosingTag(tagStart);
     } else if (nextChar === '!') {
       this.source.updateBufferBoundary();
-      this.addTextNode();
-      this.readSpecialTag(nextChar);
+      yield* this.addTextNode();
+      yield* this.readSpecialTag(nextChar);
     } else if (nextChar === '?') {
       this.source.updateBufferBoundary();
-      this.addTextNode();
-      readPiTag(this);
+      yield* this.addTextNode();
+      yield* readPiTag(this);
     } else {
-      this.readOpeningTag(tagStart);
+      yield* this.readOpeningTag(tagStart);
     }
-  }
+  });
 
   /**
    * @description Buffer character data up to the next `<`. `first` has already been consumed by the caller. The rest of the run is then taken in a single
@@ -462,9 +486,10 @@ export default class Xml2JsParser implements TagExpressionParser {
   /**
    * @description Validate end-of-document state and apply autoClose recovery if configured. Must be called exactly once after all input has been consumed.
    *
-   * @throws {ParseError} `UNEXPECTED_TRAILING_DATA` when tags are still open (or trailing text remains) and no autoClose recovery is configured.
+   * @returns An effect that validates end-of-document state. Fails with `UNEXPECTED_TRAILING_DATA` when tags are still open (or trailing text
+   *   remains) and no autoClose recovery is configured.
    */
-  finalizeXml(): void {
+  finalizeXml = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<void, ParseError> {
     // When exitIf fired, the parser already closed all open tags and notified
     // the builder — treat the partial parse as complete and skip EOF checks.
     if (this._exitIfTriggered) return;
@@ -480,12 +505,12 @@ export default class Xml2JsParser implements TagExpressionParser {
     // branch used to carry is implied by `hasOpenTags` and is dropped: text
     // after the last `</>` is a document error no handler can make well-formed.
     if (this.autoCloseHandler && hasOpenTags) {
-      this.autoCloseHandler.handleEof(this._parserState());
+      yield* this.autoCloseHandler.handleEof(this._parserState());
       return;
     }
 
-    throw new UnexpectedTrailingData({ message: 'Unexpected data in the end of document', index: errorPositionOf(this.source).index });
-  }
+    return yield* new UnexpectedTrailingData({ message: 'Unexpected data in the end of document', index: errorPositionOf(this.source).index });
+  });
 
   /**
    * @description Whether any real element is still open at end of input — either on the stack or as the current tag. The synthetic root node that `pushTag` starts
@@ -506,57 +531,63 @@ export default class Xml2JsParser implements TagExpressionParser {
   /**
    * @description One-shot helper used by `parse()` and `parseBytesArr()`. Runs `parseXml()` with autoClose partial-tag recovery, then `finalizeXml()`.
    *
-   * @private
+   * @returns An effect that completes the run.
    */
-  _parseAndFinalize(): void {
-    let partialTagError: unknown = null;
-    if (this.autoCloseHandler) this.autoCloseHandler.reset();
+  _parseAndFinalize = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<void, ParseError> {
+    const autoClose = this.autoCloseHandler;
+    if (autoClose) autoClose.reset();
 
-    try {
-      this.parseXml();
-    } catch (err) {
-      if (this.autoCloseHandler && isSourceExhaustedError(err)) {
-        partialTagError = err;
-      } else {
-        throw err;
-      }
-    }
+    // A source-exhausted failure is the retryable truncation autoClose repairs;
+    // anything else propagates unchanged. `matchEffect` is the effectful
+    // spelling of the original `autoClose && isSourceExhaustedError(err)` guard:
+    // a matching failure is kept as a value, everything else re-fails.
+    const partialTagError = yield* this.parseXml().pipe(
+      Effect.matchEffect({
+        onFailure: (err: ParseError): Effect.Effect<ParseError | null, ParseError> =>
+          autoClose && isSourceExhaustedError(err) ? Effect.succeed(err) : Effect.fail(err),
+        onSuccess: (): Effect.Effect<ParseError | null> => Effect.succeed(null),
+      })
+    );
 
-    if (partialTagError) {
-      this.autoCloseHandler?.handlePartialTag(partialTagError as Error, this._parserState());
+    if (partialTagError && autoClose) {
+      yield* autoClose.handlePartialTag(partialTagError, this._parserState());
       return;
     }
 
-    this.finalizeXml();
-  }
+    yield* this.finalizeXml();
+  });
 
   /**
    * @description Read and dispatch a closing tag.
    *
    * @param tagStart - Document position of this closing tag's `<`, captured by `parseXml()` before the character was consumed.
    *
-   * @throws {ParseError} `UNEXPECTED_CLOSE_TAG` for a closing tag with no opener, `MISMATCHED_CLOSE_TAG` when it doesn't match and no recovery is
-   *   configured.
+   * @returns An effect that reads and dispatches the closing tag. Fails with `UNEXPECTED_CLOSE_TAG` for a closing tag with no opener,
+   *   `MISMATCHED_CLOSE_TAG` when it doesn't match and no recovery is configured.
    */
-  readClosingTag(tagStart: { index: number }): void {
-    if (this._closeAgainstOpenTag(tagStart)) return;
+  readClosingTag = Effect.fnUntraced(function* (this: Xml2JsParser, tagStart: { index: number }): Effect.fn.Return<void, ParseError> {
+    if (yield* this._closeAgainstOpenTag(tagStart)) return;
 
     // ── Slow path ────────────────────────────────────────────────────────────
-    const tagName = this.processTagName(readClosingTagName(this.source));
+    const tagName = yield* this.processTagName(yield* readClosingTagName(this.source));
     // closeMeta: position of this closing tag's '</' (tagStart, passed in from
     // parseXml's dispatch) plus the offset right after its '>' (closeEnd) —
     // mirrors tagDetail.index / tagDetail.openEnd for the opening-tag side.
     const closeMeta: CloseMeta = { name: tagName, index: tagStart.index, closeEnd: absolutePosition(this.source) };
 
     if (this.isUnpaired(tagName) || this.isStopNode()) {
-      throw new UnexpectedCloseTag({ tag: tagName, message: `Unexpected closing tag '${tagName}'`, index: errorPositionOf(this.source).index });
+      return yield* new UnexpectedCloseTag({
+        tag: tagName,
+        message: `Unexpected closing tag '${tagName}'`,
+        index: errorPositionOf(this.source).index,
+      });
     }
 
-    if (tagName !== this.currentTagDetail?.name && !this._recoverMismatch(tagName)) return;
+    if (tagName !== this.currentTagDetail?.name && !(yield* this._recoverMismatch(tagName))) return;
 
-    if (!this.currentTagDetail?.root) this.addTextNode();
-    this.popTag(closeMeta);
-  }
+    if (!this.currentTagDetail?.root) yield* this.addTextNode();
+    yield* this.popTag(closeMeta);
+  });
 
   /**
    * @description _Fast path_: close against the tag already on the stack without reading the name at all. The overwhelming majority of closing tags match the tag
@@ -567,10 +598,10 @@ export default class Xml2JsParser implements TagExpressionParser {
    * `pushTag()` is never reached for an unpaired tag or a stop-node/skip-tag match — both of those close themselves inline in `readOpeningTag()`. So
    * whenever `currentTagDetail` is a real open tag, both checks are guaranteed false.
    *
-   * @returns `true` when the tag was matched and closed here, `false` to fall through to the slow path. Nothing is consumed on `false` — the check is
-   *   a peek.
+   * @returns An effect producing `true` when the tag was matched and closed here, `false` to fall through to the slow path. Nothing is consumed on
+   *   `false` — the check is a peek.
    */
-  _closeAgainstOpenTag(tagStart: { index: number }): boolean {
+  _closeAgainstOpenTag = Effect.fnUntraced(function* (this: Xml2JsParser, tagStart: { index: number }): Effect.fn.Return<boolean, ParseError> {
     const current = this.currentTagDetail;
     if (!current || current.root || current.rawName === undefined) return false;
 
@@ -579,25 +610,24 @@ export default class Xml2JsParser implements TagExpressionParser {
 
     this.source.updateBufferBoundary(consumed);
     const closeMeta: CloseMeta = { name: current.name, index: tagStart.index, closeEnd: absolutePosition(this.source) };
-    this.addTextNode();
-    this.popTag(closeMeta);
+    yield* this.addTextNode();
+    yield* this.popTag(closeMeta);
     return true;
-  }
+  });
 
   /**
    * @description Offer a closing tag that does not match the open tag to the autoClose handler, when one is configured.
    *
-   * @returns `true` when the mismatch was resolved and this closing tag should close what it now matches. `false` when the closing tag is to be
-   *   discarded — the handler decided it carries nothing recoverable.
-   *
-   * @throws {ParseError} `MISMATCHED_CLOSE_TAG` when no autoClose handler is configured, since a mismatched closing tag is then unrecoverable. On
-   *   `'close-matched'` the handler has already popped the intermediate tags and updated `currentTagDetail`, so the caller falls through to the
-   *   normal close path against whatever is now on top.
+   * @returns An effect producing `true` when the mismatch was resolved and this closing tag should close what it now matches. `false` when the
+   *   closing tag is to be discarded — the handler decided it carries nothing recoverable. Fails with `MISMATCHED_CLOSE_TAG` when no autoClose
+   *   handler is configured, since a mismatched closing tag is then unrecoverable. On `'close-matched'` the handler has already popped the
+   *   intermediate tags and updated `currentTagDetail`, so the caller falls through to the normal close path against whatever is now on top.
    */
-  _recoverMismatch(tagName: string): boolean {
+  _recoverMismatch = Effect.fnUntraced(function* (this: Xml2JsParser, tagName: string): Effect.fn.Return<boolean, ParseError> {
     const expected = this.currentTagDetail?.name;
-    if (!this.autoCloseHandler) {
-      throw new MismatchedCloseTag({
+    const autoClose = this.autoCloseHandler;
+    if (!autoClose) {
+      return yield* new MismatchedCloseTag({
         tag: tagName,
         expected,
         message: `Unexpected closing tag '${tagName}' expecting '${expected}'`,
@@ -605,28 +635,30 @@ export default class Xml2JsParser implements TagExpressionParser {
       });
     }
 
-    return this.autoCloseHandler.handleMismatch(tagName, this._parserState()).action !== 'discard';
-  }
+    const decision = yield* autoClose.handleMismatch(tagName, this._parserState());
+    return decision.action !== 'discard';
+  });
 
   /**
    * @description Read and dispatch an opening tag, including the stop-node / skip-tag / unpaired / self-closing / `exitIf` branches.
    *
    * @param tagStart - Document position of this tag's `<`, captured by `parseXml()` before the character was consumed.
    *
-   * @throws {ParseError} `LIMIT_MAX_NESTED_TAGS`, plus whatever the tag-expression and attribute readers throw.
+   * @returns An effect that reads and dispatches the opening tag. Fails with `LIMIT_MAX_NESTED_TAGS`, plus whatever the tag-expression and attribute
+   *   readers report.
    */
-  readOpeningTag(tagStart: { index: number }): void {
+  readOpeningTag = Effect.fnUntraced(function* (this: Xml2JsParser, tagStart: { index: number }): Effect.fn.Return<void, ParseError> {
     const options = this.options;
-    this.addTextNode();
+    yield* this.addTextNode();
 
     // ── Stop-node resume ─────────────────────────────────────────────────────
     if (this._stopNodeProcessor && this._stopNodeProcessor.isActive()) {
-      this._resumeStopNode();
+      yield* this._resumeStopNode();
       return;
     }
 
-    const tagExp = readTagExp(this);
-    const processedTagName = this.processTagName(tagExp.tagName);
+    const tagExp = yield* readTagExp(this);
+    const processedTagName = yield* this.processTagName(tagExp.tagName);
     const tagDetail = new TagDetail(
       processedTagName,
       tagStart.index,
@@ -644,7 +676,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     // passing the full "ns:code" as the tag name would break ns::code expression matching.
     const matcherTagName = tagNamespace !== undefined ? tagExp.tagName.slice(colonIdx + 1) : processedTagName;
 
-    this._enforceMaxNestedTags(tagDetail);
+    yield* this._enforceMaxNestedTags(tagDetail);
 
     // ── Two-pass attribute handling ──────────────────────────────────────────
     if (tagExp.rawAttributesLen > 0) {
@@ -658,31 +690,32 @@ export default class Xml2JsParser implements TagExpressionParser {
     const skipTagConfig = stopNodeConfig ? null : this.isSkipTag();
 
     if (!options.skip.attributes && !skipTagConfig) {
-      flushAttributes(tagExp._parsedAttrs, this, tagExp._attrsExpStart, tagExp._rawAttrMatchCount, processedTagName);
+      yield* flushAttributes(tagExp._parsedAttrs, this, tagExp._attrsExpStart, tagExp._rawAttrMatchCount, processedTagName);
     }
 
-    this._dispatchOpenedTag(tagExp, tagDetail, stopNodeConfig, skipTagConfig);
-  }
+    yield* this._dispatchOpenedTag(tagExp, tagDetail, stopNodeConfig, skipTagConfig);
+  });
 
   /**
    * @description Enforce `limits.maxNestedTags` against the depth this tag would open.
    *
-   * @throws {ParseError} `LIMIT_MAX_NESTED_TAGS` when the depth exceeds the limit. No limit configured means no check.
+   * @returns An effect that passes when the depth is allowed. Fails with `LIMIT_MAX_NESTED_TAGS` when the depth exceeds the limit. No limit
+   *   configured means no check.
    */
-  _enforceMaxNestedTags(tagDetail: TagDetailLike): void {
+  _enforceMaxNestedTags = Effect.fnUntraced(function* (this: Xml2JsParser, tagDetail: TagDetailLike): Effect.fn.Return<void, LimitMaxNestedTags> {
     const maxNested = this.options.limits?.maxNestedTags;
     if (maxNested === undefined || maxNested === null) return;
 
     const depth = this.tagsStack.length + 1;
     if (depth <= maxNested) return;
 
-    throw new LimitMaxNestedTags({
+    return yield* new LimitMaxNestedTags({
       limit: maxNested,
       depth,
       message: `Nesting depth ${depth} exceeds limit of ${maxNested} (tag: '${tagDetail.name}')`,
       index: tagDetail.index,
     });
-  }
+  });
 
   /**
    * @description Route a fully-read opening tag to the one handling that applies, in the order below. The order is load-bearing, not incidental:
@@ -693,48 +726,53 @@ export default class Xml2JsParser implements TagExpressionParser {
    *    before. They are named methods so the routing reads as a table, and so each one's builder calls can be read without tracking which branch of
    *    the chain is live.
    */
-  _dispatchOpenedTag(
+  _dispatchOpenedTag = Effect.fnUntraced(function* (
+    this: Xml2JsParser,
     tagExp: TagExp,
     tagDetail: TagDetailLike,
     stopNodeConfig: TagExpressionConfig | null | undefined,
     skipTagConfig: TagExpressionConfig | null | undefined
-  ): void {
+  ): Effect.fn.Return<void, ParseError> {
     if (this.isUnpaired(tagDetail.name)) {
-      this._openUnpairedTag(tagDetail);
+      yield* this._openUnpairedTag(tagDetail);
     } else if (tagExp.selfClosing) {
-      this._openSelfClosingTag(tagDetail, skipTagConfig);
+      yield* this._openSelfClosingTag(tagDetail, skipTagConfig);
     } else if (stopNodeConfig) {
-      this._openStopNode(tagExp, tagDetail, stopNodeConfig);
+      yield* this._openStopNode(tagExp, tagDetail, stopNodeConfig);
     } else if (skipTagConfig) {
-      this._openSkipTag(tagExp, tagDetail, skipTagConfig);
+      yield* this._openSkipTag(tagExp, tagDetail, skipTagConfig);
     } else if (this._exitIf(this.readonlyMatcher)) {
-      this._triggerExitIf(tagDetail);
+      yield* this._triggerExitIf(tagDetail);
     } else {
       this.pushTag(tagDetail);
     }
-  }
+  });
 
   /**
    * @description Handle an unpaired tag (`<br>`, `<img>`). There is no separate closing tag, so the element opens and closes in one step and the close position is
    * the open tag's own end.
    */
-  _openUnpairedTag(tagDetail: TagDetailLike): void {
+  _openUnpairedTag = Effect.fnUntraced(function* (this: Xml2JsParser, tagDetail: TagDetailLike): Effect.fn.Return<void, ParseError> {
     this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
-    runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
+    yield* runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
     this.matcher.pop();
-  }
+  });
 
   /**
    * @description Handle a self-closing tag (`<tag/>`). Like an unpaired tag it has no distinct closing tag, so it opens and closes immediately — but unlike an
    * unpaired tag it can still be a skip tag, in which case it is dropped from the output entirely.
    */
-  _openSelfClosingTag(tagDetail: TagDetailLike, skipTagConfig: TagExpressionConfig | null | undefined): void {
+  _openSelfClosingTag = Effect.fnUntraced(function* (
+    this: Xml2JsParser,
+    tagDetail: TagDetailLike,
+    skipTagConfig: TagExpressionConfig | null | undefined
+  ): Effect.fn.Return<void, ParseError> {
     if (!skipTagConfig) {
       this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
-      runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
+      yield* runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
     }
     this.matcher.pop();
-  }
+  });
 
   /**
    * @description Handle an opening tag that starts a stop node: collect its content through to the matching `</tag>`, emit it, and close. The raw tag name is used
@@ -743,46 +781,58 @@ export default class Xml2JsParser implements TagExpressionParser {
    * `</tagname>`). `StopNodeProcessor` scans the closing tag opaquely and does not track where `</tagname>` itself starts, so unlike the normal close
    * path there is no real index for the close tag's start — only its end.
    */
-  _openStopNode(tagExp: TagExp, tagDetail: TagDetailLike, config: TagExpressionConfig): void {
-    this._stopNodeProcessor = new StopNodeProcessor(tagExp.tagName, { nested: config.nested, skipEnclosures: config.skipEnclosures });
+  _openStopNode = Effect.fnUntraced(function* (
+    this: Xml2JsParser,
+    tagExp: TagExp,
+    tagDetail: TagDetailLike,
+    config: TagExpressionConfig
+  ): Effect.fn.Return<void, ParseError> {
+    const processor = new StopNodeProcessor(tagExp.tagName, { nested: config.nested, skipEnclosures: config.skipEnclosures });
+    this._stopNodeProcessor = processor;
     this._stopNodeProcessorMeta = { tagDetail, isSkip: false };
-    this._stopNodeProcessor.activate();
-    const { content, end: stopEnd } = this._stopNodeProcessor.collect(this.source);
+    processor.activate();
+    const { content, end: stopEnd } = yield* processor.collect(this.source);
     this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
     this.outputBuilder.onStopNode?.(tagDetail, content, this.readonlyMatcher, stopEnd);
     this.outputBuilder.addValue(content, this.readonlyMatcher);
-    runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
+    yield* runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
     this.matcher.pop();
     this._stopNodeProcessor = null;
     this._stopNodeProcessorMeta = null;
-  }
+  });
 
   /**
    * @description Handle an opening tag that starts a skip tag. Identical to the stop-node path except that no output builder method is called: the content is
    * collected only to advance the source past the closing tag, then discarded and the tag silently dropped.
    */
-  _openSkipTag(tagExp: TagExp, tagDetail: TagDetailLike, config: TagExpressionConfig): void {
-    this._stopNodeProcessor = new StopNodeProcessor(tagExp.tagName, { nested: config.nested, skipEnclosures: config.skipEnclosures });
+  _openSkipTag = Effect.fnUntraced(function* (
+    this: Xml2JsParser,
+    tagExp: TagExp,
+    tagDetail: TagDetailLike,
+    config: TagExpressionConfig
+  ): Effect.fn.Return<void, ParseError> {
+    const processor = new StopNodeProcessor(tagExp.tagName, { nested: config.nested, skipEnclosures: config.skipEnclosures });
+    this._stopNodeProcessor = processor;
     this._stopNodeProcessorMeta = { tagDetail, isSkip: true };
-    this._stopNodeProcessor.activate();
-    this._stopNodeProcessor.collect(this.source); // advance source; content discarded
+    processor.activate();
+    yield* processor.collect(this.source); // advance source; content discarded
     this.matcher.pop();
     this._stopNodeProcessor = null;
     this._stopNodeProcessorMeta = null;
-  }
+  });
 
   /**
    * @description Handle an opening tag whose `exitIf` predicate fired. Checked before `addElement` so the triggering tag is never added to the output builder. The
    * matcher is already positioned from the push above, so attribute-based predicates work. The push is then undone and every open ancestor closed, so
    * the builder can finalise its tree, and the builder is told the document was truncated on purpose rather than being malformed.
    */
-  _triggerExitIf(tagDetail: TagDetailLike): void {
+  _triggerExitIf = Effect.fnUntraced(function* (this: Xml2JsParser, tagDetail: TagDetailLike): Effect.fn.Return<void, ParseError> {
     const exitDepth = this.tagsStack.length; // number of ancestors open before this tag
     this.matcher.pop(); // undo the push for the triggering tag
 
     while (this.currentTagDetail && !this.currentTagDetail.root) {
-      this.addTextNode();
-      this.popTag();
+      yield* this.addTextNode();
+      yield* this.popTag();
     }
 
     if (typeof this.outputBuilder.onExit === 'function') {
@@ -790,7 +840,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     }
 
     this._exitIfTriggered = true;
-  }
+  });
 
   /**
    * @description Finish an opening tag that a chunk boundary interrupted partway. When a boundary fell inside `StopNodeProcessor.collect()`, `feed()` caught
@@ -799,25 +849,28 @@ export default class Xml2JsParser implements TagExpressionParser {
    * everything accumulated so far and the depth it had reached. A skip tag is retried through the same path but emits nothing, which is why the
    * builder calls sit behind `isSkip`.
    */
-  _resumeStopNode(): void {
-    const { tagDetail, isSkip } = this._stopNodeProcessorMeta as StopNodeMeta;
-    const processor = this._stopNodeProcessor as StopNodeProcessor;
+  _resumeStopNode = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<void, ParseError> {
+    const meta = this._stopNodeProcessorMeta;
+    const processor = this._stopNodeProcessor;
+    // Unreachable: this path is only entered while a processor is active and
+    // carries its meta. Guarding rather than asserting keeps the types honest.
+    if (!meta || !processor) return;
     processor.resumeAfterOpenTag();
-    readTagExp(this); // re-consume the opening tag from the rewound source
+    yield* readTagExp(this); // re-consume the opening tag from the rewound source
     // openEnd reflects the offset right after this opening tag's '>' — stable
     // across retries since the opening tag is fully re-read every time.
-    tagDetail.openEnd = absolutePosition(this.source);
-    const { content, end: stopEnd } = processor.collect(this.source);
-    if (!isSkip) {
-      this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
-      this.outputBuilder.onStopNode?.(tagDetail, content, this.readonlyMatcher, stopEnd);
+    meta.tagDetail.openEnd = absolutePosition(this.source);
+    const { content, end: stopEnd } = yield* processor.collect(this.source);
+    if (!meta.isSkip) {
+      this.outputBuilder.addElement(meta.tagDetail, this.readonlyMatcher);
+      this.outputBuilder.onStopNode?.(meta.tagDetail, content, this.readonlyMatcher, stopEnd);
       this.outputBuilder.addValue(content, this.readonlyMatcher);
-      runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
+      yield* runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: meta.tagDetail.name, closeEnd: stopEnd.index }));
     }
     this.matcher.pop();
     this._stopNodeProcessor = null;
     this._stopNodeProcessorMeta = null;
-  }
+  });
 
   /**
    * @description Push a tag onto the parser stack and notify the output builder. This is the single point of entry for opening a non-self-closing tag — both the
@@ -837,12 +890,14 @@ export default class Xml2JsParser implements TagExpressionParser {
    * @param closeMeta - Position info for the closing tag: `{ name, index, closeEnd }`. Omitted when there is no real closing tag to report a position
    *   for — e.g. `AutoCloseHandler` synthesizing a close at EOF, or `exitIf` closing already-open ancestors. In that case a minimal `{ name }` is
    *   passed to the builder instead of nothing, so `closeElement()` never has to special-case "no second argument at all".
+   *
+   * @returns An effect that closes the tag. Fails with a `DependencyError` when the builder's close pipeline fails.
    */
-  popTag(closeMeta?: CloseMeta): void {
-    runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, closeMeta ?? { name: this.currentTagDetail?.name as string }));
+  popTag = Effect.fnUntraced(function* (this: Xml2JsParser, closeMeta?: CloseMeta): Effect.fn.Return<void, ParseError> {
+    yield* runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, closeMeta ?? { name: this.currentTagDetail?.name as string }));
     this.matcher.pop();
     this.currentTagDetail = this.tagsStack.pop() ?? null;
-  }
+  });
 
   /**
    * @description Build a `closeMeta` for tags with no distinct closing token (unpaired tags like `<br>`, and self-closing tags like `<tag/>`) — the close position
@@ -857,40 +912,45 @@ export default class Xml2JsParser implements TagExpressionParser {
    *
    * @param startCh - The character after `<`. Only `'!'` is valid here.
    *
-   * @throws {ParseError} `INVALID_TAG` for anything that isn't a comment, CDATA, or DOCTYPE; `UNEXPECTED_END` on a chunk boundary.
+   * @returns An effect that dispatches the construct. Fails with `INVALID_TAG` for anything that isn't a comment, CDATA, or DOCTYPE; `UNEXPECTED_END`
+   *   on a chunk boundary.
    */
-  readSpecialTag(startCh: string): void {
+  readSpecialTag = Effect.fnUntraced(function* (this: Xml2JsParser, startCh: string): Effect.fn.Return<void, ParseError> {
     if (startCh !== '!') {
-      throw new InvalidTag({ tag: `<${startCh}`, message: `Invalid tag '<${startCh}'`, index: errorPositionOf(this.source).index });
+      return yield* new InvalidTag({ tag: `<${startCh}`, message: `Invalid tag '<${startCh}'`, index: errorPositionOf(this.source).index });
     }
 
     const nextChar = this.source.readCh();
     if (nextChar === null || nextChar === undefined)
-      throw new UnexpectedEnd({ reading: `after '<!'`, message: "Unexpected end of source after '<!'", index: errorPositionOf(this.source).index });
+      return yield* new UnexpectedEnd({
+        reading: `after '<!'`,
+        message: "Unexpected end of source after '<!'",
+        index: errorPositionOf(this.source).index,
+      });
 
     if (nextChar === '-') {
-      readComment(this);
+      yield* readComment(this);
     } else if (nextChar === '[') {
-      readCdata(this);
+      yield* readCdata(this);
     } else if (nextChar === 'D') {
-      this._readDocTypeDeclaration();
+      yield* this._readDocTypeDeclaration();
     }
     // Any other character after `<!` is silently ignored, matching the original
     // chain: the construct is not one XML defines, but it is also not one that
     // leaves the parser in a state it cannot recover from.
-  }
+  });
 
   /**
    * @description Handle a `<!DOCTYPE` declaration. The declaration is always read, even when `doctypeOptions.enabled` is false, because reading it is what
    * advances the cursor past the internal subset. Whether its entities reach the output builder is a separate question.
    *
-   * @throws {ParseError} `INVALID_INPUT` on a second DOCTYPE. XML allows exactly one, and accepting a second would leave entities from two subsets
-   *   merged with no record of which document they came from.
+   * @returns An effect that reads the declaration. Fails with `INVALID_INPUT` on a second DOCTYPE. XML allows exactly one, and accepting a second
+   *   would leave entities from two subsets merged with no record of which document they came from.
    */
-  _readDocTypeDeclaration(): void {
-    const docTypeEntities = readDocType(this);
+  _readDocTypeDeclaration = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<void, ParseError> {
+    const docTypeEntities = yield* readDocType(this);
     if (this.doctypeFound) {
-      throw new InvalidInput({
+      return yield* new InvalidInput({
         option: 'doctypeOptions',
         message: 'Multiple DOCTYPE declarations found.',
         index: errorPositionOf(this.source).index,
@@ -901,25 +961,27 @@ export default class Xml2JsParser implements TagExpressionParser {
     if (this.options.doctypeOptions.enabled && Object.keys(docTypeEntities).length > 0) {
       this.outputBuilder.addInputEntities(docTypeEntities);
     }
-  }
+  });
 
   /**
    * @description Flush any accumulated text to the output builder, then reset the accumulator. Normalization and illegal-control-character rejection happen here,
    * once per complete text run (never mid-chunk — see `util.sanitizeContent`). Whitespace-only runs are dropped entirely when `skip.whitespaceText`
    * is on.
+   *
+   * @returns An effect that flushes the text. Fails with `ILLEGAL_CHARACTER` on an illegal control code.
    */
-  addTextNode(): void {
+  addTextNode = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<void, ParseError> {
     if (this.tagTextData !== undefined && this.tagTextData !== '') {
       // Line-ending normalization + illegal-control-character rejection,
       // applied once per complete text run (never mid-chunk — see util.js).
-      this.tagTextData = sanitizeContent(this.tagTextData, this.source);
+      this.tagTextData = yield* sanitizeContent(this.tagTextData, this.source);
       // Pass raw text — entity expansion is handled by 'entities' ValueParser in the chain
       if (!this.options.skip.whitespaceText || this.tagTextData.trim().length > 0) {
         this.outputBuilder.addValue(this.tagTextData, this.readonlyMatcher);
       }
       this.tagTextData = '';
     }
-  }
+  });
 
   /**
    * @description Cached wrapper around `getNameValidator('qName')` — shape-validating a tag name is a pure function of the name string alone (for a fixed XML
@@ -962,22 +1024,25 @@ export default class Xml2JsParser implements TagExpressionParser {
   /**
    * @description Process a raw attribute name: resolve its namespace prefix, validate it, sanitize it, and apply the reserved-name check. Cached.
    *
-   * @returns The processed name, or `false` when the attribute was a dropped `xmlns:` declaration.
-   *
-   * @throws {ParseError} `INVALID_ATTRIBUTE_NAME`, `SECURITY_RESTRICTED_NAME`, `SECURITY_PROTOTYPE_POLLUTION`, `MULTIPLE_NAMESPACES`.
+   * @returns An effect producing the processed name, or `false` when the attribute was a dropped `xmlns:` declaration. Fails with
+   *   `INVALID_ATTRIBUTE_NAME`, `SECURITY_RESTRICTED_NAME`, `SECURITY_PROTOTYPE_POLLUTION`, `MULTIPLE_NAMESPACES`.
    */
-  processAttrName(rawAttrName: string): string | false {
-    return getCachedName(this._nameCache.attrs, rawAttrName, () => {
+  processAttrName = Effect.fnUntraced(function* (this: Xml2JsParser, rawAttrName: string): Effect.fn.Return<string | false, ParseError> {
+    const compute = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<string | false, ParseError> {
       const options = this.options;
-      let attrName = resolveNsPrefix(rawAttrName, options.skip.nsPrefix, this.source);
+      let attrName = yield* resolveNsPrefix(rawAttrName, options.skip.nsPrefix, this.source);
       if (attrName === false) return false;
       if (!this.getNameValidator('qName')(attrName)) {
         //TODO: make it optional
-        throw new InvalidAttributeName({ name: attrName, message: `Invalid attribute name: ${attrName}`, index: errorPositionOf(this.source).index });
+        return yield* new InvalidAttributeName({
+          name: attrName,
+          message: `Invalid attribute name: ${attrName}`,
+          index: errorPositionOf(this.source).index,
+        });
       }
-      attrName = sanitizeName(attrName, options.onDangerousProperty, options.sanitizeNames, this.source);
+      attrName = yield* sanitizeName(attrName, options.onDangerousProperty, options.sanitizeNames, this.source);
       if (options.strictReservedNames && attrName === options.attributes.groupBy) {
-        throw new SecurityRestrictedName({
+        return yield* new SecurityRestrictedName({
           name: attrName,
           kind: 'attribute',
           message: `Restricted attribute name: ${attrName}`,
@@ -986,22 +1051,23 @@ export default class Xml2JsParser implements TagExpressionParser {
       }
       return attrName;
     });
-  }
+    return yield* getCachedName(this._nameCache.attrs, rawAttrName, () => compute.call(this));
+  });
 
   /**
    * @description Process a raw tag name: resolve its namespace prefix, sanitize it, and apply the reserved-name check. Cached.
    *
-   * @throws {ParseError} `SECURITY_RESTRICTED_NAME`, `SECURITY_PROTOTYPE_POLLUTION`, `MULTIPLE_NAMESPACES`.
+   * @returns An effect producing the processed name. Fails with `SECURITY_RESTRICTED_NAME`, `SECURITY_PROTOTYPE_POLLUTION`, `MULTIPLE_NAMESPACES`.
    */
-  processTagName(rawTagName: string): string {
-    return getCachedName(this._nameCache.tags, rawTagName, () => {
+  processTagName = Effect.fnUntraced(function* (this: Xml2JsParser, rawTagName: string): Effect.fn.Return<string, ParseError> {
+    const compute = Effect.fnUntraced(function* (this: Xml2JsParser): Effect.fn.Return<string, ParseError> {
       const options = this.options;
       const nameFor = options.nameFor;
-      let tagName = resolveNsPrefix(rawTagName, options.skip.nsPrefix, this.source);
+      let tagName = yield* resolveNsPrefix(rawTagName, options.skip.nsPrefix, this.source);
       if (tagName === false) tagName = rawTagName;
-      tagName = sanitizeName(tagName, options.onDangerousProperty, options.sanitizeNames, this.source);
+      tagName = yield* sanitizeName(tagName, options.onDangerousProperty, options.sanitizeNames, this.source);
       if (options.strictReservedNames && (tagName === nameFor.comment || tagName === nameFor.cdata || tagName === nameFor.text)) {
-        throw new SecurityRestrictedName({
+        return yield* new SecurityRestrictedName({
           name: tagName,
           kind: 'tag',
           message: `Restricted tag name: ${tagName}`,
@@ -1010,7 +1076,8 @@ export default class Xml2JsParser implements TagExpressionParser {
       }
       return tagName;
     });
-  }
+    return yield* getCachedName(this._nameCache.tags, rawTagName, () => compute.call(this));
+  });
 
   /**
    * @description Whether `tagName` is configured as never having a closing tag.
@@ -1075,21 +1142,24 @@ function parserStateView(parser: Xml2JsParser): ParserState {
 /**
  * @description Strip a namespace prefix from a name, when `skip.nsPrefix` asks for it.
  *
- * @returns The local name, the original name when prefix-stripping is off or the name has no prefix, or `false` for a dropped `xmlns` declaration.
- *
- * @throws {ParseError} `MULTIPLE_NAMESPACES` when a name carries more than one colon.
+ * @returns An effect producing the local name, the original name when prefix-stripping is off or the name has no prefix, or `false` for a dropped
+ *   `xmlns` declaration. Fails with `MULTIPLE_NAMESPACES` when a name carries more than one colon.
  */
-function resolveNsPrefix(name: string, skipNsPrefix: boolean | undefined, source: InputSourceLike): string | false {
+function resolveNsPrefix(
+  name: string,
+  skipNsPrefix: boolean | undefined,
+  source: InputSourceLike
+): Effect.Effect<string | false, MultipleNamespaces> {
   if (skipNsPrefix) {
     const parts = name.split(':');
     if (parts.length === 2) {
-      if (parts[0] === 'xmlns') return false; // drop xmlns declarations
-      return parts[1] as string;
+      if (parts[0] === 'xmlns') return Effect.succeed(false); // drop xmlns declarations
+      return Effect.succeed(parts[1] as string);
     } else if (parts.length > 2) {
-      throw new MultipleNamespaces({ name, message: `Multiple namespaces in name: ${name}`, index: errorPositionOf(source).index });
+      return Effect.fail(new MultipleNamespaces({ name, message: `Multiple namespaces in name: ${name}`, index: errorPositionOf(source).index }));
     }
   }
-  return name;
+  return Effect.succeed(name);
 }
 
 /**
@@ -1097,21 +1167,28 @@ function resolveNsPrefix(name: string, skipNsPrefix: boolean | undefined, source
  * an actual prototype-pollution vulnerability in the output object, not just a naming collision — this check always runs and `sanitizeNames` cannot
  * turn it off. Only the `DANGEROUS_PROPERTY_NAMES` rename step (a milder, cosmetic shadowing concern) is skippable for trusted input.
  *
- * @throws {ParseError} `SECURITY_PROTOTYPE_POLLUTION` for a critical name.
+ * @returns An effect producing the sanitized name. Fails with `SECURITY_PROTOTYPE_POLLUTION` for a critical name.
  */
-function sanitizeName(name: string, onDangerousProperty: (n: string) => string, sanitizeNames: boolean | undefined, source: InputSourceLike): string {
+function sanitizeName(
+  name: string,
+  onDangerousProperty: (n: string) => string,
+  sanitizeNames: boolean | undefined,
+  source: InputSourceLike
+): Effect.Effect<string, SecurityPrototypePollution> {
   if (criticalProperties.includes(name)) {
-    throw new SecurityPrototypePollution({
-      name,
-      message: `[SECURITY] Invalid name: "${name}" is a reserved JavaScript keyword that could cause prototype pollution`,
-      index: errorPositionOf(source).index,
-    });
+    return Effect.fail(
+      new SecurityPrototypePollution({
+        name,
+        message: `[SECURITY] Invalid name: "${name}" is a reserved JavaScript keyword that could cause prototype pollution`,
+        index: errorPositionOf(source).index,
+      })
+    );
   }
-  if (sanitizeNames === false) return name;
+  if (sanitizeNames === false) return Effect.succeed(name);
   if (DANGEROUS_PROPERTY_NAMES.includes(name)) {
-    return onDangerousProperty(name);
+    return Effect.succeed(onDangerousProperty(name));
   }
-  return name;
+  return Effect.succeed(name);
 }
 
 /**

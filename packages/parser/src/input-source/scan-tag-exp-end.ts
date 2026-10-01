@@ -18,7 +18,7 @@ export function scanTagExpEnd(this: CharScanContext) {
   const buf = this.buffer;
   const len = buf.length;
   const start = this.startIndex;
-  const pairs = (this as { _quotePairs: Int32Array })._quotePairs;
+  const pairs = this._quotePairs;
   let pairsLen = 0;
   // The delimiter of the quoted value being scanned, or null outside one. Two
   // booleans (`inSingle` / `inDouble`) said the same thing and needed two
@@ -43,11 +43,11 @@ export function scanTagExpEnd(this: CharScanContext) {
       continue;
     }
     if (c === '>' && quote === null) {
-      (this as { _quotePairsLen: number })._quotePairsLen = pairsLen;
+      this._quotePairsLen = pairsLen;
       return i - start;
     }
   }
-  (this as { _quotePairsLen: number })._quotePairsLen = pairsLen;
+  this._quotePairsLen = pairsLen;
   return -1;
 }
 

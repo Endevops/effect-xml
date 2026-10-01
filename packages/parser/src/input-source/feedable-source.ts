@@ -1,5 +1,8 @@
+import { Effect } from 'effect';
+
 import type { EncodingRegistry } from '#/encoding/encoding-registry.ts';
 import type { EncodingDecoder, FeedableOptions } from '#/options.ts';
+import type { ParseError } from '#/parse-error.ts';
 
 import { sniff } from '#/encoding/encoding-detector.ts';
 import { createTextDecoderAdapter } from '#/encoding/text-decoder-adapter.ts';
@@ -56,19 +59,22 @@ function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
  * @param decodingOptions - `options.decoding`, normalized to `null` when absent.
  * @param detecting - Whether the `'auto'` mode is in effect, already computed by the caller.
  *
- * @returns A deferred decoder factory, or `null` when detection must resolve the encoding first or the caller supplied no factory.
+ * @returns A deferred decoder factory answering with an `Effect`, or `null` when detection must resolve the encoding first or the caller supplied no
+ *   factory. The effect is where an explicit name is resolved against the registry, so an unknown name surfaces from `feed()`/`end()` rather than
+ *   from constructing a source nobody ever fed.
  */
 function decoderFactoryFor(
   options: FeedableSourceOptions,
   decodingOptions: FeedableSourceOptions['decoding'] | null,
   detecting: boolean
-): (() => EncodingDecoder) | null {
+): (() => Effect.Effect<EncodingDecoder, ParseError>) | null {
   const requested = decodingOptions?.encoding;
   if (!detecting && requested && decodingOptions?.registry) {
     const registry = decodingOptions.registry;
-    return () => registry.resolve(requested).createDecoder();
+    return () => Effect.map(registry.resolve(requested), descriptor => descriptor.createDecoder());
   }
-  return typeof options.createDecoder === 'function' ? options.createDecoder : null;
+  const createDecoder = options.createDecoder;
+  return typeof createDecoder === 'function' ? () => Effect.succeed(createDecoder()) : null;
 }
 
 /**
@@ -171,9 +177,10 @@ export default class FeedableSource implements InputSourceLike {
    */
   flushThreshold: number;
   /**
-   * @description How the decoder for this session is produced. Reassigned once when `'auto'` detection resolves.
+   * @description How the decoder for this session is produced. Reassigned once when `'auto'` detection resolves. The factory answers with an `Effect` because
+   * resolving an explicit encoding name can fail with `UNSUPPORTED_ENCODING`.
    */
-  _createDecoder: (() => EncodingDecoder) | null;
+  _createDecoder: (() => Effect.Effect<EncodingDecoder, ParseError>) | null;
   /**
    * @description `'auto'` mode only. Raw undecoded bytes held back until there is enough to decide an encoding.
    */
@@ -264,13 +271,12 @@ export default class FeedableSource implements InputSourceLike {
    * @param data - Next chunk. A `Buffer` or any `Uint8Array` is decoded through the session's stateful decoder; a string is assumed to be already
    *   decoded.
    *
-   * @returns Number of characters appended to the buffer (after decoding) — callers that track fed-byte totals (e.g. `XMLParser.feed`'s batch
-   *   threshold) should use this rather than the raw input length, since a byte chunk ending mid-character may decode to fewer chars than its byte
-   *   length until the next chunk completes the sequence.
-   *
-   * @throws {ParseError} `INVALID_INPUT` when the buffer limit is exceeded, `DATA_MUST_BE_STRING` for an unsupported chunk type.
+   * @returns An effect producing the number of characters appended to the buffer (after decoding) — callers that track fed-byte totals (e.g.
+   *   `XMLParser.feed`'s batch threshold) should use this rather than the raw input length, since a byte chunk ending mid-character may decode to
+   *   fewer chars than its byte length until the next chunk completes the sequence. Fails with `INVALID_INPUT` when the buffer limit is exceeded,
+   *   `DATA_MUST_BE_STRING` for an unsupported chunk type, and `UNSUPPORTED_ENCODING` when an explicit encoding name cannot be resolved.
    */
-  feed(data: string | Uint8Array): number {
+  feed = Effect.fnUntraced(function* (this: FeedableSource, data: string | Uint8Array): Effect.fn.Return<number, ParseError> {
     if (this.#detecting) {
       if (typeof data === 'string') {
         // Already decoded upstream (e.g. stream.setEncoding() was called by
@@ -278,26 +284,24 @@ export default class FeedableSource implements InputSourceLike {
         this.#detecting = false;
       } else {
         const chunk = toBytes(data);
-        // `#detecting` is only true while `_sniffBuffer` is a byte array — the
-        // constructor sets them together, so the assertion is an invariant,
-        // not a runtime check.
-        const held = this._sniffBuffer as Uint8Array;
-        this._sniffBuffer = held.length ? concatBytes(held, chunk) : chunk;
-        const declarationComplete = containsBytes(this._sniffBuffer, DECLARATION_END);
-        if (this._sniffBuffer.length < SNIFF_CAP && !declarationComplete) {
+        const held = this._sniffBuffer;
+        const merged = held !== null && held.length ? concatBytes(held, chunk) : chunk;
+        this._sniffBuffer = merged;
+        const declarationComplete = containsBytes(merged, DECLARATION_END);
+        if (merged.length < SNIFF_CAP && !declarationComplete) {
           // Not enough to decide yet — hold everything, decode nothing.
           return 0;
         }
-        data = this.#resolveDetection();
+        data = yield* this.#resolveDetection();
       }
     }
 
-    const newData = this.#decodeNow(data);
+    const newData = yield* this.#decodeNow(data);
 
     const liveBytes = this.buffer.length - this.startIndex;
 
     if (liveBytes + newData.length > this.maxBufferSize) {
-      throw new InvalidInput({
+      return yield* new InvalidInput({
         option: 'feedable.maxBufferSize',
         received: `${liveBytes + newData.length} > ${this.maxBufferSize}`,
         message:
@@ -308,15 +312,18 @@ export default class FeedableSource implements InputSourceLike {
 
     this.buffer += newData;
     return newData.length;
-  }
+  });
 
-  #decodeNow(data: string | Uint8Array): string {
+  #decodeNow = Effect.fnUntraced(function* (this: FeedableSource, data: string | Uint8Array): Effect.fn.Return<string, ParseError> {
     if (typeof data === 'string') return data;
     if (ArrayBuffer.isView(data)) {
       // Stateful decode: bytes of a multi-byte char split across two feed()
       // calls are buffered internally by the decoder and correctly stitched
       // together, instead of each chunk being decoded in isolation.
-      if (!this.#decoder) this.#decoder = this._createDecoder ? this._createDecoder() : createTextDecoderAdapter('utf-8');
+      if (!this.#decoder) {
+        const factory = this._createDecoder;
+        this.#decoder = factory ? yield* factory() : createTextDecoderAdapter('utf-8');
+      }
       return this.#decoder.write(toBytes(data));
     }
     // Defensive tail: `feed()`'s contract is `string | Uint8Array` and both are
@@ -324,37 +331,41 @@ export default class FeedableSource implements InputSourceLike {
     // rather than rejected outright.
     const coercible = data as { toString(): string };
     if (typeof coercible?.toString === 'function') return coercible.toString();
-    throw new DataMustBeString({ received: typeof data, message: 'feed() data must be a string or a byte array.' });
-  }
+    return yield* new DataMustBeString({ received: typeof data, message: 'feed() data must be a string or a byte array.' });
+  });
 
   /**
    * @description Resolve 'auto' encoding from `_sniffBuffer` (BOM + `<?xml encoding="...">` sniffing, XML 1.0 Appendix F — see `encoding/encoding-detector.ts`),
    * build the real decoder, strip any BOM, and return the held bytes ready to be decoded normally by the caller in `feed()`. Runs exactly once per
    * session.
    *
-   * @returns The held bytes, minus any BOM.
+   * @returns An effect producing the held bytes, minus any BOM. Fails with `ENCODING_MISMATCH` when a BOM contradicts the declaration, or
+   *   `UNSUPPORTED_ENCODING` when the detected name cannot be resolved.
    */
-  #resolveDetection(): Uint8Array {
-    const registry = (this.#decodingOptions as NonNullable<FeedableSourceOptions['decoding']>).registry;
-    const { encoding, bomLength } = sniff(this._sniffBuffer as Uint8Array, registry);
-    const descriptor = registry.resolve(encoding);
-    this._createDecoder = () => descriptor.createDecoder();
+  #resolveDetection = Effect.fnUntraced(function* (this: FeedableSource): Effect.fn.Return<Uint8Array, ParseError> {
+    const decoding = this.#decodingOptions as NonNullable<FeedableSourceOptions['decoding']>;
+    const sniffBuffer = this._sniffBuffer as Uint8Array;
+    const { encoding, bomLength } = yield* sniff(sniffBuffer, decoding.registry);
+    const descriptor = yield* decoding.registry.resolve(encoding);
+    this._createDecoder = () => Effect.succeed(descriptor.createDecoder());
     this.#detecting = false;
-    const held = bomLength ? (this._sniffBuffer as Uint8Array).subarray(bomLength) : (this._sniffBuffer as Uint8Array);
+    const held = bomLength ? sniffBuffer.subarray(bomLength) : sniffBuffer;
     this._sniffBuffer = null;
     return held;
-  }
+  });
 
   /**
    * @description Signal that no more data will be fed. Flushes the decoder's held-back bytes and marks the source complete.
+   *
+   * @returns An effect that finalizes the source. Fails with the same encoding errors `feed()` can.
    */
-  end() {
+  end = Effect.fnUntraced(function* (this: FeedableSource): Effect.fn.Return<void, ParseError> {
     if (this.#detecting) {
       // Whole document arrived without ever reaching SNIFF_CAP or a
       // complete declaration (a short, unadorned document like <root/>) —
       // resolve now, on whatever bytes we have.
-      const held = this.#resolveDetection();
-      this.buffer += this.#decodeNow(held);
+      const held = yield* this.#resolveDetection();
+      this.buffer += yield* this.#decodeNow(held);
     }
     if (this.#decoder) {
       // Flush any final incomplete byte sequence held by the decoder. For
@@ -366,7 +377,7 @@ export default class FeedableSource implements InputSourceLike {
       if (tail) this.buffer += tail;
     }
     this.isComplete = true;
-  }
+  });
 
   /**
    * @description Returns true when there is at least one character available at or after the given offset (relative to startIndex).

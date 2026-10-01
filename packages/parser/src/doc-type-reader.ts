@@ -1,16 +1,10 @@
+import { Effect } from 'effect';
+
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type { TagExpressionParser } from './internal/parser-types.ts';
+import type { ParseError } from './parse-error.ts';
 
-import {
-  EntityInvalidKey,
-  EntityInvalidValue,
-  EntityMaxCount,
-  EntityMaxSize,
-  ErrorCode,
-  InvalidTag,
-  UnexpectedEnd,
-  isParseError,
-} from './parse-error.ts';
+import { EntityInvalidKey, EntityInvalidValue, EntityMaxCount, EntityMaxSize, InvalidTag, UnexpectedEnd } from './parse-error.ts';
 import { expectMatch, ensureCanRead, errorPositionOf, isSpace } from './util.ts';
 
 /**
@@ -58,86 +52,94 @@ interface EntityAccumulator {
  * @param parser - Parser state; the cursor sits just after the `<`.
  * @param body - Accumulator that `<!ENTITY` declarations are recorded into.
  *
- * @throws {ParseError} `INVALID_TAG` for an unrecognised or malformed declaration, `ENTITY_MAX_COUNT` when `maxEntityCount` is exceeded, or whatever
- *   the individual declaration readers throw.
+ * @returns An effect that reads one declaration. Fails with `INVALID_TAG` for an unrecognised or malformed declaration, `ENTITY_MAX_COUNT` when
+ *   `maxEntityCount` is exceeded, or whatever the individual declaration readers report.
  */
-function readBodySubTag(parser: TagExpressionParser, body: EntityAccumulator): void {
-  ensureCanRead(parser.source, 0, 'DOCTYPE sub-tag');
+const readBodySubTag = Effect.fnUntraced(function* (parser: TagExpressionParser, body: EntityAccumulator): Effect.fn.Return<void, ParseError> {
+  yield* ensureCanRead(parser.source, 0, 'DOCTYPE sub-tag');
   const bang = parser.source.readStr(1);
   parser.source.updateBufferBoundary(1);
   if (bang !== '!')
-    throw new InvalidTag({
+    return yield* new InvalidTag({
       tag: `<${bang}`,
       message: `Invalid DOCTYPE body tag starting with "<${bang}"`,
       index: errorPositionOf(parser.source).index,
     });
 
-  ensureCanRead(parser.source, 0, 'DOCTYPE sub-tag type');
+  yield* ensureCanRead(parser.source, 0, 'DOCTYPE sub-tag type');
   const typeChar = parser.source.readStr(1);
   parser.source.updateBufferBoundary(1);
 
   if (typeChar === '-') {
-    readDoctypeComment(parser);
+    yield* readDoctypeComment(parser);
   } else if (typeChar === 'E') {
     // ENTITY or ELEMENT — one more char to distinguish
-    ensureCanRead(parser.source, 0, 'DOCTYPE E-type sub-tag');
+    yield* ensureCanRead(parser.source, 0, 'DOCTYPE E-type sub-tag');
     const typeChar2 = parser.source.readStr(1);
     parser.source.updateBufferBoundary(1);
-    readESubTag(parser, typeChar2, body);
+    yield* readESubTag(parser, typeChar2, body);
   } else if (typeChar === 'A') {
     // <!ATTLIST — need 6 more chars for "TTLIST"
-    expectMatch(parser.source, 'TTLIST', 'DOCTYPE ATTLIST keyword');
-    readAttlistExp(parser);
+    yield* expectMatch(parser.source, 'TTLIST', 'DOCTYPE ATTLIST keyword');
+    yield* readAttlistExp(parser);
   } else if (typeChar === 'N') {
     // <!NOTATION — need 7 more chars for "OTATION"
-    expectMatch(parser.source, 'OTATION', 'DOCTYPE NOTATION keyword');
-    readNotationExp(parser);
+    yield* expectMatch(parser.source, 'OTATION', 'DOCTYPE NOTATION keyword');
+    yield* readNotationExp(parser);
   } else {
-    throw new InvalidTag({ tag: `<!${typeChar}`, message: `Invalid DOCTYPE sub-tag "<!${typeChar}"`, index: errorPositionOf(parser.source).index });
+    return yield* new InvalidTag({
+      tag: `<!${typeChar}`,
+      message: `Invalid DOCTYPE sub-tag "<!${typeChar}"`,
+      index: errorPositionOf(parser.source).index,
+    });
   }
-}
+});
 
 /**
  * @description Read the `<!-- … -->` declaration form. `<!-` has been consumed, so only the second dash and the closing `-->` remain.
  */
-function readDoctypeComment(parser: TagExpressionParser): void {
-  ensureCanRead(parser.source, 0, 'DOCTYPE comment');
+const readDoctypeComment = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+  yield* ensureCanRead(parser.source, 0, 'DOCTYPE comment');
   const dash2 = parser.source.readStr(1);
   parser.source.updateBufferBoundary(1);
-  if (dash2 !== '-') throw new InvalidTag({ message: 'Invalid comment in DOCTYPE', index: errorPositionOf(parser.source).index });
-  parser.source.readUpto('-->');
-}
+  if (dash2 !== '-') return yield* new InvalidTag({ message: 'Invalid comment in DOCTYPE', index: errorPositionOf(parser.source).index });
+  yield* parser.source.readUpto('-->');
+});
 
 /**
  * @description Split the two declarations that share the `E` prefix. `<!E` has been consumed; `next` is the character that tells them apart.
  */
-function readESubTag(parser: TagExpressionParser, next: string, body: EntityAccumulator): void {
+const readESubTag = Effect.fnUntraced(function* (
+  parser: TagExpressionParser,
+  next: string,
+  body: EntityAccumulator
+): Effect.fn.Return<void, ParseError> {
   if (next === 'N') {
     // <!ENTITY — need 4 more chars for "TITY"
-    expectMatch(parser.source, 'TITY', 'DOCTYPE ENTITY keyword');
-    declareEntity(parser, body);
+    yield* expectMatch(parser.source, 'TITY', 'DOCTYPE ENTITY keyword');
+    yield* declareEntity(parser, body);
   } else if (next === 'L') {
     // <!ELEMENT — need 5 more chars for "EMENT"
-    expectMatch(parser.source, 'EMENT', 'DOCTYPE ELEMENT keyword');
-    readElementExp(parser);
+    yield* expectMatch(parser.source, 'EMENT', 'DOCTYPE ELEMENT keyword');
+    yield* readElementExp(parser);
   } else {
-    throw new InvalidTag({ tag: `<!E${next}`, message: `Invalid DOCTYPE sub-tag "<!E${next}"`, index: errorPositionOf(parser.source).index });
+    return yield* new InvalidTag({ tag: `<!E${next}`, message: `Invalid DOCTYPE sub-tag "<!E${next}"`, index: errorPositionOf(parser.source).index });
   }
-}
+});
 
 /**
  * @description Record one `<!ENTITY` declaration into the accumulator. An entity whose value already contains a `&` is skipped and not recorded: the expansion is
  * performed later by the output builder, so a value that refers to another entity cannot be turned into a single `RegExp` here. Such a declaration
  * still counts against `maxEntityCount`, which limits declarations read rather than entities recorded.
  */
-function declareEntity(parser: TagExpressionParser, body: EntityAccumulator): void {
-  const [entityName, entityValue] = readEntityExp(parser);
+const declareEntity = Effect.fnUntraced(function* (parser: TagExpressionParser, body: EntityAccumulator): Effect.fn.Return<void, ParseError> {
+  const [entityName, entityValue] = yield* readEntityExp(parser);
 
   if (entityValue.indexOf('&') !== -1) return;
 
   const ep = parser.options?.doctypeOptions;
   if (ep?.maxEntityCount && body.count >= ep.maxEntityCount) {
-    throw new EntityMaxCount({
+    return yield* new EntityMaxCount({
       actual: body.count + 1,
       limit: ep.maxEntityCount,
       message: `Entity count (${body.count + 1}) exceeds maximum allowed (${ep.maxEntityCount})`,
@@ -148,7 +150,7 @@ function declareEntity(parser: TagExpressionParser, body: EntityAccumulator): vo
   const escaped = entityName.replace(/[.\-+*:]/g, '\\$&');
   body.entities[entityName] = { regx: RegExp(`&${escaped};`, 'g'), val: entityValue };
   body.count++;
-}
+});
 
 /**
  * @description The DOCTYPE scan loop's mutable state: whether the internal subset `[` has opened, whether its `]` has closed, and the delimiter of an open
@@ -217,25 +219,27 @@ function consumeDoctypeStructure(state: DoctypeScanState, ch: string | undefined
 /**
  * @description Read one `<!…` declaration, restoring the cursor to `subTagStart` if the read hit a chunk boundary. On `UNEXPECTED_END` the cursor goes back to the
  * `<` that opened this declaration so that when `feed()` calls `rewindToMark()` — which goes all the way back to the DOCTYPE `<` via parseXml's
- * level-0 mark — the full DOCTYPE, this declaration included, is replayed rather than resumed mid-token. The error is always re-thrown:
+ * level-0 mark — the full DOCTYPE, this declaration included, is replayed rather than resumed mid-token. The error is always re-failed:
  * `UNEXPECTED_END` bubbles to `feed()` for that rewind, and `INVALID_TAG` and the rest are real parse failures.
  */
-function readSubTagWithRewind(parser: TagExpressionParser, body: EntityAccumulator, subTagStart: number): void {
-  try {
-    readBodySubTag(parser, body);
-  } catch (err) {
-    if (isParseError(err) && err._tag === ErrorCode.UNEXPECTED_END) {
+const readSubTagWithRewind = Effect.fnUntraced(function* (
+  parser: TagExpressionParser,
+  body: EntityAccumulator,
+  subTagStart: number
+): Effect.fn.Return<void, ParseError> {
+  yield* readBodySubTag(parser, body).pipe(
+    Effect.catchTag('UNEXPECTED_END', err => {
       parser.source.startIndex = subTagStart;
-    }
-    throw err;
-  }
-}
+      return Effect.fail(err);
+    })
+  );
+});
 
-export function readDocType(parser: TagExpressionParser): Record<string, DocTypeEntity> {
+export const readDocType = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<Record<string, DocTypeEntity>, ParseError> {
   parser.source.markTokenStart(1);
 
   // <!D are already consumed by the caller up to this point
-  expectMatch(parser.source, 'OCTYPE', 'DOCTYPE preamble');
+  yield* expectMatch(parser.source, 'OCTYPE', 'DOCTYPE preamble');
 
   // const entities = Object.create(null);
   // `body` is the mutable accumulator the `<!ENTITY` path writes into. It is an
@@ -247,8 +251,8 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
 
   while (parser.source.canRead()) {
     // Save a local snapshot of startIndex BEFORE consuming this character.
-    // If the sub-tag dispatch below throws UNEXPECTED_END we restore here
-    // and re-throw so that feed()'s catch calls rewindToMark(), which
+    // If the sub-tag dispatch below hits UNEXPECTED_END we restore here
+    // and re-fail so that feed()'s catch calls rewindToMark(), which
     // restores all the way back to the '<' that began the DOCTYPE tag
     // (the level-0 mark set by parseXml's loop). We must NOT call
     // markTokenStart(0) here because that would overwrite parseXml's
@@ -259,15 +263,15 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
 
     if (consumeExternalIdLiteral(state, ch)) continue;
     if (ch === '<' && state.hasBody && !state.bodyDone) {
-      readSubTagWithRewind(parser, body, subTagStart);
+      yield* readSubTagWithRewind(parser, body, subTagStart);
       continue;
     }
     if (consumeDoctypeStructure(state, ch)) return body.entities;
     // whitespace, external identifier text, public id text — all skipped
   }
 
-  throw new UnexpectedEnd({ reading: 'DOCTYPE', message: 'Unclosed DOCTYPE', index: errorPositionOf(parser.source).index });
-}
+  return yield* new UnexpectedEnd({ reading: 'DOCTYPE', message: 'Unclosed DOCTYPE', index: errorPositionOf(parser.source).index });
+});
 
 // ---------------------------------------------------------------------------
 // Sub-expression readers
@@ -278,42 +282,40 @@ export function readDocType(parser: TagExpressionParser): Record<string, DocType
  * boundaries. The caller's try/catch restores `startIndex` to the `<` of this sub-tag, then re-throws so `feed()` → `rewindToMark()` resets all the
  * way back to the DOCTYPE opening `<`.
  *
- * @returns `[entityName, entityValue]`
- *
- * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` for external/parameter entities, `ENTITY_INVALID_KEY` for a malformed
- *   name, `ENTITY_MAX_SIZE` when the value exceeds the configured limit.
+ * @returns An effect producing `[entityName, entityValue]`. Fails with `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` for external/parameter
+ *   entities, `ENTITY_INVALID_KEY` for a malformed name, `ENTITY_MAX_SIZE` when the value exceeds the configured limit.
  */
-function readEntityExp(parser: TagExpressionParser): [string, string] {
+const readEntityExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<[string, string], ParseError> {
   const source = parser.source;
 
   skipSourceWhitespace(source);
 
-  ensureCanRead(source, 1, 'entity name');
+  yield* ensureCanRead(source, 1, 'entity name');
 
   const entityName = readEntityName(source);
 
   // Ran out mid-name without hitting a terminator — wait for more data
-  ensureCanRead(source, 1, `entity name "${entityName}"`);
+  yield* ensureCanRead(source, 1, `entity name "${entityName}"`);
 
-  validateEntityName(entityName, parser);
+  yield* validateEntityName(entityName, parser);
   skipSourceWhitespace(source);
 
-  ensureCanRead(source, 0, `after entity name "${entityName}"`);
+  yield* ensureCanRead(source, 0, `after entity name "${entityName}"`);
 
-  rejectUnsupportedEntityKind(source, entityName);
+  yield* rejectUnsupportedEntityKind(source, entityName);
 
   // Need at least the opening quote char
-  ensureCanRead(source, 0, `entity value for "${entityName}"`);
+  yield* ensureCanRead(source, 0, `entity value for "${entityName}"`);
 
-  const [entityValue] = readIdentifierVal(source, 'entity');
+  const [entityValue] = yield* readIdentifierVal(source, 'entity');
 
-  enforceEntitySizeLimit(parser, entityName, entityValue);
+  yield* enforceEntitySizeLimit(parser, entityName, entityValue);
 
-  // readUpto throws UNEXPECTED_END automatically if ">" is not in the buffer yet
-  source.readUptoChar('>');
+  // readUpto fails with UNEXPECTED_END automatically if ">" is not in the buffer yet
+  yield* source.readUptoChar('>');
 
   return [entityName, entityValue];
-}
+});
 
 /**
  * @description Read an entity's declared name. The name runs from the current position up to the first whitespace or quote — both delimit the value that follows,
@@ -333,53 +335,62 @@ function readEntityName(source: InputSourceLike): string {
 
 /**
  * @description Reject the two `<!ENTITY` forms this parser does not support: external entities (`<!ENTITY name SYSTEM "…">`, whose content lives outside the
- * document and cannot be expanded) and parameter entities (`<!ENTITY % name "…">`, which are not referenced by `&name;` at all). Both throw
+ * document and cannot be expanded) and parameter entities (`<!ENTITY % name "…">`, which are not referenced by `&name;` at all). Both fail with
  * `ENTITY_INVALID_VALUE` rather than being skipped, because a declaration the parser will not honour is a document error, not something to pass
  * through to the output.
  */
-function rejectUnsupportedEntityKind(source: InputSourceLike, entityName: string): void {
+const rejectUnsupportedEntityKind = Effect.fnUntraced(function* (
+  source: InputSourceLike,
+  entityName: string
+): Effect.fn.Return<void, EntityInvalidValue> {
   // SYSTEM check requires 6 chars; only peek when they are available
   if (source.canRead(5) && source.matchAhead('system', true) === true) {
-    throw new EntityInvalidValue({ name: entityName, message: 'External entities are not supported', index: errorPositionOf(source).index });
+    return yield* new EntityInvalidValue({ name: entityName, message: 'External entities are not supported', index: errorPositionOf(source).index });
   }
   if (source.readStr(1) === '%') {
-    throw new EntityInvalidValue({ name: entityName, message: 'Parameter entities are not supported', index: errorPositionOf(source).index });
+    return yield* new EntityInvalidValue({ name: entityName, message: 'Parameter entities are not supported', index: errorPositionOf(source).index });
   }
-}
+});
 
 /**
  * @description Enforce `maxEntitySize` on a declaration's replacement text. The limit bounds how much a single entity can expand to, so it is checked as the
  * declaration is read rather than at expansion time.
  *
- * @throws {ParseError} `ENTITY_MAX_SIZE` when the value exceeds the configured limit. No limit configured means no check.
+ * @returns An effect that passes when the value is within the limit. Fails with `ENTITY_MAX_SIZE` when the value exceeds the configured limit. No
+ *   limit configured means no check.
  */
-function enforceEntitySizeLimit(parser: TagExpressionParser, entityName: string, entityValue: string): void {
+const enforceEntitySizeLimit = Effect.fnUntraced(function* (
+  parser: TagExpressionParser,
+  entityName: string,
+  entityValue: string
+): Effect.fn.Return<void, EntityMaxSize> {
   const ep = parser.options?.doctypeOptions;
   if (!ep?.maxEntitySize || entityValue.length <= ep.maxEntitySize) return;
 
-  throw new EntityMaxSize({
+  return yield* new EntityMaxSize({
     actual: entityValue.length,
     limit: ep.maxEntitySize,
     name: entityName,
     message: `Entity "${entityName}" size (${entityValue.length}) exceeds maximum allowed size (${ep.maxEntitySize})`,
     index: errorPositionOf(parser.source).index,
   });
-}
+});
 
 /**
  * @description Read an ELEMENT declaration body. `<!ELEMENT` has already been consumed by the caller. The content model is consumed but not otherwise interpreted
  * — only the declared name is validated.
  *
- * @returns The element name, and an empty content model when the model couldn't be matched.
- *
- * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` for an invalid element name.
+ * @returns An effect producing the element name, and an empty content model when the model couldn't be matched. Fails with `UNEXPECTED_END` on a
+ *   chunk boundary, `INVALID_TAG` for an invalid element name.
  */
-function readElementExp(parser: TagExpressionParser): { elementName: string; contentModel?: string } {
+const readElementExp = Effect.fnUntraced(function* (
+  parser: TagExpressionParser
+): Effect.fn.Return<{ elementName: string; contentModel?: string }, ParseError> {
   const source = parser.source;
 
   skipSourceWhitespace(source);
 
-  ensureCanRead(source, 1, 'ELEMENT name');
+  yield* ensureCanRead(source, 1, 'ELEMENT name');
 
   const elementNameStart = source.startIndex;
   let elementNameLen = 0;
@@ -390,61 +401,66 @@ function readElementExp(parser: TagExpressionParser): { elementName: string; con
   }
   const elementName = source.readStr(elementNameLen, elementNameStart);
 
-  ensureCanRead(source, 1, 'ELEMENT name');
+  yield* ensureCanRead(source, 1, 'ELEMENT name');
 
   if (!parser.getNameValidator('name')(elementName)) {
-    throw new InvalidTag({ tag: elementName, message: `Invalid element name: "${elementName}"`, index: errorPositionOf(source).index });
+    return yield* new InvalidTag({ tag: elementName, message: `Invalid element name: "${elementName}"`, index: errorPositionOf(source).index });
   }
 
   skipSourceWhitespace(source);
 
-  ensureCanRead(source, 1, 'ELEMENT name');
+  yield* ensureCanRead(source, 1, 'ELEMENT name');
 
   const peek1 = source.readStr(1);
   if (peek1 === 'E') {
-    // Use expectMatch for "EMPTY"
-    try {
-      expectMatch(source, 'EMPTY', 'ELEMENT content model keyword EMPTY');
-    } catch {
+    // Use expectMatch for "EMPTY"; a mismatch or missing data falls back to
+    // skipping until '>'.
+    const matched = yield* expectMatch(source, 'EMPTY', 'ELEMENT content model keyword EMPTY').pipe(
+      Effect.match({ onFailure: () => false, onSuccess: () => true })
+    );
+    if (!matched) {
       // If not EMPTY, it might be something else – we fall back to skipping until '>'
-      source.readUptoChar('>');
+      yield* source.readUptoChar('>');
       return { elementName, contentModel: '' };
     }
   } else if (peek1 === 'A') {
-    try {
-      expectMatch(source, 'ANY', 'ELEMENT content model keyword ANY');
-    } catch {
-      source.readUptoChar('>');
+    const matched = yield* expectMatch(source, 'ANY', 'ELEMENT content model keyword ANY').pipe(
+      Effect.match({ onFailure: () => false, onSuccess: () => true })
+    );
+    if (!matched) {
+      yield* source.readUptoChar('>');
       return { elementName, contentModel: '' };
     }
   } else if (peek1 === '(') {
     source.updateBufferBoundary(1);
-    source.readUptoChar(')');
+    yield* source.readUptoChar(')');
   }
 
-  source.readUptoChar('>');
+  yield* source.readUptoChar('>');
   return { elementName };
-}
+});
 
 /**
  * @description Read an ATTLIST declaration body. `<!ATTLIST` has already been consumed by the caller. Attribute defaults are not interpreted — the declaration is
  * consumed to its closing `>` and discarded.
  */
-function readAttlistExp(parser: TagExpressionParser): void {
-  parser.source.readUptoChar('>');
-}
+const readAttlistExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+  yield* parser.source.readUptoChar('>');
+});
 
 /**
  * @description Read a NOTATION declaration body. `<!NOTATION` has already been consumed by the caller.
  *
- * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` for a malformed identifier type or an invalid notation name.
+ * @returns An effect that consumes the declaration. Fails with `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` for a malformed identifier type or
+ *   an invalid notation name.
  */
-function readNotationExp(parser: TagExpressionParser): void {
+// fallow-ignore-next-line complexity
+const readNotationExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
   const source = parser.source;
 
   skipSourceWhitespace(source);
 
-  ensureCanRead(source, 1, 'NOTATION name');
+  yield* ensureCanRead(source, 1, 'NOTATION name');
 
   const notationNameStart = source.startIndex;
   let notationNameLen = 0;
@@ -455,35 +471,39 @@ function readNotationExp(parser: TagExpressionParser): void {
   }
   const notationName = source.readStr(notationNameLen, notationNameStart);
 
-  ensureCanRead(source, 1, `after NOTATION name "${notationName}"`);
+  yield* ensureCanRead(source, 1, `after NOTATION name "${notationName}"`);
 
-  validateEntityName(notationName, parser);
+  yield* validateEntityName(notationName, parser);
   skipSourceWhitespace(source);
 
   // Need all 6 chars of "SYSTEM" / "PUBLIC" before we can classify
-  ensureCanRead(source, 6, 'NOTATION identifier type');
+  yield* ensureCanRead(source, 6, 'NOTATION identifier type');
 
   if (source.matchAhead('system', true) === true) {
     source.updateBufferBoundary(6);
     skipSourceWhitespace(source);
-    readIdentifierVal(source, 'systemIdentifier');
+    yield* readIdentifierVal(source, 'systemIdentifier');
   } else if (source.matchAhead('public', true) === true) {
     source.updateBufferBoundary(6);
     skipSourceWhitespace(source);
-    readIdentifierVal(source, 'publicIdentifier');
+    yield* readIdentifierVal(source, 'publicIdentifier');
     skipSourceWhitespace(source);
-    ensureCanRead(source, 1, 'after NOTATION PUBLIC identifier');
+    yield* ensureCanRead(source, 1, 'after NOTATION PUBLIC identifier');
     const next = source.readStr(1);
     if (next === '"' || next === "'") {
-      readIdentifierVal(source, 'systemIdentifier');
+      yield* readIdentifierVal(source, 'systemIdentifier');
     }
   } else {
     const found = source.readStr(6);
-    throw new InvalidTag({ tag: found, message: `Expected SYSTEM or PUBLIC in NOTATION, found "${found}"`, index: errorPositionOf(source).index });
+    return yield* new InvalidTag({
+      tag: found,
+      message: `Expected SYSTEM or PUBLIC in NOTATION, found "${found}"`,
+      index: errorPositionOf(source).index,
+    });
   }
 
-  source.readUptoChar('>');
-}
+  yield* source.readUptoChar('>');
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -492,40 +512,38 @@ function readNotationExp(parser: TagExpressionParser): void {
 /**
  * @description Read a quoted identifier value from the source. Consumes the opening quote, the content, and the closing quote.
  *
- * @returns `[value]`
- *
- * @throws {ParseError} `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` when the value is not quoted.
+ * @returns An effect producing `[value]`. Fails with `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` when the value is not quoted.
  */
-function readIdentifierVal(source: InputSourceLike, type: string): [string] {
-  ensureCanRead(source, 1, type + ' opening quote');
+const readIdentifierVal = Effect.fnUntraced(function* (source: InputSourceLike, type: string): Effect.fn.Return<[string], ParseError> {
+  yield* ensureCanRead(source, 1, type + ' opening quote');
   const startChar = source.readStr(1);
   if (startChar !== '"' && startChar !== "'") {
-    throw new InvalidTag({
+    return yield* new InvalidTag({
       tag: startChar,
       message: `Expected quoted string for ${type}, found "${startChar}"`,
       index: errorPositionOf(source).index,
     });
   }
   source.updateBufferBoundary(1);
-  // readUpto throws UNEXPECTED_END automatically when the closing quote is absent
-  const value = source.readUptoChar(startChar);
+  // readUpto fails with UNEXPECTED_END automatically when the closing quote is absent
+  const value = yield* source.readUptoChar(startChar);
   return [value];
-}
+});
 
-function skipSourceWhitespace(source: InputSourceLike): void {
+const skipSourceWhitespace = (source: InputSourceLike): void => {
   while (source.canRead()) {
     const ch = source.readChAt(0);
     if (!isSpace(ch)) break;
     source.updateBufferBoundary(1);
   }
-}
+};
 
 /**
  * @description Assert `name` is a valid XML `Name`, so it can be used as an entity key.
  *
- * @throws {ParseError} `ENTITY_INVALID_KEY` when the name is not a valid XML Name.
+ * @returns An effect producing the name. Fails with `ENTITY_INVALID_KEY` when the name is not a valid XML Name.
  */
-function validateEntityName(name: string, parser: TagExpressionParser): string {
+const validateEntityName = Effect.fnUntraced(function* (name: string, parser: TagExpressionParser): Effect.fn.Return<string, EntityInvalidKey> {
   if (parser.getNameValidator('name')(name)) return name;
-  throw new EntityInvalidKey({ name, message: `Invalid entity name "${name}"` });
-}
+  return yield* new EntityInvalidKey({ name, message: `Invalid entity name "${name}"` });
+});

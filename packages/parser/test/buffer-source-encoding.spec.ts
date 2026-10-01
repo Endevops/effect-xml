@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
@@ -11,7 +12,7 @@ describe('BufferSource + EncodingProfile wiring', () => {
   it('decodes before scanning, so readCh and readStr agree on multi-byte UTF-8', () => {
     const xml = 'café'; // 4 characters, 5 bytes
     const buf = Buffer.from(xml, 'utf8');
-    const profile = buildProfileForBuffer(buf, { encoding: 'utf8' });
+    const profile = Effect.runSync(buildProfileForBuffer(buf, { encoding: 'utf8' }));
     // profile is the 3rd constructor argument, not the 2nd ("options").
     // Passing it as the 2nd argument compiles and even passes for utf8,
     // because utf8 is also BufferSource's built-in zero-config default when
@@ -55,7 +56,7 @@ describe('BufferSource + EncodingProfile wiring', () => {
 
   it("demonstrates why the profile's argument position matters for a non-default encoding", () => {
     const buf = Buffer.from('hi', 'utf16le'); // bytes look nothing like utf8 "hi"
-    const profile = buildProfileForBuffer(buf, { encoding: 'utf16le' });
+    const profile = Effect.runSync(buildProfileForBuffer(buf, { encoding: 'utf16le' }));
 
     // Deliberately in the wrong slot: the test is about what happens when a
     // profile lands where `options` is expected, so it is cast past the type.
@@ -96,7 +97,7 @@ describe('canRead(n) formula — all sources agree, relative to current position
 
   it('FeedableSource answers the same question the same way', () => {
     const source = new FeedableSource();
-    source.feed('0123456789');
+    Effect.runSync(source.feed('0123456789'));
     source.startIndex = 8; // only 2 characters left
 
     expect(source.canRead(3)).toBe(false); // correct: only 2 remain
@@ -106,7 +107,7 @@ describe('canRead(n) formula — all sources agree, relative to current position
   it('BufferSource readCh and readStr agree on multi-byte UTF-8 at character boundaries', () => {
     const xml = 'café'; // 4 chars, 5 bytes
     const buf = Buffer.from(xml, 'utf8');
-    const profile = buildProfileForBuffer(buf, { encoding: 'utf8' });
+    const profile = Effect.runSync(buildProfileForBuffer(buf, { encoding: 'utf8' }));
     // Same deliberate misplacement as above, for the same reason.
     const source = new BufferSource(buf, profile as unknown as BufferSourceOptions);
 

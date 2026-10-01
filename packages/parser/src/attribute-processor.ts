@@ -1,4 +1,7 @@
+import { Effect } from 'effect';
+
 import type { AttributeMeta, ParsedAttribute, RawAttributeMatch, TagExpressionParser } from './internal/parser-types.ts';
+import type { ParseError } from './parse-error.ts';
 
 import {
   BooleanAttributeRejected,
@@ -43,13 +46,16 @@ function isIllegalAttrCode(c: number): boolean {
  * - Real `\r\n` pair → exactly one space (not two)
  * - Lone `\r` or lone `\n` → one space
  * - Literal tab (0x09) → one space (a `&#9;` reference is left untouched — that's resolved later, by the entity value-parser, not here)
- * - Other illegal control code → throws `ILLEGAL_CHARACTER`
+ * - Other illegal control code → fails with `ILLEGAL_CHARACTER`
  *
- * @returns The folded value, without the closing quote.
- *
- * @throws {ParseError} `ILLEGAL_CHARACTER` on an illegal control code.
+ * @returns An effect producing the folded value, without the closing quote. Fails with `ILLEGAL_CHARACTER` on an illegal control code.
  */
-function scanAttrValue(attrStr: string, i: number, end: number, parser: TagExpressionParser | undefined): string {
+const scanAttrValue = Effect.fnUntraced(function* (
+  attrStr: string,
+  i: number,
+  end: number,
+  parser: TagExpressionParser | undefined
+): Effect.fn.Return<string, IllegalCharacter> {
   let value = '';
   let segStart = i;
   for (; i < end; i++) {
@@ -64,7 +70,7 @@ function scanAttrValue(attrStr: string, i: number, end: number, parser: TagExpre
       value += attrStr.substring(segStart, i) + ' ';
       segStart = i + 1;
     } else if (isIllegalAttrCode(c)) {
-      throw new IllegalCharacter({
+      return yield* new IllegalCharacter({
         charCode: c,
         in: 'attribute',
         message: `Illegal control character 0x${c.toString(16).padStart(2, '0')} in attribute value`,
@@ -74,7 +80,7 @@ function scanAttrValue(attrStr: string, i: number, end: number, parser: TagExpre
   }
   value += attrStr.substring(segStart, i);
   return value;
-}
+});
 
 /**
  * @description Parse an attribute expression string into an array of match tuples. Each element is `{ name, value, startIndex }` — `value` is `undefined` for a
@@ -95,15 +101,16 @@ function scanAttrValue(attrStr: string, i: number, end: number, parser: TagExpre
  *   `quotePairs.length` itself is not the right bound to loop against.
  * @param parser - Parser context, used only to report error positions.
  *
- * @throws {ParseError} `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote, `ILLEGAL_CHARACTER` on an illegal control code.
+ * @returns An effect producing the parsed match tuples. Fails with `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote,
+ *   `ILLEGAL_CHARACTER` on an illegal control code.
  */
-function parseAttributes(
+const parseAttributes = Effect.fnUntraced(function* (
   attrStr: string,
   quotePairs: Int32Array | undefined,
   attrsOffset: number | undefined,
   quotePairsLen: number = 0,
   parser?: TagExpressionParser
-): Array<RawAttributeMatch> {
+): Effect.fn.Return<Array<RawAttributeMatch>, ParseError> {
   const results: Array<RawAttributeMatch> = [];
   const ctx: AttrScanContext = {
     str: attrStr,
@@ -122,7 +129,7 @@ function parseAttributes(
 
   let i = 0;
   while (i < ctx.len) {
-    const attr = readAttribute(ctx, i);
+    const attr = yield* readAttribute(ctx, i);
     // Only whitespace left — the expression is fully consumed.
     if (attr === null) break;
     results.push(attr.match);
@@ -130,7 +137,7 @@ function parseAttributes(
   }
 
   return results;
-}
+});
 
 /**
  * @description Everything `parseAttributes`' per-attribute step needs that does not change from one attribute to the next. Bundled because the step touches eight
@@ -190,12 +197,14 @@ const SINGLE_QUOTE = 39;
  * @param ctx - Expression-wide scan state. `ctx.pairIdx` advances when a recorded quote pair is consumed.
  * @param from - Offset to start at, which may be whitespace.
  *
- * @returns The match and the offset the next attribute starts at, or `null` when `from` is at or past the end of the expression.
- *
- * @throws {ParseError} `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote, plus whatever `scanAttrValue` throws for a value that is
+ * @returns An effect producing the match and the offset the next attribute starts at, or `null` when `from` is at or past the end of the expression.
+ *   Fails with `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote, plus whatever `scanAttrValue` reports for a value that is
  *   terminated but contains illegal characters.
  */
-function readAttribute(ctx: AttrScanContext, from: number): { match: RawAttributeMatch; next: number } | null {
+const readAttribute = Effect.fnUntraced(function* (
+  ctx: AttrScanContext,
+  from: number
+): Effect.fn.Return<{ match: RawAttributeMatch; next: number } | null, ParseError> {
   // Skip whitespace between attributes
   let i = skipSpaces(ctx.str, from, ctx.len);
   if (i >= ctx.len) return null;
@@ -218,7 +227,7 @@ function readAttribute(ctx: AttrScanContext, from: number): { match: RawAttribut
   // unquoted value never partially reaches the output builder.
   const quote = ctx.str.charCodeAt(i); // NaN when i >= len — also fails both checks below
   if (quote !== DOUBLE_QUOTE && quote !== SINGLE_QUOTE) {
-    throw new UnquotedAttributeValue({
+    return yield* new UnquotedAttributeValue({
       name,
       message: `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
       index: ctx.parser ? errorPositionOf(ctx.parser.source).index : undefined,
@@ -229,9 +238,9 @@ function readAttribute(ctx: AttrScanContext, from: number): { match: RawAttribut
 
   i++; // skip opening quote
   const end = closeLocal >= 0 ? closeLocal : findClosingQuote(ctx.str, i, ctx.len, quote);
-  const value = scanAttrValue(ctx.str, i, end, ctx.parser);
+  const value = yield* scanAttrValue(ctx.str, i, end, ctx.parser);
   return { match: { name, value, startIndex: nameStart }, next: end + 1 }; // skip closing quote
-}
+});
 
 /**
  * @description Advance past XML whitespace, stopping at `len`. XML permits whitespace around `=` and between attributes, so this is needed in three places per
@@ -326,20 +335,20 @@ export interface TagExpAttributeTarget {
  * @param attrsOffset - See `parseAttributes()`.
  * @param quotePairsLen - See `parseAttributes()`.
  *
- * @throws {ParseError} `DUPLICATE_ATTRIBUTE` under `attributes.duplicate: 'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED` under `attributes.booleanType:
- *   'throw'`, plus whatever `parseAttributes()` throws.
+ * @returns An effect that populates `tagExp`. Fails with `DUPLICATE_ATTRIBUTE` under `attributes.duplicate: 'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED`
+ *   under `attributes.booleanType: 'throw'`, plus whatever `parseAttributes()` reports.
  */
-export function collectRawAttributes(
+export const collectRawAttributes = Effect.fnUntraced(function* (
   attrStr: string,
   parser: TagExpressionParser,
   tagExp: TagExpAttributeTarget,
   quotePairs?: Int32Array,
   attrsOffset?: number,
   quotePairsLen?: number
-): void {
+): Effect.fn.Return<void, ParseError> {
   if (!attrStr || attrStr.length === 0) return;
 
-  const matches = parseAttributes(attrStr, quotePairs, attrsOffset, quotePairsLen, parser);
+  const matches = yield* parseAttributes(attrStr, quotePairs, attrsOffset, quotePairsLen, parser);
   // total parsed attrs, incl. dropped (xmlns:) ones — for maxAttributesPerTag parity with old behavior
   tagExp._rawAttrMatchCount = matches.length;
 
@@ -355,10 +364,10 @@ export function collectRawAttributes(
     boolMode: parser.options.attributes?.booleanType || 'allow',
   };
 
-  const parsedAttrs = keepAttributes(matches, parser, tagExp, policy);
+  const parsedAttrs = yield* keepAttributes(matches, parser, tagExp, policy);
   tagExp.rawAttributesLen = parsedAttrs.length;
   tagExp._parsedAttrs = parsedAttrs;
-}
+});
 
 /**
  * @description The per-tag attribute policies `collectRawAttributes` applies, resolved once per tag. Split out because each is a separate decision the match loop
@@ -387,16 +396,22 @@ interface AttrPolicy {
  * @param m - The parsed occurrence.
  * @param parser - Parser context, used to report error positions.
  *
- * @returns `true` when this occurrence should be recorded.
- *
- * @throws {ParseError} `DUPLICATE_ATTRIBUTE` under `attributes.duplicate: 'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED` under `attributes.booleanType:
- *   'throw'`.
+ * @returns An effect producing `true` when this occurrence should be recorded. Fails with `DUPLICATE_ATTRIBUTE` under `attributes.duplicate:
+ *   'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED` under `attributes.booleanType: 'throw'`.
  */
-function acceptOccurrence(policy: AttrPolicy, m: RawAttributeMatch, parser: TagExpressionParser): boolean {
+const acceptOccurrence = Effect.fnUntraced(function* (
+  policy: AttrPolicy,
+  m: RawAttributeMatch,
+  parser: TagExpressionParser
+): Effect.fn.Return<boolean, DuplicateAttribute | BooleanAttributeRejected> {
   if (policy.seen !== null) {
     if (policy.seen.has(m.name)) {
       if (policy.dupMode === 'throw') {
-        throw new DuplicateAttribute({ name: m.name, message: `Duplicate attribute '${m.name}'`, index: errorPositionOf(parser.source).index });
+        return yield* new DuplicateAttribute({
+          name: m.name,
+          message: `Duplicate attribute '${m.name}'`,
+          index: errorPositionOf(parser.source).index,
+        });
       }
       return false; // 'ignore' — first occurrence wins, later ones dropped entirely
     }
@@ -406,7 +421,7 @@ function acceptOccurrence(policy: AttrPolicy, m: RawAttributeMatch, parser: TagE
   if (m.value !== undefined) return true;
 
   if (policy.boolMode === 'throw') {
-    throw new BooleanAttributeRejected({
+    return yield* new BooleanAttributeRejected({
       name: m.name,
       message: `Valueless attribute '${m.name}' is not allowed`,
       index: errorPositionOf(parser.source).index,
@@ -414,28 +429,28 @@ function acceptOccurrence(policy: AttrPolicy, m: RawAttributeMatch, parser: TagE
   }
   // 'ignore' drops it silently, rest of tag unaffected; 'allow' falls through with the value becoming `true` below.
   return policy.boolMode === 'allow';
-}
+});
 
 /**
  * @description Walk the parsed matches, apply the policies, process each surviving name once, and record what is left. `processAttrName()` is the expensive step
  * (ns-prefix resolution, name validation, sanitization, reserved-name check), so it runs only for occurrences the policies keep — and only once,
  * which is the whole point of pass 1 caching into `_parsedAttrs` for pass 2.
  *
- * @returns The attributes that survived, in document order. Its length is also
- * the surviving count, so `rawAttributesLen` needs no separate tally.
+ * @returns An effect producing the attributes that survived, in document order. Its length is also the surviving count, so `rawAttributesLen` needs
+ *   no separate tally.
  */
-function keepAttributes(
+const keepAttributes = Effect.fnUntraced(function* (
   matches: Array<RawAttributeMatch>,
   parser: TagExpressionParser,
   tagExp: TagExpAttributeTarget,
   policy: AttrPolicy
-): Array<ParsedAttribute> {
+): Effect.fn.Return<Array<ParsedAttribute>, ParseError> {
   const parsedAttrs: Array<ParsedAttribute> = [];
 
   for (const m of matches) {
-    if (!acceptOccurrence(policy, m, parser)) continue;
+    if (!(yield* acceptOccurrence(policy, m, parser))) continue;
 
-    const attrName = parser.processAttrName(m.name);
+    const attrName = yield* parser.processAttrName(m.name);
     if (attrName === false) continue;
 
     const attrVal = m.value !== undefined ? m.value : true;
@@ -444,7 +459,7 @@ function keepAttributes(
   }
 
   return parsedAttrs;
-}
+});
 
 /**
  * @description _Pass 2_*: push each attribute (already parsed + name-processed by pass 1, see `tagExp._parsedAttrs`) to the output builder. No re-parsing, no
@@ -463,20 +478,21 @@ function keepAttributes(
  *   the error named the wrong tag. It read as `Tag '' has 3 attributes` for a limit that is otherwise perfectly clear, and a caller had no way to
  *   tell which tag was refused.
  *
- * @throws {ParseError} `LIMIT_MAX_ATTRIBUTES` when the tag carries more attributes than the limit allows.
+ * @returns An effect that pushes each attribute. Fails with `LIMIT_MAX_ATTRIBUTES` when the tag carries more attributes than the limit allows, or
+ *   with a `DependencyError` when the builder's value-parser chain fails.
  */
-export function flushAttributes(
+export const flushAttributes = Effect.fnUntraced(function* (
   parsedAttrs: Array<ParsedAttribute> | undefined,
   parser: TagExpressionParser,
   attrsExpStart: number | undefined,
   rawAttrMatchCount: number,
   tagName: string
-): void {
+): Effect.fn.Return<void, ParseError> {
   if (!parsedAttrs || parsedAttrs.length === 0) return;
 
   const maxAttrs = parser.options.limits?.maxAttributesPerTag;
   if (maxAttrs !== undefined && maxAttrs !== null && rawAttrMatchCount > maxAttrs) {
-    throw new LimitMaxAttributes({
+    return yield* new LimitMaxAttributes({
       limit: maxAttrs,
       count: rawAttrMatchCount,
       tag: tagName,
@@ -492,6 +508,6 @@ export function flushAttributes(
     // The builder's attribute pipeline can fail — an entity expansion limit, a
     // caller-supplied value processor — so this runs the effect rather than
     // discarding it.
-    runBuilder(parser.outputBuilder.addAttribute(a.name, a.value, parser.readonlyMatcher, attrMeta));
+    yield* runBuilder(parser.outputBuilder.addAttribute(a.name, a.value, parser.readonlyMatcher, attrMeta));
   }
-}
+});

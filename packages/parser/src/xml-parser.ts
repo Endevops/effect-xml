@@ -5,13 +5,25 @@ import type { ParseErrorEntry } from './internal/parser-types.ts';
 import type { ResolvedOptions, X2jOptions } from './options.ts';
 import type { ParseError } from './parse-error.ts';
 
-import { defaultEncodingRegistry, makeEncodingRegistry } from './encoding/encoding-registry.ts';
+import { defaultEncodingRegistry } from './encoding/encoding-registry.ts';
 import FeedableSource from './input-source/feedable-source.ts';
 import StreamSource, { isReadableStream } from './input-source/stream-source.ts';
 import { buildOptions } from './options-builder.ts';
 import { ErrorCode, InvalidInput, InvalidStream, NotStreaming, isParseError, toParseError } from './parse-error.ts';
 import { absolutePosition } from './util.ts';
 import Xml2JsParser from './xml2-js-parser.ts';
+
+/**
+ * @description Run one walk step from a synchronous boundary — a Node stream event handler, which the runtime invokes from the event loop rather than from inside
+ * this effect. The step is run rather than yielded, folding a typed failure to that failure and a success to `null`; a defect it throws travels to
+ * the caller's own `try`/`catch`, exactly as the old synchronous callback did.
+ *
+ * @param step - One effectful walk step.
+ *
+ * @returns The failure, or `null` when the step succeeded.
+ */
+const runStreamStep = (step: Effect.Effect<void, ParseError>): ParseError | null =>
+  Effect.runSync(step.pipe(Effect.match({ onFailure: (error: ParseError): ParseError => error, onSuccess: (): null => null })));
 
 /**
  * @description XMLParser — the public entry point. Owns the resolved options, the shared name cache, and the three ways to get a document in: one-shot
@@ -152,23 +164,11 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
     lastParseErrors: [],
   };
 
-  // Per-instance encoding registry only when custom decoders are supplied
-  // — avoids mutating the shared default registry (which would leak a
-  // customDecoder registered on one XMLParser instance into every other
-  // instance in the process). The common case (no customDecoders) reuses
-  // the shared default registry, seeded once at module load.
-  if (state.options.decoding?.customDecoders) {
-    const registry = makeEncodingRegistry();
-    for (const [name, descriptor] of Object.entries(state.options.decoding.customDecoders)) {
-      // The map key is authoritative for `name`; spread first so a
-      // descriptor that also carries `name` can't override the key.
-      registry.register({ ...descriptor, name });
-    }
-    state.options.decoding._registry = registry;
-  } else {
-    state.options.decoding = state.options.decoding || {};
-    state.options.decoding._registry = defaultEncodingRegistry;
-  }
+  // The per-instance registry is built by `buildOptions` (where registering a
+  // malformed custom decoder can fail). A directly-constructed `ResolvedOptions`
+  // that skipped that step still gets the shared default here, so the parser
+  // always has a registry to resolve against.
+  state.options.decoding._registry = state.options.decoding._registry || defaultEncodingRegistry;
 
   // Shared tag/attribute name cache — lives on `options`, not on any one
   // Xml2JsParser instance, because `.parse()` creates a fresh Xml2JsParser
@@ -187,49 +187,52 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
    * @description Run the parser over whatever has accumulated so far, rewinding on a chunk boundary so the incomplete token is retried on the next `feed()`. Also
    * owns the batching heuristic: if the last pass made no progress — the parser is stuck mid-token — the byte threshold is doubled, up to
    * `feedable.maxBufferSize`.
+   *
+   * @returns An effect that runs one pass. Fails with any `ParseError` other than `UNEXPECTED_END`, which is handled by rewinding.
    */
-  const runParse = (): void => {
-    if (!state.feedParser || !state.feedSource) return;
+  const runParse = (): Effect.Effect<void, ParseError> =>
+    Effect.gen(function* () {
+      const feedParser = state.feedParser;
+      const feedSource = state.feedSource;
+      if (!feedParser || !feedSource) return;
 
-    const beforePos = absolutePosition(state.feedSource); // bytes consumed so far, flush-proof
+      const beforePos = absolutePosition(feedSource); // bytes consumed so far, flush-proof
 
-    try {
-      state.feedParser.parseXml();
-    } catch (err) {
-      if (isParseError(err) && err._tag === ErrorCode.UNEXPECTED_END) {
-        state.feedSource.rewindToMark();
+      // A chunk boundary mid-token is the retryable case: rewind to the outer
+      // mark so the whole token is replayed on the next feed(). Any other
+      // failure is a real parse error and travels on.
+      yield* feedParser.parseXml().pipe(Effect.catchTag('UNEXPECTED_END', () => Effect.sync(() => feedSource.rewindToMark())));
+
+      const afterPos = absolutePosition(feedSource);
+      const didAdvance = afterPos > beforePos;
+
+      if (didAdvance) {
+        // Real progress made — reset threshold normally
+        state.pendingBytes = 0;
+        state.batchThreshold = state.options.feedable.bufferSize;
       } else {
-        throw err;
+        // Parser is stuck mid-token — grow the threshold to avoid
+        // hammering parseXml() until significantly more data arrives
+        state.batchThreshold = Math.min(state.batchThreshold * 2, state.options.feedable.maxBufferSize);
       }
-    }
-
-    const afterPos = absolutePosition(state.feedSource);
-    const didAdvance = afterPos > beforePos;
-
-    if (didAdvance) {
-      // Real progress made — reset threshold normally
-      state.pendingBytes = 0;
-      state.batchThreshold = state.options.feedable.bufferSize;
-    } else {
-      // Parser is stuck mid-token — grow the threshold to avoid
-      // hammering parseXml() until significantly more data arrives
-      state.batchThreshold = Math.min(state.batchThreshold * 2, state.options.feedable.maxBufferSize);
-    }
-  };
+    });
 
   /**
    * @description Open a `feed()`/`end()` session: a fresh feedable source and a fresh walker wired to it.
+   *
+   * @returns An effect that initializes the session. Fails when the output builder cannot be created.
    */
-  const initFeedSession = (): void => {
-    state.feedSource = new FeedableSource({
-      ...state.options.feedable,
-      decoding: { encoding: state.options.decoding.encoding, registry: state.options.decoding._registry },
+  const initFeedSession = (): Effect.Effect<void, ParseError> =>
+    Effect.gen(function* () {
+      state.feedSource = new FeedableSource({
+        ...state.options.feedable,
+        decoding: { encoding: state.options.decoding.encoding, registry: state.options.decoding._registry },
+      });
+      state.feedParser = createParser();
+      state.feedParser.source = state.feedSource;
+      yield* state.feedParser.initializeParser();
+      state.isFeeding = true;
     });
-    state.feedParser = createParser();
-    state.feedParser.source = state.feedSource;
-    state.feedParser.initializeParser();
-    state.isFeeding = true;
-  };
 
   /**
    * @description Close a `feed()`/`end()` session.
@@ -261,24 +264,26 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
         // otherwise a non-utf8 `decoding.encoding` option would silently be
         // ignored for byte input given directly to parse().
         return parser.parseBytesArr(xmlData) as Effect.Effect<T, ParseError>;
-      } else if (typeof xmlData !== 'string') {
+      }
+
+      let text: string;
+      if (typeof xmlData !== 'string') {
         if (xmlData && typeof xmlData.toString === 'function') {
-          xmlData = xmlData.toString();
+          text = xmlData.toString();
         } else {
           return new InvalidInput({ option: 'xmlData', received: typeof xmlData, message: 'XML data must be a string or a byte array.' });
         }
+      } else {
+        text = xmlData;
       }
 
-      return Effect.try({
-        try: () => {
-          const created = createParser();
-          const result = created.parse(xmlData as string);
-          state.wasExited = created.wasExited();
-          state.lastParseErrors = created.autoCloseHandler?.getErrors() ?? [];
-          return result;
-        },
-        catch: toParseError,
-      }) as Effect.Effect<T, ParseError>;
+      return Effect.gen(function* () {
+        const created = createParser();
+        const result = yield* created.parse(text);
+        state.wasExited = created.wasExited();
+        state.lastParseErrors = created.autoCloseHandler?.getErrors() ?? [];
+        return result as T;
+      });
     },
 
     /**
@@ -294,15 +299,12 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
       // immediately and never retains it, so there is no aliasing hazard.
       const bytes = new Uint8Array(xmlData.buffer, xmlData.byteOffset, xmlData.byteLength);
 
-      return Effect.try({
-        try: () => {
-          const created = createParser();
-          const result = created.parseBytesArr(bytes);
-          state.wasExited = created.wasExited();
-          state.lastParseErrors = created.autoCloseHandler?.getErrors() ?? [];
-          return result;
-        },
-        catch: toParseError,
+      return Effect.gen(function* () {
+        const created = createParser();
+        const result = yield* created.parseBytesArr(bytes);
+        state.wasExited = created.wasExited();
+        state.lastParseErrors = created.autoCloseHandler?.getErrors() ?? [];
+        return result;
       });
     },
 
@@ -320,50 +322,63 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
       });
       const streamParser = createParser();
       streamParser.source = source;
-      streamParser.initializeParser();
 
-      return Effect.callback<unknown, ParseError>(resume => {
-        let settled = false;
-        const fail = (err: unknown) => {
-          if (!settled) {
-            settled = true;
-            readable.destroy?.(); // stop further data/end events and free the handle
-            resume(Effect.fail(toParseError(err)));
-          }
-        };
+      return Effect.gen(function* () {
+        yield* streamParser.initializeParser();
 
-        source.attachStream(
-          readable,
-          err => {
-            if (err) {
-              fail(err);
-              return;
-            }
-            try {
-              streamParser.parseXml();
-            } catch (parseErr) {
-              if (isParseError(parseErr) && parseErr._tag === ErrorCode.UNEXPECTED_END) {
-                source.rewindToMark();
-              } else {
-                fail(parseErr);
-              }
-            }
-          },
-          () => {
-            if (settled) return;
-            try {
-              streamParser.parseXml();
-              streamParser.finalizeXml();
-              state.lastParseErrors = streamParser.autoCloseHandler?.getErrors() ?? [];
-              state.wasExited = streamParser.wasExited();
+        return yield* Effect.callback<unknown, ParseError>(resume => {
+          let settled = false;
+          const fail = (err: unknown) => {
+            if (!settled) {
               settled = true;
-              resume(Effect.succeed(streamParser.outputBuilder.getOutput()));
-            } catch (err) {
-              fail(err);
+              readable.destroy?.(); // stop further data/end events and free the handle
+              resume(Effect.fail(toParseError(err)));
             }
-          },
-          fail
-        );
+          };
+
+          source.attachStream(
+            readable,
+            err => {
+              if (err) {
+                fail(err);
+                return;
+              }
+              // The per-chunk walk is synchronous; run it and fold its outcome
+              // to a value. A chunk boundary mid-token is the retryable case:
+              // rewind so the whole token is replayed once the next chunk
+              // arrives. Any other typed failure is a real parse error, and a
+              // defect (a throw from a caller's builder callback) is caught and
+              // converted the same way the original synchronous callback did.
+              try {
+                const failure = runStreamStep(
+                  streamParser.parseXml().pipe(Effect.catchTag('UNEXPECTED_END', () => Effect.sync(() => source.rewindToMark())))
+                );
+                if (failure) fail(failure);
+              } catch (defect) {
+                fail(defect);
+              }
+            },
+            () => {
+              if (settled) return;
+              try {
+                const failure = runStreamStep(
+                  Effect.gen(function* () {
+                    yield* streamParser.parseXml();
+                    yield* streamParser.finalizeXml();
+                    state.lastParseErrors = streamParser.autoCloseHandler?.getErrors() ?? [];
+                    state.wasExited = streamParser.wasExited();
+                    settled = true;
+                    resume(Effect.succeed(streamParser.outputBuilder.getOutput()));
+                  })
+                );
+                if (failure) fail(failure);
+              } catch (defect) {
+                fail(defect);
+              }
+            },
+            fail
+          );
+        });
       });
     },
 
@@ -371,28 +386,27 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
      * @description Feed an XML data chunk for incremental parsing.
      */
     feed(data: string | Uint8Array): Effect.Effect<XMLParser, ParseError> {
-      return Effect.try({
-        try: () => {
-          if (!state.isFeeding) {
-            initFeedSession();
-          }
-          const source = state.feedSource as FeedableSource;
+      return Effect.gen(function* () {
+        if (!state.isFeeding) {
+          yield* initFeedSession();
+        }
+        const source = state.feedSource;
+        // Unreachable: a feed session sets `feedSource` before `isFeeding`.
+        if (!source) return parser;
 
-          // Pass raw data straight through — do NOT pre-convert byte chunks to
-          // string here. FeedableSource.feed() decodes them via a persistent
-          // stateful decoder so a multi-byte UTF-8 character split across two
-          // feed() calls decodes correctly.
-          const appendedLength = source.feed(data);
-          state.pendingBytes += appendedLength;
+        // Pass raw data straight through — do NOT pre-convert byte chunks to
+        // string here. FeedableSource.feed() decodes them via a persistent
+        // stateful decoder so a multi-byte UTF-8 character split across two
+        // feed() calls decodes correctly.
+        const appendedLength = yield* source.feed(data);
+        state.pendingBytes += appendedLength;
 
-          if (state.pendingBytes >= state.batchThreshold) {
-            runParse();
-          }
-          // Otherwise, delay parsing until next feed() or end()
+        if (state.pendingBytes >= state.batchThreshold) {
+          yield* runParse();
+        }
+        // Otherwise, delay parsing until next feed() or end()
 
-          return parser;
-        },
-        catch: toParseError,
+        return parser;
       });
     },
 
@@ -403,50 +417,53 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
       if (!state.isFeeding) {
         return new NotStreaming({ message: 'No data fed. Call feed() before end().' });
       }
-      const feedParser = state.feedParser as Xml2JsParser;
-      const source = state.feedSource as FeedableSource;
 
-      return Effect.try({
-        try: () => {
-          // Force a final parse (any pending bytes are now processed)
-          runParse();
+      return Effect.gen(function* () {
+        const feedParser = state.feedParser;
+        const source = state.feedSource;
+        // Unreachable: `isFeeding` implies both are set.
+        if (!feedParser || !source) {
+          return yield* new NotStreaming({ message: 'No data fed. Call feed() before end().' });
+        }
 
-          try {
+        return yield* Effect.gen(function* () {
+          // Force a final parse (any pending bytes are now processed). Kept
+          // outside the `ensuring` below so a failure here — unlike one after
+          // the session is finalizing — does not tear the session down, matching
+          // the original try/finally nesting.
+          yield* runParse();
+
+          return yield* Effect.gen(function* () {
             // Mark the source as complete so readers know there is no more data.
-            source.end();
+            yield* source.end();
 
-            let partialTagError: ParseError | null = null;
             const autoClose = feedParser.autoCloseHandler;
             if (autoClose) autoClose.reset();
 
-            try {
-              feedParser.parseXml();
-            } catch (err) {
-              if (isParseError(err) && err._tag === ErrorCode.UNEXPECTED_END) {
-                if (autoClose) {
-                  partialTagError = err;
-                } else {
-                  throw err;
-                }
-              } else {
-                throw err;
-              }
-            }
+            // A source-exhausted failure here is the partial-tag truncation
+            // autoClose repairs; with no handler it is a real error. Anything
+            // else travels unchanged.
+            const partialTagError = yield* feedParser
+              .parseXml()
+              .pipe(
+                Effect.matchEffect({
+                  onFailure: (err: ParseError): Effect.Effect<ParseError | null, ParseError> =>
+                    autoClose && isParseError(err) && err._tag === ErrorCode.UNEXPECTED_END ? Effect.succeed(err) : Effect.fail(err),
+                  onSuccess: (): Effect.Effect<ParseError | null> => Effect.succeed(null),
+                })
+              );
 
-            if (partialTagError) {
-              autoClose?.handlePartialTag(partialTagError, feedParser._parserState());
+            if (partialTagError && autoClose) {
+              yield* autoClose.handlePartialTag(partialTagError, feedParser._parserState());
             } else {
-              feedParser.finalizeXml();
+              yield* feedParser.finalizeXml();
             }
 
             state.lastParseErrors = autoClose?.getErrors() ?? [];
             state.wasExited = feedParser.wasExited();
             return feedParser.outputBuilder.getOutput();
-          } finally {
-            cleanupFeedSession();
-          }
-        },
-        catch: toParseError,
+          }).pipe(Effect.ensuring(Effect.sync(() => cleanupFeedSession())));
+        });
       });
     },
 

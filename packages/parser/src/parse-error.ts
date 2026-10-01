@@ -1175,18 +1175,17 @@ export const fromUpstreamError = (cause: XmlError | BuilderError): DependencyErr
   });
 
 /**
- * @description Run a `@endevops/builder` effect in the middle of a synchronous decision, mapping its failure into a thrown {@link DependencyError}. The parser
- * walks the document synchronously, and `closeElement`, `addAttribute` and `getInstance` are called once per tag from that walk; each can genuinely
- * fail — on an entity expansion limit, or a value processor a caller supplied — so the effect is run here and its failure is converted into the
- * parser's own {@link DependencyError} rather than left to escape as a defect.
+ * @description Map a `@endevops/builder` effect's failure into the parser's own {@link DependencyError}. `closeElement`, `addAttribute` and `getInstance` are
+ * called once per tag from the walk; each can genuinely fail — on an entity expansion limit, or a value processor a caller supplied — and the walk
+ * now runs in the effect channel, so the mapping is applied with `Effect.mapError` and the result yielded rather than run. The upstream `message` is
+ * carried across verbatim by {@link fromUpstreamError}.
  *
- * @param effect - The effect to run.
+ * @param effect - The builder effect to map.
  *
- * @returns The successful value.
- *
- * @throws {DependencyError} When the effect fails.
+ * @returns An effect producing the successful value, failing with {@link DependencyError}.
  */
-export const runBuilder = <A>(effect: Effect.Effect<A, BuilderError>): A => Effect.runSync(Effect.mapError(effect, fromUpstreamError));
+export const runBuilder = <A>(effect: Effect.Effect<A, BuilderError>): Effect.Effect<A, DependencyError> =>
+  Effect.mapError(effect, fromUpstreamError);
 
 /**
  * @description Convert anything that escaped a parser entry point into the `E` channel. The public API promises {@link ParseError} and nothing else, and the path

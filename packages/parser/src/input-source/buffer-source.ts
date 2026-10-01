@@ -1,5 +1,8 @@
+import type { Effect } from 'effect';
+
 import type { EncodingProfile } from '#/encoding/encoding-profile.ts';
 import type { BufferSourceOptions } from '#/input-source/buffer-source-options.ts';
+import type { ParseError } from '#/parse-error.ts';
 
 import { createCharScanStrategy } from '#/encoding/scan-strategy/char-scan-strategy.ts';
 import { createTextDecoderAdapter } from '#/encoding/text-decoder-adapter.ts';
@@ -83,9 +86,9 @@ export default class BufferSource implements InputSourceLike {
   declare matchAhead: (expected: string, caseInsensitive?: boolean) => boolean | null;
   declare scanTagExpEnd: () => number;
   declare scanTagExpEndFast: () => number;
-  declare readUpto: (stopStr: string) => string;
-  declare readUptoChar: (stopChar: string) => string;
-  declare readUptoCloseTag: (stopStr: string) => string;
+  declare readUpto: (stopStr: string) => Effect.Effect<string, ParseError>;
+  declare readUptoChar: (stopChar: string) => Effect.Effect<string, ParseError>;
+  declare readUptoCloseTag: (stopStr: string) => Effect.Effect<string, ParseError>;
   declare readFromBuffer: (n: number, shouldUpdate?: boolean) => string | undefined;
   declare updateBufferBoundary: (n?: number) => void;
   declare canRead: (n?: number) => boolean;

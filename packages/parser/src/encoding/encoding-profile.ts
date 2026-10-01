@@ -1,5 +1,8 @@
+import { Effect } from 'effect';
+
 import type { ScanStrategy } from '#/input-source/input-source.ts';
 import type { DecodingOptions } from '#/options.ts';
+import type { ParseError } from '#/parse-error.ts';
 
 import type { EncodingRegistry } from './encoding-registry.ts';
 import type { ResolvedEncodingDescriptor } from './encoding-registry.ts';
@@ -48,24 +51,25 @@ export interface EncodingProfile {
  * @param decodingOptions - User decoding options.
  * @param registry - Registry to resolve names against. Defaults to the shared registry.
  *
- * @throws {ParseError} `UNSUPPORTED_ENCODING` for an unknown name, `ENCODING_MISMATCH` when a BOM contradicts the declaration.
+ * @returns An effect producing the profile. Fails with `UNSUPPORTED_ENCODING` for an unknown name, `ENCODING_MISMATCH` when a BOM contradicts the
+ *   declaration.
  */
-export function buildProfileForBuffer(
+export const buildProfileForBuffer = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   decodingOptions: DecodingOptions = {},
   registry: EncodingRegistry = defaultEncodingRegistry
-): EncodingProfile {
+): Effect.fn.Return<EncodingProfile, ParseError> {
   const requested = decodingOptions.encoding || 'auto';
   let name: string;
   let bomLength: number;
   if (requested === 'auto') {
-    const detected = sniff(bytes, registry);
+    const detected = yield* sniff(bytes, registry);
     name = detected.encoding;
     bomLength = detected.bomLength;
   } else {
     name = requested;
     bomLength = 0;
   }
-  const descriptor = registry.resolve(name);
+  const descriptor = yield* registry.resolve(name);
   return { descriptor, bomLength, scanStrategy: createCharScanStrategy() };
-}
+});
