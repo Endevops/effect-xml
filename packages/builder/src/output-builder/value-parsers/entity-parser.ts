@@ -7,6 +7,7 @@ import type { Context, SharedContext, ValueParser } from '#/output-builder/value
 
 import { BuilderError } from '#/errors.ts';
 import { isUnsafeXml } from '#/output-builder/security/xml-unsafe.ts';
+import { NEEDS_EFFECT } from '#/output-builder/value-parser.ts';
 
 /**
  * @description The options for the entities parser: everything `EntityDecoder` accepts, plus a hook for deciding what to do with an entity declared in the
@@ -101,6 +102,15 @@ export const makeEntitiesValueParser = (options?: EntitiesValueParserOptions, is
     return current;
   });
 
+  /**
+   * @description The fallible half of {@link ValueParser.parse}, reached only for a string that contains `&`. Its own eager body so the common `&`-free value never
+   * enters a generator.
+   */
+  const decodeWithEntities = Effect.fnUntracedEager(function* (val: string): Effect.fn.Return<string, BuilderError> {
+    const current = yield* ensureDecoder();
+    return yield* Effect.mapErrorEager(current.decode(val), fromDecoder(val));
+  });
+
   return {
     /**
      * @description Receive the document's shared store.
@@ -125,11 +135,26 @@ export const makeEntitiesValueParser = (options?: EntitiesValueParserOptions, is
      * @returns An effect producing the decoded string, or `val` unchanged if it is not a string. Fails with the `EntityDecodingFailed` reason when
      *   the decoder rejects a reference.
      */
-    parse: Effect.fnUntracedEager(function* (val: unknown, _context?: Context): Effect.fn.Return<unknown, BuilderError> {
-      if (typeof val !== 'string') return val;
+    parse(val: unknown, _context?: Context): Effect.Effect<unknown, BuilderError> {
+      if (typeof val !== 'string') return Effect.succeed(val);
+      // Nothing to expand: `EntityDecoder.decode` would return the string unchanged, so skip building
+      // the decoder and the effect boundary around it. Most values in a document contain no `&`, and
+      // this is the difference between the whole decode path and one `indexOf` for each of them.
+      if (val.indexOf('&') === -1) return Effect.succeed(val);
 
-      const current = yield* ensureDecoder();
-      return yield* Effect.mapErrorEager(current.decode(val), fromDecoder(val));
-    }),
+      return decodeWithEntities(val);
+    },
+    /**
+     * @description The synchronous spelling. A string with no `&` is answered here and the chain stays pure; one that has a reference hands the value back with
+     * {@link NEEDS_EFFECT}, because expanding it can fail and needs the decoder.
+     *
+     * @param val - The value.
+     *
+     * @returns The value untouched when there is nothing to expand, otherwise `NEEDS_EFFECT`.
+     */
+    parseSync(val: unknown): unknown {
+      if (typeof val !== 'string' || val.indexOf('&') !== -1) return NEEDS_EFFECT;
+      return val;
+    },
   };
 };

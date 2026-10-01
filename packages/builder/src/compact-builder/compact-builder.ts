@@ -240,11 +240,10 @@ export const makeCompactBuilder = (
     /**
      * @description Close a tag: work out the shape its accumulated state takes, then write it into the parent.
      */
-    closeElement: Effect.fnUntracedEager(function* (
-      this: CompactBuilder,
+    closeElement(
       matcher: MatcherView,
       closeMeta?: { name: string; index?: number | undefined; closeEnd?: number | undefined }
-    ): Effect.fn.Return<void, BuilderError> {
+    ): Effect.Effect<void, BuilderError> {
       // Neither argument is needed: the builder tracks position through its own
       // stack, and closing metadata is the parser's business.
       void matcher;
@@ -257,24 +256,29 @@ export const makeCompactBuilder = (
 
       const context = makeContext(tagName, this.matcher, isLeafNode, false);
 
-      const closed = yield* isLeafNode
+      const closed = isLeafNode
         ? this._closedLeafValue(value, textValue, hasAttributes, context)
         : this._closedContainerValue(value, textValue, context);
 
-      // Unchecked on purpose: a close with no matching open is a parser bug.
-      const frame = this.tagsStack.pop() as TagFrame;
+      // Plain rather than a generator: the close has one fallible step (the text chain), and the rest
+      // is bookkeeping that the callback runs once the value is in hand. When the chain resolves
+      // synchronously this stays an exit, so the parser's close path inlines it.
+      return Effect.mapEager(closed, (resolved): void => {
+        // Unchecked on purpose: a close with no matching open is a parser bug.
+        const frame = this.tagsStack.pop() as TagFrame;
 
-      // Check if this tag should be forced into an array
-      const shouldForceArray = this._resolveForceArray(isLeafNode);
+        // Check if this tag should be forced into an array
+        const shouldForceArray = this._resolveForceArray(isLeafNode);
 
-      const parentTag = this._addChildTo(tagName, closed, frame.parentValue, shouldForceArray);
+        const parentTag = this._addChildTo(tagName, resolved, frame.parentValue, shouldForceArray);
 
-      this.tagName = frame.tagName;
-      this.textValue = frame.textValue;
-      this.value = parentTag;
-      this.hasAttributes = frame.hasAttributes; // restore parent tag's flag
-      this._pendingStopNode = false;
-    }),
+        this.tagName = frame.tagName;
+        this.textValue = frame.textValue;
+        this.value = parentTag;
+        this.hasAttributes = frame.hasAttributes; // restore parent tag's flag
+        this._pendingStopNode = false;
+      });
+    },
 
     /**
      * @description A leaf's closing value.

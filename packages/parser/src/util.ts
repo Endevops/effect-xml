@@ -90,22 +90,24 @@ function isIllegalControlCode(c: number): boolean {
  * @returns An effect producing the normalized text, or `str` itself when there is no `\r` to fold (the fast path allocates nothing). Fails with
  *   `ILLEGAL_CHARACTER` on any illegal control code.
  */
-export const sanitizeContent = Effect.fnUntracedEager(function* (str: string, source?: InputSourceLike): Effect.fn.Return<string, IllegalCharacter> {
+export function sanitizeContent(str: string, source?: InputSourceLike): Effect.Effect<string, IllegalCharacter> {
   const len = str.length;
   let hasCR = false;
   for (let i = 0; i < len; i++) {
     const c = str.charCodeAt(i);
     if (isIllegalControlCode(c)) {
-      return yield* new IllegalCharacter({
-        charCode: c,
-        in: 'content',
-        message: `Illegal control character 0x${c.toString(16).padStart(2, '0')} in document content`,
-        index: source ? absolutePosition(source) : undefined,
-      });
+      return Effect.fail(
+        new IllegalCharacter({
+          charCode: c,
+          in: 'content',
+          message: `Illegal control character 0x${c.toString(16).padStart(2, '0')} in document content`,
+          index: source ? absolutePosition(source) : undefined,
+        })
+      );
     }
     if (c === 13) hasCR = true;
   }
-  if (!hasCR) return str; // fast path — nothing to fold, no reallocation
+  if (!hasCR) return Effect.succeed(str); // fast path — nothing to fold, no reallocation
 
   let out = '';
   let segStart = 0;
@@ -117,8 +119,8 @@ export const sanitizeContent = Effect.fnUntracedEager(function* (str: string, so
     }
   }
   out += str.substring(segStart);
-  return out;
-});
+  return Effect.succeed(out);
+}
 
 /**
  * @description Assert that the upcoming characters in the source match the expected string. If not enough data → fails with `UNEXPECTED_END`. If mismatch → fails

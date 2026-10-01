@@ -251,13 +251,7 @@ export const makeBaseOutputBuilder = (
      * @description Record an attribute on the current element. The base implementation writes into `this.attributes`, which only exists on subclass shapes that
      * keep a flat attribute bag.
      */
-    addAttribute: Effect.fnUntracedEager(function* (
-      this: OutputBuilder,
-      name: string,
-      value: unknown,
-      matcher: MatcherView,
-      meta?: unknown
-    ): Effect.fn.Return<void, BuilderError> {
+    addAttribute(name: string, value: unknown, matcher: MatcherView, meta?: unknown): Effect.Effect<void, BuilderError> {
       // `meta` is accepted because the parser supplies it, not because the base
       // needs it — only a builder that records attribute positions reads it.
       void meta;
@@ -270,10 +264,13 @@ export const makeBaseOutputBuilder = (
       const { prefix = '', suffix = '' } = this.parserOptions.attributes ?? {};
       const context: Context = makeContext(name, matcher, true, true); // attributes are always leaf values
       const bag = (this as { attributes?: Record<string, unknown> }).attributes;
-      if (bag) {
-        bag[`${prefix}${name}${suffix}`] = yield* this.attrsPipeline.run(value, context);
-      }
-    }),
+      if (!bag) return Effect.void;
+      // Plain rather than a generator: the value chain is the only fallible step, so this returns it
+      // mapped and the walk inlines the result. A no-bag builder answers with the shared `Effect.void`.
+      return Effect.mapEager(this.attrsPipeline.run(value, context), (parsed: unknown) => {
+        bag[`${prefix}${name}${suffix}`] = parsed;
+      });
+    },
 
     /**
      * @description Append a text value. The base shape has nowhere to put it.

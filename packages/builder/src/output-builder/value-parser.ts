@@ -51,6 +51,14 @@ export const makeContext = (
 const FINAL_VALUE: unique symbol = Symbol.for('@endevops/builder/FinalValue');
 
 /**
+ * @description What {@link ValueParser.parseSync} returns to hand a value back to the effectful {@link ValueParser.parse} after all. A parser whose work is only
+ * sometimes synchronous — one that looks for a marker and otherwise has to build a decoder — returns this for the cases it cannot answer purely, and
+ * the pipeline resumes the chain through the effect path at that point. A symbol rather than a string so a parser's own value can never be mistaken
+ * for it.
+ */
+export const NEEDS_EFFECT: unique symbol = Symbol.for('@endevops/builder/NeedsEffect');
+
+/**
  * @description A sentinel a value parser returns to end the pipeline immediately. `ValueParserPipeline.run()` unwraps `.value` and returns it without running any
  * later parser. Whether to emit one is the parser's own decision, made through its `IS_FINAL` option — the pipeline never injects it.
  *
@@ -154,6 +162,13 @@ export interface ValueParser {
    */
   parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError>;
   /**
+   * @description A synchronous spelling of {@link ValueParser.parse}, for a parser whose work is pure. The pipeline calls this when it is present and no later
+   * parser needs an effect, which keeps a chain of built-in parsers out of the effect channel entirely. Return {@link NEEDS_EFFECT} to say the effect
+   * is required after all — a value that turns out to contain an entity reference, for instance — and the pipeline runs the rest of the chain through
+   * {@link ValueParser.parse} instead. A parser that can fail synchronously should not implement this; leave the work to `parse`.
+   */
+  parseSync?(val: unknown, context?: Context): unknown;
+  /**
    * @description Clear internal state between document parses. Optional — a stateless parser need not implement it.
    */
   reset?(): void;
@@ -176,6 +191,13 @@ export interface ValueParserRegistryLike {
    * @returns An effect producing the parser, failing with the `ValueParserNotFound` reason if no parser is registered under `name`.
    */
   get(name: string): Effect.Effect<ValueParser, BuilderError>;
+  /**
+   * @description The synchronous spelling of {@link ValueParserRegistryLike.get}, or absent when the registry cannot answer without an effect. The pipeline uses it
+   * to skip the effect channel for a chain of parsers that all implement {@link ValueParser.parseSync}; a registry that omits it loses that fast path
+   * and nothing else. Returns `undefined` for a name nothing is registered under, which the pipeline treats as "resolve this entry through
+   * {@link ValueParserRegistryLike.get}" so the `ValueParserNotFound` failure is unchanged.
+   */
+  getSync?(name: string): ValueParser | undefined;
   /**
    * @description Add or replace a named parser.
    *
@@ -285,27 +307,69 @@ export const makeValueParserPipeline = (
 
   initAll(valParsers);
 
+  /**
+   * @description The effect path, resumed at `from` with `current` as the value so far. Used from the start when the registry has no synchronous lookup, and
+   * partway through when an entry hands the value back with {@link NEEDS_EFFECT}. A name is resolved on every run, so a parser registered after
+   * construction takes effect without rebuilding the pipeline.
+   *
+   * @param from - Index of the first entry to run.
+   * @param current - The value the entries before `from` produced.
+   * @param runtimeContext - Where the value came from.
+   *
+   * @returns An effect producing the transformed value. Fails with whatever the failing parser in the chain reports, or `ValueParserNotFound` for a
+   *   name nothing is registered under.
+   */
+  const runEager = Effect.fnUntracedEager(function* (
+    from: number,
+    current: unknown,
+    runtimeContext: Context | undefined
+  ): Effect.fn.Return<unknown, BuilderError> {
+    let val = current;
+    for (let i = from; i < valParsers.length; i++) {
+      const entry = valParsers[i];
+      const parser = typeof entry === 'string' ? yield* registry.get(entry) : entry;
+      if (parser) {
+        const result = yield* parser.parse(val, runtimeContext);
+        if (isFinalValue(result)) return result.value;
+        val = result;
+      }
+    }
+    return val;
+  });
+
+  /**
+   * @description Run the chain over one value. When every entry resolves to a parser with a synchronous {@link ValueParser.parseSync} and none hands the value
+   * back, the whole chain runs in this plain loop and the result is one exit — no generator, no iterator pass, no yield per parser. That is the
+   * default chains' shape, and it is the difference between a chain costing three effect steps and costing one. A registry without `getSync`, a
+   * parser without `parseSync`, or a value a parser defers (an entity reference, say) falls to {@link runEager} from that point, so failures and late
+   * registration behave exactly as before.
+   */
+  const run: ValueParserPipeline['run'] = (val, runtimeContext) => {
+    const hasGetSync = registry.getSync !== undefined;
+    if (!hasGetSync) return runEager(0, val, runtimeContext);
+
+    let current = val;
+    for (let i = 0; i < valParsers.length; i++) {
+      const entry = valParsers[i];
+      // Bound to the registry: the lookup is only defined when the registry provides it, checked above.
+      const parser = typeof entry === 'string' ? registry.getSync?.call(registry, entry) : entry;
+      // An unresolved name or a parser with no synchronous parse hands the rest of the chain to the
+      // effect path from here — which is also where a missing name raises its own failure.
+      if (parser === undefined || parser.parseSync === undefined) return runEager(i, current, runtimeContext);
+
+      const result = parser.parseSync(current, runtimeContext);
+      if (result === NEEDS_EFFECT) return runEager(i, current, runtimeContext);
+      if (isFinalValue(result)) return Effect.succeed(result.value);
+      current = result;
+    }
+    return Effect.succeed(current);
+  };
+
   return {
     valParsers,
     registry,
     sharedContext: context,
-    // Eager: the built-in chains are synchronous, so the whole loop resolves during construction and
-    // the caller's own eager iterator can inline it. A parser that is genuinely async falls back to
-    // the normal fiber path, and every failure stays in the chain's error channel either way.
-    run: Effect.fnUntracedEager(function* (val: unknown, runtimeContext?: Context): Effect.fn.Return<unknown, BuilderError> {
-      for (let i = 0; i < valParsers.length; i++) {
-        const entry = valParsers[i];
-        // A name is resolved on every run, so a parser registered after
-        // construction takes effect without rebuilding the pipeline.
-        const parser = typeof entry === 'string' ? yield* registry.get(entry) : entry;
-        if (parser) {
-          const result = yield* parser.parse(val, runtimeContext);
-          if (isFinalValue(result)) return result.value;
-          val = result;
-        }
-      }
-      return val;
-    }),
+    run,
     resetAll: () => {
       for (let i = 0; i < valParsers.length; i++) {
         const entry = valParsers[i];

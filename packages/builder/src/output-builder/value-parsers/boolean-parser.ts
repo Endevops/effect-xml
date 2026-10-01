@@ -18,12 +18,31 @@ import { finalValue } from '#/output-builder/value-parser.ts';
 export const makeBooleanParser = (trueList?: Array<string>, falseList?: Array<string>, isFinal = false): ValueParser => {
   const trues = trueList || ['true'];
   const falses = falseList || ['false'];
+  // A value can only be a keyword if it has one of the keywords' lengths, and lengths are few. Checking
+  // the length first means a long text run never pays for `toLowerCase` — the default lists are
+  // four and five characters, so almost every string in a document is rejected here.
+  const keywordLengths = new Set<number>();
+  for (const keyword of trues) keywordLengths.add(keyword.length);
+  for (const keyword of falses) keywordLengths.add(keyword.length);
+
+  const convert = (val: unknown): unknown => {
+    if (typeof val === 'string' && keywordLengths.has(val.length)) {
+      const temp = val.toLowerCase();
+      if (trues.includes(temp)) return isFinal ? finalValue(true) : true;
+      if (falses.includes(temp)) return isFinal ? finalValue(false) : false;
+    }
+    return val;
+  };
 
   return {
     /**
      * @description Stateless, but the registry requires a `reset` so a parser holding state can be cleared between documents.
      */
     reset(): void {},
+    /**
+     * @description The synchronous spelling the pipeline runs when the whole chain is pure.
+     */
+    parseSync: convert,
     /**
      * @description Convert a recognised word to a boolean.
      *
@@ -32,12 +51,7 @@ export const makeBooleanParser = (trueList?: Array<string>, falseList?: Array<st
      * @returns The boolean for a recognised word, otherwise `val` unchanged.
      */
     parse(val: unknown): Effect.Effect<unknown, BuilderError> {
-      if (typeof val === 'string') {
-        const temp = val.toLowerCase();
-        if (trues.includes(temp)) return Effect.succeed(isFinal ? finalValue(true) : true);
-        if (falses.includes(temp)) return Effect.succeed(isFinal ? finalValue(false) : false);
-      }
-      return Effect.succeed(val);
+      return Effect.succeed(convert(val));
     },
   };
 };

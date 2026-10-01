@@ -9,20 +9,26 @@ import type { ValueParser } from '#/output-builder/value-parser.ts';
  *
  * @returns The parser.
  */
-export const makeTrim = (): ValueParser => ({
-  /**
-   * @description Stateless, but the registry requires a `reset` so a parser holding state can be cleared between documents.
-   */
-  reset(): void {},
-  /**
-   * @description Trim a string.
-   *
-   * @param val - The value.
-   *
-   * @returns The trimmed string, or `val` unchanged if it is not a string.
-   */
-  parse(val: unknown): Effect.Effect<unknown, BuilderError> {
-    if (typeof val === 'string') return Effect.succeed(val.trim());
-    return Effect.succeed(val);
-  },
-});
+export const makeTrim = (): ValueParser => {
+  const trim = (val: unknown): unknown => (typeof val === 'string' ? val.trim() : val);
+  return {
+    /**
+     * @description Stateless, but the registry requires a `reset` so a parser holding state can be cleared between documents.
+     */
+    reset(): void {},
+    /**
+     * @description The synchronous spelling the pipeline runs when the whole chain is pure.
+     */
+    parseSync: trim,
+    /**
+     * @description Trim a string.
+     *
+     * @param val - The value.
+     *
+     * @returns The trimmed string, or `val` unchanged if it is not a string.
+     */
+    parse(val: unknown): Effect.Effect<unknown, BuilderError> {
+      return Effect.succeed(trim(val));
+    },
+  };
+};

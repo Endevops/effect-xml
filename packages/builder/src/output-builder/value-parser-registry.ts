@@ -89,6 +89,11 @@ export const makeValueParserRegistry = (): ValueParserRegistry => {
       if (ret) return Effect.succeed(ret);
       return Effect.fail(new BuilderError({ reason: { _tag: 'ValueParserNotFound', name }, message: 'parser not found: ' + name }));
     },
+    /**
+     * @description The synchronous spelling of {@link ValueParserRegistry.get}. Reads the live map, so a parser registered after a pipeline was built is still
+     * found, and returns `undefined` for a name nothing is registered under so the pipeline falls back to `get` for its failure.
+     */
+    getSync: (name: string): ValueParser | undefined => registered[name],
   };
 };
 

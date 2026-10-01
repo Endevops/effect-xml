@@ -574,6 +574,16 @@ function toNumber(value: string, options: ToNumberOptions = {}): string | number
   let candidate = value.trim();
   if (candidate.length === 0) return value;
   if (resolved.skipLike !== undefined && resolved.skipLike.test(candidate)) return value;
+  if (!resolved.unicode && resolved.infinity === 'original') {
+    // Every accepted form starts with a sign, a decimal point, or an ASCII digit, so any other first
+    // character is text and can come back untouched before the pattern work below. Most values in a
+    // document are text, and this is the difference between a trim and a scan per value and a
+    // trim plus four patterns. Skipped when `infinity` asks for a non-finite value to be
+    // represented, or Unicode digits are accepted — both change what a non-numeric first character
+    // means.
+    const first = candidate.charCodeAt(0);
+    if (!((first >= 48 && first <= 57) || first === 43 || first === 45 || first === 46)) return value;
+  }
   if (candidate === '0') return 0;
 
   if (resolved.unicode) {

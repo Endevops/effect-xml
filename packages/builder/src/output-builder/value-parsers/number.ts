@@ -28,11 +28,28 @@ export type NumberParserOptions = ToNumberOptions;
 export const makeNumberValueParser = (options?: NumberParserOptions, isFinal = false): ValueParser => {
   const resolved = options ?? {};
 
+  const convert = (val: unknown): unknown => {
+    if (typeof val === 'string') {
+      const converted = toNumber(val, resolved);
+      // Preserved from the original: `typeof converted !== val` compares a
+      // type name against a value and is therefore always true, so with the
+      // final flag set this parser ends the chain even for input it did not
+      // convert. The specs assert it, so it reads as a decision rather than
+      // an accident.
+      if (typeof converted !== val) return isFinal ? finalValue(converted) : converted;
+    }
+    return val;
+  };
+
   return {
     /**
      * @description Stateless, but the registry requires a `reset` so a parser holding state can be cleared between documents.
      */
     reset(): void {},
+    /**
+     * @description The synchronous spelling the pipeline runs when the whole chain is pure.
+     */
+    parseSync: convert,
     /**
      * @description Convert a numeric string.
      *
@@ -41,18 +58,7 @@ export const makeNumberValueParser = (options?: NumberParserOptions, isFinal = f
      * @returns The number when the value converted, otherwise `val` unchanged.
      */
     parse(val: unknown): Effect.Effect<unknown, BuilderError> {
-      if (typeof val === 'string') {
-        const converted = toNumber(val, resolved);
-        // Preserved from the original: `typeof converted !== val` compares a
-        // type name against a value and is therefore always true, so with the
-        // final flag set this parser ends the chain even for input it did not
-        // convert. The specs assert it, so it reads as a decision rather than
-        // an accident.
-        if (typeof converted !== val) {
-          return Effect.succeed(isFinal ? finalValue(converted) : converted);
-        }
-      }
-      return Effect.succeed(val);
+      return Effect.succeed(convert(val));
     },
   };
 };

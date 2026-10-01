@@ -466,33 +466,48 @@ const keepAttributes = Effect.fnUntracedEager(function* (
  * @returns An effect that pushes each attribute. Fails with `LIMIT_MAX_ATTRIBUTES` when the tag carries more attributes than the limit allows, or
  *   with a `DependencyError` when the builder's value-parser chain fails.
  */
-export const flushAttributes = Effect.fnUntracedEager(function* (
+export function flushAttributes(
   parsedAttrs: Array<ParsedAttribute> | undefined,
   parser: TagExpressionParser,
   attrsExpStart: number | undefined,
   rawAttrMatchCount: number,
   tagName: string
-): Effect.fn.Return<void, ParseError> {
-  if (!parsedAttrs || parsedAttrs.length === 0) return;
+): Effect.Effect<void, ParseError> {
+  // A tag with no attributes answers with the shared `Effect.void` before entering a generator. A
+  // document has many attribute-less tags, and the loop below is worth a generator only when there is
+  // at least one attribute to push.
+  if (!parsedAttrs || parsedAttrs.length === 0) return Effect.void;
 
   const maxAttrs = parser.options.limits?.maxAttributesPerTag;
   if (maxAttrs !== undefined && maxAttrs !== null && rawAttrMatchCount > maxAttrs) {
-    return yield* new LimitMaxAttributes({
-      limit: maxAttrs,
-      count: rawAttrMatchCount,
-      tag: tagName,
-      message: `Tag '${tagName}' has ${rawAttrMatchCount} attributes, exceeding limit of ${maxAttrs}`,
-      index: errorPositionOf(parser.source).index,
-    });
+    return Effect.fail(
+      new LimitMaxAttributes({
+        limit: maxAttrs,
+        count: rawAttrMatchCount,
+        tag: tagName,
+        message: `Tag '${tagName}' has ${rawAttrMatchCount} attributes, exceeding limit of ${maxAttrs}`,
+        index: errorPositionOf(parser.source).index,
+      })
+    );
   }
 
+  return flushAttributesEager(parsedAttrs, parser, attrsExpStart);
+}
+
+/**
+ * @description The loop for a tag that actually carries attributes: push each one, already parsed and name-processed by pass 1, to the output builder. The
+ * builder's attribute pipeline can fail — an entity expansion limit, a caller-supplied value processor — so each call is run through `runBuilder`
+ * rather than discarded.
+ */
+const flushAttributesEager = Effect.fnUntracedEager(function* (
+  parsedAttrs: Array<ParsedAttribute>,
+  parser: TagExpressionParser,
+  attrsExpStart: number | undefined
+): Effect.fn.Return<void, ParseError> {
   const len = parsedAttrs.length;
   for (let i = 0; i < len; i++) {
     const a = parsedAttrs[i] as ParsedAttribute;
     const attrMeta: AttributeMeta | undefined = attrsExpStart !== undefined ? { index: attrsExpStart + a.index } : undefined;
-    // The builder's attribute pipeline can fail — an entity expansion limit, a
-    // caller-supplied value processor — so this runs the effect rather than
-    // discarding it.
     yield* runBuilder(parser.outputBuilder.addAttribute(a.name, a.value, parser.readonlyMatcher, attrMeta));
   }
 });

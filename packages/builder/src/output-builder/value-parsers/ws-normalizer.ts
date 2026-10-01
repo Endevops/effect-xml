@@ -20,6 +20,13 @@ export interface WSNormalizerOptions {
 }
 
 /**
+ * @description Whether a value needs whitespace normalization at all: a run of two or more whitespace characters, whitespace at either edge, or a tab, carriage
+ * return or newline — each of which `replace` would change. A string of only single, internal spaces is already normalized, and returning it
+ * untouched keeps a long text run from being copied for nothing. Matches no-run text in one scan, before the replacement allocates.
+ */
+const WS_NEEDS_WORK = /[ \t\r\n]{2}|^[ \t\r\n]|[ \t\r\n]$|[\t\r\n]/;
+
+/**
  * @description Collapses runs of whitespace to a single space and trims both ends. This is the `'ws'` parser in the default tag chain, replacing the older
  * `'trim'`. It leaves a value alone in four cases, each of which is a case where collapsing would lose information the document explicitly asked to
  * keep:
@@ -33,38 +40,46 @@ export interface WSNormalizerOptions {
  *
  * @returns The parser.
  */
-const makeNormalizer = (excludeSet: ExpressionSet): ValueParser => ({
-  /**
-   * @description Stateless, but the registry requires a `reset` so a parser holding state can be cleared between documents.
-   */
-  reset(): void {},
-  /**
-   * @description Normalize a value's whitespace, unless an exclusion applies.
-   *
-   * @param val - The value.
-   * @param ctx - Where the value came from.
-   *
-   * @returns The normalized string, or `val` unchanged when normalization does not apply.
-   */
-  parse: (val: unknown, ctx?: Context): Effect.Effect<unknown, BuilderError> => {
-    if (typeof val !== 'string') return Effect.succeed(val);
+const makeNormalizer = (excludeSet: ExpressionSet): ValueParser => {
+  const normalize = (val: unknown, ctx?: Context): unknown => {
+    if (typeof val !== 'string') return val;
 
     if (ctx) {
       // Only normalize element text, not attribute values
-      if (ctx.isAttribute) return Effect.succeed(val);
+      if (ctx.isAttribute) return val;
 
       if (ctx.matcher) {
         // Respect xml:space="preserve" on any ancestor
-        if (ctx.matcher.getAnyParentAttr('xml:space') === 'preserve') return Effect.succeed(val);
+        if (ctx.matcher.getAnyParentAttr('xml:space') === 'preserve') return val;
 
         // Respect user-configured exclusion paths
-        if (excludeSet.size > 0 && excludeSet.matchesAny(ctx.matcher)) return Effect.succeed(val);
+        if (excludeSet.size > 0 && excludeSet.matchesAny(ctx.matcher)) return val;
       }
     }
 
-    return Effect.succeed(val.replace(/[ \t\r\n]+/g, ' ').trim());
-  },
-});
+    return WS_NEEDS_WORK.test(val) ? val.replace(/[ \t\r\n]+/g, ' ').trim() : val;
+  };
+
+  return {
+    /**
+     * @description Stateless, but the registry requires a `reset` so a parser holding state can be cleared between documents.
+     */
+    reset(): void {},
+    /**
+     * @description The synchronous spelling the pipeline runs when the whole chain is pure.
+     */
+    parseSync: normalize,
+    /**
+     * @description Normalize a value's whitespace, unless an exclusion applies.
+     *
+     * @param val - The value.
+     * @param ctx - Where the value came from.
+     *
+     * @returns The normalized string, or `val` unchanged when normalization does not apply.
+     */
+    parse: (val: unknown, ctx?: Context): Effect.Effect<unknown, BuilderError> => Effect.succeed(normalize(val, ctx)),
+  };
+};
 
 /**
  * @description The built-in default: a normalizer with no exclusions. Synchronous, and deliberately so. With no `exclude` there is nothing to compile, so this

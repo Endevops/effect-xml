@@ -443,31 +443,30 @@ export default class Xml2JsParser implements TagExpressionParser {
    *
    * @returns An effect that dispatches the token. Fails with `UNEXPECTED_END` when the `<` is the last character available.
    */
-  _dispatchTagStart = Effect.fnUntracedEager(function* (this: Xml2JsParser, tagStart: { index: number }): Effect.fn.Return<void, ParseError> {
+  _dispatchTagStart(tagStart: { index: number }): Effect.Effect<void, ParseError> {
     const nextChar = this.source.readChAt(0);
-    if (nextChar === '' || nextChar === undefined)
-      return yield* new UnexpectedEnd({
-        reading: `after '<'`,
-        message: "Unexpected end of source after '<'",
-        index: errorPositionOf(this.source).index,
-      });
+    if (nextChar === '' || nextChar === undefined) {
+      return Effect.fail(
+        new UnexpectedEnd({ reading: `after '<'`, message: "Unexpected end of source after '<'", index: errorPositionOf(this.source).index })
+      );
+    }
 
-    //sorted frequency wise
+    // Sorted by frequency: the three arms that always flush pending text first are the ones that can
+    // carry it, and each returns the reader's own effect so the common path adds no generator here.
     if (nextChar === '/') {
       this.source.updateBufferBoundary();
-      yield* this.readClosingTag(tagStart);
-    } else if (nextChar === '!') {
-      this.source.updateBufferBoundary();
-      yield* this.addTextNode();
-      yield* this.readSpecialTag(nextChar);
-    } else if (nextChar === '?') {
-      this.source.updateBufferBoundary();
-      yield* this.addTextNode();
-      yield* readPiTag(this);
-    } else {
-      yield* this.readOpeningTag(tagStart);
+      return this.readClosingTag(tagStart);
     }
-  });
+    if (nextChar === '!') {
+      this.source.updateBufferBoundary();
+      return Effect.andThen(this.addTextNode(), this.readSpecialTag(nextChar));
+    }
+    if (nextChar === '?') {
+      this.source.updateBufferBoundary();
+      return Effect.andThen(this.addTextNode(), readPiTag(this));
+    }
+    return this.readOpeningTag(tagStart);
+  }
 
   /**
    * @description Buffer character data up to the next `<`. `first` has already been consumed by the caller. The rest of the run is then taken in a single
@@ -704,28 +703,29 @@ export default class Xml2JsParser implements TagExpressionParser {
   });
 
   /**
-   * @description Enforce `limits.maxNestedTags` against the depth this tag would open.
+   * @description Enforce `limits.maxNestedTags` against the depth this tag would open. Plain rather than a generator: an unconfigured limit or a depth within it
+   * is the common case and answers with the shared `Effect.void`, so the check costs a method call rather than a generator, an iterator pass and an
+   * exit allocation on every opening tag.
    *
    * @returns An effect that passes when the depth is allowed. Fails with `LIMIT_MAX_NESTED_TAGS` when the depth exceeds the limit. No limit
    *   configured means no check.
    */
-  _enforceMaxNestedTags = Effect.fnUntracedEager(function* (
-    this: Xml2JsParser,
-    tagDetail: TagDetailLike
-  ): Effect.fn.Return<void, LimitMaxNestedTags> {
+  _enforceMaxNestedTags(tagDetail: TagDetailLike): Effect.Effect<void, LimitMaxNestedTags> {
     const maxNested = this.options.limits?.maxNestedTags;
-    if (maxNested === undefined || maxNested === null) return;
+    if (maxNested === undefined || maxNested === null) return Effect.void;
 
     const depth = this.tagsStack.length + 1;
-    if (depth <= maxNested) return;
+    if (depth <= maxNested) return Effect.void;
 
-    return yield* new LimitMaxNestedTags({
-      limit: maxNested,
-      depth,
-      message: `Nesting depth ${depth} exceeds limit of ${maxNested} (tag: '${tagDetail.name}')`,
-      index: tagDetail.index,
-    });
-  });
+    return Effect.fail(
+      new LimitMaxNestedTags({
+        limit: maxNested,
+        depth,
+        message: `Nesting depth ${depth} exceeds limit of ${maxNested} (tag: '${tagDetail.name}')`,
+        index: tagDetail.index,
+      })
+    );
+  }
 
   /**
    * @description Route a fully-read opening tag to the one handling that applies, in the order below. The order is load-bearing, not incidental:
