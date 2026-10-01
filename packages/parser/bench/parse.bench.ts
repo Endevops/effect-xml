@@ -92,24 +92,44 @@ afterAll(() => {
   expect(observed).toBeGreaterThan(0);
 });
 
-// Both entry points answer with an `Effect` now, and the benchmark has to run it to
-// get at the parsed tree. `Effect.runSync` is the honest cost here: the walk is
-// synchronous underneath, so the effect is a wrapper around work the benchmark is
-// already measuring, and adding a runtime to the numbers would measure the runtime
-// rather than the parser.
-const makeParser = (): XMLParser => Effect.runSync(XMLParser.make(options));
+// Both entry points answer with an `Effect` now, and the benchmark has to run the
+// pipeline it drives to get at the parsed tree. Every step of that pipeline is
+// composed into a single effect and run once per iteration: construction, the
+// parse, and — for the chunked path — every feed and the final end. Running the
+// steps separately would call `Effect.runSync` once per feed, which reports an
+// overhead the caller does not pay and makes the chunked row incomparable with the
+// whole-document one. The walk is synchronous underneath, so running the composed
+// effect is the honest cost: the runtime is a fixed per-iteration wrapper around
+// the work being measured, not a per-step one.
 const runSync = <A>(effect: Effect.Effect<A, unknown>): A => Effect.runSync(effect);
+
+/**
+ * @description Parse the whole document in one shot: construct a parser, then parse. One effect, so the benchmark runs the same pipeline a caller writes.
+ */
+const wholeDocument = Effect.gen(function* () {
+  const parser = yield* XMLParser.make(options);
+  return yield* parser.parse(doc);
+});
+
+/**
+ * @description Parse the document in `CHUNK_SIZE` pieces: construct a parser, feed every chunk, then end.
+ */
+const chunkedDocument = Effect.gen(function* () {
+  const parser = yield* XMLParser.make(options);
+  for (let offset = 0; offset < doc.length; offset += CHUNK_SIZE) {
+    yield* parser.feed(doc.slice(offset, offset + CHUNK_SIZE));
+  }
+  return yield* parser.end();
+});
 
 test('parse() — whole document', async ({ bench }) => {
   await bench('20k-item catalog', () => {
-    observed += rootKeyCount(runSync(makeParser().parse(doc)));
+    observed += rootKeyCount(runSync(wholeDocument));
   }).run(BUDGET);
 });
 
 test('feed()/end() — chunked', async ({ bench }) => {
   await bench(`4KB chunks (${Math.ceil(doc.length / CHUNK_SIZE)} feed calls)`, () => {
-    const parser = makeParser();
-    for (let offset = 0; offset < doc.length; offset += CHUNK_SIZE) runSync(parser.feed(doc.slice(offset, offset + CHUNK_SIZE)));
-    observed += rootKeyCount(runSync(parser.end()));
+    observed += rootKeyCount(runSync(chunkedDocument));
   }).run(BUDGET);
 });

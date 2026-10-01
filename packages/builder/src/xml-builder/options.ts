@@ -1,5 +1,4 @@
 import type { Expression, MatcherView } from '@endevops/common-xml';
-
 /**
  * @description A caller-supplied transform for a tag or attribute value. Returns an effect because the ordinary use of this hook is to run a value through an
  * `EntityEncoder`, and encoding can fail. A pure transform is `Effect.succeed(...)`; a caller's own effect is yielded directly, and either way the

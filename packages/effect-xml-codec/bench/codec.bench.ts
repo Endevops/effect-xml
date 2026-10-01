@@ -1,30 +1,12 @@
-/**
- * @description Throughput benchmarks for the two hot paths an application that serializes XML spends its time in: turning a typed value into a document, and
- * turning a document back into one. Split by layer as well as by direction, because the question "is the codec slow" has two very different answers
- * depending on whether the cost is in Effect's schema derivation, in this package's renderer, or in the parser. `renderXml` and `parseXmlDocument`
- * are measured on their own for exactly that reason: the gap between a codec row and its bare counterpart is what Effect's derivation costs, and that
- * is not something this package can optimise. Every benchmark folds its result into a module-scope counter that `afterAll` reads back. A discarded
- * result is a result the JIT is free to delete, which would make a benchmark that measured nothing look like a very fast codec. The `escape` suite is
- * the one to read first. Escaping is the only place the renderer touches every character of the document, so it is the only part whose cost scales
- * with content rather than with structure, and the two rows between them say how much of a document's serialization is escaping.
- */
-
-import { afterAll, expect, test } from '@effect/vitest';
 import { Effect, Schema } from 'effect';
+import { afterAll, describe, expect, test } from 'vite-plus/test';
 
-import type { XmlRenderOptions } from '#/render.ts';
 import type { XmlValue } from '#/xml-value.ts';
 
 import { toCodecXml } from '#/codec.ts';
-import { parseXmlDocument } from '#/parse.ts';
+import { parseXml } from '#/parse.ts';
 import { renderXml } from '#/render.ts';
 import { isXmlArray, isXmlRecord } from '#/xml-value.ts';
-
-/**
- * @description Renders a value the way a benchmark body that is not already in an `Effect` would: `renderXml` answers with an `Effect`, and `Effect.runSync` gets
- * past it. The work underneath is synchronous, so this is the honest cost rather than a runtime charge on top of it.
- */
-const render = (value: XmlValue, options?: XmlRenderOptions): string => Effect.runSync(renderXml(value, options));
 
 /**
  * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document like this is
@@ -38,7 +20,7 @@ const Order = Schema.Struct({
   note: Schema.String,
   customer: Schema.Struct({ '@id': Schema.String, name: Schema.String, email: Schema.String }),
   line: Schema.Array(Schema.Struct({ sku: Schema.String, qty: Schema.Finite, price: Schema.Finite })),
-});
+}).pipe(toCodecXml);
 
 /**
  * @description One order, as a plain object. Built once: the benchmarks measure serialization, not the cost of assembling the thing being serialized.
@@ -80,41 +62,50 @@ const rows: { row: Array<Schema.Schema.Type<typeof Row>> } = {
   })),
 };
 
-/**
- * @description The large document's codec, built once. The XML value tree it produces is rendered once here too, so the parse rows measure the parser rather than
- * the renderer.
- */
-const reportCodec = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }));
-
-const rowsDocument = render(Schema.encodeSync(reportCodec)(rows) as XmlValue, { rootName: 'report' });
+const Report = Schema.Struct({ row: Schema.Array(Row) }).pipe(toCodecXml);
 
 /**
- * @description The small document's codec and its document, built once for the same reason.
+ * @description The decode rows' inputs: the documents this codec produces, rendered once here so every decode iteration reads byte-identical bytes and the row
+ * measures the decoder rather than the renderer. Each is one piped effect run once, not a schema call and a render call joined by two separate runs.
  */
-const orderCodec = toCodecXml(Order);
+const rowsDocument = Schema.encodeEffect(Report)(rows).pipe(
+  Effect.flatMap(value => renderXml(value, { rootName: 'report' })),
+  Effect.runSync
+);
 
-const orderDocument = render(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: 'order' });
+const orderDocument = Schema.encodeEffect(Order)(order).pipe(
+  Effect.flatMap(value => renderXml(value, { rootName: 'order' })),
+  Effect.runSync
+);
 
 /**
  * @description A record of plain character data, for isolating the renderer from the escaping it normally does.
  */
-const cleanValue: XmlValue = { title: 'Dune', author: 'Frank Herbert', isbn: '9780441013593' };
+const cleanValue = { title: 'Dune', author: 'Frank Herbert', isbn: '9780441013593' };
 
 /**
  * @description The same record with every XML-unsafe character in every field, for the other half of the escaping comparison.
  */
-const dirtyValue: XmlValue = { title: 'Dune & <Messiah>', author: 'Frank "Frank" Herbert', isbn: 'a&b<c>d"e' };
+const dirtyValue = { title: 'Dune & <Messiah>', author: 'Frank "Frank" Herbert', isbn: 'a&b<c>d"e' };
 
 /**
- * @description Accumulates the outcome of every operation the benchmarks perform, so the work is observable rather than discardable.
+ * @description How long to sample each benchmark in a group, and how long to warm it up first. Serialization is measured in the tens of microseconds for the small
+ * document, so a shorter sample than Tinybench's default collects plenty of samples without a suite that takes a minute.
+ */
+const BUDGET = { time: 1000, warmupTime: 50 } as const;
+
+/**
+ * @description Accumulates a property of every result the benchmarks below produce. A benchmark whose result is dropped is one the JIT is free to optimise into a
+ * no-op, which reports a meaningless number rather than an obviously wrong one. `afterAll` reads it back, so the work is observable and the counter
+ * cannot itself be optimised away.
  */
 let observed = 0;
 
 /**
- * @description A number derived from any parsed value, so a parse benchmark can fold its result into the counter. An `XmlValue` has no `length` of its own — it is
- * a string, an array, or a record — and counting what it holds is enough to keep the work from being optimised away.
+ * @description A number derived from any XML value, so a parse benchmark can fold its result into {@link observed}. An `XmlValue` has no `length` of its own — it
+ * is a string, an array, or a record — and counting what it holds is enough to keep the work from being optimised away.
  *
- * @param value - The value the parser produced.
+ * @param value - The value to size.
  *
  * @returns A number that depends on the whole value.
  */
@@ -125,137 +116,123 @@ const sizeOf = (value: XmlValue): number => {
   return 0;
 };
 
-/**
- * @description How long to sample each benchmark in a group, and how long to warm it up first. Serialization is measured in the tens of microseconds for the small
- * document, so a shorter sample than Tinybench's default collects plenty of samples without a suite that takes a minute.
- */
-const BUDGET = { time: 300, warmupTime: 50 } as const;
-
-/**
- * @description A schema's text encoder, bound to a local so the benchmark body does not pay for a codec build on every iteration. The text path is two steps —
- * encode the value to the XML value tree, then render it — and both are included, because that is what a caller does.
- *
- * @param schema - The schema to encode values of.
- * @param rootName - The root element's name.
- *
- * @returns A function from value to document.
- */
-const encoderFor = (schema: Schema.Constraint, rootName: string): ((value: never) => string) => {
-  const codec = toCodecXml(schema as never);
-  return value => render(Schema.encodeSync(codec)(value) as XmlValue, { rootName });
-};
-
-/**
- * @description A schema's text decoder, bound to a local. The mirror of {@link encoderFor}: parse the document into the XML value tree, then decode it.
- *
- * @param schema - The schema to decode values of.
- *
- * @returns A function from document to value.
- */
-const decoderFor = (schema: Schema.Constraint): ((text: string) => unknown) => {
-  const codec = toCodecXml(schema as never);
-  return text => Schema.decodeSync(codec)(parseXmlDocument(text).value);
-};
-
 afterAll(() => {
-  // An empty sink means the benchmark bodies never reached the line that folds a
-  // result in, so the tables describe a run that did no work.
+  // An empty sink means the benchmark bodies never reached the line that folds a result in, so the tables describe a run that did no work.
   expect(observed).toBeGreaterThan(0);
 });
 
-test('codec — a small document', async ({ bench }) => {
-  const encode = encoderFor(Order, 'order');
-  const decode = decoderFor(Order);
+describe('codec', () => {
+  test('a small document', async ({ bench }) => {
+    const rootName = 'order';
+    const encode = Schema.encodeEffect(Order);
+    const decode = Schema.decodeEffect(Order);
 
-  await bench.compare(
-    bench('encode', () => {
-      observed += encode(order as never).length;
-    }),
-    bench('decode', () => {
-      observed += decode(orderDocument) === null ? 0 : 1;
-    }),
-    bench('round trip', () => {
-      observed += decode(encode(order as never)) === null ? 0 : 1;
-    }),
-    BUDGET
-  );
-});
+    // Each pipeline is built once and run per iteration: one `Effect.runSync` per
+    // iteration, over the whole chain. The decode parses first — `decode` reads the
+    // XML value tree, not the document text — and the round trip runs both halves.
+    const encodeDocument = encode(order).pipe(Effect.flatMap(value => renderXml(value, { rootName })));
+    const decodeDocument = parseXml(orderDocument).pipe(Effect.flatMap(xml => decode(xml)));
+    const roundTrip = encode(order).pipe(
+      Effect.flatMap(value => renderXml(value, { rootName })),
+      Effect.flatMap(document => parseXml(document)),
+      Effect.flatMap(xml => decode(xml))
+    );
 
-test('codec — a large document', async ({ bench }) => {
-  const schema = Schema.Struct({ row: Schema.Array(Row) });
-  const encode = encoderFor(schema, 'report');
-  const decode = decoderFor(schema);
+    await bench.compare(
+      bench('encode', () => {
+        observed += Effect.runSync(encodeDocument).length;
+      }),
+      bench('decode', () => {
+        observed += Effect.runSync(decodeDocument) === null ? 0 : 1;
+      }),
+      bench('round trip', () => {
+        observed += Effect.runSync(roundTrip) === null ? 0 : 1;
+      }),
+      BUDGET
+    );
+  });
 
-  await bench.compare(
-    bench('encode', () => {
-      observed += encode(rows as never).length;
-    }),
-    bench('decode', () => {
-      observed += decode(rowsDocument) === null ? 0 : 1;
-    }),
-    BUDGET
-  );
-});
+  test('a large document', async ({ bench }) => {
+    const schema = Schema.Struct({ row: Schema.Array(Row) }).pipe(toCodecXml);
+    const rootName = 'report';
+    const encode = Schema.encodeEffect(schema);
+    const decode = Schema.decodeEffect(schema);
 
-test('codec — the layer underneath', async ({ bench }) => {
-  // The same work without the schema, so the difference between these rows and
-  // the rows above is what Effect's derivation costs on every call.
-  const xml: XmlValue = { '@id': 'A-1001', title: 'Dune', total: '1234.56', placed: 'true', tag: ['a', 'b', 'c'] };
+    const encodeDocument = encode(rows).pipe(Effect.flatMap(value => renderXml(value, { rootName })));
+    const decodeDocument = parseXml(rowsDocument).pipe(Effect.flatMap(xml => decode(xml)));
 
-  await bench.compare(
-    bench('render, no schema', () => {
-      observed += render(xml, { rootName: 'r' }).length;
-    }),
-    bench('parse, no schema', () => {
-      observed += sizeOf(
-        parseXmlDocument('<r id="A-1001"><title>Dune</title><total>1234.56</total><placed>true</placed><tag>a</tag><tag>b</tag><tag>c</tag></r>')
-          .value
-      );
-    }),
-    BUDGET
-  );
-});
+    await bench.compare(
+      bench('encode', () => {
+        observed += Effect.runSync(encodeDocument).length;
+      }),
+      bench('decode', () => {
+        observed += Effect.runSync(decodeDocument) === null ? 0 : 1;
+      }),
+      BUDGET
+    );
+  });
 
-test('codec — what escaping costs', async ({ bench }) => {
-  // The two rows either side of these are the same render with and without
-  // anything to escape, so the difference is the escaping pass itself.
-  const long = 'word '.repeat(4000);
+  test('the layer underneath', async ({ bench }) => {
+    // The same work without the schema, so the difference between these rows and
+    // the rows above is what Effect's derivation costs on every call.
+    const xml: XmlValue = { '@id': 'A-1001', title: 'Dune', total: '1234.56', placed: 'true', tag: ['a', 'b', 'c'] };
 
-  await bench.compare(
-    bench('render clean text', () => {
-      observed += render(cleanValue, { rootName: 'r' }).length;
-    }),
-    bench('render text needing escapes', () => {
-      observed += render(dirtyValue, { rootName: 'r' }).length;
-    }),
-    bench('render 20k of clean text', () => {
-      observed += render({ body: long }, { rootName: 'r' }).length;
-    }),
-    bench('render 20k of text with one unsafe character', () => {
-      observed += render({ body: `${long}&` }, { rootName: 'r' }).length;
-    }),
-    BUDGET
-  );
-});
+    await bench.compare(
+      bench('render, no schema', () => {
+        observed += Effect.runSync(renderXml(xml, { rootName: 'r' })).length;
+      }),
+      bench('parse, no schema', () => {
+        observed += sizeOf(
+          Effect.runSync(
+            parseXml('<r id="A-1001"><title>Dune</title><total>1234.56</total><placed>true</placed><tag>a</tag><tag>b</tag><tag>c</tag></r>')
+          )
+        );
+      }),
+      BUDGET
+    );
+  });
 
-test('codec — the document shape', async ({ bench }) => {
-  const xml: XmlValue = {
-    row: Array.from({ length: ROWS }, (_, i) => ({ '@id': `R-${i}`, sku: `SKU-${i}`, name: `Product ${i}`, price: `${i}.5` })),
-  };
+  test('what escaping costs', async ({ bench }) => {
+    // The two rows either side of these are the same render with and without
+    // anything to escape, so the difference is the escaping pass itself.
+    const long = 'word '.repeat(4000);
 
-  await bench.compare(
-    bench('render, compact', () => {
-      observed += render(xml, { rootName: 'report' }).length;
-    }),
-    bench('render, indented', () => {
-      observed += render(xml, { rootName: 'report', format: true }).length;
-    }),
-    bench('parse, 500 rows', () => {
-      observed += sizeOf(parseXmlDocument(rowsDocument).value);
-    }),
-    bench('parse, 500 rows, keeping whitespace', () => {
-      observed += sizeOf(parseXmlDocument(rowsDocument, { preserveWhitespace: true }).value);
-    }),
-    BUDGET
-  );
+    await bench.compare(
+      bench('render clean text', () => {
+        observed += Effect.runSync(renderXml(cleanValue, { rootName: 'r' })).length;
+      }),
+      bench('render text needing escapes', () => {
+        observed += Effect.runSync(renderXml(dirtyValue, { rootName: 'r' })).length;
+      }),
+      bench('render 20k of clean text', () => {
+        observed += Effect.runSync(renderXml({ body: long }, { rootName: 'r' })).length;
+      }),
+      bench('render 20k of text with one unsafe character', () => {
+        observed += Effect.runSync(renderXml({ body: `${long}&` }, { rootName: 'r' })).length;
+      }),
+      BUDGET
+    );
+  });
+
+  test('the document shape', async ({ bench }) => {
+    const xml: XmlValue = {
+      row: Array.from({ length: ROWS }, (_, i) => ({ '@id': `R-${i}`, sku: `SKU-${i}`, name: `Product ${i}`, price: `${i}.5` })),
+    };
+
+    await bench.compare(
+      bench('render, compact', () => {
+        observed += Effect.runSync(renderXml(xml, { rootName: 'report' })).length;
+      }),
+      bench('render, indented', () => {
+        observed += Effect.runSync(renderXml(xml, { rootName: 'report', format: true })).length;
+      }),
+      bench('parse, 500 rows', () => {
+        observed += sizeOf(Effect.runSync(parseXml(rowsDocument)));
+      }),
+      bench('parse, 500 rows, keeping whitespace', () => {
+        observed += sizeOf(Effect.runSync(parseXml(rowsDocument, { preserveWhitespace: true })));
+      }),
+      BUDGET
+    );
+  });
 });

@@ -1,7 +1,6 @@
+import type ExpressionSet from './expression-set.ts';
 import type Expression from './expression.ts';
 import type { PositionSelector, Segment } from './expression.ts';
-
-import type ExpressionSet from './expression-set.ts';
 
 /**
  * @description Options for {@link Matcher}.
@@ -796,7 +795,7 @@ class Matcher {
    */
   toString(separator?: string, includeNamespace = true): string {
     const sep = separator || this.separator;
-    const isDefault = sep === this.separator &&  includeNamespace;
+    const isDefault = sep === this.separator && includeNamespace;
 
     if (isDefault) {
       if (this.#pathStringCache !== null) {
