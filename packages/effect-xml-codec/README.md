@@ -148,9 +148,12 @@ Three findings shaped the code, and all are measured rather than assumed:
   and attribute name in every document. Running a runtime to read a boolean cost
   roughly 1µs per name, and a small document has about a dozen names, so name
   resolution was most of what a serialize and a parse did. `@endevops/common-xml`
-  now exposes plain synchronous predicates (`isQName` and the rest, `sanitize`,
-  `resolveName`) with no `Effect` wrapper, and the renderer's namer and the
-  parser's name cache call them directly. That is the bulk of the gain on a small
+  now exposes plain synchronous predicates (`isQName` and the rest, `sanitize`)
+  with no `Effect` wrapper, and the renderer's namer and the parser's name cache
+  call them directly. `resolveName` is the one exception: it is effectful because
+  `'error'` mode rejects an illegal name, and a rejection is a failure rather than
+  a value, so it reports through the error channel like every other fallible step
+  of a parse or a render. That is the bulk of the gain on a small
   document; the 500-row document improves by a few percent because it asks the
   same handful of names, and the per-row work is what dominates there.
 - **The codec adds no layer of its own.** `toCodecXml` is

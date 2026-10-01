@@ -28,7 +28,7 @@ import type { NameMode } from './conventions.ts';
 import type { XmlValue } from './xml-value.ts';
 
 import { ATTRIBUTE_PREFIX, resolveName, TEXT_KEY } from './conventions.ts';
-import { asParseError, XmlParseError } from './errors.ts';
+import { XmlParseError } from './errors.ts';
 
 /**
  * @description Resolves character references. The default expansion limits are zero, which the decoder treats as unlimited, so one instance can be shared for the
@@ -238,17 +238,14 @@ const parseDocument = Effect.fnUntraced(function* (text: string, options: XmlPar
     const cached = nameCache.get(raw);
     if (cached !== undefined) return cached;
 
-    // `resolveName` is synchronous and validates with a regex test that cannot fail except in `'error'`
-    // mode, where an illegal name is what throws. `Effect.try` is the one bridge that carries that
-    // throw into the error channel, and the message is rebuilt here so the failure names the position
-    // in the document and whether the name belonged to an element or an attribute.
-    const name = yield* Effect.try({
-      try: () => resolveName(raw, nameOptions),
-      catch: cause => {
-        const failure = asParseError(cause);
-        return new XmlParseError({ message: `${what} ${JSON.stringify(raw)} is not a legal XML name: ${failure.message}`, position, input: text });
-      },
-    });
+    // `resolveName` reports an illegal name through its own error channel; the failure is reworded
+    // here so it names the position in the document and whether the name belonged to an element or
+    // an attribute, which a generic name resolver cannot know.
+    const name = yield* resolveName(raw, nameOptions).pipe(
+      Effect.mapError(
+        failure => new XmlParseError({ message: `${what} ${JSON.stringify(raw)} is not a legal XML name: ${failure.message}`, position, input: text })
+      )
+    );
 
     nameCache.set(raw, name);
     return name;

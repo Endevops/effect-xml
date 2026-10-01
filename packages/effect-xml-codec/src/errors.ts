@@ -53,17 +53,3 @@ export class XmlRenderError extends Schema.TaggedError<XmlRenderError>()('XmlRen
    */
   message: Schema.String,
 }) {}
-
-/**
- * @description Identity for a parse failure, and a wrapper for anything else that escapes the parser. The parser reports through `throw`, so every bridge from it
- * into an `Effect` error channel goes through here rather than rethrowing: a thrown `XmlParseError` is already the failure the caller asked for, and
- * anything else is wrapped so the channel stays typed.
- *
- * @param error - Whatever was thrown.
- *
- * @returns The failure to put in the error channel.
- */
-export const asParseError = (error: unknown): XmlParseError =>
-  error instanceof XmlParseError
-    ? error
-    : new XmlParseError({ message: error instanceof Error ? error.message : String(error), position: -1, input: '' });

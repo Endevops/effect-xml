@@ -4,9 +4,18 @@
  */
 
 import { isQName } from '@endevops/common-xml';
+import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
+import type { ResolveNameOptions } from '#/index.ts';
+
 import { attributeName, isAttributeKey, isReservedKey, isTextKey, resolveName, ATTRIBUTE_PREFIX, TEXT_KEY } from '#/index.ts';
+
+/**
+ * @description Resolves a name the way a caller not already in an `Effect` would: `resolveName` answers with an `Effect` whose failure is an `XmlParseError`, and
+ * `Effect.runSync` throws it. The specs assert on the returned name and on the thrown failure, so this keeps each case a one-liner.
+ */
+const resolve = (name: string, options?: ResolveNameOptions): string => Effect.runSync(resolveName(name, options));
 
 describe('the attribute prefix', () => {
   it('is the single character the convention documents', () => {
@@ -59,53 +68,53 @@ describe('the text key', () => {
   });
 });
 
-describe('resolveName()', () => {
+describe('resolve()', () => {
   it('leaves a legal name alone', () => {
-    expect(resolveName('title')).toBe('title');
-    expect(resolveName('_private')).toBe('_private');
-    expect(resolveName('a-b.c')).toBe('a-b.c');
+    expect(resolve('title')).toBe('title');
+    expect(resolve('_private')).toBe('_private');
+    expect(resolve('a-b.c')).toBe('a-b.c');
   });
 
   it('leaves a prefixed name alone, prefix included', () => {
-    expect(resolveName('soap:Envelope')).toBe('soap:Envelope');
-    expect(resolveName('xml:lang')).toBe('xml:lang');
+    expect(resolve('soap:Envelope')).toBe('soap:Envelope');
+    expect(resolve('xml:lang')).toBe('xml:lang');
   });
 
   it('leaves a non-ASCII legal name alone', () => {
-    expect(resolveName('café')).toBe('café');
+    expect(resolve('café')).toBe('café');
   });
 
   it('repairs an illegal name by default', () => {
-    expect(resolveName('not a name')).toBe('not_a_name');
-    expect(resolveName('1st')).toBe('_1st');
-    expect(resolveName('-leading')).toBe('_-leading');
+    expect(resolve('not a name')).toBe('not_a_name');
+    expect(resolve('1st')).toBe('_1st');
+    expect(resolve('-leading')).toBe('_-leading');
   });
 
   it('keeps a namespace prefix through a repair rather than dropping it', () => {
     // Repairing with the `name` production keeps colons; repairing with `ncName`
     // would turn `soap:Envelope` into `soapEnvelope` and silently lose the
     // prefix, which is a different name rather than a fixed one.
-    expect(resolveName('soap:Envelope room')).toBe('soap:Envelope_room');
+    expect(resolve('soap:Envelope room')).toBe('soap:Envelope_room');
   });
 
   it('writes an illegal name unchanged in ignore mode', () => {
-    expect(resolveName('not a name', { mode: 'ignore' })).toBe('not a name');
+    expect(resolve('not a name', { mode: 'ignore' })).toBe('not a name');
   });
 
   it('fails an illegal name in error mode, naming the reason', () => {
-    expect(() => resolveName('not a name', { mode: 'error' })).toThrow(/Invalid XML name "not a name"/);
-    expect(() => resolveName('not a name', { mode: 'error' })).toThrow(/not a valid NameChar/);
+    expect(() => resolve('not a name', { mode: 'error' })).toThrow(/Invalid XML name "not a name"/);
+    expect(() => resolve('not a name', { mode: 'error' })).toThrow(/not a valid NameChar/);
   });
 
   it('accepts a legal name in error mode', () => {
-    expect(resolveName('title', { mode: 'error' })).toBe('title');
+    expect(resolve('title', { mode: 'error' })).toBe('title');
   });
 
   it('rejects a name that is only legal in XML 1.1 when 1.0 was asked for', () => {
     // U+0487 is a combining mark: a legal NameChar in 1.1, not in 1.0.
     const combining = 'a\u0487';
-    expect(resolveName(combining, { mode: 'error', xmlVersion: '1.1' })).toBe(combining);
-    expect(() => resolveName(combining, { mode: 'error', xmlVersion: '1.0' })).toThrow(/Invalid XML name/);
+    expect(resolve(combining, { mode: 'error', xmlVersion: '1.1' })).toBe(combining);
+    expect(() => resolve(combining, { mode: 'error', xmlVersion: '1.0' })).toThrow(/Invalid XML name/);
   });
 });
 
@@ -113,14 +122,14 @@ describe('isQName()', () => {
   it('accepts what the resolver leaves alone', () => {
     for (const name of ['title', 'a-b', 'a.b', 'ns:x', 'café']) {
       expect(isQName(name)).toBe(true);
-      expect(resolveName(name)).toBe(name);
+      expect(resolve(name)).toBe(name);
     }
   });
 
   it('rejects what the resolver has to rewrite', () => {
     for (const name of ['1bad', 'a b', '', '-lead']) {
       expect(isQName(name)).toBe(false);
-      expect(resolveName(name)).not.toBe(name);
+      expect(resolve(name)).not.toBe(name);
     }
   });
 

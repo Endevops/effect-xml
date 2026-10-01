@@ -16,7 +16,7 @@
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { isQName, sanitize, validate } from '@endevops/common-xml';
-import { Match } from 'effect';
+import { Effect, Match } from 'effect';
 
 import { XmlParseError } from './errors.ts';
 
@@ -102,28 +102,30 @@ export const isTextKey = (key: string): boolean => key === TEXT_KEY;
 export const isReservedKey = (key: string): boolean => isTextKey(key);
 
 /**
- * @description Resolves a name to something legal in an XML document. The renderer and the parser both resolve a name per element and per attribute — a document
- * of a few hundred rows asks the same handful of questions a few hundred times — so validating a name is a regex test that cannot fail and this is a
- * plain function, not an `Effect`.
+ * @description Resolves a name to something legal in an XML document. The renderer and the parser both resolve a name per element and per attribute, and an
+ * illegal name under `'error'` mode is a rejection rather than a value, so this returns an `Effect` with the `XmlParseError` in its error channel
+ * rather than throwing it. Callers `yield*` it and the failure composes with `catchTag` and the rest; the two internal call sites in `parse.ts` and
+ * `render.ts` translate it into the error type their own walk reports.
  *
  * @param name - The candidate element or attribute name.
  * @param options - Repair mode and XML version.
  *
- * @returns The name to write, unchanged when it was already legal.
- *
- * @throws {XmlParseError} When `options.mode` is `'error'` and the name is not a legal XML name.
+ * @returns An effect producing the name to write, unchanged when it was already legal.
  */
-export const resolveName = (name: string, { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}): string => {
+export const resolveName = Effect.fnUntraced(function* (
+  name: string,
+  { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}
+): Effect.fn.Return<string, XmlParseError> {
   if (isQName(name, { xmlVersion })) return name;
 
-  return Match.value(mode).pipe(
-    Match.when('ignore', () => name),
+  return yield* Match.value(mode).pipe(
+    Match.when('ignore', () => Effect.succeed(name)),
     Match.when('error', () => {
       const result = validate(name, 'qName', { xmlVersion });
       const reason = !result.valid ? result.reason : 'is not a legal XML name';
-      throw new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
+      return new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
     }),
-    Match.when('repair', () => sanitize(name, 'name', { replacement: '_' })),
+    Match.when('repair', () => Effect.succeed(sanitize(name, 'name', { replacement: '_' }))),
     Match.exhaustive
   );
-};
+});

@@ -25,7 +25,7 @@ import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
 import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveName, TEXT_KEY } from './conventions.ts';
-import { asParseError, XmlRenderError } from './errors.ts';
+import { XmlRenderError } from './errors.ts';
 import { isXmlArray } from './xml-value.ts';
 
 /**
@@ -152,8 +152,8 @@ interface ResolvedOptions {
  * `<item>` elements, or the same `id` on every row. A validator that runs a regex per occurrence pays that cost a thousand times for one answer, so
  * the first result is remembered and the rest are lookups. It also keeps the mode and version in one place, which is what stops a caller from
  * resolving a name with different settings than the render it is part of. The resolver fails with an {@link XmlRenderError} rather than throwing:
- * `resolveName` reports an illegal name in `'error'` mode by throwing an {@link XmlParseError}, and `Effect.try` is the one bridge that carries that
- * into the error channel. The cache is checked first, so a name already seen resolves without allocating an effect.
+ * `resolveName` reports an illegal name in `'error'` mode through its own error channel, and the failure is translated into the render's error type
+ * here. The cache is checked first, so a name already seen resolves without allocating an effect.
  *
  * @param options - Resolved render options.
  *
@@ -164,10 +164,9 @@ const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: 
   return Effect.fnUntraced(function* (name: string): Effect.fn.Return<string, XmlRenderError> {
     const hit = cache.get(name);
     if (hit !== undefined) return hit;
-    const resolved = yield* Effect.try({
-      try: () => resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion }),
-      catch: cause => new XmlRenderError({ message: asParseError(cause).message }),
-    });
+    const resolved = yield* resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion }).pipe(
+      Effect.mapError(failure => new XmlRenderError({ message: failure.message }))
+    );
     cache.set(name, resolved);
     return resolved;
   });
