@@ -1,6 +1,6 @@
 {
   "name": "@endevops/builder",
-  "version": "0.0.1",
+  "version": "1.0.0-effect.1",
   "description": "XML builders — builds XML from a JavaScript object, plus the base classes and the compact object builder that turn XML into a JavaScript object. Merged into one package from the former @endevops/xml-builder, @endevops/base-output-builder and @endevops/compact-builder packages.",
   "keywords": [
     "builder",

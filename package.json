@@ -1,6 +1,6 @@
 {
   "name": "@endevops/effect-xml",
-  "version": "0.0.0",
+  "version": "1.0.0-effect.1",
   "private": true,
   "description": "Monorepo for the Endevops XML packages. Holds the toolchain and the shared lint, format, and TypeScript configuration; each publishable package lives in packages/.",
   "keywords": [

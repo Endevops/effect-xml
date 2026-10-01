@@ -1,6 +1,6 @@
 {
   "name": "@endevops/common-xml",
-  "version": "0.0.1",
+  "version": "1.0.0-effect.1",
   "description": "Shared XML primitives — entity encoding and decoding, path expression matching, and XML name production validation. Merged into one package from the former @endevops/entities, @endevops/path-expression-matcher and @endevops/xml-naming packages.",
   "keywords": [
     "decode",
