@@ -107,7 +107,7 @@ export function tryMatchClosingTagName(source: InputSourceLike, expectedRawName:
  * @returns An effect producing the tag name. Fails with `UNEXPECTED_END` when the buffer ran out before `>`, with the partial name embedded in the
  *   message so autoClose's truncation recovery can still report something useful.
  */
-export const readClosingTagName = Effect.fnUntraced(function* (source: InputSourceLike): Effect.fn.Return<string, UnexpectedEnd> {
+export const readClosingTagName = Effect.fnUntracedEager(function* (source: InputSourceLike): Effect.fn.Return<string, UnexpectedEnd> {
   source.markTokenStart(1);
   // Closing tags never carry attributes, so unlike an opening tag's
   // expression there is no quoting to worry about — the very first '>' is
@@ -140,7 +140,7 @@ export const readClosingTagName = Effect.fnUntraced(function* (source: InputSour
  * @returns An effect producing the parsed tag expression. Fails with `UNEXPECTED_END` on a chunk boundary mid-tag, `INVALID_TAG_NAME` when the name
  *   fails XML's `QName` production.
  */
-export const readTagExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<TagExp, ParseError> {
+export const readTagExp = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<TagExp, ParseError> {
   parser.source.markTokenStart(1);
   // Absolute document offset where `exp` (tag name onward, right after '<')
   // begins — captured before any reads so buildTagExpObj can compute each
@@ -195,7 +195,7 @@ export const readTagExp = Effect.fnUntraced(function* (parser: TagExpressionPars
  * @returns An effect producing the parsed tag expression. Fails with `UNEXPECTED_END` on a chunk boundary mid-PI-tag, `UNCLOSED_QUOTE` when `?>` is
  *   found inside an unterminated quoted value.
  */
-export const readPiExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<TagExp, ParseError> {
+export const readPiExp = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<TagExp, ParseError> {
   parser.source.markTokenStart(1);
   const expStart = absolutePosition(parser.source);
   let inSingleQuotes = false;
@@ -261,7 +261,7 @@ export const readPiExp = Effect.fnUntraced(function* (parser: TagExpressionParse
  * @returns An effect producing the populated tag expression. Fails with `INVALID_TAG_NAME` when the name fails XML's `QName` production, plus
  *   anything the attribute pass reports.
  */
-const buildTagExpObj = Effect.fnUntraced(function* (
+const buildTagExpObj = Effect.fnUntracedEager(function* (
   exp: string,
   parser: TagExpressionParser,
   expStart: number | undefined,

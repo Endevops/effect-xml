@@ -276,7 +276,7 @@ export default class FeedableSource implements InputSourceLike {
    *   fewer chars than its byte length until the next chunk completes the sequence. Fails with `INVALID_INPUT` when the buffer limit is exceeded,
    *   `DATA_MUST_BE_STRING` for an unsupported chunk type, and `UNSUPPORTED_ENCODING` when an explicit encoding name cannot be resolved.
    */
-  feed = Effect.fnUntraced(function* (this: FeedableSource, data: string | Uint8Array): Effect.fn.Return<number, ParseError> {
+  feed = Effect.fnUntracedEager(function* (this: FeedableSource, data: string | Uint8Array): Effect.fn.Return<number, ParseError> {
     if (this.#detecting) {
       if (typeof data === 'string') {
         // Already decoded upstream (e.g. stream.setEncoding() was called by
@@ -314,7 +314,7 @@ export default class FeedableSource implements InputSourceLike {
     return newData.length;
   });
 
-  #decodeNow = Effect.fnUntraced(function* (this: FeedableSource, data: string | Uint8Array): Effect.fn.Return<string, ParseError> {
+  #decodeNow = Effect.fnUntracedEager(function* (this: FeedableSource, data: string | Uint8Array): Effect.fn.Return<string, ParseError> {
     if (typeof data === 'string') return data;
     if (ArrayBuffer.isView(data)) {
       // Stateful decode: bytes of a multi-byte char split across two feed()
@@ -342,7 +342,7 @@ export default class FeedableSource implements InputSourceLike {
    * @returns An effect producing the held bytes, minus any BOM. Fails with `ENCODING_MISMATCH` when a BOM contradicts the declaration, or
    *   `UNSUPPORTED_ENCODING` when the detected name cannot be resolved.
    */
-  #resolveDetection = Effect.fnUntraced(function* (this: FeedableSource): Effect.fn.Return<Uint8Array, ParseError> {
+  #resolveDetection = Effect.fnUntracedEager(function* (this: FeedableSource): Effect.fn.Return<Uint8Array, ParseError> {
     const decoding = this.#decodingOptions as NonNullable<FeedableSourceOptions['decoding']>;
     const sniffBuffer = this._sniffBuffer as Uint8Array;
     const { encoding, bomLength } = yield* sniff(sniffBuffer, decoding.registry);
@@ -359,7 +359,7 @@ export default class FeedableSource implements InputSourceLike {
    *
    * @returns An effect that finalizes the source. Fails with the same encoding errors `feed()` can.
    */
-  end = Effect.fnUntraced(function* (this: FeedableSource): Effect.fn.Return<void, ParseError> {
+  end = Effect.fnUntracedEager(function* (this: FeedableSource): Effect.fn.Return<void, ParseError> {
     if (this.#detecting) {
       // Whole document arrived without ever reaching SNIFF_CAP or a
       // complete declaration (a short, unadorned document like <root/>) —

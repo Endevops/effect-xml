@@ -55,7 +55,7 @@ interface EntityAccumulator {
  * @returns An effect that reads one declaration. Fails with `INVALID_TAG` for an unrecognised or malformed declaration, `ENTITY_MAX_COUNT` when
  *   `maxEntityCount` is exceeded, or whatever the individual declaration readers report.
  */
-const readBodySubTag = Effect.fnUntraced(function* (parser: TagExpressionParser, body: EntityAccumulator): Effect.fn.Return<void, ParseError> {
+const readBodySubTag = Effect.fnUntracedEager(function* (parser: TagExpressionParser, body: EntityAccumulator): Effect.fn.Return<void, ParseError> {
   yield* ensureCanRead(parser.source, 0, 'DOCTYPE sub-tag');
   const bang = parser.source.readStr(1);
   parser.source.updateBufferBoundary(1);
@@ -98,7 +98,7 @@ const readBodySubTag = Effect.fnUntraced(function* (parser: TagExpressionParser,
 /**
  * @description Read the `<!-- … -->` declaration form. `<!-` has been consumed, so only the second dash and the closing `-->` remain.
  */
-const readDoctypeComment = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+const readDoctypeComment = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
   yield* ensureCanRead(parser.source, 0, 'DOCTYPE comment');
   const dash2 = parser.source.readStr(1);
   parser.source.updateBufferBoundary(1);
@@ -109,7 +109,7 @@ const readDoctypeComment = Effect.fnUntraced(function* (parser: TagExpressionPar
 /**
  * @description Split the two declarations that share the `E` prefix. `<!E` has been consumed; `next` is the character that tells them apart.
  */
-const readESubTag = Effect.fnUntraced(function* (
+const readESubTag = Effect.fnUntracedEager(function* (
   parser: TagExpressionParser,
   next: string,
   body: EntityAccumulator
@@ -132,7 +132,7 @@ const readESubTag = Effect.fnUntraced(function* (
  * performed later by the output builder, so a value that refers to another entity cannot be turned into a single `RegExp` here. Such a declaration
  * still counts against `maxEntityCount`, which limits declarations read rather than entities recorded.
  */
-const declareEntity = Effect.fnUntraced(function* (parser: TagExpressionParser, body: EntityAccumulator): Effect.fn.Return<void, ParseError> {
+const declareEntity = Effect.fnUntracedEager(function* (parser: TagExpressionParser, body: EntityAccumulator): Effect.fn.Return<void, ParseError> {
   const [entityName, entityValue] = yield* readEntityExp(parser);
 
   if (entityValue.indexOf('&') !== -1) return;
@@ -222,7 +222,7 @@ function consumeDoctypeStructure(state: DoctypeScanState, ch: string | undefined
  * level-0 mark — the full DOCTYPE, this declaration included, is replayed rather than resumed mid-token. The error is always re-failed:
  * `UNEXPECTED_END` bubbles to `feed()` for that rewind, and `INVALID_TAG` and the rest are real parse failures.
  */
-const readSubTagWithRewind = Effect.fnUntraced(function* (
+const readSubTagWithRewind = Effect.fnUntracedEager(function* (
   parser: TagExpressionParser,
   body: EntityAccumulator,
   subTagStart: number
@@ -235,7 +235,9 @@ const readSubTagWithRewind = Effect.fnUntraced(function* (
   );
 });
 
-export const readDocType = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<Record<string, DocTypeEntity>, ParseError> {
+export const readDocType = Effect.fnUntracedEager(function* (
+  parser: TagExpressionParser
+): Effect.fn.Return<Record<string, DocTypeEntity>, ParseError> {
   parser.source.markTokenStart(1);
 
   // <!D are already consumed by the caller up to this point
@@ -285,7 +287,7 @@ export const readDocType = Effect.fnUntraced(function* (parser: TagExpressionPar
  * @returns An effect producing `[entityName, entityValue]`. Fails with `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` for external/parameter
  *   entities, `ENTITY_INVALID_KEY` for a malformed name, `ENTITY_MAX_SIZE` when the value exceeds the configured limit.
  */
-const readEntityExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<[string, string], ParseError> {
+const readEntityExp = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<[string, string], ParseError> {
   const source = parser.source;
 
   skipSourceWhitespace(source);
@@ -339,7 +341,7 @@ function readEntityName(source: InputSourceLike): string {
  * `ENTITY_INVALID_VALUE` rather than being skipped, because a declaration the parser will not honour is a document error, not something to pass
  * through to the output.
  */
-const rejectUnsupportedEntityKind = Effect.fnUntraced(function* (
+const rejectUnsupportedEntityKind = Effect.fnUntracedEager(function* (
   source: InputSourceLike,
   entityName: string
 ): Effect.fn.Return<void, EntityInvalidValue> {
@@ -359,7 +361,7 @@ const rejectUnsupportedEntityKind = Effect.fnUntraced(function* (
  * @returns An effect that passes when the value is within the limit. Fails with `ENTITY_MAX_SIZE` when the value exceeds the configured limit. No
  *   limit configured means no check.
  */
-const enforceEntitySizeLimit = Effect.fnUntraced(function* (
+const enforceEntitySizeLimit = Effect.fnUntracedEager(function* (
   parser: TagExpressionParser,
   entityName: string,
   entityValue: string
@@ -383,7 +385,7 @@ const enforceEntitySizeLimit = Effect.fnUntraced(function* (
  * @returns An effect producing the element name, and an empty content model when the model couldn't be matched. Fails with `UNEXPECTED_END` on a
  *   chunk boundary, `INVALID_TAG` for an invalid element name.
  */
-const readElementExp = Effect.fnUntraced(function* (
+const readElementExp = Effect.fnUntracedEager(function* (
   parser: TagExpressionParser
 ): Effect.fn.Return<{ elementName: string; contentModel?: string }, ParseError> {
   const source = parser.source;
@@ -445,7 +447,7 @@ const readElementExp = Effect.fnUntraced(function* (
  * @description Read an ATTLIST declaration body. `<!ATTLIST` has already been consumed by the caller. Attribute defaults are not interpreted — the declaration is
  * consumed to its closing `>` and discarded.
  */
-const readAttlistExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+const readAttlistExp = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
   yield* parser.source.readUptoChar('>');
 });
 
@@ -456,7 +458,7 @@ const readAttlistExp = Effect.fnUntraced(function* (parser: TagExpressionParser)
  *   an invalid notation name.
  */
 // fallow-ignore-next-line complexity
-const readNotationExp = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+const readNotationExp = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
   const source = parser.source;
 
   skipSourceWhitespace(source);
@@ -515,7 +517,7 @@ const readNotationExp = Effect.fnUntraced(function* (parser: TagExpressionParser
  *
  * @returns An effect producing `[value]`. Fails with `UNEXPECTED_END` on a chunk boundary, `INVALID_TAG` when the value is not quoted.
  */
-const readIdentifierVal = Effect.fnUntraced(function* (source: InputSourceLike, type: string): Effect.fn.Return<[string], ParseError> {
+const readIdentifierVal = Effect.fnUntracedEager(function* (source: InputSourceLike, type: string): Effect.fn.Return<[string], ParseError> {
   yield* ensureCanRead(source, 1, type + ' opening quote');
   const startChar = source.readStr(1);
   if (startChar !== '"' && startChar !== "'") {
@@ -544,7 +546,7 @@ const skipSourceWhitespace = (source: InputSourceLike): void => {
  *
  * @returns An effect producing the name. Fails with `ENTITY_INVALID_KEY` when the name is not a valid XML Name.
  */
-const validateEntityName = Effect.fnUntraced(function* (name: string, parser: TagExpressionParser): Effect.fn.Return<string, ParseError> {
+const validateEntityName = Effect.fnUntracedEager(function* (name: string, parser: TagExpressionParser): Effect.fn.Return<string, ParseError> {
   const nameValidator = yield* parser.getNameValidator('name');
   if (nameValidator(name)) return name;
   return yield* new EntityInvalidKey({ name, message: `Invalid entity name "${name}"` });

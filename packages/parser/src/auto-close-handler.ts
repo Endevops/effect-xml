@@ -95,7 +95,7 @@ export default class AutoCloseHandler {
    *
    * @returns An effect that closes the open tags. Fails with `UNEXPECTED_TRAILING_DATA` when `onEof` is `'throw'`.
    */
-  handleEof = Effect.fnUntraced(function* (this: AutoCloseHandler, parserState: ParserState): Effect.fn.Return<void, ParseError> {
+  handleEof = Effect.fnUntracedEager(function* (this: AutoCloseHandler, parserState: ParserState): Effect.fn.Return<void, ParseError> {
     if (this.onEof === 'throw') {
       return yield* new UnexpectedTrailingData({ message: 'Unexpected data in the end of document' });
     }
@@ -123,7 +123,7 @@ export default class AutoCloseHandler {
    * the caller should skip this closing tag entirely. @param closingTagName - The mismatched closing tag we just read. @param parserState - Live view
    * of the parser; same shape as `handleEof()`. Fails with `MISMATCHED_CLOSE_TAG` when `onMismatch` is `'throw'`.
    */
-  handleMismatch = Effect.fnUntraced(function* (
+  handleMismatch = Effect.fnUntracedEager(function* (
     this: AutoCloseHandler,
     closingTagName: string,
     parserState: ParserState
@@ -159,7 +159,7 @@ export default class AutoCloseHandler {
    * @returns An effect producing `{ action: 'discard' }` for a phantom closing tag, otherwise `{ action: 'close-matched' }` with
    *   `parserState.currentTagDetail` left pointing at the matched tag so the caller's normal close path applies.
    */
-  #recoverMismatch = Effect.fnUntraced(function* (
+  #recoverMismatch = Effect.fnUntracedEager(function* (
     this: AutoCloseHandler,
     closingTagName: string,
     parserState: ParserState
@@ -215,7 +215,7 @@ export default class AutoCloseHandler {
    *
    * @returns An effect that performs the recovery.
    */
-  handlePartialTag = Effect.fnUntraced(function* (
+  handlePartialTag = Effect.fnUntracedEager(function* (
     this: AutoCloseHandler,
     originalError: Error,
     parserState: ParserState

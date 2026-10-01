@@ -83,19 +83,19 @@ export const makeEntitiesValueParser = (options?: EntitiesValueParserOptions, is
    * @description Build the decoder on first use, then feed it this document's version and DOCTYPE entities exactly once. Both halves are effects, and both are
    * lazy: a parser that never sees a string never builds a decoder, and one that does is built once per document rather than once per value.
    */
-  const ensureDecoder = Effect.fnUntraced(function* (): Effect.fn.Return<EntityDecoder, BuilderError> {
+  const ensureDecoder = Effect.fnUntracedEager(function* (): Effect.fn.Return<EntityDecoder, BuilderError> {
     // A local rather than the closed-over `decoder` throughout: assigning inside
     // the guard narrows the field to `never` for the rest of the body.
     let current = decoder;
     if (!current) {
-      current = yield* Effect.mapError(EntityDecoder.make(resolved), fromDecoder(''));
+      current = yield* Effect.mapErrorEager(EntityDecoder.make(resolved), fromDecoder(''));
       decoder = current;
     }
     if (!seen) {
       const version = sharedContext?.get('xmlVersion');
       const entities = sharedContext?.get('inputEntities');
       if (version) current.setXmlVersion(version as number);
-      if (entities) yield* Effect.mapError(current.addInputEntities(entities as Record<string, string>), fromDecoder(''));
+      if (entities) yield* Effect.mapErrorEager(current.addInputEntities(entities as Record<string, string>), fromDecoder(''));
       seen = true;
     }
     return current;
@@ -125,11 +125,11 @@ export const makeEntitiesValueParser = (options?: EntitiesValueParserOptions, is
      * @returns An effect producing the decoded string, or `val` unchanged if it is not a string. Fails with the `EntityDecodingFailed` reason when
      *   the decoder rejects a reference.
      */
-    parse: Effect.fnUntraced(function* (val: unknown, _context?: Context): Effect.fn.Return<unknown, BuilderError> {
+    parse: Effect.fnUntracedEager(function* (val: unknown, _context?: Context): Effect.fn.Return<unknown, BuilderError> {
       if (typeof val !== 'string') return val;
 
       const current = yield* ensureDecoder();
-      return yield* Effect.mapError(current.decode(val), fromDecoder(val));
+      return yield* Effect.mapErrorEager(current.decode(val), fromDecoder(val));
     }),
   };
 };

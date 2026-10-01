@@ -340,7 +340,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
         }
       }),
 
-      j2x: Effect.fnUntraced(function* (
+      j2x: Effect.fnUntracedEager(function* (
         this: XmlBuilderState,
         jObj: Record<string, unknown>,
         level: number,
@@ -373,7 +373,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
         return { attrStr, val };
       }),
 
-      buildAttrPairStr: Effect.fnUntraced(function* (
+      buildAttrPairStr: Effect.fnUntracedEager(function* (
         this: XmlBuilderState,
         attrName: string,
         val: string,
@@ -471,7 +471,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
 
       checkStopNode: (matcher: Matcher) => matchesStopNode(matcher, stopNodeExpressions),
 
-      buildTextValNode: Effect.fnUntraced(function* (
+      buildTextValNode: Effect.fnUntracedEager(function* (
         this: XmlBuilderState,
         val: unknown,
         key: string,
@@ -515,7 +515,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
         return result;
       },
 
-      processTextOrObjNodeFor: Effect.fnUntraced(function* (
+      processTextOrObjNodeFor: Effect.fnUntracedEager(function* (
         this: XmlBuilderState,
         object: Record<string, unknown>,
         key: string,
@@ -676,7 +676,7 @@ function buildContentObjectNode(builder: XmlBuilderState, val: string, key: stri
  *
  * @returns An effect producing what the key contributes.
  */
-const renderKeyValue = Effect.fnUntraced(function* (
+const renderKeyValue = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
@@ -759,7 +759,7 @@ function renderEmptyNode(builder: XmlBuilderState, key: string, level: number): 
  *
  * @returns An effect producing what the key contributes.
  */
-const renderPrimitiveValue = Effect.fnUntraced(function* (
+const renderPrimitiveValue = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
@@ -793,7 +793,7 @@ const renderPrimitiveValue = Effect.fnUntraced(function* (
  *
  * @returns An effect producing the rendered body.
  */
-const renderPrimitiveTagValue = Effect.fnUntraced(function* (
+const renderPrimitiveTagValue = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
@@ -825,7 +825,7 @@ const renderPrimitiveTagValue = Effect.fnUntraced(function* (
  *
  * @returns An effect producing the rendered list.
  */
-const renderRepeatedNode = Effect.fnUntraced(function* (
+const renderRepeatedNode = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   resolvedKey: string,
   value: Array<unknown>,
@@ -879,7 +879,7 @@ const renderRepeatedNode = Effect.fnUntraced(function* (
  *
  * @returns An effect producing what the item contributes.
  */
-const renderListObjectItem = Effect.fnUntraced(function* (
+const renderListObjectItem = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   item: Record<string, unknown>,
   resolvedKey: string,
@@ -916,7 +916,7 @@ const renderListObjectItem = Effect.fnUntraced(function* (
  *
  * @returns An effect producing what the item contributes.
  */
-const renderListPrimitiveItem = Effect.fnUntraced(function* (
+const renderListPrimitiveItem = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   item: unknown,
   resolvedKey: string,
@@ -950,7 +950,7 @@ const renderListPrimitiveItem = Effect.fnUntraced(function* (
  *
  * @returns An effect producing what the key contributes.
  */
-const renderNestedObject = Effect.fnUntraced(function* (
+const renderNestedObject = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   key: string,
   resolvedKey: string,
@@ -977,7 +977,7 @@ const renderNestedObject = Effect.fnUntraced(function* (
  *
  * @returns An effect producing the group's attribute string.
  */
-const renderGroupedAttributes = Effect.fnUntraced(function* (
+const renderGroupedAttributes = Effect.fnUntracedEager(function* (
   builder: XmlBuilderState,
   group: Record<string, unknown>,
   ctx: WalkContext

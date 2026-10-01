@@ -60,14 +60,12 @@ export function resolveTagName(
   matcher: Matcher,
   qNameValidator: NameValidator
 ): Effect.Effect<string, BuilderError> {
-  return Effect.gen(function* () {
-    const resolve = options.sanitizeName;
-    if (!resolve) return name;
-    if (qNameValidator(name)) return name;
-    // `readOnly` is a plain read, so the view is built before the callback runs.
-    const view = matcher.readOnly();
-    return yield* tryResolveName(name, () => resolve(name, { isAttribute, matcher: view }));
-  });
+  const resolve = options.sanitizeName;
+  if (!resolve) return Effect.succeed(name);
+  if (qNameValidator(name)) return Effect.succeed(name);
+  // `readOnly` is a plain read, so the view is built before the callback runs.
+  const view = matcher.readOnly();
+  return tryResolveName(name, () => resolve(name, { isAttribute, matcher: view }));
 }
 
 /**
@@ -78,22 +76,22 @@ export function resolveTagName(
  *
  * @returns An effect producing the compiled patterns. Fails with the `PatternCompilationFailed` reason for a string that does not compile.
  */
-export function compileStopNodes(stopNodes: Array<string | Expression>): Effect.Effect<Array<Expression>, BuilderError> {
-  return Effect.gen(function* () {
-    const compiled: Array<Expression> = [];
-    if (Array.isArray(stopNodes)) {
-      for (let i = 0; i < stopNodes.length; i++) {
-        const node = stopNodes[i];
-        if (typeof node === 'string') {
-          compiled.push(yield* compilePattern(node));
-        } else if (node instanceof CompiledExpression) {
-          compiled.push(node);
-        }
+export const compileStopNodes = Effect.fnUntracedEager(function* (
+  stopNodes: Array<string | Expression>
+): Effect.fn.Return<Array<Expression>, BuilderError> {
+  const compiled: Array<Expression> = [];
+  if (Array.isArray(stopNodes)) {
+    for (let i = 0; i < stopNodes.length; i++) {
+      const node = stopNodes[i];
+      if (typeof node === 'string') {
+        compiled.push(yield* compilePattern(node));
+      } else if (node instanceof CompiledExpression) {
+        compiled.push(node);
       }
     }
-    return compiled;
-  });
-}
+  }
+  return compiled;
+});
 
 /**
  * @description Whether the matcher's current position matches any stop-node pattern.

@@ -324,7 +324,11 @@ export const runValueProcessor = (
   name: string,
   run: () => Effect.Effect<string | undefined, unknown>
 ): Effect.Effect<string | undefined, BuilderError> =>
-  Effect.mapError(run(), cause => {
+  // `mapErrorEager` keeps the result an exit when `run()` already resolved synchronously — the
+  // common case, since a hook's own work is usually pure — so the walk's eager iterator can inline
+  // it instead of routing through the fiber. A hook that is genuinely async still takes the normal
+  // path, and the failure is mapped the same way either way.
+  Effect.mapErrorEager(run(), cause => {
     const message = cause instanceof Error ? cause.message : String(cause);
     return new BuilderError({ reason: { _tag: 'ValueProcessingFailed', hook, name, cause: message }, message });
   });

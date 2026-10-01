@@ -54,7 +54,7 @@ export interface EncodingProfile {
  * @returns An effect producing the profile. Fails with `UNSUPPORTED_ENCODING` for an unknown name, `ENCODING_MISMATCH` when a BOM contradicts the
  *   declaration.
  */
-export const buildProfileForBuffer = Effect.fnUntraced(function* (
+export const buildProfileForBuffer = Effect.fnUntracedEager(function* (
   bytes: Uint8Array,
   decodingOptions: DecodingOptions = {},
   registry: EncodingRegistry = defaultEncodingRegistry

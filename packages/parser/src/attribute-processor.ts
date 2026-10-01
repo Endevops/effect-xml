@@ -39,55 +39,40 @@ function isIllegalAttrCode(c: number): boolean {
 }
 
 /**
- * @description Scan one quoted attribute value's characters from `i` up to `end` (exclusive), folding whitespace per XML §3.3.3 and rejecting illegal control
- * characters. Shared by both the fast path (closing quote position already known from `scanTagExpEnd`'s quote pairs) and the slow path (closing quote
- * found by scanning for `quote`) below — same rules either way.
- *
- * - Real `\r\n` pair → exactly one space (not two)
- * - Lone `\r` or lone `\n` → one space
- * - Literal tab (0x09) → one space (a `&#9;` reference is left untouched — that's resolved later, by the entity value-parser, not here)
- * - Other illegal control code → fails with `ILLEGAL_CHARACTER`
- *
- * @returns An effect producing the folded value, without the closing quote. Fails with `ILLEGAL_CHARACTER` on an illegal control code.
+ * @description What scanning one attribute produced: the match and where the next one starts, a value that was not quoted, the illegal control character in a
+ * value, or the end of the expression — only whitespace left.
  */
-const scanAttrValue = Effect.fnUntraced(function* (
-  attrStr: string,
-  i: number,
-  end: number,
-  parser: TagExpressionParser | undefined
-): Effect.fn.Return<string, IllegalCharacter> {
-  let value = '';
-  let segStart = i;
-  for (; i < end; i++) {
-    const c = attrStr.charCodeAt(i);
-    if (c === 13) {
-      // \r — possibly paired with a following \n
-      value += attrStr.substring(segStart, i) + ' ';
-      if (attrStr.charCodeAt(i + 1) === 10) i++;
-      segStart = i + 1;
-    } else if (c === 10 || c === 9) {
-      // lone \n, or literal tab
-      value += attrStr.substring(segStart, i) + ' ';
-      segStart = i + 1;
-    } else if (isIllegalAttrCode(c)) {
-      return yield* new IllegalCharacter({
-        charCode: c,
-        in: 'attribute',
-        message: `Illegal control character 0x${c.toString(16).padStart(2, '0')} in attribute value`,
-        index: parser ? errorPositionOf(parser.source).index : undefined,
-      });
-    }
-  }
-  value += attrStr.substring(segStart, i);
-  return value;
-});
+type AttrReadResult =
+  | { readonly kind: 'read'; readonly match: RawAttributeMatch; readonly next: number }
+  | { readonly kind: 'unquoted'; readonly name: string }
+  | { readonly kind: 'illegal'; readonly charCode: number }
+  | { readonly kind: 'end' };
+
+/**
+ * @description The fold of one quoted attribute value, or the illegal control character that stopped it. A result rather than an effect: the fold runs once per
+ * attribute of every tag, and returning a value keeps it out of the effect channel while {@link parseAttributes} still reports the failure in the same
+ * typed channel.
+ */
+type AttrValueFold = { readonly ok: true; readonly value: string } | { readonly ok: false; readonly charCode: number };
+
+/**
+ * @description Mutable cursor over the quote-pair list recorded by `scanTagExpEnd()`, carried across the attributes of one tag so each value can reuse the close
+ * position already found for it.
+ */
+interface PairCursor {
+  /**
+   * @description Index of the next unread pair.
+   */
+  idx: number;
+}
 
 /**
  * @description Parse an attribute expression string into an array of match tuples. Each element is `{ name, value, startIndex }` — `value` is `undefined` for a
  * boolean attribute (no `=`). A single O(n) pass over char codes with no regex and no recursion, which is what makes it safe for arbitrarily long
- * attribute strings. State machine: SEEK_NAME — skipping whitespace looking for the start of an attr name; IN_NAME — accumulating a name token until
- * whitespace or `=`; SEEK_VALUE — saw name + optional whitespace, now expecting `=` or the next name; IN_VALUE — inside a quoted value, accumulating
- * until the closing quote.
+ * attribute strings. The per-attribute step lives in {@link readOneAttribute} and the value fold in {@link foldAttributeValue}: both are plain
+ * functions, not effects, because the old shape routed every attribute through two extra generators — an effect boundary is a generator, an iterator
+ * pass and an exit allocation, and on a document of thousands of tags that was the bulk of the work. This generator keeps only the loop and the two
+ * failures, so the error channel is unchanged.
  *
  * @param attrStr - The raw attribute expression.
  * @param quotePairs - Flat `[openIdx, closeIdx, …]` list from `scanTagExpEnd()`, offsets relative to the _tag expression_ (not `attrStr`). When a
@@ -104,7 +89,7 @@ const scanAttrValue = Effect.fnUntraced(function* (
  * @returns An effect producing the parsed match tuples. Fails with `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote,
  *   `ILLEGAL_CHARACTER` on an illegal control code.
  */
-const parseAttributes = Effect.fnUntraced(function* (
+const parseAttributes = Effect.fnUntracedEager(function* (
   attrStr: string,
   quotePairs: Int32Array | undefined,
   attrsOffset: number | undefined,
@@ -112,70 +97,141 @@ const parseAttributes = Effect.fnUntraced(function* (
   parser?: TagExpressionParser
 ): Effect.fn.Return<Array<RawAttributeMatch>, ParseError> {
   const results: Array<RawAttributeMatch> = [];
-  const ctx: AttrScanContext = {
-    str: attrStr,
-    len: attrStr.length,
-    pairs: quotePairs,
-    pairsLen: quotePairsLen,
-    usePairs: quotePairs !== undefined && quotePairsLen > 0,
-    // `attrsOffset` is only absent on the paths that never reach here, but the
-    // original arithmetic let it become NaN rather than 0. Preserved on purpose:
-    // a mis-wired call then fails to match instead of silently matching against
-    // pair indices from the wrong origin.
-    pairBase: attrsOffset as number,
-    pairIdx: 0,
-    parser,
-  };
+  const len = attrStr.length;
+  const usePairs = quotePairs !== undefined && quotePairsLen > 0;
+  // `attrsOffset` is only absent on the paths that never reach here, but the
+  // original arithmetic let it become NaN rather than 0. Preserved on purpose:
+  // a mis-wired call then fails to match instead of silently matching against
+  // pair indices from the wrong origin.
+  const pairBase = attrsOffset as number;
+  const cursor: PairCursor = { idx: 0 };
 
   let i = 0;
-  while (i < ctx.len) {
-    const attr = yield* readAttribute(ctx, i);
-    // Only whitespace left — the expression is fully consumed.
-    if (attr === null) break;
-    results.push(attr.match);
-    i = attr.next;
+  while (true) {
+    const read = readOneAttribute(attrStr, len, i, usePairs, quotePairs, quotePairsLen, pairBase, cursor);
+    if (read.kind === 'end') break;
+
+    if (read.kind === 'unquoted') {
+      return yield* new UnquotedAttributeValue({
+        name: read.name,
+        message: `Attribute '${read.name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
+        index: parser ? errorPositionOf(parser.source).index : undefined,
+      });
+    }
+
+    if (read.kind === 'illegal') {
+      return yield* new IllegalCharacter({
+        charCode: read.charCode,
+        in: 'attribute',
+        message: `Illegal control character 0x${read.charCode.toString(16).padStart(2, '0')} in attribute value`,
+        index: parser ? errorPositionOf(parser.source).index : undefined,
+      });
+    }
+
+    results.push(read.match);
+    i = read.next;
   }
 
   return results;
 });
 
 /**
- * @description Everything `parseAttributes`' per-attribute step needs that does not change from one attribute to the next. Bundled because the step touches eight
- * inputs and threading them as parameters made the signature worse than the loop it replaced.
+ * @description Read the one attribute starting at `from`, through its value or up to the end of a boolean attribute. Plain and synchronous: it reports what it
+ * read, or which failure {@link parseAttributes} should raise, rather than failing in the effect channel itself.
+ *
+ * @param attrStr - The raw attribute expression.
+ * @param len - `attrStr.length`.
+ * @param from - Offset to start at, which may be whitespace.
+ * @param usePairs - Whether the recorded quote pairs are usable for this expression.
+ * @param pairs - The recorded quote pairs, or `undefined`.
+ * @param pairsLen - How many entries in `pairs` are valid.
+ * @param pairBase - Offset of `attrStr` within the coordinate system `pairs` is expressed in.
+ * @param cursor - The pair cursor, advanced when a recorded pair is consumed.
+ *
+ * @returns What was read: a match and the next offset, an unquoted value, an illegal control character, or the end of the expression.
  */
-interface AttrScanContext {
-  /**
-   * @description The raw attribute expression being parsed.
-   */
-  str: string;
-  /**
-   * @description `str.length`, carried so the helpers need not re-read it.
-   */
-  len: number;
-  /**
-   * @description Flattened `[open, close, …]` quote offsets recorded by the tag-end scanner, if any.
-   */
-  pairs: Int32Array | undefined;
-  /**
-   * @description Number of filled slots in `pairs`.
-   */
-  pairsLen: number;
-  /**
-   * @description Whether `pairs` is usable, decided once per expression.
-   */
-  usePairs: boolean;
-  /**
-   * @description Offset of `str` within the buffer `pairs` was recorded against.
-   */
-  pairBase: number;
-  /**
-   * @description Index of the next unread pair, advanced as pairs are consumed.
-   */
-  pairIdx: number;
-  /**
-   * @description Parser context, used only to report error positions.
-   */
-  parser: TagExpressionParser | undefined;
+// fallow-ignore-next-line complexity
+function readOneAttribute(
+  attrStr: string,
+  len: number,
+  from: number,
+  usePairs: boolean,
+  pairs: Int32Array | undefined,
+  pairsLen: number,
+  pairBase: number,
+  cursor: PairCursor
+): AttrReadResult {
+  // Skip whitespace between attributes
+  let i = skipSpaces(attrStr, from, len);
+  if (i >= len) return { kind: 'end' };
+
+  const nameStart = i;
+  const { name, next } = readAttrName(attrStr, i, len);
+
+  // Skip whitespace before '='
+  i = skipSpaces(attrStr, next, len);
+
+  // No '=' — a boolean attribute. It ends at the whitespace that stopped the name scan.
+  if (i >= len || attrStr.charCodeAt(i) !== EQUALS) {
+    return { kind: 'read', match: { name, value: undefined, startIndex: nameStart }, next: i };
+  }
+
+  i = skipSpaces(attrStr, i + 1, len); // past '='
+
+  // The character right after '=' (mod whitespace) MUST be a quote — this is
+  // never relaxed, in any mode. Reject before consuming anything, so an
+  // unquoted value never partially reaches the output builder.
+  const quote = attrStr.charCodeAt(i); // NaN when i >= len — rejects below
+  if (quote !== DOUBLE_QUOTE && quote !== SINGLE_QUOTE) return { kind: 'unquoted', name };
+
+  // Reuse a closing-quote position the tag-end scanner already recorded. When the pair recorded for
+  // this attribute's opening quote lines up, its close is already known and rescanning for it is
+  // wasted work. A mismatch falls through to the per-character scan, so correctness never depends
+  // on the fast path succeeding.
+  let closeLocal = -1;
+  if (usePairs && cursor.idx + 1 < pairsLen && (pairs as Int32Array)[cursor.idx] === i + pairBase) {
+    closeLocal = ((pairs as Int32Array)[cursor.idx + 1] as number) - pairBase;
+    cursor.idx += 2;
+  }
+
+  i++; // skip opening quote
+  const end = closeLocal >= 0 ? closeLocal : findClosingQuote(attrStr, i, len, quote);
+
+  const folded = foldAttributeValue(attrStr, i, end);
+  if (!folded.ok) return { kind: 'illegal', charCode: folded.charCode };
+
+  return { kind: 'read', match: { name, value: folded.value, startIndex: nameStart }, next: end + 1 }; // skip closing quote
+}
+
+/**
+ * @description Fold one quoted attribute value's whitespace per XML §3.3.3 and reject illegal control characters, in one pass. A real `\r\n` pair becomes one
+ * space (not two); a lone `\r`, lone `\n` or literal tab becomes one space; any other illegal code is reported back. A `&#9;` reference is left
+ * untouched — that is resolved later, by the entity value-parser, not here.
+ *
+ * @param attrStr - The expression the value came from.
+ * @param start - Offset of the value's first character, past the opening quote.
+ * @param end - Offset of the closing quote.
+ *
+ * @returns The folded value, or the illegal control character that stopped it.
+ */
+function foldAttributeValue(attrStr: string, start: number, end: number): AttrValueFold {
+  let value = '';
+  let segStart = start;
+  for (let j = start; j < end; j++) {
+    const c = attrStr.charCodeAt(j);
+    if (c === 13) {
+      value += attrStr.substring(segStart, j) + ' ';
+      if (attrStr.charCodeAt(j + 1) === 10) j++;
+      segStart = j + 1;
+    } else if (c === 10 || c === 9) {
+      value += attrStr.substring(segStart, j) + ' ';
+      segStart = j + 1;
+    } else if (isIllegalAttrCode(c)) {
+      return { ok: false, charCode: c };
+    }
+  }
+  value += attrStr.substring(segStart, end);
+  return { ok: true, value };
 }
 
 /**
@@ -190,57 +246,6 @@ const DOUBLE_QUOTE = 34;
  * @description Character code of `'`, the single-quote attribute delimiter.
  */
 const SINGLE_QUOTE = 39;
-
-/**
- * @description Parse the one attribute starting at `from`, through its value or up to the end of a boolean attribute.
- *
- * @param ctx - Expression-wide scan state. `ctx.pairIdx` advances when a recorded quote pair is consumed.
- * @param from - Offset to start at, which may be whitespace.
- *
- * @returns An effect producing the match and the offset the next attribute starts at, or `null` when `from` is at or past the end of the expression.
- *   Fails with `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote, plus whatever `scanAttrValue` reports for a value that is
- *   terminated but contains illegal characters.
- */
-const readAttribute = Effect.fnUntraced(function* (
-  ctx: AttrScanContext,
-  from: number
-): Effect.fn.Return<{ match: RawAttributeMatch; next: number } | null, ParseError> {
-  // Skip whitespace between attributes
-  let i = skipSpaces(ctx.str, from, ctx.len);
-  if (i >= ctx.len) return null;
-
-  const nameStart = i;
-  const { name, next } = readAttrName(ctx.str, i, ctx.len);
-
-  // Skip whitespace before '='
-  i = skipSpaces(ctx.str, next, ctx.len);
-
-  // No '=' — a boolean attribute. It ends at the whitespace that stopped the name scan.
-  if (i >= ctx.len || ctx.str.charCodeAt(i) !== EQUALS) {
-    return { match: { name, value: undefined, startIndex: nameStart }, next: i };
-  }
-
-  i = skipSpaces(ctx.str, i + 1, ctx.len); // past '='
-
-  // The character right after '=' (mod whitespace) MUST be a quote — this is
-  // never relaxed, in any mode. Reject before consuming anything, so an
-  // unquoted value never partially reaches the output builder.
-  const quote = ctx.str.charCodeAt(i); // NaN when i >= len — also fails both checks below
-  if (quote !== DOUBLE_QUOTE && quote !== SINGLE_QUOTE) {
-    return yield* new UnquotedAttributeValue({
-      name,
-      message: `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
-      index: ctx.parser ? errorPositionOf(ctx.parser.source).index : undefined,
-    });
-  }
-
-  const closeLocal = ctx.usePairs ? takeQuotePair(ctx, i) : -1;
-
-  i++; // skip opening quote
-  const end = closeLocal >= 0 ? closeLocal : findClosingQuote(ctx.str, i, ctx.len, quote);
-  const value = yield* scanAttrValue(ctx.str, i, end, ctx.parser);
-  return { match: { name, value, startIndex: nameStart }, next: end + 1 }; // skip closing quote
-});
 
 /**
  * @description Advance past XML whitespace, stopping at `len`. XML permits whitespace around `=` and between attributes, so this is needed in three places per
@@ -266,29 +271,9 @@ function readAttrName(attrStr: string, from: number, len: number): { name: strin
 }
 
 /**
- * @description Reuse a closing-quote position the tag-end scanner already recorded. `scanTagExpEnd` walks every attribute value on its way to the `>` that ends
- * the tag, recording where each quote pair opened and closed. When the pair recorded for this attribute's opening quote lines up, its close position
- * is already known and re-scanning for it character by character is wasted work — the difference between this and the slow path is a whole attribute
- * value per attribute on every tag.
- *
- * @param ctx - Expression-wide scan state; `ctx.pairIdx` advances by two on a hit.
- * @param openAt - Offset of this attribute's opening quote within `ctx.str`.
- *
- * @returns The closing-quote offset relative to `ctx.str`, or `-1` when no pair lines up and the caller should scan for it.
- */
-function takeQuotePair(ctx: AttrScanContext, openAt: number): number {
-  if (ctx.pairs === undefined || ctx.pairIdx + 1 >= ctx.pairsLen) return -1;
-  if (ctx.pairs[ctx.pairIdx] !== openAt + ctx.pairBase) return -1;
-
-  const closeLocal = (ctx.pairs[ctx.pairIdx + 1] as number) - ctx.pairBase;
-  ctx.pairIdx += 2;
-  return closeLocal;
-}
-
-/**
  * @description Find the closing quote for an attribute value by scanning forward from `from`.
  *
- * @returns The offset of the matching quote, or `len` if the value is unterminated — which `scanAttrValue` reports rather than this function
+ * @returns The offset of the matching quote, or `len` if the value is unterminated — which `parseAttributes` reports rather than this function
  *   throwing, so the unterminated case keeps its existing error.
  */
 function findClosingQuote(attrStr: string, from: number, len: number, quote: number): number {
@@ -338,7 +323,7 @@ export interface TagExpAttributeTarget {
  * @returns An effect that populates `tagExp`. Fails with `DUPLICATE_ATTRIBUTE` under `attributes.duplicate: 'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED`
  *   under `attributes.booleanType: 'throw'`, plus whatever `parseAttributes()` reports.
  */
-export const collectRawAttributes = Effect.fnUntraced(function* (
+export const collectRawAttributes = Effect.fnUntracedEager(function* (
   attrStr: string,
   parser: TagExpressionParser,
   tagExp: TagExpAttributeTarget,
@@ -389,57 +374,44 @@ interface AttrPolicy {
 }
 
 /**
+ * @description What to do with one parsed attribute occurrence.
+ */
+type OccurrenceDecision = 'accept' | 'drop' | 'duplicate' | 'valueless';
+
+/**
  * @description Decide whether one parsed occurrence of an attribute is processed at all. Duplicate detection runs first, so a repeated boolean attribute is
- * reported as a duplicate rather than as a second valueless one.
+ * reported as a duplicate rather than as a second valueless one. Plain and synchronous: the decision is reported back and {@link keepAttributes}
+ * raises the corresponding failure, which keeps the policy out of the effect channel while the failure still lands there.
  *
  * @param policy - Per-tag policies, with `policy.seen` updated on acceptance.
  * @param m - The parsed occurrence.
- * @param parser - Parser context, used to report error positions.
  *
- * @returns An effect producing `true` when this occurrence should be recorded. Fails with `DUPLICATE_ATTRIBUTE` under `attributes.duplicate:
- *   'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED` under `attributes.booleanType: 'throw'`.
+ * @returns `'accept'` to process it, `'drop'` to skip it, or which failure to raise.
  */
-const acceptOccurrence = Effect.fnUntraced(function* (
-  policy: AttrPolicy,
-  m: RawAttributeMatch,
-  parser: TagExpressionParser
-): Effect.fn.Return<boolean, DuplicateAttribute | BooleanAttributeRejected> {
+function decideOccurrence(policy: AttrPolicy, m: RawAttributeMatch): OccurrenceDecision {
   if (policy.seen !== null) {
-    if (policy.seen.has(m.name)) {
-      if (policy.dupMode === 'throw') {
-        return yield* new DuplicateAttribute({
-          name: m.name,
-          message: `Duplicate attribute '${m.name}'`,
-          index: errorPositionOf(parser.source).index,
-        });
-      }
-      return false; // 'ignore' — first occurrence wins, later ones dropped entirely
-    }
+    if (policy.seen.has(m.name)) return policy.dupMode === 'throw' ? 'duplicate' : 'drop';
     policy.seen.add(m.name);
   }
 
-  if (m.value !== undefined) return true;
+  if (m.value !== undefined) return 'accept';
 
-  if (policy.boolMode === 'throw') {
-    return yield* new BooleanAttributeRejected({
-      name: m.name,
-      message: `Valueless attribute '${m.name}' is not allowed`,
-      index: errorPositionOf(parser.source).index,
-    });
-  }
-  // 'ignore' drops it silently, rest of tag unaffected; 'allow' falls through with the value becoming `true` below.
-  return policy.boolMode === 'allow';
-});
+  // 'ignore' drops it silently, rest of tag unaffected; 'allow' falls through with the value becoming `true`.
+  if (policy.boolMode === 'throw') return 'valueless';
+  return policy.boolMode === 'allow' ? 'accept' : 'drop';
+}
 
 /**
  * @description Walk the parsed matches, apply the policies, process each surviving name once, and record what is left. `processAttrName()` is the expensive step
  * (ns-prefix resolution, name validation, sanitization, reserved-name check), so it runs only for occurrences the policies keep — and only once,
- * which is the whole point of pass 1 caching into `_parsedAttrs` for pass 2.
+ * which is the whole point of pass 1 caching into `_parsedAttrs` for pass 2. The policy decision itself is {@link decideOccurrence}, a plain
+ * function, so this generator carries only the loop and the two failures.
  *
  * @returns An effect producing the attributes that survived, in document order. Its length is also the surviving count, so `rawAttributesLen` needs
- *   no separate tally.
+ *   no separate tally. Fails with `DUPLICATE_ATTRIBUTE` under `attributes.duplicate: 'throw'`, `BOOLEAN_ATTRIBUTE_REJECTED` under
+ *   `attributes.booleanType: 'throw'`.
  */
-const keepAttributes = Effect.fnUntraced(function* (
+const keepAttributes = Effect.fnUntracedEager(function* (
   matches: Array<RawAttributeMatch>,
   parser: TagExpressionParser,
   tagExp: TagExpAttributeTarget,
@@ -448,7 +420,20 @@ const keepAttributes = Effect.fnUntraced(function* (
   const parsedAttrs: Array<ParsedAttribute> = [];
 
   for (const m of matches) {
-    if (!(yield* acceptOccurrence(policy, m, parser))) continue;
+    const decision = decideOccurrence(policy, m);
+    if (decision === 'drop') continue;
+
+    if (decision === 'duplicate') {
+      return yield* new DuplicateAttribute({ name: m.name, message: `Duplicate attribute '${m.name}'`, index: errorPositionOf(parser.source).index });
+    }
+
+    if (decision === 'valueless') {
+      return yield* new BooleanAttributeRejected({
+        name: m.name,
+        message: `Valueless attribute '${m.name}' is not allowed`,
+        index: errorPositionOf(parser.source).index,
+      });
+    }
 
     const attrName = yield* parser.processAttrName(m.name);
     if (attrName === false) continue;
@@ -481,7 +466,7 @@ const keepAttributes = Effect.fnUntraced(function* (
  * @returns An effect that pushes each attribute. Fails with `LIMIT_MAX_ATTRIBUTES` when the tag carries more attributes than the limit allows, or
  *   with a `DependencyError` when the builder's value-parser chain fails.
  */
-export const flushAttributes = Effect.fnUntraced(function* (
+export const flushAttributes = Effect.fnUntracedEager(function* (
   parsedAttrs: Array<ParsedAttribute> | undefined,
   parser: TagExpressionParser,
   attrsExpStart: number | undefined,

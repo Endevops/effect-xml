@@ -226,7 +226,7 @@ function renderOrderedTextValue(value: unknown, options: ResolvedXmlBuilderOptio
  *
  * @returns An effect producing what the node appends and what the flag becomes next, or `null` for a node with nothing to write.
  */
-const renderOrderedNode = Effect.fnUntraced(function* (
+const renderOrderedNode = Effect.fnUntracedEager(function* (
   tagObj: OrderedTag,
   rawTagName: string,
   isPreviousElementTag: boolean,
@@ -268,7 +268,7 @@ const renderOrderedNode = Effect.fnUntraced(function* (
  *
  * @returns An effect producing the name to write. Fails with the `NameResolutionFailed` reason when a configured `sanitizeName` throws.
  */
-const resolveOrderedName = Effect.fnUntraced(function* (rawTagName: string, ctx: OrderedWalkContext): Effect.fn.Return<string, BuilderError> {
+const resolveOrderedName = Effect.fnUntracedEager(function* (rawTagName: string, ctx: OrderedWalkContext): Effect.fn.Return<string, BuilderError> {
   const { options, matcher } = ctx;
   const isSpecialName =
     rawTagName === options.textNodeName || rawTagName === options.cdataPropName || rawTagName === options.commentPropName || rawTagName[0] === '?';
@@ -291,7 +291,7 @@ const resolveOrderedName = Effect.fnUntraced(function* (rawTagName: string, ctx:
  * @returns An effect producing what the node appends and what the flag becomes next, or `null` when the node is an element after all. Fails with the
  *   `ValueProcessingFailed` or `NameResolutionFailed` reason, propagated from whichever branch it takes.
  */
-const renderOrderedStandalone = Effect.fnUntraced(function* (
+const renderOrderedStandalone = Effect.fnUntracedEager(function* (
   tagObj: OrderedTag,
   rawTagName: string,
   tagName: string,
@@ -351,7 +351,7 @@ function lineBreakBefore(isPreviousElementTag: boolean, indentation: string): st
  *
  * @returns An effect producing the text. Fails with the `ValueProcessingFailed` reason if the configured `tagValueProcessor` does.
  */
-const renderOrderedText = Effect.fnUntraced(function* (
+const renderOrderedText = Effect.fnUntracedEager(function* (
   value: unknown,
   tagName: string,
   isStopNode: boolean,
@@ -377,7 +377,7 @@ const renderOrderedText = Effect.fnUntraced(function* (
  * @returns An effect producing the rendered element. Fails with the `MaxNestingExceeded` or `NameResolutionFailed` reason, propagated from the
  *   recursion into the body.
  */
-const renderOrderedElement = Effect.fnUntraced(function* (
+const renderOrderedElement = Effect.fnUntracedEager(function* (
   tagObj: OrderedTag,
   rawTagName: string,
   tagName: string,
@@ -594,7 +594,7 @@ function propName(obj: OrderedTag): string | undefined {
  *
  * @returns The attribute string.
  */
-const attrToStr = Effect.fnUntraced(function* (
+const attrToStr = Effect.fnUntracedEager(function* (
   attrMap: unknown,
   options: ResolvedXmlBuilderOptions,
   isStopNode: boolean,

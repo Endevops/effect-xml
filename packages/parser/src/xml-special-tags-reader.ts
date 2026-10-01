@@ -15,7 +15,7 @@ import { readPiExp, flushAttributes } from './xml-part-reader.ts';
  * @returns An effect that reads the section and appends its content. Fails with `UNEXPECTED_END` on a chunk boundary mid-section, `ILLEGAL_CHARACTER`
  *   on an illegal control code.
  */
-export const readCdata = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+export const readCdata = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
   // Level-1 inner mark: records where this reader began, used only by flush()
   // as a safe trim boundary. Does NOT overwrite the level-0 outer mark set by
   // parseXml()'s loop before it consumed '<![', which rewindToMark() restores to.
@@ -40,7 +40,7 @@ export const readCdata = Effect.fnUntraced(function* (parser: TagExpressionParse
  * @returns An effect that reads the instruction and announces it. Fails with `INVALID_TAG` when the expression can't be read, plus whatever
  *   `readPiExp()` reports.
  */
-export const readPiTag = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+export const readPiTag = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
   const skipOptions = parser.options.skip;
   parser.source.markTokenStart(1);
   //<? already consumed
@@ -98,7 +98,7 @@ export const readPiTag = Effect.fnUntraced(function* (parser: TagExpressionParse
  * @returns An effect that reads the comment and appends its content. Fails with `UNEXPECTED_END` on a chunk boundary mid-comment, `ILLEGAL_CHARACTER`
  *   on an illegal control code.
  */
-export const readComment = Effect.fnUntraced(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
+export const readComment = Effect.fnUntracedEager(function* (parser: TagExpressionParser): Effect.fn.Return<void, ParseError> {
   parser.source.markTokenStart(1);
   //<!- already consumed
   yield* expectMatch(parser.source, '-', 'comment second dash');

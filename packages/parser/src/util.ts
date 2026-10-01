@@ -90,7 +90,7 @@ function isIllegalControlCode(c: number): boolean {
  * @returns An effect producing the normalized text, or `str` itself when there is no `\r` to fold (the fast path allocates nothing). Fails with
  *   `ILLEGAL_CHARACTER` on any illegal control code.
  */
-export const sanitizeContent = Effect.fnUntraced(function* (str: string, source?: InputSourceLike): Effect.fn.Return<string, IllegalCharacter> {
+export const sanitizeContent = Effect.fnUntracedEager(function* (str: string, source?: InputSourceLike): Effect.fn.Return<string, IllegalCharacter> {
   const len = str.length;
   let hasCR = false;
   for (let i = 0; i < len; i++) {
@@ -131,7 +131,7 @@ export const sanitizeContent = Effect.fnUntraced(function* (str: string, source?
  *
  * @returns An effect that fails with `UNEXPECTED_END` when the buffer is too short to decide, `INVALID_TAG` on a definite mismatch.
  */
-export const expectMatch = Effect.fnUntraced(function* (
+export const expectMatch = Effect.fnUntracedEager(function* (
   source: InputSourceLike,
   expected: string,
   errorMsg: string,
@@ -158,7 +158,7 @@ export const expectMatch = Effect.fnUntraced(function* (
  *
  * @returns An effect that fails with `UNEXPECTED_END` when fewer than `n` characters are buffered.
  */
-export const ensureCanRead = Effect.fnUntraced(function* (
+export const ensureCanRead = Effect.fnUntracedEager(function* (
   source: InputSourceLike,
   n: number,
   errorMsg: string

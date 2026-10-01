@@ -251,7 +251,7 @@ export const makeBaseOutputBuilder = (
      * @description Record an attribute on the current element. The base implementation writes into `this.attributes`, which only exists on subclass shapes that
      * keep a flat attribute bag.
      */
-    addAttribute: Effect.fnUntraced(function* (
+    addAttribute: Effect.fnUntracedEager(function* (
       this: OutputBuilder,
       name: string,
       value: unknown,

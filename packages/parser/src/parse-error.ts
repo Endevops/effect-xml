@@ -1185,7 +1185,10 @@ export const fromUpstreamError = (cause: XmlError | BuilderError): DependencyErr
  * @returns An effect producing the successful value, failing with {@link DependencyError}.
  */
 export const runBuilder = <A>(effect: Effect.Effect<A, BuilderError>): Effect.Effect<A, DependencyError> =>
-  Effect.mapError(effect, fromUpstreamError);
+  // Eager: `closeElement` / `addAttribute` resolve synchronously for the built-in builder, so this
+  // keeps their result an exit the walk can inline. A builder method that is genuinely async still
+  // takes the normal path, and the mapping is identical either way.
+  Effect.mapErrorEager(effect, fromUpstreamError);
 
 /**
  * @description Convert anything that escaped a parser entry point into the `E` channel. The public API promises {@link ParseError} and nothing else, and the path

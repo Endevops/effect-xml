@@ -47,7 +47,7 @@ interface BomMatch {
  *
  * @returns An effect producing the detection. Fails with `ENCODING_MISMATCH` when the BOM and the declaration disagree.
  */
-export const sniff = Effect.fnUntraced(function* (
+export const sniff = Effect.fnUntracedEager(function* (
   bytes: Uint8Array,
   registry: EncodingRegistry
 ): Effect.fn.Return<EncodingDetection, EncodingMismatch> {

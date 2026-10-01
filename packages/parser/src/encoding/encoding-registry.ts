@@ -72,7 +72,7 @@ export const makeEncodingRegistry = (): EncodingRegistry => {
    */
   const byName = new Map<string, ResolvedEncodingDescriptor>();
 
-  const register = Effect.fnUntraced(function* (descriptor: EncodingDescriptor): Effect.fn.Return<void, InvalidDecoder> {
+  const register = Effect.fnUntracedEager(function* (descriptor: EncodingDescriptor): Effect.fn.Return<void, InvalidDecoder> {
     if (!descriptor || typeof descriptor.name !== 'string' || !descriptor.name) {
       return yield* new InvalidDecoder({ message: 'Encoding descriptor requires a non-empty "name"' });
     }

@@ -289,21 +289,23 @@ export const makeValueParserPipeline = (
     valParsers,
     registry,
     sharedContext: context,
-    run: (val, runtimeContext) =>
-      Effect.gen(function* () {
-        for (let i = 0; i < valParsers.length; i++) {
-          const entry = valParsers[i];
-          // A name is resolved on every run, so a parser registered after
-          // construction takes effect without rebuilding the pipeline.
-          const parser = typeof entry === 'string' ? yield* registry.get(entry) : entry;
-          if (parser) {
-            const result = yield* parser.parse(val, runtimeContext);
-            if (isFinalValue(result)) return result.value;
-            val = result;
-          }
+    // Eager: the built-in chains are synchronous, so the whole loop resolves during construction and
+    // the caller's own eager iterator can inline it. A parser that is genuinely async falls back to
+    // the normal fiber path, and every failure stays in the chain's error channel either way.
+    run: Effect.fnUntracedEager(function* (val: unknown, runtimeContext?: Context): Effect.fn.Return<unknown, BuilderError> {
+      for (let i = 0; i < valParsers.length; i++) {
+        const entry = valParsers[i];
+        // A name is resolved on every run, so a parser registered after
+        // construction takes effect without rebuilding the pipeline.
+        const parser = typeof entry === 'string' ? yield* registry.get(entry) : entry;
+        if (parser) {
+          const result = yield* parser.parse(val, runtimeContext);
+          if (isFinalValue(result)) return result.value;
+          val = result;
         }
-        return val;
-      }),
+      }
+      return val;
+    }),
     resetAll: () => {
       for (let i = 0; i < valParsers.length; i++) {
         const entry = valParsers[i];

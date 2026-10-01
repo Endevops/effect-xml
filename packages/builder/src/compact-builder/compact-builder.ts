@@ -240,7 +240,7 @@ export const makeCompactBuilder = (
     /**
      * @description Close a tag: work out the shape its accumulated state takes, then write it into the parent.
      */
-    closeElement: Effect.fnUntraced(function* (
+    closeElement: Effect.fnUntracedEager(function* (
       this: CompactBuilder,
       matcher: MatcherView,
       closeMeta?: { name: string; index?: number | undefined; closeEnd?: number | undefined }
@@ -285,7 +285,7 @@ export const makeCompactBuilder = (
       hasAttributes: boolean,
       context: ValueContext
     ): Effect.Effect<CompactValue, BuilderError> {
-      return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
+      return Effect.mapEager(this._parseText(textValue, context), (parsedText): CompactValue => {
         if (hasAttributes) {
           // Attributes are present — value is already an object. Only write the
           // text node when there is actual text content; an empty parsedText
@@ -304,7 +304,7 @@ export const makeCompactBuilder = (
      */
     _closedContainerValue(value: CompactValue, textValue: string, context: ValueContext): Effect.Effect<CompactValue, BuilderError> {
       if (textValue.length === 0 && !this.builderOptions.forceTextNode) return Effect.succeed(value);
-      return Effect.map(this._parseText(textValue, context), (parsedText): CompactValue => {
+      return Effect.mapEager(this._parseText(textValue, context), (parsedText): CompactValue => {
         (value as Record<string, unknown>)[this.parserOptions.nameFor.text] = parsedText;
         return value;
       });
