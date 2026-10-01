@@ -53,7 +53,8 @@
       ".": "./dist/index.js",
       "./package.json": "./package.json"
     },
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "vp pack",

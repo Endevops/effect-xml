@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [master, develop, 'feature/*', 'hotfix/*']
+  pull_request:
+    branches: [master, develop, 'feature/*', 'hotfix/*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Install, lint, test, build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: 0
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  release:
+    name: Version, tag, and publish
+    needs: build-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create git tags and GitHub releases
+      issues: write # comment on issues closed by a release
+      pull-requests: write # comment on PRs closed by a release
+      id-token: write # OIDC trusted publishing / npm provenance
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history for version analysis
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@endevops'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: 0
+
+      - name: Build
+        run: pnpm build
+
+      - name: Semantic release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm exec semantic-release

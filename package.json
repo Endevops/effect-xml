@@ -29,13 +29,22 @@
     "lint": "vp lint",
     "prepack": "pnpm build",
     "prepare": "vp config",
-    "test": "vp test"
+    "release": "semantic-release",
+    "release:dry": "semantic-release --dry-run",
+    "test": "vp test",
+    "version:sync": "node scripts/release/sync-versions.mjs"
   },
   "devDependencies": {
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^11.0.1",
+    "@semantic-release/github": "^12.0.10",
+    "@semantic-release/release-notes-generator": "^14.1.1",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "5.0.1",
     "effect": "4.0.0-rc.117",
     "fallow": "^3.30.0",
+    "semantic-release": "25.0.9",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"

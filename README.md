@@ -95,8 +95,15 @@ more than one package exists.
 
 ## Publishing
 
-`prepublishOnly` runs `vp pack` in the package, so `pnpm -r publish` builds each
-package before it goes out. The root manifest is `private` and is never
+Releases are automatic. `semantic-release` runs in CI on `master`, `develop`,
+`feature/*` and `hotfix/*`, derives the next version from
+[Conventional Commits](https://www.conventionalcommits.org), writes that one
+version into the root manifest and every package manifest, and publishes every
+package at it. See [docs/versioning.md](./docs/versioning.md) for the branches,
+bump rules and channels.
+
+`prepublishOnly` runs `vp pack` in each package, so `pnpm -r publish` builds
+each package before it goes out. The root manifest is `private` and is never
 published.
 
 ## License
