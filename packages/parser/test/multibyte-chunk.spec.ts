@@ -1,8 +1,11 @@
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 import { Readable } from 'stream';
-import { describe, it, expect } from 'vite-plus/test';
+
+import type { ParsedNode } from '#/test/helpers/test-runner.ts';
 
 import FeedableSource from '#/input-source/feedable-source.ts';
-import { endDoc, streamDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -103,36 +106,40 @@ describe('multi-byte UTF-8 across chunk boundaries', () => {
   });
 
   describe('XMLParser.feed()/end() API', () => {
-    it('parses correctly when a multi-byte char is split across feed() Buffer chunks', () => {
-      const full = `<root><val>${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}</val></root>`;
-      const buf = Buffer.from(full, 'utf8');
-      const parser = makeParser();
+    it.effect('parses correctly when a multi-byte char is split across feed() Buffer chunks', () =>
+      Effect.gen(function* () {
+        const full = `<root><val>${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}</val></root>`;
+        const buf = Buffer.from(full, 'utf8');
+        const parser = yield* XMLParser.make();
 
-      // Feed one byte at a time — the worst case, guarantees every
-      // multi-byte character gets split across chunk boundaries.
-      for (let i = 0; i < buf.length; i++) {
-        runParser(parser.feed(buf.subarray(i, i + 1)));
-      }
-      const result = endDoc(parser);
-      expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
-    });
+        // Feed one byte at a time — the worst case, guarantees every
+        // multi-byte character gets split across chunk boundaries.
+        for (let i = 0; i < buf.length; i++) {
+          yield* parser.feed(buf.subarray(i, i + 1));
+        }
+        const result = (yield* parser.end()) as ParsedNode;
+        expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
+      })
+    );
   });
 
   describe('XMLParser.parseStream()', () => {
-    it('parses correctly when a multi-byte char is split across stream chunk boundaries', async () => {
-      const full = `<root><val>${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}</val></root>`;
-      const buf = Buffer.from(full, 'utf8');
+    it.effect('parses correctly when a multi-byte char is split across stream chunk boundaries', () =>
+      Effect.gen(function* () {
+        const full = `<root><val>${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}</val></root>`;
+        const buf = Buffer.from(full, 'utf8');
 
-      // Chop into fixed-size byte chunks; with size=1 this guarantees every
-      // multi-byte character is split, exercising the exact reported bug.
-      const chunks = [];
-      for (let i = 0; i < buf.length; i += 3) {
-        chunks.push(buf.subarray(i, i + 3));
-      }
+        // Chop into fixed-size byte chunks; with size=1 this guarantees every
+        // multi-byte character is split, exercising the exact reported bug.
+        const chunks = [];
+        for (let i = 0; i < buf.length; i += 3) {
+          chunks.push(buf.subarray(i, i + 3));
+        }
 
-      const parser = makeParser();
-      const result = await streamDoc(parser, makeBufferStream(chunks));
-      expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
-    });
+        const parser = yield* XMLParser.make();
+        const result = (yield* parser.parseStream(makeBufferStream(chunks))) as ParsedNode;
+        expect(result.root.val).toBe(`${THREE_BYTE} ${FOUR_BYTE} ${TWO_BYTE}`);
+      })
+    );
   });
 });

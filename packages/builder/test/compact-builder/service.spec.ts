@@ -4,40 +4,49 @@
  * an effect, that the layer provides it to a program, and that a bad configuration fails at construction rather than at first use.
  */
 
-import { Effect } from 'effect';
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Effect, Result } from 'effect';
 
 import { CompactBuilderFactory } from '#/index.ts';
-import { failedWith, run } from '#/test/helpers/effect.ts';
 
 describe('CompactBuilderFactory service — make', () => {
-  it('produces a factory that hands out a builder per document', () => {
-    const factory = run(CompactBuilderFactory.make());
-    const builder = run(factory.getInstance({}, null));
-    expect(typeof builder.addElement).toBe('function');
-    expect(typeof builder.closeElement).toBe('function');
-  });
+  it.effect('produces a factory that hands out a builder per document', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make();
+      const builder = yield* factory.getInstance({}, null);
+      expect(typeof builder.addElement).toBe('function');
+      expect(typeof builder.closeElement).toBe('function');
+    })
+  );
 
-  it('fails at construction for an empty alwaysArray pattern', () => {
-    const error = failedWith(CompactBuilderFactory.make({ alwaysArray: [''] }), 'InvalidOptionEntry');
-    expect(error.reason._tag).toBe('InvalidOptionEntry');
-  });
+  it.effect('fails at construction for an empty alwaysArray pattern', () =>
+    Effect.gen(function* () {
+      const result = yield* CompactBuilderFactory.make({ alwaysArray: [''] }).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.reason._tag).toBe('InvalidOptionEntry');
+    })
+  );
 });
 
 describe('CompactBuilderFactory service — layer', () => {
-  it('provides the service to a program that yields it', () => {
-    const program = Effect.gen(function* () {
-      const factory = yield* CompactBuilderFactory;
-      return yield* factory.getInstance({}, null);
-    });
+  it.effect('provides the service to a program that yields it', () =>
+    Effect.gen(function* () {
+      const program = Effect.gen(function* () {
+        const factory = yield* CompactBuilderFactory;
+        return yield* factory.getInstance({}, null);
+      });
 
-    const builder = run(Effect.provide(program, CompactBuilderFactory.layer()));
-    expect(typeof builder.addElement).toBe('function');
-  });
+      const builder = yield* Effect.provide(program, CompactBuilderFactory.layer());
+      expect(typeof builder.addElement).toBe('function');
+    })
+  );
 
-  it('fails while building the layer for a bad configuration', () => {
-    const layer = CompactBuilderFactory.layer({ alwaysArray: [''] });
-    const error = failedWith(Effect.provide(Effect.asVoid(CompactBuilderFactory), layer), 'InvalidOptionEntry');
-    expect(error.reason._tag).toBe('InvalidOptionEntry');
-  });
+  it.effect('fails while building the layer for a bad configuration', () =>
+    Effect.gen(function* () {
+      const layer = CompactBuilderFactory.layer({ alwaysArray: [''] });
+      const result = yield* Effect.provide(Effect.asVoid(CompactBuilderFactory), layer).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.reason._tag).toBe('InvalidOptionEntry');
+    })
+  );
 });

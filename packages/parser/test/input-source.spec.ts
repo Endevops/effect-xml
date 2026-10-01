@@ -1,68 +1,81 @@
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, it, expect } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import BufferSource from '#/input-source/buffer-source.ts';
 import FeedableSource from '#/input-source/feedable-source.ts';
-import { parseDoc, bytesDoc, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 describe('Input Sources', function () {
-  it('should parse from string', function () {
-    const xmlString = '<root><tag>value</tag></root>';
-    const parser = makeParser();
-    const result = parseDoc(parser, xmlString);
+  it.effect('should parse from string', () =>
+    Effect.gen(function* () {
+      const xmlString = '<root><tag>value</tag></root>';
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse(xmlString);
 
-    expect(result.root.tag).toBe('value');
-  });
+      expect(result.root.tag).toBe('value');
+    })
+  );
 
-  it('should parse from Buffer', function () {
-    const xmlString = '<root><tag>123</tag></root>';
-    const buffer = Buffer.from(xmlString);
-    const parser = makeParser();
-    const result = parseDoc(parser, buffer);
+  it.effect('should parse from Buffer', () =>
+    Effect.gen(function* () {
+      const xmlString = '<root><tag>123</tag></root>';
+      const buffer = Buffer.from(xmlString);
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse(buffer);
 
-    expect(result.root.tag).toBe(123);
-  });
+      expect(result.root.tag).toBe(123);
+    })
+  );
 
-  it('should parse from Uint8Array using parseBytesArr', function () {
-    const xmlString = '<root><tag>test</tag></root>';
-    const uint8Array = new Uint8Array(Buffer.from(xmlString));
-    const parser = makeParser();
-    const result = bytesDoc(parser, uint8Array);
+  it.effect('should parse from Uint8Array using parseBytesArr', () =>
+    Effect.gen(function* () {
+      const xmlString = '<root><tag>test</tag></root>';
+      const uint8Array = new Uint8Array(Buffer.from(xmlString));
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parseBytesArr(uint8Array);
 
-    expect(result.root.tag).toBe('test');
-  });
+      expect(result.root.tag).toBe('test');
+    })
+  );
 
-  it('should handle UTF-8 encoded content', function () {
-    const xmlString = '<root><tag>Hello 世界 🌍</tag></root>';
-    const parser = makeParser();
-    const result = parseDoc(parser, xmlString);
+  it.effect('should handle UTF-8 encoded content', () =>
+    Effect.gen(function* () {
+      const xmlString = '<root><tag>Hello 世界 🌍</tag></root>';
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse(xmlString);
 
-    expect(result.root.tag).toBe('Hello 世界 🌍');
-  });
+      expect(result.root.tag).toBe('Hello 世界 🌍');
+    })
+  );
 
-  it('should use feed/end API for streaming', function () {
-    const parser = makeParser();
+  it.effect('should use feed/end API for streaming', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
 
-    runParser(parser.feed('<root>'));
-    runParser(parser.feed('<tag>value</tag>'));
-    runParser(parser.feed('</root>'));
-    const result = endDoc(parser);
+      yield* parser.feed('<root>');
+      yield* parser.feed('<tag>value</tag>');
+      yield* parser.feed('</root>');
+      const result = yield* parser.end();
 
-    expect(result.root.tag).toBe('value');
-  });
+      expect(result.root.tag).toBe('value');
+    })
+  );
 
-  it('should handle chunked streaming data', function () {
-    const parser = makeParser();
-    const chunks = ['<root>', '<items>', '<item>first</item>', '<item>second</item>', '</items>', '</root>'];
+  it.effect('should handle chunked streaming data', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const chunks = ['<root>', '<items>', '<item>first</item>', '<item>second</item>', '</items>', '</root>'];
 
-    chunks.forEach(chunk => {
-      runParser(parser.feed(chunk));
-    });
-    const result = endDoc(parser);
+      for (const chunk of chunks) {
+        yield* parser.feed(chunk);
+      }
+      const result = yield* parser.end();
 
-    expect(Array.isArray(result.root.items.item)).toBe(true);
-    expect(result.root.items.item[0]).toBe('first');
-    expect(result.root.items.item[1]).toBe('second');
-  });
+      expect(Array.isArray(result.root.items.item)).toBe(true);
+      expect(result.root.items.item[0]).toBe('first');
+      expect(result.root.items.item[1]).toBe('second');
+    })
+  );
 });
 
 describe('FeedableSource autoFlush', function () {
@@ -123,33 +136,35 @@ describe('FeedableSource autoFlush', function () {
     expect(source.buffer.length).toBeLessThan(fed.length);
   });
 
-  it('end-to-end via XMLParser.feed(): internal buffer stays bounded on a real parse session (fixed)', function () {
-    // Same scenario as before, through the public API, so it can't be
-    // dismissed as an artifact of calling FeedableSource methods in an
-    // unrealistic order.
-    const parser = makeParser({ feedable: { flushThreshold: 64 } });
+  it.effect('end-to-end via XMLParser.feed(): internal buffer stays bounded on a real parse session (fixed)', () =>
+    Effect.gen(function* () {
+      // Same scenario as before, through the public API, so it can't be
+      // dismissed as an artifact of calling FeedableSource methods in an
+      // unrealistic order.
+      const parser = yield* XMLParser.make({ feedable: { flushThreshold: 64 } });
 
-    const item = '<item><name>value</name></item>';
-    const chunkSize = 8; // small chunks to force many feed()/parseXml() cycles
-    let totalFed = 0;
-    let peakBuffer = 0;
+      const item = '<item><name>value</name></item>';
+      const chunkSize = 8; // small chunks to force many feed()/parseXml() cycles
+      let totalFed = 0;
+      let peakBuffer = 0;
 
-    for (let n = 0; n < 200; n++) {
-      for (let i = 0; i < item.length; i += chunkSize) {
-        const chunk = item.slice(i, i + chunkSize);
-        runParser(parser.feed(chunk));
-        totalFed += chunk.length;
-        peakBuffer = Math.max(peakBuffer, runParser(parser.getFeedBufferLength()) as number);
+      for (let n = 0; n < 200; n++) {
+        for (let i = 0; i < item.length; i += chunkSize) {
+          const chunk = item.slice(i, i + chunkSize);
+          yield* parser.feed(chunk);
+          totalFed += chunk.length;
+          peakBuffer = Math.max(peakBuffer, parser.getFeedBufferLength() as number);
+        }
       }
-    }
-    const bufferLenBeforeEnd = runParser(parser.getFeedBufferLength()) as number;
-    runParser(parser.end());
+      const bufferLenBeforeEnd = parser.getFeedBufferLength() as number;
+      yield* parser.end();
 
-    // With autoFlush working, the live buffer should stay well below the
-    // total fed across the whole 200-repetition session, not track it 1:1.
-    expect(bufferLenBeforeEnd).toBeLessThan(totalFed / 2);
-    expect(peakBuffer).toBeLessThan(totalFed / 2);
-  });
+      // With autoFlush working, the live buffer should stay well below the
+      // total fed across the whole 200-repetition session, not track it 1:1.
+      expect(bufferLenBeforeEnd).toBeLessThan(totalFed / 2);
+      expect(peakBuffer).toBeLessThan(totalFed / 2);
+    })
+  );
 });
 
 describe('BufferSource.readFromBuffer (item 10b fix)', function () {

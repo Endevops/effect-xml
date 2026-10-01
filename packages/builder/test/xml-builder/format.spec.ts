@@ -3,11 +3,12 @@
  * plain-object case is a known open issue, so it is skipped rather than deleted.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { run, makeBuilder } from '#/test/helpers/effect.ts';
+import { XMLBuilder } from '#/index.ts';
 
 describe('Format without indentation', function () {
   const expectedXml = `
@@ -16,27 +17,31 @@ describe('Format without indentation', function () {
 <child2>world</child2>
 </root>`;
 
-  it('when order is preserved', function () {
-    const jObj = [{ root: [{ child1: [{ '#text': 'hello' }] }, { child2: [{ '#text': 'world' }] }] }];
+  it.effect('when order is preserved', () =>
+    Effect.gen(function* () {
+      const jObj = [{ root: [{ child1: [{ '#text': 'hello' }] }, { child2: [{ '#text': 'world' }] }] }];
 
-    const builderOptions: XmlBuilderOptions = { format: true, preserveOrder: true, indentBy: '' };
+      const builderOptions: XmlBuilderOptions = { format: true, preserveOrder: true, indentBy: '' };
 
-    const builder = makeBuilder(builderOptions);
-    const output = run(builder.build(jObj));
-    expect(output).toEqual(expectedXml);
-  });
+      const builder = yield* XMLBuilder.make(builderOptions);
+      const output = yield* builder.build(jObj);
+      expect(output).toEqual(expectedXml);
+    })
+  );
 
   // oxlint-disable-next-line vitest/no-disabled-tests
-  it.skip('when order is not preserved', function () {
-    // TODO: This test is failing due an extra line in the starting of the document
-    // But not changing the behavior for backward compatibility.
-    // Will be fixed in major release
-    const jObj = { root: { child1: 'hello', child2: 'world' } };
+  it.effect.skip('when order is not preserved', () =>
+    Effect.gen(function* () {
+      // TODO: This test is failing due an extra line in the starting of the document
+      // But not changing the behavior for backward compatibility.
+      // Will be fixed in major release
+      const jObj = { root: { child1: 'hello', child2: 'world' } };
 
-    const builderOptions: XmlBuilderOptions = { format: true, indentBy: '' };
+      const builderOptions: XmlBuilderOptions = { format: true, indentBy: '' };
 
-    const builder = makeBuilder(builderOptions);
-    const output = run(builder.build(jObj));
-    expect(output).toEqual(expectedXml);
-  });
+      const builder = yield* XMLBuilder.make(builderOptions);
+      const output = yield* builder.build(jObj);
+      expect(output).toEqual(expectedXml);
+    })
+  );
 });

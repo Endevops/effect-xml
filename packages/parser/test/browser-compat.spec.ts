@@ -1,9 +1,10 @@
+import { describe, expect, it } from '@effect/vitest';
+import { Effect, Result } from 'effect';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect } from 'vite-plus/test';
 
-import { bytesDoc, makeParser, parseDoc } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 /**
  * @description Guards the property that lets this package run in a browser: the parser depends on `Uint8Array` and the global `TextDecoder`, never on a Node
@@ -79,73 +80,78 @@ describe('Browser compatibility', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('uses only globals that exist in a browser for decoding', () => {
-    // The decoders are built on TextDecoder precisely because it is available
-    // natively in both Node (since 11) and every modern browser, where
-    // `node:string_decoder` is not. This asserts the built-in descriptors
-    // still resolve, which they cannot without a global TextDecoder.
-    const parser = makeParser();
-    const utf8 = new Uint8Array([0x3c, 0x72, 0x3e, 0x63, 0x61, 0x66, 0xc3, 0xa9, 0x3c, 0x2f, 0x72, 0x3e]); // <r>café</r>
-    expect(bytesDoc(parser, utf8)).toEqual({ r: 'café' });
-  });
+  it.effect('uses only globals that exist in a browser for decoding', () =>
+    Effect.gen(function* () {
+      // The decoders are built on TextDecoder precisely because it is available
+      // natively in both Node (since 11) and every modern browser, where
+      // `node:string_decoder` is not. This asserts the built-in descriptors
+      // still resolve, which they cannot without a global TextDecoder.
+      const parser = yield* XMLParser.make();
+      const utf8 = new Uint8Array([0x3c, 0x72, 0x3e, 0x63, 0x61, 0x66, 0xc3, 0xa9, 0x3c, 0x2f, 0x72, 0x3e]); // <r>café</r>
+      expect(yield* parser.parseBytesArr(utf8)).toEqual({ r: 'café' });
+    })
+  );
 
-  it('parses byte input built without Buffer anywhere', () => {
-    // Every byte below is written out by hand, so this whole path never touches
-    // a Node global to produce its input. A dependency on Buffer would throw a
-    // ReferenceError here rather than pass silently under Node.
-    const doc = new Uint8Array([
-      0x3c,
-      0x72,
-      0x6f,
-      0x6f,
-      0x74,
-      0x3e, // <root>
-      0x3c,
-      0x61,
-      0x20,
-      0x69,
-      0x64,
-      0x3d,
-      0x22,
-      0x31,
-      0x22,
-      0x3e, // <a id="1">
-      0xe2,
-      0x9c,
-      0x93, // ✓ three bytes
-      0x3c,
-      0x2f,
-      0x61,
-      0x3e, // </a>
-      0x3c,
-      0x2f,
-      0x72,
-      0x6f,
-      0x6f,
-      0x74,
-      0x3e, // </root>
-    ]);
-    const parser = makeParser({ skip: { attributes: false } });
-    expect(bytesDoc(parser, doc)).toEqual({ root: { a: { '@_id': 1, '#text': '✓' } } });
-  });
+  it.effect('parses byte input built without Buffer anywhere', () =>
+    Effect.gen(function* () {
+      // Every byte below is written out by hand, so this whole path never touches
+      // a Node global to produce its input. A dependency on Buffer would throw a
+      // ReferenceError here rather than pass silently under Node.
+      const doc = new Uint8Array([
+        0x3c,
+        0x72,
+        0x6f,
+        0x6f,
+        0x74,
+        0x3e, // <root>
+        0x3c,
+        0x61,
+        0x20,
+        0x69,
+        0x64,
+        0x3d,
+        0x22,
+        0x31,
+        0x22,
+        0x3e, // <a id="1">
+        0xe2,
+        0x9c,
+        0x93, // ✓ three bytes
+        0x3c,
+        0x2f,
+        0x61,
+        0x3e, // </a>
+        0x3c,
+        0x2f,
+        0x72,
+        0x6f,
+        0x6f,
+        0x74,
+        0x3e, // </root>
+      ]);
+      const parser = yield* XMLParser.make({ skip: { attributes: false } });
+      expect(yield* parser.parseBytesArr(doc)).toEqual({ root: { a: { '@_id': 1, '#text': '✓' } } });
+    })
+  );
 
-  it('reports a character offset for byte input, matching the string path', () => {
-    // A consequence of decoding before scanning: the reported index is a
-    // character offset for every input, so it can be used to slice the decoded
-    // text. Under the old byte-scan path this was a byte offset, which could
-    // not be used against the text at all.
-    const indexOf = (xml: string, asBytes: boolean) => {
-      const parser = makeParser();
-      try {
-        if (asBytes) bytesDoc(parser, new TextEncoder().encode(xml));
-        else parseDoc(parser, xml);
-        return null;
-      } catch (e) {
-        return (e as { index?: number }).index;
-      }
-    };
-    const strIndex = indexOf('<root>café</wrong></root>', false);
-    const byteIndex = indexOf('<root>café</wrong></root>', true);
-    expect(byteIndex).toBe(strIndex);
-  });
+  it.effect('reports a character offset for byte input, matching the string path', () =>
+    Effect.gen(function* () {
+      // A consequence of decoding before scanning: the reported index is a
+      // character offset for every input, so it can be used to slice the decoded
+      // text. Under the old byte-scan path this was a byte offset, which could
+      // not be used against the text at all.
+      const indexOf = (xml: string, asBytes: boolean) =>
+        Effect.gen(function* () {
+          const parser = yield* XMLParser.make();
+          const result = asBytes
+            ? yield* Effect.result(parser.parseBytesArr(new TextEncoder().encode(xml)))
+            : yield* Effect.result(parser.parse(xml));
+          if (Result.isFailure(result)) return (result.failure as unknown as { index?: number }).index;
+          return null;
+        });
+      const strIndex = yield* indexOf('<root>café</wrong></root>', false);
+      const byteIndex = yield* indexOf('<root>café</wrong></root>', true);
+      expect(byteIndex).toBe(strIndex);
+    })
+  );
 });

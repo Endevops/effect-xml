@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, it, expect } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import { makeRecordingParser } from '#/test/helpers/recording-builder.ts';
-import { runAcrossAllInputSourcesWithFactory, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
+import { runAcrossAllInputSourcesWithFactory } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 /**
  * @description Builds a document long enough to cross the default flush threshold.
@@ -59,20 +61,22 @@ describe('Flush position drift — absolute offsets across all input sources', (
 // (remains a standalone test because it exercises internal parser state)
 // -----------------------------------------------------------------------------
 describe('Flush position drift — feedable batch‑threshold', () => {
-  it('does not falsely report zero progress (batch-threshold check) once a flush rebases startIndex', () => {
-    const xml = buildPaddedDoc(50);
-    const parser = makeParser({ feedable: { flushThreshold: 30, bufferSize: 64 } });
-    const thresholdsSeen: Array<number> = [];
+  it.effect('does not falsely report zero progress (batch-threshold check) once a flush rebases startIndex', () =>
+    Effect.gen(function* () {
+      const xml = buildPaddedDoc(50);
+      const parser = yield* XMLParser.make({ feedable: { flushThreshold: 30, bufferSize: 64 } });
+      const thresholdsSeen: Array<number> = [];
 
-    for (let i = 0; i < xml.length; i += 64) {
-      runParser(parser.feed(xml.slice(i, i + 64)));
-      thresholdsSeen.push(runParser(parser.getFeedBatchThreshold()));
-    }
-    const result = endDoc(parser);
+      for (let i = 0; i < xml.length; i += 64) {
+        yield* parser.feed(xml.slice(i, i + 64));
+        thresholdsSeen.push(parser.getFeedBatchThreshold());
+      }
+      const result = yield* parser.end();
 
-    expect(result.root.item.length).toBe(50);
-    expect(runParser(parser.getFeedBatchThreshold())).toBe(64);
-  });
+      expect(result.root.item.length).toBe(50);
+      expect(parser.getFeedBatchThreshold()).toBe(64);
+    })
+  );
 });
 
 // -----------------------------------------------------------------------------
@@ -80,18 +84,20 @@ describe('Flush position drift — feedable batch‑threshold', () => {
 // (feedable does not reliably capture phantom-close errors, so we keep parse)
 // -----------------------------------------------------------------------------
 describe('Flush position drift — autoClose error records stay absolute', () => {
-  it('phantom-close index is absolute even after a flush', () => {
-    let xml = '<root>';
-    for (let i = 0; i < 100; i++) xml += `<item id="${i}">padding-${i}</item>`;
-    xml += `</bogus></root>`;
+  it.effect('phantom-close index is absolute even after a flush', () =>
+    Effect.gen(function* () {
+      let xml = '<root>';
+      for (let i = 0; i < 100; i++) xml += `<item id="${i}">padding-${i}</item>`;
+      xml += `</bogus></root>`;
 
-    const parser = makeParser({ autoClose: { onMismatch: 'recover', collectErrors: true } });
-    runParser(parser.parse(xml));
+      const parser = yield* XMLParser.make({ autoClose: { onMismatch: 'recover', collectErrors: true } });
+      yield* parser.parse(xml);
 
-    const errs = runParser(parser.getParseErrors());
-    const phantom = errs.find(e => e.type === 'phantom-close');
-    expect(phantom).toBeDefined();
-    const expectedIndex = xml.indexOf('</bogus>') + '</bogus>'.length;
-    expect(phantom!.index).toBe(expectedIndex);
-  });
+      const errs = parser.getParseErrors();
+      const phantom = errs.find(e => e.type === 'phantom-close');
+      expect(phantom).toBeDefined();
+      const expectedIndex = xml.indexOf('</bogus>') + '</bogus>'.length;
+      expect(phantom!.index).toBe(expectedIndex);
+    })
+  );
 });

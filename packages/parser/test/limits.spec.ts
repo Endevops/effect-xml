@@ -2,11 +2,9 @@
 import { assert, describe, expect, it } from '@effect/vitest';
 import { Effect, Result } from 'effect';
 
-import type { ErrorCodeValue } from '#/options.ts';
 import type { ParseError } from '#/parse-error.ts';
 
 import { ErrorCode, InvalidInput, UnexpectedCloseTag, isParseError } from '#/parse-error.ts';
-import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 import { XMLParser } from '#/xml-parser.ts';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -23,31 +21,6 @@ function tagWithAttrs(count: number): string {
   let attrs = '';
   for (let i = 0; i < count; i++) attrs += ` a${i}="v${i}"`;
   return `<root${attrs}></root>`;
-}
-
-/**
- * @description Assert `fn` throws a `ParseError`, optionally with a specific code. Written as try/catch rather than `expect(fn).toThrow()` so the failure message
- * can name the code that was actually produced — `toThrow` on a ParseError only surfaces the message, and the code is the part a reader debugging a
- * limit needs.
- *
- * @deprecated
- */
-function expectParseError(fn: () => unknown, code?: ErrorCodeValue): void {
-  let thrown: unknown;
-  try {
-    fn();
-  } catch (e) {
-    thrown = e;
-  }
-  // Vitest's matchers take no custom message, so the detail that a jasmine
-  // message used to carry is asserted on the value itself — `toBe` reports
-  // both sides on failure.
-  expect(thrown).toBeDefined();
-  const err = thrown as ParseError;
-  expect(isParseError(err)).toBe(true);
-  if (code) {
-    expect(err!.code).toBe(code);
-  }
 }
 
 // ─── Option validation ────────────────────────────────────────────────────────
@@ -219,116 +192,149 @@ describe('limits.maxNestedTags — enforcement', () => {
 // ─── maxAttributesPerTag ──────────────────────────────────────────────────────
 
 describe('limits.maxAttributesPerTag — enforcement', () => {
-  it('should parse successfully when attribute count equals limit', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
-    expect(() => runParser(parser.parse(tagWithAttrs(3)))).not.toThrow();
-  });
+  it.effect('should parse successfully when attribute count equals limit', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
+      const result = yield* parser.parse(tagWithAttrs(3)).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('should throw ParseError when attribute count exceeds limit by one', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
-    expectParseError(() => runParser(parser.parse(tagWithAttrs(4))), ErrorCode.LIMIT_MAX_ATTRIBUTES);
-  });
+  it.effect('should throw ParseError when attribute count exceeds limit by one', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 3 } });
+      const result = yield* parser.parse(tagWithAttrs(4)).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.code).toBe(ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    })
+  );
 
-  it('should include tag name and counts in error message', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
-    let err: ParseError | undefined;
-    try {
-      runParser(parser.parse(tagWithAttrs(5)));
-    } catch (e) {
-      err = e as ParseError;
-    }
-    expect(isParseError(err)).toBe(true);
-    expect(err!.message).toMatch(/5/); // actual count
-    expect(err!.message).toMatch(/2/); // limit
-  });
+  it.effect('should include tag name and counts in error message', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
+      const result = yield* parser.parse(tagWithAttrs(5)).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(isParseError(result.failure)).toBe(true);
+      expect(result.failure.message).toMatch(/5/); // actual count
+      expect(result.failure.message).toMatch(/2/); // limit
+    })
+  );
 
-  it('should enforce limit: 0 (no attributes allowed)', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
-    expectParseError(() => runParser(parser.parse(`<root a="1"></root>`)), ErrorCode.LIMIT_MAX_ATTRIBUTES);
-  });
+  it.effect('should enforce limit: 0 (no attributes allowed)', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
+      const result = yield* parser.parse(`<root a="1"></root>`).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.code).toBe(ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    })
+  );
 
-  it('should not throw for limit: 0 when tag has no attributes', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
-    expect(() => runParser(parser.parse('<root></root>'))).not.toThrow();
-  });
+  it.effect('should not throw for limit: 0 when tag has no attributes', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 0 } });
+      const result = yield* parser.parse('<root></root>').pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('should apply limit per-tag, not globally across all tags', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
-    // Two tags each with 2 attrs: fine
-    const xml = `<root a="1" b="2"><child c="3" d="4"/></root>`;
-    expect(() => runParser(parser.parse(xml))).not.toThrow();
-  });
+  it.effect('should apply limit per-tag, not globally across all tags', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
+      // Two tags each with 2 attrs: fine
+      const xml = `<root a="1" b="2"><child c="3" d="4"/></root>`;
+      const result = yield* parser.parse(xml).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('should throw when any single tag exceeds the limit', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
-    const xml = `<root a="1" b="2"><child c="3" d="4" e="5"/></root>`;
-    expectParseError(() => runParser(parser.parse(xml)), ErrorCode.LIMIT_MAX_ATTRIBUTES);
-  });
+  it.effect('should throw when any single tag exceeds the limit', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
+      const xml = `<root a="1" b="2"><child c="3" d="4" e="5"/></root>`;
+      const result = yield* parser.parse(xml).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.code).toBe(ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    })
+  );
 
-  it('should not check attributes when skip.attributes is true (default)', () => {
-    // With attributes skipped, flushAttributes is never called — limit is irrelevant
-    const parser = makeParser({
-      // skip.attributes defaults to true
-      limits: { maxAttributesPerTag: 0 },
-    });
-    // Even though limit is 0, attributes are skipped entirely — no throw
-    expect(() => runParser(parser.parse(`<root a="1" b="2"></root>`))).not.toThrow();
-  });
+  it.effect('should not check attributes when skip.attributes is true (default)', () =>
+    Effect.gen(function* () {
+      // With attributes skipped, flushAttributes is never called — limit is irrelevant
+      const parser = yield* XMLParser.make({
+        // skip.attributes defaults to true
+        limits: { maxAttributesPerTag: 0 },
+      });
+      // Even though limit is 0, attributes are skipped entirely — no throw
+      const result = yield* parser.parse(`<root a="1" b="2"></root>`).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('should not limit attributes when maxAttributesPerTag is null (default)', () => {
-    const parser = makeParser({ skip: { attributes: false } });
-    expect(() => runParser(parser.parse(tagWithAttrs(50)))).not.toThrow();
-  });
+  it.effect('should not limit attributes when maxAttributesPerTag is null (default)', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false } });
+      const result = yield* parser.parse(tagWithAttrs(50)).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 });
 
 // ─── Combined limits ──────────────────────────────────────────────────────────
 
 describe('limits — combined maxNestedTags + maxAttributesPerTag', () => {
-  it('should enforce both limits simultaneously', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxNestedTags: 3, maxAttributesPerTag: 2 } });
-    // Depth-first: nesting limit fires first before attrs on the deep tag
-    expectParseError(() => runParser(parser.parse(nested(4))), ErrorCode.LIMIT_MAX_NESTED_TAGS);
-  });
+  it.effect('should enforce both limits simultaneously', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxNestedTags: 3, maxAttributesPerTag: 2 } });
+      // Depth-first: nesting limit fires first before attrs on the deep tag
+      const result = yield* parser.parse(nested(4)).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.code).toBe(ErrorCode.LIMIT_MAX_NESTED_TAGS);
+    })
+  );
 
-  it('attributes limit fires on a shallow tag with too many attrs', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxNestedTags: 10, maxAttributesPerTag: 2 } });
-    expectParseError(() => runParser(parser.parse(tagWithAttrs(5))), ErrorCode.LIMIT_MAX_ATTRIBUTES);
-  });
+  it.effect('attributes limit fires on a shallow tag with too many attrs', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxNestedTags: 10, maxAttributesPerTag: 2 } });
+      const result = yield* parser.parse(tagWithAttrs(5)).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.code).toBe(ErrorCode.LIMIT_MAX_ATTRIBUTES);
+    })
+  );
 
-  it('valid XML passes both limits', () => {
-    const parser = makeParser({ skip: { attributes: false }, limits: { maxNestedTags: 5, maxAttributesPerTag: 3 } });
-    const xml = `<a x="1" y="2"><b z="3"><c/></b></a>`;
-    expect(() => runParser(parser.parse(xml))).not.toThrow();
-  });
+  it.effect('valid XML passes both limits', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxNestedTags: 5, maxAttributesPerTag: 3 } });
+      const xml = `<a x="1" y="2"><b z="3"><c/></b></a>`;
+      const result = yield* parser.parse(xml).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 });
 
 // ─── ParseError general contract ─────────────────────────────────────────────
 
 describe('ParseError — general error contract', () => {
-  it('all parser errors should be recognisable as one of the reason classes', () => {
-    // `ParseError` is a union of 33 classes, so `instanceof ParseError` does not exist. `isParseError` is the substitute, and the test name says so
-    // rather than naming a check that is no longer possible.
-    const cases = [
-      // Invalid input type
-      () => runParser(makeParser().parse(12345)),
-      // Unclosed tag (no autoClose)
-      () => runParser(makeParser().parse('<root>')),
-      // Mismatched closing tag
-      () => runParser(makeParser().parse('<root></other>')),
-    ];
+  it.effect('all parser errors should be recognisable as one of the reason classes', () =>
+    Effect.gen(function* () {
+      // `ParseError` is a union of 33 classes, so `instanceof ParseError` does not exist. `isParseError` is the substitute, and the test name says so
+      // rather than naming a check that is no longer possible.
+      const cases: Array<Effect.Effect<unknown, ParseError>> = [
+        // Invalid input type — cast past the type so the runtime check is what rejects it
+        (yield* XMLParser.make()).parse(12345 as never),
+        // Unclosed tag (no autoClose)
+        (yield* XMLParser.make()).parse('<root>'),
+        // Mismatched closing tag
+        (yield* XMLParser.make()).parse('<root></other>'),
+      ];
 
-    for (const fn of cases) {
-      let err: ParseError | undefined;
-      try {
-        fn();
-      } catch (e) {
-        err = e as ParseError;
+      for (const effect of cases) {
+        const result = yield* effect.pipe(Effect.result);
+        assert(Result.isFailure(result));
+        expect(isParseError(result.failure)).toBe(true);
+        expect(typeof result.failure.code).toBe('string');
       }
-      expect(err).toBeDefined();
-      expect(isParseError(err)).toBe(true);
-      expect(typeof err!.code).toBe('string');
-    }
-  });
+    })
+  );
 
   it('ParseError should have a meaningful toString()', () => {
     const e = new UnexpectedCloseTag({ tag: 'b', message: 'bad tag', index: 50 });
@@ -345,18 +351,16 @@ describe('ParseError — general error contract', () => {
     expect(e.toString()).toBe('INVALID_INPUT: bad input');
   });
 
-  it('limit errors carry position info', () => {
-    const parser = makeParser({ limits: { maxNestedTags: 2 } });
-    let err: ParseError | undefined;
-    try {
-      runParser(parser.parse(nested(3)));
-    } catch (e) {
-      err = e as ParseError;
-    }
-    expect(isParseError(err)).toBe(true);
-    expect(err!.code).toBe(ErrorCode.LIMIT_MAX_NESTED_TAGS);
-    expect(typeof err!.index).toBe('number');
-  });
+  it.effect('limit errors carry position info', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ limits: { maxNestedTags: 2 } });
+      const result = yield* parser.parse(nested(3)).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(isParseError(result.failure)).toBe(true);
+      expect(result.failure.code).toBe(ErrorCode.LIMIT_MAX_NESTED_TAGS);
+      expect(typeof result.failure.index).toBe('number');
+    })
+  );
 
   it('ErrorCode export contains all expected codes', () => {
     const expected = [

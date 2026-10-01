@@ -1,14 +1,11 @@
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
+
+import type { ParsedNode } from '#/test/helpers/test-runner.ts';
 
 import { xmlEnclosures, quoteEnclosures } from '#/stop-node-processor.ts';
-import {
-  makeParser,
-  runAcrossAllInputSources,
-  runAcrossAllInputSourcesWithException,
-  parseDoc,
-  endDoc,
-  runParser,
-} from '#/test/helpers/test-runner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic stop node functionality
@@ -529,8 +526,9 @@ describe('Stop Nodes — whitespace in tags', function () {
 // 9. Feedable input source specific test
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Stop Nodes — feedable input source', function () {
-  it('should stop at multiple stop nodes with feedable input source', function () {
-    const xmlData = `
+  it.effect('should stop at multiple stop nodes with feedable input source', () =>
+    Effect.gen(function* () {
+      const xmlData = `
           <root>
             <section1>
               <data>parse this</data>
@@ -543,35 +541,38 @@ describe('Stop Nodes — feedable input source', function () {
             </section3>
           </root>`;
 
-    const options = { tags: { stopNodes: ['root.section2', 'root.section3'] } };
+      const options = { tags: { stopNodes: ['root.section2', 'root.section3'] } };
 
-    const parser = makeParser(options);
-    for (let i = 0; i < xmlData.length; i++) {
-      const ch = xmlData[i];
-      runParser(parser.feed(ch));
-    }
-    const result = endDoc(parser);
+      const parser = yield* XMLParser.make(options);
+      for (let i = 0; i < xmlData.length; i++) {
+        const ch = xmlData[i]!;
+        yield* parser.feed(ch);
+      }
+      const result = (yield* parser.end()) as ParsedNode;
 
-    expect(result.root.section1.data).toBe('parse this');
-    expect(typeof result.root.section2).toBe('string');
-    expect(typeof result.root.section3).toBe('string');
-  });
+      expect(result.root.section1.data).toBe('parse this');
+      expect(typeof result.root.section2).toBe('string');
+      expect(typeof result.root.section3).toBe('string');
+    })
+  );
 
-  it('should handle xmlEnclosures stop node with feedable input (chunk-boundary survival)', function () {
-    const xmlData = `<root><s>text <!-- </s> fake --> real</s><after>ok</after></root>`;
-    const options = { tags: { stopNodes: [{ expression: 'root.s', skipEnclosures: [...xmlEnclosures] }] } };
+  it.effect('should handle xmlEnclosures stop node with feedable input (chunk-boundary survival)', () =>
+    Effect.gen(function* () {
+      const xmlData = `<root><s>text <!-- </s> fake --> real</s><after>ok</after></root>`;
+      const options = { tags: { stopNodes: [{ expression: 'root.s', skipEnclosures: [...xmlEnclosures] }] } };
 
-    const parser = makeParser(options);
-    for (let i = 0; i < xmlData.length; i++) {
-      runParser(parser.feed(xmlData[i]));
-    }
-    const result = endDoc(parser);
+      const parser = yield* XMLParser.make(options);
+      for (let i = 0; i < xmlData.length; i++) {
+        yield* parser.feed(xmlData[i]!);
+      }
+      const result = (yield* parser.end()) as ParsedNode;
 
-    expect(typeof result.root.s).toBe('string');
-    expect(result.root.s).toContain('<!-- </s> fake -->');
-    expect(result.root.s).toContain('real');
-    expect(result.root.after).toBe('ok');
-  });
+      expect(typeof result.root.s).toBe('string');
+      expect(result.root.s).toContain('<!-- </s> fake -->');
+      expect(result.root.s).toContain('real');
+      expect(result.root.after).toBe('ok');
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -742,97 +743,111 @@ describe('Stop Nodes — skipEnclosures', function () {
 
   // ── 10g. onStopNode callback ───────────────────────────────────────────────
 
-  it('onStopNode callback receives raw content, tagDetail and matcher', function () {
-    const collected: Array<{ name: string; content: string }> = [];
-    const xml = `<root><script>alert(1)</script><style>body{}</style></root>`;
-    const parser = makeParser({
-      tags: {
-        stopNodes: [
-          { expression: 'root.script', skipEnclosures: [...quoteEnclosures] },
-          { expression: 'root.style', skipEnclosures: [...xmlEnclosures] },
-        ],
-      },
-      onStopNode(tagDetail, rawContent) {
-        collected.push({ name: tagDetail.name, content: rawContent });
-      },
-    });
+  it.effect('onStopNode callback receives raw content, tagDetail and matcher', () =>
+    Effect.gen(function* () {
+      const collected: Array<{ name: string; content: string }> = [];
+      const xml = `<root><script>alert(1)</script><style>body{}</style></root>`;
+      const parser = yield* XMLParser.make({
+        tags: {
+          stopNodes: [
+            { expression: 'root.script', skipEnclosures: [...quoteEnclosures] },
+            { expression: 'root.style', skipEnclosures: [...xmlEnclosures] },
+          ],
+        },
+        onStopNode(tagDetail, rawContent) {
+          collected.push({ name: tagDetail.name, content: rawContent });
+        },
+      });
 
-    runParser(parser.parse(xml));
+      yield* parser.parse(xml);
 
-    expect(collected.length).toBe(2);
-    expect(collected[0].name).toBe('script');
-    expect(collected[0].content).toBe('alert(1)');
-    expect(collected[1].name).toBe('style');
-    expect(collected[1].content).toBe('body{}');
-  });
+      expect(collected.length).toBe(2);
+      expect(collected[0].name).toBe('script');
+      expect(collected[0].content).toBe('alert(1)');
+      expect(collected[1].name).toBe('style');
+      expect(collected[1].content).toBe('body{}');
+    })
+  );
 
-  it('onStopNode fires before content is added to output tree (CompactObjBuilder)', function () {
-    const order = [];
-    const xml = `<root><s>content</s></root>`;
-    const parser = makeParser({
-      tags: { stopNodes: [{ expression: 'root.s', skipEnclosures: [] }] },
-      onStopNode() {
-        order.push('callback');
-      },
-    });
+  it.effect('onStopNode fires before content is added to output tree (CompactObjBuilder)', () =>
+    Effect.gen(function* () {
+      const order: Array<string> = [];
+      const xml = `<root><s>content</s></root>`;
+      const parser = yield* XMLParser.make({
+        tags: { stopNodes: [{ expression: 'root.s', skipEnclosures: [] }] },
+        onStopNode() {
+          order.push('callback');
+        },
+      });
 
-    const result = parseDoc(parser, xml);
-    order.push('parsed');
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      order.push('parsed');
 
-    expect(order[0]).toBe('callback');
-    expect(result.root.s).toBe('content');
-  });
+      expect(order[0]).toBe('callback');
+      expect(result.root.s).toBe('content');
+    })
+  );
 });
 
 describe('Stop Nodes — nested', function () {
-  it('should determine nested stop node', function () {
-    const xml = `<root><code>safe <code>nested</code> still raw</code></root>`;
-    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
+  it.effect('should determine nested stop node', () =>
+    Effect.gen(function* () {
+      const xml = `<root><code>safe <code>nested</code> still raw</code></root>`;
+      const parser = yield* XMLParser.make({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
 
-    const expected = { root: { code: 'safe <code>nested</code> still raw' } };
-    const result = parseDoc(parser, xml);
+      const expected = { root: { code: 'safe <code>nested</code> still raw' } };
+      const result = (yield* parser.parse(xml)) as ParsedNode;
 
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
 
-  it('should determine nested stop node with namespace when nsPrefix is not skipped', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] } });
+  it.effect('should determine nested stop node with namespace when nsPrefix is not skipped', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] } });
 
-    const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
+      const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
 
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
 
-  it('should determine nested stop node with namespace when nsPrefix is not skipped and namespace is not used in expression', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
+  it.effect('should determine nested stop node with namespace when nsPrefix is not skipped and namespace is not used in expression', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] } });
 
-    const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
+      const expected = { root: { 'ns:code': 'safe <ns:code>nested</ns:code> still raw' } };
 
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
-  it('should determine nested stop node with namespace when nsPrefix is skipped', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] }, skip: { nsPrefix: true } });
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
+  it.effect('should determine nested stop node with namespace when nsPrefix is skipped', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ tags: { stopNodes: [{ expression: 'root.ns::code', nested: true }] }, skip: { nsPrefix: true } });
 
-    const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
-  it('should determine nested stop node with namespace when nsPrefix is skipped and namespace is not used in expression', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] }, skip: { nsPrefix: true } });
+      const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
+  it.effect('should determine nested stop node with namespace when nsPrefix is skipped and namespace is not used in expression', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ tags: { stopNodes: [{ expression: 'root.code', nested: true }] }, skip: { nsPrefix: true } });
 
-    const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
+      const expected = { root: { code: 'safe <ns:code>nested</ns:code> still raw' } };
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
 });

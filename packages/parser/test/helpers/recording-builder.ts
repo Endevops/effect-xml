@@ -7,9 +7,9 @@ import { Effect } from 'effect';
 
 import type { AttributeMeta, CloseMeta, OutputBuilderLike, TagDetailLike, XmlDeclaration } from '#/internal/parser-types.ts';
 import type { X2jOptions } from '#/options.ts';
+import type { ParseError } from '#/parse-error.ts';
 
 import { buildOptions } from '#/options-builder.ts';
-import { runParser } from '#/test/helpers/test-runner.ts';
 import XMLParser from '#/xml-parser.ts';
 
 /**
@@ -221,27 +221,29 @@ export interface RecordingXMLParser extends XMLParser {
 /**
  * @description Build a parser that records everything the output builder sees. `events` is created fresh per call, so a test that runs across all three input
  * mechanisms never sees one run's records mixed into another's — the factory is invoked once per mechanism, and the test reads the parser it was
- * handed. Three effects meet here, which is the honest shape of the thing rather than an accident: the parser's options are resolved by
- * `buildOptions`, the wrapped builder's by `CompactBuilderFactory.make`, and the recording factory is installed into the already-resolved options.
- * Each is run for its value, so a failure surfaces as the thrown `ParseError` / `BuilderError` a test can assert on.
+ * handed. The parser's options are resolved by `buildOptions` and the wrapped builder's by `CompactBuilderFactory.make`; both are yielded so a
+ * failure stays in the error channel rather than surfacing as a thrown value.
  *
  * @param parserOptions - Options for this parser, merged ahead of the recording factory.
  *
- * @returns A parser whose `_events` holds this run's records.
+ * @returns An effect producing a parser whose `_events` holds this run's records.
  */
-export function makeRecordingParser(parserOptions: X2jOptions = {}): RecordingXMLParser {
-  const events: RecordingEvents = { tags: [], closes: [], attrs: [], stopNodes: [] };
-  const base = runParser(CompactBuilderFactory.make());
-  const resolved = runParser(
-    buildOptions({
+export function makeRecordingParser(parserOptions: X2jOptions = {}): Effect.Effect<RecordingXMLParser, ParseError> {
+  return Effect.gen(function* () {
+    const events: RecordingEvents = { tags: [], closes: [], attrs: [], stopNodes: [] };
+    // The base factory fails with `BuilderError`, which is outside this fixture's `ParseError` channel — the same
+    // builder configuration the original `runParser(CompactBuilderFactory.make())` surfaced as a thrown value, so it
+    // dies here rather than widening the channel every `ParserFactory` in the matrix would then have to carry.
+    const base = yield* CompactBuilderFactory.make().pipe(Effect.orDie);
+    const resolved = yield* buildOptions({
       ...parserOptions,
       OutputBuilder: {
         getInstance: (builderParserOptions, readonlyMatcher) =>
           Effect.succeed(new RecordingBuilder(events, builderParserOptions, base.builderOptions, readonlyMatcher, base.registry)),
       },
-    })
-  );
-  return Object.assign(XMLParser.fromResolved(resolved), { _events: events });
+    });
+    return Object.assign(XMLParser.fromResolved(resolved), { _events: events });
+  });
 }
 
 /**

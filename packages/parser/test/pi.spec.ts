@@ -1,11 +1,12 @@
+import { describe, it, expect } from '@effect/vitest';
 import { CompactBuilderFactory, makeCompactBuilder } from '@endevops/builder';
 import { Effect } from 'effect';
-import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike, XmlDeclaration } from '#/internal/parser-types.ts';
 
 import { asOutputBuilder } from '#/test/helpers/recording-builder.ts';
-import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException, parseDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. XML declaration (<?xml ... ?>)
@@ -32,7 +33,7 @@ describe('Processing Instructions — XML declaration', function () {
     result => {
       expect(result['?xml']['@_version']).toBe('1.0');
     },
-    { skip: { attributes: false }, OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: [] } })) }
+    { skip: { attributes: false }, OutputBuilder: CompactBuilderFactory.make({ attributes: { valueParsers: [] } }) }
   );
 
   // NOTE: skip.declaration is currently not working as expected due to a bug
@@ -40,79 +41,85 @@ describe('Processing Instructions — XML declaration', function () {
   // (without the leading "?"), so the check `tagExp.tagName === "?xml"` always
   // fails — addDeclaration() is never called, addInstruction("?xml") is always used,
   // and skip.declaration: true has no effect. This test documents the BUG:
-  it('BUG: skip.declaration: true should omit ?xml from output (currently broken)', function () {
-    const parser = makeParser({ skip: { declaration: true } });
-    const result = parseDoc(parser, `<?xml version="1.0"?><root/>`);
-    expect(result['?xml']).toBeUndefined();
-    expect(result.root).toBe('');
-  });
+  it.effect('BUG: skip.declaration: true should omit ?xml from output (currently broken)', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { declaration: true } });
+      const result = yield* parser.parse(`<?xml version="1.0"?><root/>`);
+      expect(result['?xml']).toBeUndefined();
+      expect(result.root).toBe('');
+    })
+  );
 
-  it('does NOT reach the builder when both attributes and declaration are skipped', function () {
-    // `XmlSpecialTagsReader` guards the call with `if (!skipOptions.declaration)`
-    // before `flushAttributes` and `addDeclaration`, so with both skips set the
-    // builder is never told about the declaration at all. This case used to
-    // assert the opposite from inside the override, where the expectation was
-    // never evaluated because the override was never called — it passed
-    // vacuously. The captured value is asserted after the parse so a missed
-    // call is a real failure.
-    const seen: Array<XmlDeclaration> = [];
-    const factory: OutputBuilderFactoryLike = {
-      getInstance(parserOpts, readonlyMatcher) {
-        const base = runParser(CompactBuilderFactory.make());
-        const inner = makeCompactBuilder(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
-        // Captured before the override replaces it, then assigned onto the same
-        // object: the builder is mutable state and a spread would leave two
-        // divergent copies.
-        const addDeclaration = inner.addDeclaration.bind(inner);
-        Object.assign(inner, {
-          addDeclaration(name: string, xmlDef?: XmlDeclaration) {
-            if (xmlDef) seen.push(xmlDef);
-            addDeclaration(name, xmlDef);
-          },
-        });
-        return Effect.succeed(asOutputBuilder(inner));
-      },
-    };
+  it.effect('does NOT reach the builder when both attributes and declaration are skipped', () =>
+    Effect.gen(function* () {
+      // `XmlSpecialTagsReader` guards the call with `if (!skipOptions.declaration)`
+      // before `flushAttributes` and `addDeclaration`, so with both skips set the
+      // builder is never told about the declaration at all. This case used to
+      // assert the opposite from inside the override, where the expectation was
+      // never evaluated because the override was never called — it passed
+      // vacuously. The captured value is asserted after the parse so a missed
+      // call is a real failure.
+      const seen: Array<XmlDeclaration> = [];
+      const base = yield* CompactBuilderFactory.make();
+      const factory: OutputBuilderFactoryLike = {
+        getInstance(parserOpts, readonlyMatcher) {
+          const inner = makeCompactBuilder(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
+          // Captured before the override replaces it, then assigned onto the same
+          // object: the builder is mutable state and a spread would leave two
+          // divergent copies.
+          const addDeclaration = inner.addDeclaration.bind(inner);
+          Object.assign(inner, {
+            addDeclaration(name: string, xmlDef?: XmlDeclaration) {
+              if (xmlDef) seen.push(xmlDef);
+              addDeclaration(name, xmlDef);
+            },
+          });
+          return Effect.succeed(asOutputBuilder(inner));
+        },
+      };
 
-    const xmlData = `<?xml version="1.1"?><root/>`;
+      const xmlData = `<?xml version="1.1"?><root/>`;
 
-    const parser = makeParser({ skip: { declaration: true, attributes: true }, OutputBuilder: factory });
+      const parser = yield* XMLParser.make({ skip: { declaration: true, attributes: true }, OutputBuilder: factory });
 
-    const result = parseDoc(parser, xmlData);
-    expect(seen).toEqual([]);
-    // The declaration is absent from the output tree too, which is the point
-    // of `skip.declaration`.
-    expect(result['?xml']).toBeUndefined();
-  });
+      const result = yield* parser.parse(xmlData);
+      expect(seen).toEqual([]);
+      // The declaration is absent from the output tree too, which is the point
+      // of `skip.declaration`.
+      expect(result['?xml']).toBeUndefined();
+    })
+  );
 
-  it('reaches the builder with the parsed def when only the declaration is skipped from the tree', function () {
-    // Same builder, but with `skip.declaration` off: the def arrives intact,
-    // which is what makes the guard above a suppression rather than a loss.
-    const seen: Array<XmlDeclaration> = [];
-    const factory: OutputBuilderFactoryLike = {
-      getInstance(parserOpts, readonlyMatcher) {
-        const base = runParser(CompactBuilderFactory.make());
-        const inner = makeCompactBuilder(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
-        // Captured before the override replaces it, then assigned onto the same
-        // object: the builder is mutable state and a spread would leave two
-        // divergent copies.
-        const addDeclaration = inner.addDeclaration.bind(inner);
-        Object.assign(inner, {
-          addDeclaration(name: string, xmlDef?: XmlDeclaration) {
-            if (xmlDef) seen.push(xmlDef);
-            addDeclaration(name, xmlDef);
-          },
-        });
-        return Effect.succeed(asOutputBuilder(inner));
-      },
-    };
+  it.effect('reaches the builder with the parsed def when only the declaration is skipped from the tree', () =>
+    Effect.gen(function* () {
+      // Same builder, but with `skip.declaration` off: the def arrives intact,
+      // which is what makes the guard above a suppression rather than a loss.
+      const seen: Array<XmlDeclaration> = [];
+      const base = yield* CompactBuilderFactory.make();
+      const factory: OutputBuilderFactoryLike = {
+        getInstance(parserOpts, readonlyMatcher) {
+          const inner = makeCompactBuilder(parserOpts, base.builderOptions, readonlyMatcher, base.registry);
+          // Captured before the override replaces it, then assigned onto the same
+          // object: the builder is mutable state and a spread would leave two
+          // divergent copies.
+          const addDeclaration = inner.addDeclaration.bind(inner);
+          Object.assign(inner, {
+            addDeclaration(name: string, xmlDef?: XmlDeclaration) {
+              if (xmlDef) seen.push(xmlDef);
+              addDeclaration(name, xmlDef);
+            },
+          });
+          return Effect.succeed(asOutputBuilder(inner));
+        },
+      };
 
-    const parser = makeParser({ skip: { attributes: false }, OutputBuilder: factory });
-    parseDoc(parser, `<?xml version="1.1"?><root/>`);
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, OutputBuilder: factory });
+      yield* parser.parse(`<?xml version="1.1"?><root/>`);
 
-    expect(seen.length).toBe(1);
-    expect(seen[0]!.version).toBe(1.1);
-  });
+      expect(seen.length).toBe(1);
+      expect(seen[0]!.version).toBe(1.1);
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

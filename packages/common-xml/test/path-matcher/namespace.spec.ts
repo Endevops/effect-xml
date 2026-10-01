@@ -4,10 +4,11 @@
  * paths, per-namespace sibling counters, and a SOAP envelope end to end.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import { Matcher } from '#/index.ts';
-import { expr } from '#/test/helpers/effect.ts';
+import Expression from '#/path-matcher/expression.ts';
 
 describe('basic namespace handling', () => {
   it('reports the pushed namespace and includes it in the path', () => {
@@ -51,200 +52,236 @@ describe('basic namespace handling', () => {
 });
 
 describe('namespace pattern parsing', () => {
-  it('parses the namespace and tag out of ns::user', () => {
-    const e = expr('ns::user');
+  it.effect('parses the namespace and tag out of ns::user', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('ns::user');
 
-    expect(e.segments[0].namespace).toBe('ns');
-    expect(e.segments[0].tag).toBe('user');
-  });
+      expect(e.segments[0].namespace).toBe('ns');
+      expect(e.segments[0].tag).toBe('user');
+    })
+  );
 
-  it('parses namespace, tag and attribute out of ns::user[id]', () => {
-    const e = expr('ns::user[id]');
+  it.effect('parses namespace, tag and attribute out of ns::user[id]', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('ns::user[id]');
 
-    expect(e.segments[0].namespace).toBe('ns');
-    expect(e.segments[0].tag).toBe('user');
-    expect(e.segments[0].attrName).toBe('id');
-  });
+      expect(e.segments[0].namespace).toBe('ns');
+      expect(e.segments[0].tag).toBe('user');
+      expect(e.segments[0].attrName).toBe('id');
+    })
+  );
 
-  it('parses namespace, tag and position out of ns::user:first', () => {
-    const e = expr('ns::user:first');
+  it.effect('parses namespace, tag and position out of ns::user:first', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('ns::user:first');
 
-    expect(e.segments[0].namespace).toBe('ns');
-    expect(e.segments[0].tag).toBe('user');
-    expect(e.segments[0].position).toBe('first');
-  });
+      expect(e.segments[0].namespace).toBe('ns');
+      expect(e.segments[0].tag).toBe('user');
+      expect(e.segments[0].position).toBe('first');
+    })
+  );
 
-  it('parses namespace, tag, attribute value and position out of ns::user[type=admin]:first', () => {
-    const e = expr('ns::user[type=admin]:first');
+  it.effect('parses namespace, tag, attribute value and position out of ns::user[type=admin]:first', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('ns::user[type=admin]:first');
 
-    expect(e.segments[0].namespace).toBe('ns');
-    expect(e.segments[0].tag).toBe('user');
-    expect(e.segments[0].attrName).toBe('type');
-    expect(e.segments[0].attrValue).toBe('admin');
-    expect(e.segments[0].position).toBe('first');
-  });
+      expect(e.segments[0].namespace).toBe('ns');
+      expect(e.segments[0].tag).toBe('user');
+      expect(e.segments[0].attrName).toBe('type');
+      expect(e.segments[0].attrValue).toBe('admin');
+      expect(e.segments[0].position).toBe('first');
+    })
+  );
 
-  it('parses a separate namespace onto each segment of a multi-namespace pattern', () => {
-    const e = expr('ns1::root.ns2::items.ns3::item');
+  it.effect('parses a separate namespace onto each segment of a multi-namespace pattern', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('ns1::root.ns2::items.ns3::item');
 
-    expect(e.segments[0].namespace).toBe('ns1');
-    expect(e.segments[0].tag).toBe('root');
-    expect(e.segments[1].namespace).toBe('ns2');
-    expect(e.segments[1].tag).toBe('items');
-    expect(e.segments[2].namespace).toBe('ns3');
-    expect(e.segments[2].tag).toBe('item');
-  });
+      expect(e.segments[0].namespace).toBe('ns1');
+      expect(e.segments[0].tag).toBe('root');
+      expect(e.segments[1].namespace).toBe('ns2');
+      expect(e.segments[1].tag).toBe('items');
+      expect(e.segments[2].namespace).toBe('ns3');
+      expect(e.segments[2].tag).toBe('item');
+    })
+  );
 
-  it('leaves the namespace undefined on a pattern segment that specifies none', () => {
-    const e = expr('user');
+  it.effect('leaves the namespace undefined on a pattern segment that specifies none', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('user');
 
-    expect(e.segments[0].namespace).toBeUndefined();
-    expect(e.segments[0].tag).toBe('user');
-  });
+      expect(e.segments[0].namespace).toBeUndefined();
+      expect(e.segments[0].tag).toBe('user');
+    })
+  );
 
-  it('leaves the namespace undefined on the segments around a namespaced one', () => {
-    const e = expr('root.ns::items.item');
+  it.effect('leaves the namespace undefined on the segments around a namespaced one', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('root.ns::items.item');
 
-    expect(e.segments[0].namespace).toBeUndefined();
-    expect(e.segments[1].namespace).toBe('ns');
-    expect(e.segments[2].namespace).toBeUndefined();
-  });
+      expect(e.segments[0].namespace).toBeUndefined();
+      expect(e.segments[1].namespace).toBe('ns');
+      expect(e.segments[2].namespace).toBeUndefined();
+    })
+  );
 
-  it('reads ns::first as a namespace plus a tag named first, with no position selector', () => {
-    const e = expr('ns::first');
+  it.effect('reads ns::first as a namespace plus a tag named first, with no position selector', () =>
+    Effect.gen(function* () {
+      const e = yield* Expression.make('ns::first');
 
-    expect(e.segments[0].namespace).toBe('ns');
-    expect(e.segments[0].tag).toBe('first');
-    expect(e.segments[0].position).toBeUndefined();
-  });
+      expect(e.segments[0].namespace).toBe('ns');
+      expect(e.segments[0].tag).toBe('first');
+      expect(e.segments[0].position).toBeUndefined();
+    })
+  );
 });
 
 describe('namespace matching', () => {
-  it('matches when the pattern namespace equals the tag namespace', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user', null, 'ns');
+  it.effect('matches when the pattern namespace equals the tag namespace', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user', null, 'ns');
 
-    const e = expr('root.ns::user');
+      const e = yield* Expression.make('root.ns::user');
 
-    expect(matcher.matches(e)).toBe(true);
-  });
+      expect(matcher.matches(e)).toBe(true);
+    })
+  );
 
-  it('does not match a different namespace', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user', null, 'ns1');
+  it.effect('does not match a different namespace', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user', null, 'ns1');
 
-    const e = expr('root.ns2::user');
+      const e = yield* Expression.make('root.ns2::user');
 
-    expect(matcher.matches(e)).toBe(false);
-  });
+      expect(matcher.matches(e)).toBe(false);
+    })
+  );
 
-  it('matches any namespace when the pattern specifies none', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user', null, 'ns');
+  it.effect('matches any namespace when the pattern specifies none', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user', null, 'ns');
 
-    const e = expr('root.user');
+      const e = yield* Expression.make('root.user');
 
-    expect(matcher.matches(e)).toBe(true);
-  });
+      expect(matcher.matches(e)).toBe(true);
+    })
+  );
 
-  it('matches when neither the pattern nor the tag carries a namespace', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user');
+  it.effect('matches when neither the pattern nor the tag carries a namespace', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user');
 
-    const e = expr('root.user');
+      const e = yield* Expression.make('root.user');
 
-    expect(matcher.matches(e)).toBe(true);
-  });
+      expect(matcher.matches(e)).toBe(true);
+    })
+  );
 
-  it('does not match a namespace-less tag against a namespaced pattern', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user');
+  it.effect('does not match a namespace-less tag against a namespaced pattern', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user');
 
-    const e = expr('root.ns::user');
+      const e = yield* Expression.make('root.ns::user');
 
-    expect(matcher.matches(e)).toBe(false);
-  });
+      expect(matcher.matches(e)).toBe(false);
+    })
+  );
 
-  it('matches any namespace through a wildcard namespace', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user', null, 'ns1');
+  it.effect('matches any namespace through a wildcard namespace', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user', null, 'ns1');
 
-    const e = expr('root.*::user');
+      const e = yield* Expression.make('root.*::user');
 
-    expect(matcher.matches(e)).toBe(true);
+      expect(matcher.matches(e)).toBe(true);
 
-    // Same tag, different namespace: the wildcard still matches.
-    matcher.pop();
-    matcher.push('user', null, 'ns2');
+      // Same tag, different namespace: the wildcard still matches.
+      matcher.pop();
+      matcher.push('user', null, 'ns2');
 
-    expect(matcher.matches(e)).toBe(true);
-  });
+      expect(matcher.matches(e)).toBe(true);
+    })
+  );
 
-  it('matches a namespaced tag carrying the attribute the pattern requires', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user', { id: '123' }, 'ns');
+  it.effect('matches a namespaced tag carrying the attribute the pattern requires', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user', { id: '123' }, 'ns');
 
-    const e = expr('root.ns::user[id]');
+      const e = yield* Expression.make('root.ns::user[id]');
 
-    expect(matcher.matches(e)).toBe(true);
-  });
+      expect(matcher.matches(e)).toBe(true);
+    })
+  );
 
-  it('matches :first against a namespaced tag only on its first occurrence', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('user', null, 'ns'); // counter = 0;
+  it.effect('matches :first against a namespaced tag only on its first occurrence', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('user', null, 'ns'); // counter = 0;
 
-    const e = expr('root.ns::user:first');
+      const e = yield* Expression.make('root.ns::user:first');
 
-    expect(matcher.matches(e)).toBe(true);
+      expect(matcher.matches(e)).toBe(true);
 
-    // Second ns::user sibling, so the counter is 1.
-    matcher.pop();
-    matcher.push('user', null, 'ns');
+      // Second ns::user sibling, so the counter is 1.
+      matcher.pop();
+      matcher.push('user', null, 'ns');
 
-    expect(matcher.matches(e)).toBe(false);
-  });
+      expect(matcher.matches(e)).toBe(false);
+    })
+  );
 
-  it('matches a namespaced tag at any depth through a deep wildcard', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('level1');
-    matcher.push('level2');
-    matcher.push('user', null, 'ns');
+  it.effect('matches a namespaced tag at any depth through a deep wildcard', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('level1');
+      matcher.push('level2');
+      matcher.push('user', null, 'ns');
 
-    const e1 = expr('..ns::user');
+      const e1 = yield* Expression.make('..ns::user');
 
-    expect(matcher.matches(e1)).toBe(true);
+      expect(matcher.matches(e1)).toBe(true);
 
-    const e2 = expr('root..ns::user');
+      const e2 = yield* Expression.make('root..ns::user');
 
-    expect(matcher.matches(e2)).toBe(true);
-  });
+      expect(matcher.matches(e2)).toBe(true);
+    })
+  );
 
-  it('reads ns::first unambiguously as a namespaced tag named first', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('first', null, 'ns'); // tag "first" in namespace "ns", counter = 0;
+  it.effect('reads ns::first unambiguously as a namespaced tag named first', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('first', null, 'ns'); // tag "first" in namespace "ns", counter = 0;
 
-    const e = expr('root.ns::first');
+      const e = yield* Expression.make('root.ns::first');
 
-    expect(matcher.matches(e)).toBe(true);
+      expect(matcher.matches(e)).toBe(true);
 
-    // Second ns::first sibling, so :first no longer applies.
-    matcher.pop();
-    matcher.push('first', null, 'ns');
+      // Second ns::first sibling, so :first no longer applies.
+      matcher.pop();
+      matcher.push('first', null, 'ns');
 
-    const e2 = expr('root.ns::first:first');
+      const e2 = yield* Expression.make('root.ns::first:first');
 
-    expect(matcher.matches(e2)).toBe(false);
-  });
+      expect(matcher.matches(e2)).toBe(false);
+    })
+  );
 });
 
 describe('counter and position with namespaces', () => {
@@ -266,37 +303,41 @@ describe('counter and position with namespaces', () => {
     expect(matcher.getCounter()).toBe(1);
   });
 
-  it('applies :first per namespace', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
+  it.effect('applies :first per namespace', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
 
-    matcher.push('item', null, 'ns1');
-    matcher.pop();
-    matcher.push('item', null, 'ns2'); // first ns2::item;
+      matcher.push('item', null, 'ns1');
+      matcher.pop();
+      matcher.push('item', null, 'ns2'); // first ns2::item;
 
-    const e = expr('root.ns2::item:first');
+      const e = yield* Expression.make('root.ns2::item:first');
 
-    expect(matcher.matches(e)).toBe(true);
+      expect(matcher.matches(e)).toBe(true);
 
-    const e2 = expr('root.ns1::item:first'); // ns1::item counter = 1
+      const e2 = yield* Expression.make('root.ns1::item:first'); // ns1::item counter = 1
 
-    expect(matcher.matches(e2)).toBe(false);
-  });
+      expect(matcher.matches(e2)).toBe(false);
+    })
+  );
 });
 
 describe('SOAP real-world example', () => {
-  it('builds and matches a SOAP-style namespaced path', () => {
-    const matcher = new Matcher();
+  it.effect('builds and matches a SOAP-style namespaced path', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
 
-    matcher.push('Envelope', null, 'soap');
-    matcher.push('Body', null, 'soap');
-    matcher.push('GetUser', null, 'ns');
-    matcher.push('UserId', null, 'ns');
+      matcher.push('Envelope', null, 'soap');
+      matcher.push('Body', null, 'soap');
+      matcher.push('GetUser', null, 'ns');
+      matcher.push('UserId', null, 'ns');
 
-    expect(matcher.toString()).toBe('soap:Envelope.soap:Body.ns:GetUser.ns:UserId');
+      expect(matcher.toString()).toBe('soap:Envelope.soap:Body.ns:GetUser.ns:UserId');
 
-    const e = expr('soap::Envelope.soap::Body..ns::UserId');
+      const e = yield* Expression.make('soap::Envelope.soap::Body..ns::UserId');
 
-    expect(matcher.matches(e)).toBe(true);
-  });
+      expect(matcher.matches(e)).toBe(true);
+    })
+  );
 });

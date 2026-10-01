@@ -2,29 +2,29 @@
  * @description Specs for the parser: what it reads out of a document, and what it refuses.
  */
 
-import { Cause, Effect, Exit } from 'effect';
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Cause, Effect, Exit, Result } from 'effect';
 
 import type { XmlParseOptions } from '#/index.ts';
 
-import { parseXml, parseXmlDocument, XmlParseError } from '#/index.ts';
+import { XmlParseError, parseXml, parseXmlDocument } from '#/index.ts';
 
 /**
- * @description Narrows a failure to a parse error so a spec can assert on its message, and throws if the call succeeded — a spec that expected a rejection cannot
- * pass on a success.
+ * @description Parse a document expected to fail and hand back the parse error, which is the only way to reach a message this class reports. A helper rather than
+ * the `Effect.result` form at each call site because these specs assert on one property of the error and nothing else. A parse that unexpectedly
+ * succeeds is a test defect, so it dies rather than widening the channel every caller would then have to carry.
  *
  * @param text - The document to parse.
  * @param options - Parse options for this call.
  *
- * @returns The error the parser reported.
+ * @returns An effect producing the error the parser reported.
  */
-const parseError = (text: string, options: XmlParseOptions = {}): XmlParseError => {
-  const exit = Effect.runSyncExit(parseXml(text, options));
-  if (Exit.isSuccess(exit)) throw new Error(`expected ${JSON.stringify(text)} to fail to parse`);
-  const error = Cause.squash(exit.cause);
-  if (!(error instanceof XmlParseError)) throw new Error(`expected an XmlParseError, got ${String(error)}`);
-  return error;
-};
+const parseError = (text: string, options: XmlParseOptions = {}): Effect.Effect<XmlParseError> =>
+  Effect.gen(function* () {
+    const result = yield* parseXml(text, options).pipe(Effect.result);
+    if (Result.isSuccess(result)) return yield* Effect.die(new Error(`expected ${JSON.stringify(text)} to fail to parse`));
+    return result.failure;
+  });
 
 describe('parseXml() — elements', () => {
   it('reads a child element as a bare string', () => {
@@ -227,104 +227,144 @@ describe('parseXml() — repeated elements', () => {
 });
 
 describe('parseXml() — documents it refuses', () => {
-  it('refuses an empty document', () => {
-    expect(parseError('').message).toBe('Document has no root element');
-  });
+  it.effect('refuses an empty document', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('')).message).toBe('Document has no root element');
+    })
+  );
 
-  it('refuses a document that is only whitespace', () => {
-    expect(parseError('   \n ').message).toBe('Document has no root element');
-  });
+  it.effect('refuses a document that is only whitespace', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('   \n ')).message).toBe('Document has no root element');
+    })
+  );
 
-  it('refuses a document that is only a prolog', () => {
-    expect(parseError('<?xml version="1.0"?>').message).toBe('Document has no root element');
-  });
+  it.effect('refuses a document that is only a prolog', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<?xml version="1.0"?>')).message).toBe('Document has no root element');
+    })
+  );
 
-  it('refuses an unclosed element', () => {
-    expect(parseError('<r><a>1</a>').message).toBe('Unclosed element <r>');
-  });
+  it.effect('refuses an unclosed element', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r><a>1</a>')).message).toBe('Unclosed element <r>');
+    })
+  );
 
-  it('refuses a closing tag that does not match', () => {
-    expect(parseError('<r><a>1</b></r>').message).toBe('Closing tag </b> does not match <a>');
-  });
+  it.effect('refuses a closing tag that does not match', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r><a>1</b></r>')).message).toBe('Closing tag </b> does not match <a>');
+    })
+  );
 
-  it('refuses content after the root element', () => {
-    expect(parseError('<r/><s/>').message).toBe('Unexpected content after the root element');
-  });
+  it.effect('refuses content after the root element', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r/><s/>')).message).toBe('Unexpected content after the root element');
+    })
+  );
 
-  it('refuses a second root element', () => {
-    expect(parseError('<r/><r/>').message).toBe('Unexpected content after the root element');
-  });
+  it.effect('refuses a second root element', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r/><r/>')).message).toBe('Unexpected content after the root element');
+    })
+  );
 
-  it('refuses an unterminated comment', () => {
-    expect(parseError('<r><!-- oops</r>').message).toBe('Unterminated comment');
-  });
+  it.effect('refuses an unterminated comment', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r><!-- oops</r>')).message).toBe('Unterminated comment');
+    })
+  );
 
-  it('refuses an unterminated CDATA section', () => {
-    expect(parseError('<r><![CDATA[oops</r>').message).toBe('Unterminated CDATA section');
-  });
+  it.effect('refuses an unterminated CDATA section', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r><![CDATA[oops</r>')).message).toBe('Unterminated CDATA section');
+    })
+  );
 
-  it('refuses an attribute with no equals sign', () => {
-    expect(parseError('<r a b="1"/>').message).toMatch(/has no "="/);
-    expect(parseError('<r a/>').message).toMatch(/has no "="/);
-  });
+  it.effect('refuses an attribute with no equals sign', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r a b="1"/>')).message).toMatch(/has no "="/);
+      expect((yield* parseError('<r a/>')).message).toMatch(/has no "="/);
+    })
+  );
 
-  it('refuses an attribute whose value is not quoted', () => {
-    expect(parseError('<r a=1/>').message).toMatch(/has no quoted value/);
-  });
+  it.effect('refuses an attribute whose value is not quoted', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r a=1/>')).message).toMatch(/has no quoted value/);
+    })
+  );
 
-  it('refuses an unterminated attribute value', () => {
-    expect(parseError('<r a="1/>').message).toMatch(/Unterminated value for attribute/);
-  });
+  it.effect('refuses an unterminated attribute value', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r a="1/>')).message).toMatch(/Unterminated value for attribute/);
+    })
+  );
 
-  it('refuses an unterminated start tag', () => {
-    expect(parseError('<r a="1"').message).toBe('Unterminated start tag');
-  });
+  it.effect('refuses an unterminated start tag', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r a="1"')).message).toBe('Unterminated start tag');
+    })
+  );
 
-  it('refuses a declaration inside an element', () => {
-    expect(parseError('<r><!ENTITY x "y"></r>').message).toMatch(/not allowed inside an element/);
-  });
+  it.effect('refuses a declaration inside an element', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<r><!ENTITY x "y"></r>')).message).toMatch(/not allowed inside an element/);
+    })
+  );
 
-  it('refuses an unterminated DOCTYPE', () => {
-    expect(parseError('<!DOCTYPE r [<!ENTITY x "y">]').message).toBe('Unterminated DOCTYPE declaration');
-  });
+  it.effect('refuses an unterminated DOCTYPE', () =>
+    Effect.gen(function* () {
+      expect((yield* parseError('<!DOCTYPE r [<!ENTITY x "y">]')).message).toBe('Unterminated DOCTYPE declaration');
+    })
+  );
 
-  it('refuses a document nested past the depth limit', () => {
-    // Built rather than written out: a document deep enough to matter is absurd
-    // to spell out, and the point is the limit rather than the contents.
-    const deep = `${'<a>'.repeat(40)}x${'</a>'.repeat(40)}`;
-    expect(parseError(deep, { maxDepth: 10 }).message).toMatch(/maxDepth/);
-  });
+  it.effect('refuses a document nested past the depth limit', () =>
+    Effect.gen(function* () {
+      // Built rather than written out: a document deep enough to matter is absurd
+      // to spell out, and the point is the limit rather than the contents.
+      const deep = `${'<a>'.repeat(40)}x${'</a>'.repeat(40)}`;
+      expect((yield* parseError(deep, { maxDepth: 10 })).message).toMatch(/maxDepth/);
+    })
+  );
 
   it('reads a document nested exactly to the limit', () => {
     const deep = `${'<a>'.repeat(10)}x${'</a>'.repeat(10)}`;
     expect(() => parseXmlDocument(deep, { maxDepth: 10 }).value).not.toThrow();
   });
 
-  it('carries the position and the source, so a caller can point at the problem', () => {
-    const error = parseError('<r><a>1</b></r>');
-    expect(error.position).toBe(7);
-    expect(error.input).toBe('<r><a>1</b></r>');
-    expect(error._tag).toBe('XmlParseError');
-  });
+  it.effect('carries the position and the source, so a caller can point at the problem', () =>
+    Effect.gen(function* () {
+      const error = yield* parseError('<r><a>1</b></r>');
+      expect(error.position).toBe(7);
+      expect(error.input).toBe('<r><a>1</b></r>');
+      expect(error._tag).toBe('XmlParseError');
+    })
+  );
 
-  it('reports the failure through the Effect, not by throwing', () => {
-    expect(Exit.isSuccess(Effect.runSyncExit(parseXml('<r><a>1</b></r>')))).toBe(false);
-    expect(Exit.isSuccess(Effect.runSyncExit(parseXml('<r><a>1</a></r>')))).toBe(true);
-  });
+  it.effect('reports the failure through the Effect, not by throwing', () =>
+    Effect.gen(function* () {
+      expect(Result.isFailure(yield* parseXml('<r><a>1</b></r>').pipe(Effect.result))).toBe(true);
+      expect(Result.isSuccess(yield* parseXml('<r><a>1</a></r>').pipe(Effect.result))).toBe(true);
+    })
+  );
 
-  it('reports a malformed document as a typed failure rather than a defect', () => {
-    // A parse failure is an expected outcome of reading untrusted text, so it has to land in the error channel. Were it a defect, `catchTag`, `retry` and a
-    // fallback would all miss it and the declared `XmlParseError` type would be a lie.
-    const exit = Effect.runSyncExit(parseXml('<r><a>1</b></r>'));
-    expect(Exit.hasDies(exit)).toBe(false);
-    if (Exit.isSuccess(exit)) throw new Error('expected the parse to fail');
-    expect(Cause.squash(exit.cause)).toBeInstanceOf(XmlParseError);
-  });
+  it.effect('reports a malformed document as a typed failure rather than a defect', () =>
+    Effect.gen(function* () {
+      // A parse failure is an expected outcome of reading untrusted text, so it has to land in the error channel. Were it a defect, `catchTag`, `retry` and a
+      // fallback would all miss it and the declared `XmlParseError` type would be a lie.
+      const exit = yield* Effect.exit(parseXml('<r><a>1</b></r>'));
+      expect(Exit.hasDies(exit)).toBe(false);
+      assert(Exit.isFailure(exit));
+      expect(Cause.squash(exit.cause)).toBeInstanceOf(XmlParseError);
+    })
+  );
 
-  it('lets a caller recover from a parse failure by tag', () => {
-    const recovered = Effect.runSync(parseXml('<r><a>1</b></r>').pipe(Effect.catchTag('XmlParseError', () => Effect.succeed({ recovered: true }))));
-    expect(recovered).toEqual({ recovered: true });
-  });
+  it.effect('lets a caller recover from a parse failure by tag', () =>
+    Effect.gen(function* () {
+      const recovered = yield* parseXml('<r><a>1</b></r>').pipe(Effect.catchTag('XmlParseError', () => Effect.succeed({ recovered: true })));
+      expect(recovered).toEqual({ recovered: true });
+    })
+  );
 });
 
 describe('parseXml() — a document that cannot be read as XML but should be', () => {

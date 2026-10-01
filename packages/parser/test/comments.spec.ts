@@ -1,4 +1,4 @@
-import { describe, expect } from 'vite-plus/test';
+import { describe, expect } from '@effect/vitest';
 
 import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
 

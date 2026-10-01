@@ -5,13 +5,14 @@
  * untyped reference.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import type { PathNode } from '#/index.ts';
+import type { MatcherView } from '#/index.ts';
 
 import { Matcher } from '#/index.ts';
-import type { MatcherView } from '#/index.ts';
-import { expr } from '#/test/helpers/effect.ts';
+import Expression from '#/path-matcher/expression.ts';
 
 describe('readOnly() hands back a view rather than the matcher itself', () => {
   it('returns an object', () => {
@@ -162,20 +163,22 @@ describe('the view serves every read and match method the matcher does', () => {
     expect(arr[2]).toBe('user');
   });
 
-  it('matches exact paths, deep wildcards and attribute conditions', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('users');
-    matcher.push('user', { id: '5' });
+  it.effect('matches exact paths, deep wildcards and attribute conditions', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('users');
+      matcher.push('user', { id: '5' });
 
-    const ro = matcher.readOnly();
+      const ro = matcher.readOnly();
 
-    expect(ro.matches(expr('root.users.user'))).toBe(true);
-    expect(ro.matches(expr('..user'))).toBe(true);
-    expect(ro.matches(expr('root.users.user[id]'))).toBe(true);
-    expect(ro.matches(expr('root.users.user[id=5]'))).toBe(true);
-    expect(!ro.matches(expr('root.users.admin'))).toBe(true);
-  });
+      expect(ro.matches(yield* Expression.make('root.users.user'))).toBe(true);
+      expect(ro.matches(yield* Expression.make('..user'))).toBe(true);
+      expect(ro.matches(yield* Expression.make('root.users.user[id]'))).toBe(true);
+      expect(ro.matches(yield* Expression.make('root.users.user[id=5]'))).toBe(true);
+      expect(!ro.matches(yield* Expression.make('root.users.admin'))).toBe(true);
+    })
+  );
 
   it('carries no snapshot of its own, so nothing can be rewound through the view', () => {
     const matcher = new Matcher();
@@ -456,14 +459,16 @@ describe('the view handles an empty matcher, namespaces and deep wildcards', () 
     expect(ro.toString('.', true)).toBe('ns1:root.ns2:child');
   });
 
-  it('matches a deep wildcard only against the current tag', () => {
-    const matcher = new Matcher();
-    matcher.push('root');
-    matcher.push('users');
+  it.effect('matches a deep wildcard only against the current tag', () =>
+    Effect.gen(function* () {
+      const matcher = new Matcher();
+      matcher.push('root');
+      matcher.push('users');
 
-    const ro = matcher.readOnly();
+      const ro = matcher.readOnly();
 
-    expect(!ro.matches(expr('..user'))).toBe(true);
-    expect(ro.matches(expr('..users'))).toBe(true);
-  });
+      expect(!ro.matches(yield* Expression.make('..user'))).toBe(true);
+      expect(ro.matches(yield* Expression.make('..users'))).toBe(true);
+    })
+  );
 });

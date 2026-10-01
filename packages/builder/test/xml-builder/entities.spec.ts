@@ -4,15 +4,17 @@
  * each one is escaped exactly once.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
-import { run, makeBuilder } from '#/test/helpers/effect.ts';
+import { XMLBuilder } from '#/index.ts';
 
 describe('Entities', () => {
-  it('should build by decoding default entities', () => {
-    const jsObj = { note: { '@heading': 'Reminder > "Alert', body: { '#text': ' 3 < 4', attr: 'Writer: Donald Duck.' } } };
+  it.effect('should build by decoding default entities', () =>
+    Effect.gen(function* () {
+      const jsObj = { note: { '@heading': 'Reminder > "Alert', body: { '#text': ' 3 < 4', attr: 'Writer: Donald Duck.' } } };
 
-    const expected = `
+      const expected = `
         <note heading="Reminder &gt; &quot;Alert">
             <body>
              3 &lt; 4
@@ -20,22 +22,24 @@ describe('Entities', () => {
             </body>
         </note>`;
 
-    const options = {
-      attributeNamePrefix: '@',
-      ignoreAttributes: false,
-      // processEntities: true,
-    };
-    const builder = makeBuilder(options);
-    const result = run(builder.build(jsObj));
-    expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
-  });
+      const options = {
+        attributeNamePrefix: '@',
+        ignoreAttributes: false,
+        // processEntities: true,
+      };
+      const builder = yield* XMLBuilder.make(options);
+      const result = yield* builder.build(jsObj);
+      expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
+    })
+  );
 
-  it('should build by decoding default entities in preserve mode', () => {
-    const jsObj = [
-      { note: [{ body: [{ '#text': '3 < 4' }, { attr: [{ '#text': 'Writer: Donald Duck.' }] }] }], ':@': { '@heading': 'Reminder > "Alert' } },
-    ];
+  it.effect('should build by decoding default entities in preserve mode', () =>
+    Effect.gen(function* () {
+      const jsObj = [
+        { note: [{ body: [{ '#text': '3 < 4' }, { attr: [{ '#text': 'Writer: Donald Duck.' }] }] }], ':@': { '@heading': 'Reminder > "Alert' } },
+      ];
 
-    const expected = `
+      const expected = `
         <note heading="Reminder &gt; &quot;Alert">
             <body>
              3 &lt; 4
@@ -43,26 +47,31 @@ describe('Entities', () => {
             </body>
         </note>`;
 
-    const options = {
-      attributeNamePrefix: '@',
-      ignoreAttributes: false,
-      preserveOrder: true,
-      // processEntities: false,
-    };
+      const options = {
+        attributeNamePrefix: '@',
+        ignoreAttributes: false,
+        preserveOrder: true,
+        // processEntities: false,
+      };
 
-    const builder = makeBuilder(options);
-    const result = run(builder.build(jsObj));
-    expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
-  });
+      const builder = yield* XMLBuilder.make(options);
+      const result = yield* builder.build(jsObj);
+      expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
+    })
+  );
 });
 
 describe('External Entities', () => {
-  it("should build by decoding '&' preserve mode", () => {
-    const jsObj = [
-      { note: [{ body: [{ '#text': '(3 & 4) < 5' }, { attr: [{ '#text': 'Writer: Donald Duck.' }] }] }], ':@': { '@heading': 'Reminder > "Alert' } },
-    ];
+  it.effect("should build by decoding '&' preserve mode", () =>
+    Effect.gen(function* () {
+      const jsObj = [
+        {
+          note: [{ body: [{ '#text': '(3 & 4) < 5' }, { attr: [{ '#text': 'Writer: Donald Duck.' }] }] }],
+          ':@': { '@heading': 'Reminder > "Alert' },
+        },
+      ];
 
-    const expected = `
+      const expected = `
         <note heading="Reminder &gt; &quot;Alert">
             <body>
              (3 &amp; 4) &lt; 5
@@ -70,22 +79,24 @@ describe('External Entities', () => {
             </body>
         </note>`;
 
-    const options = {
-      attributeNamePrefix: '@',
-      ignoreAttributes: false,
-      preserveOrder: true,
-      // processEntities: false,
-    };
+      const options = {
+        attributeNamePrefix: '@',
+        ignoreAttributes: false,
+        preserveOrder: true,
+        // processEntities: false,
+      };
 
-    const builder = makeBuilder(options);
-    const result = run(builder.build(jsObj));
-    expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
-  });
+      const builder = yield* XMLBuilder.make(options);
+      const result = yield* builder.build(jsObj);
+      expect(result.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
+    })
+  );
 
-  it("should build by decoding '&'", () => {
-    const jsObj = { note: { body: { attr: 'Writer: Donald Duck.', '#text': '(3 & 4) < 5' }, '@heading': 'Reminder > "Alert' } };
+  it.effect("should build by decoding '&'", () =>
+    Effect.gen(function* () {
+      const jsObj = { note: { body: { attr: 'Writer: Donald Duck.', '#text': '(3 & 4) < 5' }, '@heading': 'Reminder > "Alert' } };
 
-    const expected = `
+      const expected = `
         <note heading="Reminder &gt; &quot;Alert">
             <body>
             <attr>Writer: Donald Duck.</attr>
@@ -93,10 +104,11 @@ describe('External Entities', () => {
             </body>
         </note>`;
 
-    const options = { attributeNamePrefix: '@', ignoreAttributes: false };
+      const options = { attributeNamePrefix: '@', ignoreAttributes: false };
 
-    const builder = makeBuilder(options);
-    const output = run(builder.build(jsObj));
-    expect(output.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
-  });
+      const builder = yield* XMLBuilder.make(options);
+      const output = yield* builder.build(jsObj);
+      expect(output.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
+    })
+  );
 });

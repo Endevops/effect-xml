@@ -1,7 +1,7 @@
+import { describe, expect } from '@effect/vitest';
 import { CompactBuilderFactory } from '@endevops/builder';
-import { describe, expect } from 'vite-plus/test';
 
-import { runAcrossAllInputSources, runParser } from '#/test/helpers/test-runner.ts';
+import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Default behaviour — attributes skipped
@@ -229,7 +229,7 @@ describe('Attributes — value parsing', function () {
       expect(result.root.tag['@_count']).toBe('42');
       expect(result.root.tag['@_active']).toBe('true');
     },
-    { skip: { attributes: false }, OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: [] } })) }
+    { skip: { attributes: false }, OutputBuilder: CompactBuilderFactory.make({ attributes: { valueParsers: [] } }) }
   );
 
   runAcrossAllInputSources(
@@ -240,7 +240,7 @@ describe('Attributes — value parsing', function () {
       expect(result.root.tag['@_label']).toBe('hello');
       expect(result.root.tag['@_flag']).toBe('true'); // string — boolean parser not in chain
     },
-    { skip: { attributes: false }, OutputBuilder: runParser(CompactBuilderFactory.make({ attributes: { valueParsers: ['number'] } })) }
+    { skip: { attributes: false }, OutputBuilder: CompactBuilderFactory.make({ attributes: { valueParsers: ['number'] } }) }
   );
 });
 

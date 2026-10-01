@@ -11,13 +11,13 @@
  * is the point: an unreachable entry in an internal index is a real thing to pin, and it cannot be pinned from outside.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import type { EntityEncoderOptions } from '#/index.ts';
 
 import { trie1, trie2, trie3 } from '#/entities/entity-tries.ts';
 import { ALL_ENTITIES, EntityDecoder, EntityEncoder } from '#/index.ts';
-import { run } from '#/test/helpers/effect.ts';
 
 /**
  * @description Give the constructor an option object carrying an explicit `undefined`, which `exactOptionalPropertyTypes` forbids and which generated or untyped
@@ -391,11 +391,13 @@ describe('preserved upstream quirk: the name chosen for a character is the last 
     expect(new EntityEncoder().encode("'")).toBe('&apos;');
   });
 
-  it('decodes whatever it emitted, so the choice of name never costs a caller the character', () => {
-    const encoder = new EntityEncoder();
-    const decoder = run(EntityDecoder.make({ namedEntities: ALL_ENTITIES }));
-    expect(run(decoder.decode(encoder.encode('©<>&"\'')))).toBe('©<>&"\'');
-  });
+  it.effect('decodes whatever it emitted, so the choice of name never costs a caller the character', () =>
+    Effect.gen(function* () {
+      const encoder = new EntityEncoder();
+      const decoder = yield* EntityDecoder.make({ namedEntities: ALL_ENTITIES });
+      expect(yield* decoder.decode(encoder.encode('©<>&"\''))).toBe('©<>&"\'');
+    })
+  );
 });
 
 describe('preserved upstream quirk: a negative replacement budget is unlimited', () => {
@@ -456,47 +458,63 @@ describe('decode(encode(x))', () => {
   /**
    * @description A decoder holding the whole entity table, which is the configuration under which every name the encoder can emit resolves.
    *
-   * @returns The decoder.
+   * @returns The decoder, as an effect.
    */
-  const fullDecoder = (): EntityDecoder => run(EntityDecoder.make({ namedEntities: ALL_ENTITIES }));
+  const fullDecoder = () => EntityDecoder.make({ namedEntities: ALL_ENTITIES });
 
   for (const sample of ['<a href="x">café & ©</a>', 'plain ascii with no entities at all', '日本語 & é', '𝔄 ብር ⩭̸ ↝̸ ≍⃒', '’ ¸ ˆ ≏', '&<>"\'']) {
-    it(`gives back ${JSON.stringify(sample)}`, () => {
-      expect(run(fullDecoder().decode(new EntityEncoder().encode(sample)))).toBe(sample);
-    });
+    it.effect(`gives back ${JSON.stringify(sample)}`, () =>
+      Effect.gen(function* () {
+        expect(yield* (yield* fullDecoder()).decode(new EntityEncoder().encode(sample))).toBe(sample);
+      })
+    );
   }
 
-  it('gives back every distinct replacement in the table, all 709 of them', () => {
-    // A single failure would mean the encoder emitted a spelling the table cannot resolve, which is the only way this round trip can actually break.
-    const encoder = new EntityEncoder();
-    const decoder = fullDecoder();
-    const failures = distinctValues().filter(value => run(decoder.decode(encoder.encode(value))) !== value);
-    expect(failures).toEqual([]);
-  });
+  it.effect('gives back every distinct replacement in the table, all 709 of them', () =>
+    Effect.gen(function* () {
+      // A single failure would mean the encoder emitted a spelling the table cannot resolve, which is the only way this round trip can actually break.
+      const encoder = new EntityEncoder();
+      const decoder = yield* fullDecoder();
+      const failures: Array<string> = [];
+      for (const value of distinctValues()) {
+        if ((yield* decoder.decode(encoder.encode(value))) !== value) failures.push(value);
+      }
+      expect(failures).toEqual([]);
+    })
+  );
 
-  it('gives back every distinct replacement with the single-character lookup turned off, so the two-code-unit values are covered too', () => {
-    const encoder = new EntityEncoder({ encodeAllNamed: false });
-    const decoder = fullDecoder();
-    const values = distinctValues().filter(value => value.length > 1);
-    const failures = values.filter(value => run(decoder.decode(encoder.encode(value))) !== value);
-    expect(failures).toEqual([]);
-  });
+  it.effect('gives back every distinct replacement with the single-character lookup turned off, so the two-code-unit values are covered too', () =>
+    Effect.gen(function* () {
+      const encoder = new EntityEncoder({ encodeAllNamed: false });
+      const decoder = yield* fullDecoder();
+      const values = distinctValues().filter(value => value.length > 1);
+      const failures: Array<string> = [];
+      for (const value of values) {
+        if ((yield* decoder.decode(encoder.encode(value))) !== value) failures.push(value);
+      }
+      expect(failures).toEqual([]);
+    })
+  );
 
-  it('does not survive a decoder that holds only the five XML entities, which is the point of naming them', () => {
-    // The other direction, and the reason the option exists: encoding `é` and decoding it back needs a table, and without one the caller gets the
-    // reference text rather than the character.
-    const bare = run(EntityDecoder.make());
-    const encoded = new EntityEncoder().encode('café & ©');
-    expect(encoded).toBe('caf&eacute; &amp; &COPY;');
-    expect(run(bare.decode(encoded))).toBe('caf&eacute; & &COPY;');
-  });
+  it.effect('does not survive a decoder that holds only the five XML entities, which is the point of naming them', () =>
+    Effect.gen(function* () {
+      // The other direction, and the reason the option exists: encoding `é` and decoding it back needs a table, and without one the caller gets the
+      // reference text rather than the character.
+      const bare = yield* EntityDecoder.make();
+      const encoded = new EntityEncoder().encode('café & ©');
+      expect(encoded).toBe('caf&eacute; &amp; &COPY;');
+      expect(yield* bare.decode(encoded)).toBe('caf&eacute; & &COPY;');
+    })
+  );
 
-  it('re-encodes a decoded string to the same spelling, so the collision is stable across a round trip', () => {
-    const encoder = new EntityEncoder();
-    const decoder = fullDecoder();
-    const once = encoder.encode('©');
-    expect(encoder.encode(run(decoder.decode(once)))).toBe(once);
-  });
+  it.effect('re-encodes a decoded string to the same spelling, so the collision is stable across a round trip', () =>
+    Effect.gen(function* () {
+      const encoder = new EntityEncoder();
+      const decoder = yield* fullDecoder();
+      const once = encoder.encode('©');
+      expect(encoder.encode(yield* decoder.decode(once))).toBe(once);
+    })
+  );
 });
 
 // ─── What the encoder does not reach ───────────────────────────────────────────────────────────────────

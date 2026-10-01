@@ -1,9 +1,30 @@
-import type { Effect } from 'effect';
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, it, expect } from '@effect/vitest';
+import { Effect } from 'effect';
+
+import type {
+  AttributeOptions,
+  AutoCloseInput,
+  AutoCloseOptions,
+  DecodingOptions,
+  DoctypeOptions,
+  EncodingDecoder,
+  EncodingDescriptor,
+  Enclosure,
+  ErrorCodeValue,
+  ExitIfPredicate,
+  FeedableOptions,
+  LimitsOptions,
+  NameForOptions,
+  ParseError,
+  ParseErrorEntry,
+  SkipOptions,
+  SkipTagEntry,
+  StopNodeEntry,
+  TagOptions,
+  X2jOptions,
+} from '#/index.ts';
 
 import XMLParser, { ErrorCode, LimitMaxNestedTags, MismatchedCloseTag, quoteEnclosures, xmlEnclosures } from '#/index.ts';
-import type { AttributeOptions, AutoCloseInput, AutoCloseOptions, DecodingOptions, DoctypeOptions, EncodingDecoder, EncodingDescriptor, Enclosure, ErrorCodeValue, ExitIfPredicate, FeedableOptions, LimitsOptions, NameForOptions, ParseError, ParseErrorEntry, SkipOptions, SkipTagEntry, StopNodeEntry, TagOptions, X2jOptions } from '#/index.ts';
-import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
 /**
  * @description Guards the public entry point. The type half of this spec is checked by the compiler rather than by Vitest, which does not type check, so a dropped
@@ -56,33 +77,38 @@ describe('Public API surface', function () {
     expect(autoCloseFull.onMismatch).toBe('discard');
   });
 
-  it('types the return value of getParseErrors, which was previously unnameable', function () {
-    const parser = makeParser({ autoClose: 'html' });
-    runParser(parser.parse('<a><b></a>'));
+  it.effect('types the return value of getParseErrors, which was previously unnameable', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ autoClose: 'html' });
+      yield* parser.parse('<a><b></a>');
 
-    const errors: Array<ParseErrorEntry> = runParser(parser.getParseErrors());
+      const errors: Array<ParseErrorEntry> = parser.getParseErrors();
 
-    expect(Array.isArray(errors)).toBe(true);
-  });
+      expect(Array.isArray(errors)).toBe(true);
+    })
+  );
 
-  it('exposes construction and parsing as effects, which is the package contract', function () {
-    // The compile-time half: `XMLParser.make` and every entry point answer with an
-    // `Effect` whose only failure is a `ParseError`. A dropped `E` would widen a
-    // caller's error channel to `never` and make every recovery below unreachable,
-    // so the assertion is on the type, not on a value.
-    const made: Effect.Effect<XMLParser, ParseError> = XMLParser.make({ autoClose: 'html' });
-    const parser: XMLParser = runParser(made);
+  it.effect('exposes construction and parsing as effects, which is the package contract', () =>
+    Effect.gen(function* () {
+      // The compile-time half: `XMLParser.make` and every entry point answer with an
+      // `Effect` whose only failure is a `ParseError`. A dropped `E` would widen a
+      // caller's error channel to `never` and make every recovery below unreachable,
+      // so the assertion is on the type, not on a value.
+      const made: Effect.Effect<XMLParser, ParseError> = XMLParser.make({ autoClose: 'html' });
+      const parser: XMLParser = yield* made;
 
-    const parsed: Effect.Effect<unknown, ParseError> = parser.parse('<root><a>1</a></root>');
-    const errors: Effect.Effect<Array<ParseErrorEntry>> = parser.getParseErrors();
-    const buffered: Effect.Effect<number | null> = parser.getFeedBufferLength();
-    const threshold: Effect.Effect<number> = parser.getFeedBatchThreshold();
+      const parsed: Effect.Effect<unknown, ParseError> = parser.parse('<root><a>1</a></root>');
+      // The three readers are plain synchronous reads now, not effects.
+      const errors: Array<ParseErrorEntry> = parser.getParseErrors();
+      const buffered: number | null = parser.getFeedBufferLength();
+      const threshold: number = parser.getFeedBatchThreshold();
 
-    expect(runParser(parsed)).toEqual({ root: { a: 1 } });
-    expect(runParser(errors)).toEqual([]);
-    expect(runParser(buffered)).toBeNull();
-    expect(runParser(threshold)).toBeGreaterThan(0);
-  });
+      expect(yield* parsed).toEqual({ root: { a: 1 } });
+      expect(errors).toEqual([]);
+      expect(buffered).toBeNull();
+      expect(threshold).toBeGreaterThan(0);
+    })
+  );
 
   it('narrows ErrorCodeValue to real codes only', function () {
     const code: ErrorCodeValue = ErrorCode.MISMATCHED_CLOSE_TAG;

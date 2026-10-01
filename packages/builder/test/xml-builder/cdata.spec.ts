@@ -4,20 +4,22 @@
  * with an empty string and a blank value both still building a node.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { run, makeBuilder } from '#/test/helpers/effect.ts';
+import { XMLBuilder } from '#/index.ts';
 
 describe('Builder', function () {
-  it('should build XML with CDATA for repeated values without parseOrder', function () {
-    const input = {
-      any_name: {
-        person: { phone: [122233344550, 122233344551, ''], name: ['<some>Jack</some>Jack', '<some>Mohan</some>'], blank: '', regx: '^[ ].*$' },
-      },
-    };
-    const expected = `
+  it.effect('should build XML with CDATA for repeated values without parseOrder', () =>
+    Effect.gen(function* () {
+      const input = {
+        any_name: {
+          person: { phone: [122233344550, 122233344551, ''], name: ['<some>Jack</some>Jack', '<some>Mohan</some>'], blank: '', regx: '^[ ].*$' },
+        },
+      };
+      const expected = `
         <any_name>
             <person>
                 <![CDATA[122233344550]]>
@@ -30,20 +32,22 @@ describe('Builder', function () {
             </person>
         </any_name>`;
 
-    const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, cdataPropName: 'phone' };
+      const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, cdataPropName: 'phone' };
 
-    const builder = makeBuilder(options);
-    const xmlOutput = run(builder.build(input));
-    expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
-  });
+      const builder = yield* XMLBuilder.make(options);
+      const xmlOutput = yield* builder.build(input);
+      expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
+    })
+  );
 
-  it('should build XML with CDATA for single value without parseOrder', function () {
-    const input = {
-      any_name: {
-        person: { phone: [122233344550, 122233344551, ''], name: ['<some>Jack</some>Jack', '<some>Mohan</some>'], blank: '', regx: '^[ ].*$' },
-      },
-    };
-    const expected = `
+  it.effect('should build XML with CDATA for single value without parseOrder', () =>
+    Effect.gen(function* () {
+      const input = {
+        any_name: {
+          person: { phone: [122233344550, 122233344551, ''], name: ['<some>Jack</some>Jack', '<some>Mohan</some>'], blank: '', regx: '^[ ].*$' },
+        },
+      };
+      const expected = `
         <any_name>
             <person>
                 <phone>122233344550</phone>
@@ -56,10 +60,11 @@ describe('Builder', function () {
             </person>
         </any_name>`;
 
-    const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, cdataPropName: 'regx' };
+      const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, cdataPropName: 'regx' };
 
-    const builder = makeBuilder(options);
-    const xmlOutput = run(builder.build(input));
-    expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
-  });
+      const builder = yield* XMLBuilder.make(options);
+      const xmlOutput = yield* builder.build(input);
+      expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
+    })
+  );
 });

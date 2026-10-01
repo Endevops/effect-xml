@@ -1,10 +1,11 @@
-import { Effect } from 'effect';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Effect, Fiber, Result } from 'effect';
 import { Readable } from 'stream';
-import { describe, it, expect } from 'vite-plus/test';
 
 import type { OutputBuilderFactoryLike } from '#/internal/parser-types.ts';
+import type { ParsedNode } from '#/test/helpers/test-runner.ts';
 
-import { makeParser, parseDoc, endDoc, streamDoc, runParser } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -39,306 +40,422 @@ function chunkString(str: string, size: number): Array<string> {
 // ─── Basic parseStream behaviour ─────────────────────────────────────────────
 
 describe('parseStream — basic', () => {
-  it('resolves with a parsed JS object from a well-formed stream', async () => {
-    const xml = '<root><tag>value</tag></root>';
-    const result = await streamDoc(makeParser(), makeStream([xml]));
-    expect(result.root.tag).toBe('value');
-  });
+  it.effect('resolves with a parsed JS object from a well-formed stream', () =>
+    Effect.gen(function* () {
+      const xml = '<root><tag>value</tag></root>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream([xml]))) as ParsedNode;
+      expect(result.root.tag).toBe('value');
+    })
+  );
 
-  it('handles multiple chunks that align on tag boundaries', async () => {
-    const chunks = ['<root>', '<item>one</item>', '<item>two</item>', '</root>'];
-    const result = await streamDoc(makeParser(), makeStream(chunks));
-    expect(Array.isArray(result.root.item)).toBe(true);
-    expect(result.root.item[0]).toBe('one');
-    expect(result.root.item[1]).toBe('two');
-  });
+  it.effect('handles multiple chunks that align on tag boundaries', () =>
+    Effect.gen(function* () {
+      const chunks = ['<root>', '<item>one</item>', '<item>two</item>', '</root>'];
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream(chunks))) as ParsedNode;
+      expect(Array.isArray(result.root.item)).toBe(true);
+      expect(result.root.item[0]).toBe('one');
+      expect(result.root.item[1]).toBe('two');
+    })
+  );
 
-  it('handles a single-character-per-chunk stream', async () => {
-    const xml = '<root><tag>hello</tag></root>';
-    const result = await streamDoc(makeParser(), makeStream(chunkString(xml, 1)));
-    expect(result.root.tag).toBe('hello');
-  });
+  it.effect('handles a single-character-per-chunk stream', () =>
+    Effect.gen(function* () {
+      const xml = '<root><tag>hello</tag></root>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 1)))) as ParsedNode;
+      expect(result.root.tag).toBe('hello');
+    })
+  );
 
-  it('handles Buffer chunks', async () => {
-    const xml = '<root><val>42</val></root>';
-    const stream = Readable.from([Buffer.from(xml)]);
-    const result = await streamDoc(makeParser(), stream);
-    expect(result.root.val).toBe(42);
-  });
+  it.effect('handles Buffer chunks', () =>
+    Effect.gen(function* () {
+      const xml = '<root><val>42</val></root>';
+      const stream = Readable.from([Buffer.from(xml)]);
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(stream)) as ParsedNode;
+      expect(result.root.val).toBe(42);
+    })
+  );
 
-  it('returns a Promise', () => {
-    const xml = '<root/>';
-    const result = streamDoc(makeParser(), makeStream([xml]));
-    expect(result instanceof Promise).toBe(true);
-    return result;
-  });
+  it.effect('returns a Promise when run through the promise bridge', () =>
+    Effect.gen(function* () {
+      // `parseStream` is an `Effect`; `Effect.runPromise` is the bridge a
+      // Promise-shaped caller goes through, so what is under test here is that
+      // bridge, not the parse itself.
+      const xml = '<root/>';
+      const parser = yield* XMLParser.make();
+      const result = Effect.runPromise(parser.parseStream(makeStream([xml])));
+      expect(result instanceof Promise).toBe(true);
+      yield* Effect.promise(() => result);
+    })
+  );
 
-  it('throws synchronously for non-stream input', () => {
-    // Deliberately not a Readable: parseStream is specified to reject these
-    // synchronously with INVALID_STREAM, so the inputs are cast past the type
-    // to prove the runtime check rather than the compiler does the rejecting.
-    const notAStream = 'not a stream' as unknown as NodeJS.ReadableStream;
-    expect(() => runParser(makeParser().parseStream(notAStream))).toThrow();
-    expect(() => runParser(makeParser().parseStream(null as unknown as NodeJS.ReadableStream))).toThrow();
-    expect(() => runParser(makeParser().parseStream({} as unknown as NodeJS.ReadableStream))).toThrow();
-  });
+  it.effect('throws synchronously for non-stream input', () =>
+    Effect.gen(function* () {
+      // Deliberately not a Readable: parseStream is specified to reject these
+      // synchronously with INVALID_STREAM, so the inputs are cast past the type
+      // to prove the runtime check rather than the compiler does the rejecting.
+      const notAStream = 'not a stream' as unknown as NodeJS.ReadableStream;
+      const r1 = yield* (yield* XMLParser.make()).parseStream(notAStream).pipe(Effect.result);
+      assert(Result.isFailure(r1));
+      const r2 = yield* (yield* XMLParser.make()).parseStream(null as unknown as NodeJS.ReadableStream).pipe(Effect.result);
+      assert(Result.isFailure(r2));
+      const r3 = yield* (yield* XMLParser.make()).parseStream({} as unknown as NodeJS.ReadableStream).pipe(Effect.result);
+      assert(Result.isFailure(r3));
+    })
+  );
 });
 
 // ─── Chunk-boundary stress tests ─────────────────────────────────────────────
 
 describe('parseStream — chunk boundaries', () => {
-  it('handles a chunk boundary mid tag-name', async () => {
-    // '<ro' ... 'ot><child>x</child></root>'
-    const xml = '<root><child>x</child></root>';
-    const result = await streamDoc(makeParser(), makeStream(chunkString(xml, 3)));
-    expect(result.root.child).toBe('x');
-  });
+  it.effect('handles a chunk boundary mid tag-name', () =>
+    Effect.gen(function* () {
+      // '<ro' ... 'ot><child>x</child></root>'
+      const xml = '<root><child>x</child></root>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 3)))) as ParsedNode;
+      expect(result.root.child).toBe('x');
+    })
+  );
 
-  it('handles a chunk boundary inside an attribute value', async () => {
-    const xml = '<root id="hello world"><tag>v</tag></root>';
-    const result = await streamDoc(makeParser({ skip: { attributes: false } }), makeStream(chunkString(xml, 7)));
-    expect(result.root.tag).toBe('v');
-  });
+  it.effect('handles a chunk boundary inside an attribute value', () =>
+    Effect.gen(function* () {
+      const xml = '<root id="hello world"><tag>v</tag></root>';
+      const parser = yield* XMLParser.make({ skip: { attributes: false } });
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 7)))) as ParsedNode;
+      expect(result.root.tag).toBe('v');
+    })
+  );
 
-  it('handles a chunk boundary inside a text node', async () => {
-    // text 'hello world' split across chunks
-    const xml = '<root>hello world</root>';
-    const result = await streamDoc(makeParser(), makeStream(chunkString(xml, 4)));
-    expect(result.root).toBe('hello world');
-  });
+  it.effect('handles a chunk boundary inside a text node', () =>
+    Effect.gen(function* () {
+      // text 'hello world' split across chunks
+      const xml = '<root>hello world</root>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 4)))) as ParsedNode;
+      expect(result.root).toBe('hello world');
+    })
+  );
 
-  it('handles a chunk boundary inside CDATA', async () => {
-    const xml = '<root><![CDATA[hel]]><![CDATA[lo]]></root>';
-    const result = await streamDoc(makeParser(), makeStream(chunkString(xml, 5)));
-    expect(result.root).toBe('hello');
-  });
+  it.effect('handles a chunk boundary inside CDATA', () =>
+    Effect.gen(function* () {
+      const xml = '<root><![CDATA[hel]]><![CDATA[lo]]></root>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 5)))) as ParsedNode;
+      expect(result.root).toBe('hello');
+    })
+  );
 
-  it('handles a chunk boundary inside a comment', async () => {
-    const xml = '<root><!--this is a comment-->val</root>';
-    const result = await streamDoc(makeParser({ nameFor: { comment: '#comment' } }), makeStream(chunkString(xml, 6)));
-    expect(result.root['#text']).toBe('val');
-  });
+  it.effect('handles a chunk boundary inside a comment', () =>
+    Effect.gen(function* () {
+      const xml = '<root><!--this is a comment-->val</root>';
+      const parser = yield* XMLParser.make({ nameFor: { comment: '#comment' } });
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 6)))) as ParsedNode;
+      expect(result.root['#text']).toBe('val');
+    })
+  );
 
-  it('handles a chunk boundary inside a closing tag', async () => {
-    const xml = '<root><item>1</item></root>';
-    // chunks chosen so '</roo' and 't>' fall in separate chunks
-    const result = await streamDoc(makeParser(), makeStream(chunkString(xml, 13)));
-    expect(result.root.item).toBe(1);
-  });
+  it.effect('handles a chunk boundary inside a closing tag', () =>
+    Effect.gen(function* () {
+      const xml = '<root><item>1</item></root>';
+      // chunks chosen so '</roo' and 't>' fall in separate chunks
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 13)))) as ParsedNode;
+      expect(result.root.item).toBe(1);
+    })
+  );
 
-  it('handles 2-byte chunks across a deeply nested document', async () => {
-    const xml = '<a><b><c><d>deep</d></c></b></a>';
-    const result = await streamDoc(makeParser(), makeStream(chunkString(xml, 2)));
-    expect(result.a.b.c.d).toBe('deep');
-  });
+  it.effect('handles 2-byte chunks across a deeply nested document', () =>
+    Effect.gen(function* () {
+      const xml = '<a><b><c><d>deep</d></c></b></a>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream(chunkString(xml, 2)))) as ParsedNode;
+      expect(result.a.b.c.d).toBe('deep');
+    })
+  );
 });
 
 // ─── Parser options forwarded correctly ──────────────────────────────────────
 
 describe('parseStream — parser options', () => {
-  it('applies number parsing', async () => {
-    const xml = '<root><n>42</n><f>3.14</f></root>';
-    const result = await streamDoc(makeParser(), makeStream([xml]));
-    expect(result.root.n).toBe(42);
-    expect(result.root.f).toBeCloseTo(3.14);
-  });
+  it.effect('applies number parsing', () =>
+    Effect.gen(function* () {
+      const xml = '<root><n>42</n><f>3.14</f></root>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream([xml]))) as ParsedNode;
+      expect(result.root.n).toBe(42);
+      expect(result.root.f).toBeCloseTo(3.14);
+    })
+  );
 
-  it('applies boolean parsing', async () => {
-    const xml = '<root><a>true</a><b>false</b></root>';
-    const result = await streamDoc(makeParser(), makeStream([xml]));
-    expect(result.root.a).toBe(true);
-    expect(result.root.b).toBe(false);
-  });
+  it.effect('applies boolean parsing', () =>
+    Effect.gen(function* () {
+      const xml = '<root><a>true</a><b>false</b></root>';
+      const parser = yield* XMLParser.make();
+      const result = (yield* parser.parseStream(makeStream([xml]))) as ParsedNode;
+      expect(result.root.a).toBe(true);
+      expect(result.root.b).toBe(false);
+    })
+  );
 
-  it('respects skip.declaration', async () => {
-    const xml = '<?xml version="1.0"?><root><v>1</v></root>';
-    const r1 = await streamDoc(makeParser({ skip: { declaration: false } }), makeStream([xml]));
-    const r2 = await streamDoc(makeParser({ skip: { declaration: true } }), makeStream([xml]));
-    expect(r1['?xml']).toBeDefined();
-    expect(r2['?xml']).toBeUndefined();
-  });
+  it.effect('respects skip.declaration', () =>
+    Effect.gen(function* () {
+      const xml = '<?xml version="1.0"?><root><v>1</v></root>';
+      const r1 = yield* (yield* XMLParser.make({ skip: { declaration: false } })).parseStream(makeStream([xml]));
+      const r2 = yield* (yield* XMLParser.make({ skip: { declaration: true } })).parseStream(makeStream([xml]));
+      expect(r1['?xml']).toBeDefined();
+      expect(r2['?xml']).toBeUndefined();
+    })
+  );
 
-  it('respects skip.attributes = false', async () => {
-    const xml = '<root id="123"><tag>v</tag></root>';
-    const result = await streamDoc(makeParser({ skip: { attributes: false } }), makeStream([xml]));
-    expect(result.root['@_id']).toBe(123);
-  });
+  it.effect('respects skip.attributes = false', () =>
+    Effect.gen(function* () {
+      const xml = '<root id="123"><tag>v</tag></root>';
+      const parser = yield* XMLParser.make({ skip: { attributes: false } });
+      const result = (yield* parser.parseStream(makeStream([xml]))) as ParsedNode;
+      expect(result.root['@_id']).toBe(123);
+    })
+  );
 
-  it('respects stopNodes', async () => {
-    const xml = '<root><raw><b>bold</b></raw></root>';
-    const result = await streamDoc(makeParser({ tags: { stopNodes: ['*.raw'] } }), makeStream([xml]));
-    expect(result.root.raw).toBe('<b>bold</b>');
-  });
+  it.effect('respects stopNodes', () =>
+    Effect.gen(function* () {
+      const xml = '<root><raw><b>bold</b></raw></root>';
+      const parser = yield* XMLParser.make({ tags: { stopNodes: ['*.raw'] } });
+      const result = (yield* parser.parseStream(makeStream([xml]))) as ParsedNode;
+      expect(result.root.raw).toBe('<b>bold</b>');
+    })
+  );
 
-  it('uses a custom OutputBuilder', async () => {
-    // Simple builder that just counts tags
-    const counts: Record<string, number> = {};
-    const CustomBuilder = {
-      getInstance() {
-        return Effect.succeed({
-          registeredValParsers: {},
-          addElement(tag: { name: string }) {
-            counts[tag.name] = (counts[tag.name] || 0) + 1;
-          },
-          closeElement() {
-            return Effect.void;
-          },
-          addValue() {},
-          addAttribute() {
-            return Effect.void;
-          },
-          addComment() {},
-          addLiteral() {},
-          addDeclaration() {},
-          addInstruction() {},
-          addDocType() {},
-          getOutput() {
-            return counts;
-          },
-        });
-      },
-      registerValueParser() {
-        return Effect.void;
-      },
-    };
+  it.effect('uses a custom OutputBuilder', () =>
+    Effect.gen(function* () {
+      // Simple builder that just counts tags
+      const counts: Record<string, number> = {};
+      const CustomBuilder = {
+        getInstance() {
+          return Effect.succeed({
+            registeredValParsers: {},
+            addElement(tag: { name: string }) {
+              counts[tag.name] = (counts[tag.name] || 0) + 1;
+            },
+            closeElement() {
+              return Effect.void;
+            },
+            addValue() {},
+            addAttribute() {
+              return Effect.void;
+            },
+            addComment() {},
+            addLiteral() {},
+            addDeclaration() {},
+            addInstruction() {},
+            addDocType() {},
+            getOutput() {
+              return counts;
+            },
+          });
+        },
+        registerValueParser() {
+          return Effect.void;
+        },
+      };
 
-    const xml = '<root><item/><item/><item/></root>';
-    const result = await streamDoc(makeParser({ OutputBuilder: CustomBuilder as unknown as OutputBuilderFactoryLike }), makeStream([xml]));
-    expect(result.item).toBe(3);
-  });
+      const xml = '<root><item/><item/><item/></root>';
+      const parser = yield* XMLParser.make({ OutputBuilder: CustomBuilder as unknown as OutputBuilderFactoryLike });
+      const result = (yield* parser.parseStream(makeStream([xml]))) as ParsedNode;
+      expect(result.item).toBe(3);
+    })
+  );
 });
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 
 describe('parseStream — error handling', () => {
-  it('rejects on malformed XML', async () => {
-    const xml = '<root><unclosed>';
-    await expect(Effect.runPromise(makeParser().parseStream(makeStream([xml])))).rejects.toThrow();
-  });
+  it.effect('rejects on malformed XML', () =>
+    Effect.gen(function* () {
+      const xml = '<root><unclosed>';
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parseStream(makeStream([xml])).pipe(Effect.result);
+      assert(Result.isFailure(result));
+    })
+  );
 
-  it('rejects when the stream emits an error event', async () => {
-    const stream = new Readable({ read() {} });
-    const promise = streamDoc(makeParser(), stream);
-    stream.emit('error', new Error('disk read failure'));
-    await expect(promise).rejects.toThrow('disk read failure');
-  });
+  it.live('rejects when the stream emits an error event', () =>
+    Effect.gen(function* () {
+      const stream = new Readable({ read() {} });
+      const parser = yield* XMLParser.make();
+      const fiber = yield* parser.parseStream(stream).pipe(Effect.result, Effect.forkChild);
+      // Let the forked fiber run until it subscribes to the stream, so the
+      // error is delivered to a live reader rather than after it has finished.
+      yield* Effect.yieldNow;
+      stream.emit('error', new Error('disk read failure'));
+      const result = yield* Fiber.join(fiber);
+      assert(Result.isFailure(result));
+      expect(result.failure.message).toContain('disk read failure');
+    })
+  );
 
-  it('rejects when feedable.maxBufferSize is exceeded', async () => {
-    const xml = '<root>' + 'x'.repeat(200) + '</root>';
-    const stream = makeStream([xml]);
-    await expect(Effect.runPromise(makeParser({ feedable: { maxBufferSize: 100 } }).parseStream(stream))).rejects.toThrow();
-  });
+  it.effect('rejects when feedable.maxBufferSize is exceeded', () =>
+    Effect.gen(function* () {
+      const xml = '<root>' + 'x'.repeat(200) + '</root>';
+      const stream = makeStream([xml]);
+      const parser = yield* XMLParser.make({ feedable: { maxBufferSize: 100 } });
+      const result = yield* parser.parseStream(stream).pipe(Effect.result);
+      assert(Result.isFailure(result));
+    })
+  );
 
-  it('does not reject valid XML just because chunks arrive slowly', async () => {
-    // Simulate slow stream with setTimeout between pushes
-    const xml = '<root><tag>ok</tag></root>';
-    const stream = new Readable({ read() {} });
-    const promise = streamDoc(makeParser(), stream);
+  it.live('does not reject valid XML just because chunks arrive slowly', () =>
+    Effect.gen(function* () {
+      // Simulate slow stream with setTimeout between pushes. `it.live` because
+      // this is about real timer-driven chunk delivery, which the test clock
+      // would hold still.
+      const xml = '<root><tag>ok</tag></root>';
+      const stream = new Readable({ read() {} });
+      const parser = yield* XMLParser.make();
+      const fiber = yield* parser.parseStream(stream).pipe(Effect.forkChild);
+      // Let the forked fiber run until it subscribes to the stream.
+      yield* Effect.yieldNow;
 
-    await new Promise(r => setTimeout(r, 10));
-    stream.push(xml.slice(0, 10));
-    await new Promise(r => setTimeout(r, 10));
-    stream.push(xml.slice(10));
-    await new Promise(r => setTimeout(r, 5));
-    stream.push(null);
+      yield* Effect.sleep('10 millis');
+      stream.push(xml.slice(0, 10));
+      yield* Effect.sleep('10 millis');
+      stream.push(xml.slice(10));
+      yield* Effect.sleep('5 millis');
+      stream.push(null);
 
-    const result = await promise;
-    expect(result.root.tag).toBe('ok');
-  });
+      const result = (yield* Fiber.join(fiber)) as ParsedNode;
+      expect(result.root.tag).toBe('ok');
+    })
+  );
 });
 
 // ─── feed()/end() regression — unchanged behaviour ───────────────────────────
 
 describe('feed()/end() — regression', () => {
-  it('works with whole-document feed', () => {
-    const parser = makeParser();
-    runParser(parser.feed('<root><tag>value</tag></root>'));
-    expect(endDoc(parser).root.tag).toBe('value');
-  });
+  it.effect('works with whole-document feed', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      yield* parser.feed('<root><tag>value</tag></root>');
+      expect((yield* parser.end()).root.tag).toBe('value');
+    })
+  );
 
-  it('accumulates multiple chunks before parsing', () => {
-    const parser = makeParser();
-    runParser(parser.feed('<root>'));
-    runParser(parser.feed('<item>a</item>'));
-    runParser(parser.feed('<item>b</item>'));
-    runParser(parser.feed('</root>'));
-    const result = endDoc(parser);
-    expect(result.root.item).toEqual(['a', 'b']);
-  });
+  it.effect('accumulates multiple chunks before parsing', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      yield* parser.feed('<root>');
+      yield* parser.feed('<item>a</item>');
+      yield* parser.feed('<item>b</item>');
+      yield* parser.feed('</root>');
+      const result = (yield* parser.end()) as ParsedNode;
+      expect(result.root.item).toEqual(['a', 'b']);
+    })
+  );
 
-  it('handles chunk boundary mid tag-name', () => {
-    const parser = makeParser({ skip: { declaration: true } });
-    runParser(parser.feed('<ro'));
-    runParser(parser.feed('ot/>'));
-    expect(endDoc(parser).root).toBe('');
-  });
+  it.effect('handles chunk boundary mid tag-name', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { declaration: true } });
+      yield* parser.feed('<ro');
+      yield* parser.feed('ot/>');
+      expect((yield* parser.end()).root).toBe('');
+    })
+  );
 
-  it('handles chunk boundary in CDATA', () => {
-    const parser = makeParser({ skip: { declaration: true } });
-    runParser(parser.feed('<root><![CDATA[hel'));
-    runParser(parser.feed('lo]]></root>'));
-    expect(endDoc(parser).root).toBe('hello');
-  });
+  it.effect('handles chunk boundary in CDATA', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { declaration: true } });
+      yield* parser.feed('<root><![CDATA[hel');
+      yield* parser.feed('lo]]></root>');
+      expect((yield* parser.end()).root).toBe('hello');
+    })
+  );
 
-  it('is chainable', () => {
-    const parser = makeParser();
-    // `feed` yields the parser, so the next feed composes onto the previous
-    // one — the same chaining the return-the-parser shape always supported,
-    // now spelled as flatMap because the yield is an effect.
-    const result = endDoc(runParser(Effect.flatMap(parser.feed('<r>'), p => Effect.flatMap(p.feed('<v>1</v>'), q => q.feed('</r>')))));
-    expect(result.r.v).toBe(1);
-  });
+  it.effect('is chainable', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      // `feed` yields the parser, so the next feed composes onto the previous
+      // one — the same chaining the return-the-parser shape always supported,
+      // now spelled as flatMap because the yield is an effect.
+      const result = (yield* Effect.flatMap(parser.feed('<r>'), p => Effect.flatMap(p.feed('<v>1</v>'), q => q.feed('</r>'))).pipe(
+        Effect.flatMap(p => p.end())
+      )) as ParsedNode;
+      expect(result.r.v).toBe(1);
+    })
+  );
 
-  it('throws NOT_STREAMING when end() called without feed()', () => {
-    expect(() => runParser(makeParser().end())).toThrow();
-  });
+  it.effect('throws NOT_STREAMING when end() called without feed()', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.end().pipe(Effect.result);
+      assert(Result.isFailure(result));
+    })
+  );
 
-  it('reads feedable options from parser config', () => {
-    // maxBufferSize of 20 chars — a single large feed should throw
-    const parser = makeParser({ feedable: { maxBufferSize: 20 } });
-    expect(() => runParser(parser.feed('<root>' + 'x'.repeat(50) + '</root>'))).toThrow();
-  });
+  it.effect('reads feedable options from parser config', () =>
+    Effect.gen(function* () {
+      // maxBufferSize of 20 chars — a single large feed should throw
+      const parser = yield* XMLParser.make({ feedable: { maxBufferSize: 20 } });
+      const result = yield* parser.feed('<root>' + 'x'.repeat(50) + '</root>').pipe(Effect.result);
+      assert(Result.isFailure(result));
+    })
+  );
 
-  it('allows a fresh feed/end session after end()', () => {
-    const parser = makeParser();
-    runParser(parser.feed('<a>1</a>'));
-    expect(endDoc(parser).a).toBe(1);
-    // Second session on the same parser instance
-    runParser(parser.feed('<b>2</b>'));
-    expect(endDoc(parser).b).toBe(2);
-  });
+  it.effect('allows a fresh feed/end session after end()', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      yield* parser.feed('<a>1</a>');
+      expect((yield* parser.end()).a).toBe(1);
+      // Second session on the same parser instance
+      yield* parser.feed('<b>2</b>');
+      expect((yield* parser.end()).b).toBe(2);
+    })
+  );
 });
 
 // ─── feedable option group ────────────────────────────────────────────────────
 
 describe('feedable options', () => {
-  it('defaults apply when feedable is not specified', () => {
-    // Should not throw — default maxBufferSize is 10 MB
-    const parser = makeParser();
-    const xml = '<root>' + 'x'.repeat(1000) + '</root>';
-    runParser(parser.feed(xml));
-    const result = endDoc(parser);
-    expect(typeof result.root).toBe('string');
-  });
+  it.effect('defaults apply when feedable is not specified', () =>
+    Effect.gen(function* () {
+      // Should not throw — default maxBufferSize is 10 MB
+      const parser = yield* XMLParser.make();
+      const xml = '<root>' + 'x'.repeat(1000) + '</root>';
+      yield* parser.feed(xml);
+      const result = (yield* parser.end()) as ParsedNode;
+      expect(typeof result.root).toBe('string');
+    })
+  );
 
-  it('feedable.maxBufferSize limits buffer growth', () => {
-    const parser = makeParser({ feedable: { maxBufferSize: 50 } });
-    expect(() => runParser(parser.feed('x'.repeat(100)))).toThrow();
-  });
+  it.effect('feedable.maxBufferSize limits buffer growth', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ feedable: { maxBufferSize: 50 } });
+      const result = yield* parser.feed('x'.repeat(100)).pipe(Effect.result);
+      assert(Result.isFailure(result));
+    })
+  );
 
-  it('feedable.autoFlush: false keeps processed data in buffer (no error)', () => {
-    // With autoFlush off, processed data stays but no error should be thrown
-    // for a normal-sized document
-    const parser = makeParser({ feedable: { autoFlush: false } });
-    const xml = '<root><v>ok</v></root>';
-    runParser(parser.feed(xml));
-    expect(endDoc(parser).root.v).toBe('ok');
-  });
+  it.effect('feedable.autoFlush: false keeps processed data in buffer (no error)', () =>
+    Effect.gen(function* () {
+      // With autoFlush off, processed data stays but no error should be thrown
+      // for a normal-sized document
+      const parser = yield* XMLParser.make({ feedable: { autoFlush: false } });
+      const xml = '<root><v>ok</v></root>';
+      yield* parser.feed(xml);
+      expect((yield* parser.end()).root.v).toBe('ok');
+    })
+  );
 
-  it('feedable options are forwarded to parseStream', async () => {
-    const xml = '<root>' + 'a'.repeat(200) + '</root>';
-    await expect(Effect.runPromise(makeParser({ feedable: { maxBufferSize: 50 } }).parseStream(makeStream([xml])))).rejects.toThrow();
-  });
+  it.effect('feedable options are forwarded to parseStream', () =>
+    Effect.gen(function* () {
+      const xml = '<root>' + 'a'.repeat(200) + '</root>';
+      const parser = yield* XMLParser.make({ feedable: { maxBufferSize: 50 } });
+      const result = yield* parser.parseStream(makeStream([xml])).pipe(Effect.result);
+      assert(Result.isFailure(result));
+    })
+  );
 });
 
 // ─── parseStream vs feed/end equivalence ─────────────────────────────────────
@@ -350,22 +467,28 @@ describe('parseStream / feed / parse equivalence', () => {
       <book id="2"><title>Node Streams</title><price>34.50</price></book>
     </catalog>`.trim();
 
-  it('parseStream and parse produce identical output', async () => {
-    const opts = { skip: { attributes: false } };
-    const expected = parseDoc(makeParser(opts), XML);
-    const actual = await streamDoc(makeParser(opts), makeStream([XML]));
-    expect(actual).toEqual(expected);
-  });
+  it.effect('parseStream and parse produce identical output', () =>
+    Effect.gen(function* () {
+      const opts = { skip: { attributes: false } };
+      const expected = yield* (yield* XMLParser.make(opts)).parse(XML);
+      const actual = yield* (yield* XMLParser.make(opts)).parseStream(makeStream([XML]));
+      expect(actual).toEqual(expected);
+    })
+  );
 
-  it('parseStream and feed/end produce identical output', async () => {
-    const opts = { skip: { attributes: false } };
+  it.effect('parseStream and feed/end produce identical output', () =>
+    Effect.gen(function* () {
+      const opts = { skip: { attributes: false } };
 
-    const feedParser = makeParser(opts);
-    chunkString(XML, 11).forEach(c => runParser(feedParser.feed(c)));
-    const feedResult = endDoc(feedParser);
+      const feedParser = yield* XMLParser.make(opts);
+      for (const c of chunkString(XML, 11)) {
+        yield* feedParser.feed(c);
+      }
+      const feedResult = yield* feedParser.end();
 
-    const streamResult = await streamDoc(makeParser(opts), makeStream(chunkString(XML, 11)));
+      const streamResult = yield* (yield* XMLParser.make(opts)).parseStream(makeStream(chunkString(XML, 11)));
 
-    expect(streamResult).toEqual(feedResult);
-  });
+      expect(streamResult).toEqual(feedResult);
+    })
+  );
 });

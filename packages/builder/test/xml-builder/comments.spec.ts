@@ -3,15 +3,17 @@
  * are emitted as comment nodes.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
 import type { XmlBuilderOptions } from '#/index.ts';
 
-import { run, makeBuilder } from '#/test/helpers/effect.ts';
+import { XMLBuilder } from '#/index.ts';
 
 describe('Comments', function () {
-  it('should parse comment and build them back', function () {
-    const XMLdata = `
+  it.effect('should parse comment and build them back', () =>
+    Effect.gen(function* () {
+      const XMLdata = `
     <!--Students grades are uploaded by months-->
     <class_list>
        <student>
@@ -24,42 +26,44 @@ describe('Comments', function () {
        </student>
     </class_list>`;
 
-    const jsonObj = [
-      { '#comment': [{ '#text': 'Students grades are uploaded by months' }] },
-      {
-        class_list: [
-          {
-            student: [
-              { '#comment': [{ '#text': 'Student details' }] },
-              { '#comment': [{ '#text': 'A second comment' }] },
-              { '#comment': [{ '#text': ' A third comment ' }] },
-              { name: [{ '#text': 'Tanmay' }] },
-              { '#comment': [{ '#text': '>> ISO DICTIONARY TYPES <<' }] },
-              { grade: [{ '#text': 'A' }] },
-            ],
-          },
-        ],
-      },
-    ];
-    const options: XmlBuilderOptions = { ignoreAttributes: false, format: true, commentPropName: '#comment', preserveOrder: true };
-
-    const builder = makeBuilder(options);
-    const output = run(builder.build(jsonObj));
-    expect(output.replace(/\s+/g, '')).toEqual(XMLdata.replace(/\s+/g, ''));
-  });
-
-  it('should build XML with Comments without parseOrder', function () {
-    const input = {
-      any_name: {
-        person: {
-          phone: [122233344550, 122233344551, ''],
-          name: ['<some>Jack</some>Jack', '<some>Mohan</some>'],
-          blank: '',
-          another: { phone: '1245789' },
+      const jsonObj = [
+        { '#comment': [{ '#text': 'Students grades are uploaded by months' }] },
+        {
+          class_list: [
+            {
+              student: [
+                { '#comment': [{ '#text': 'Student details' }] },
+                { '#comment': [{ '#text': 'A second comment' }] },
+                { '#comment': [{ '#text': ' A third comment ' }] },
+                { name: [{ '#text': 'Tanmay' }] },
+                { '#comment': [{ '#text': '>> ISO DICTIONARY TYPES <<' }] },
+                { grade: [{ '#text': 'A' }] },
+              ],
+            },
+          ],
         },
-      },
-    };
-    const expected = `
+      ];
+      const options: XmlBuilderOptions = { ignoreAttributes: false, format: true, commentPropName: '#comment', preserveOrder: true };
+
+      const builder = yield* XMLBuilder.make(options);
+      const output = yield* builder.build(jsonObj);
+      expect(output.replace(/\s+/g, '')).toEqual(XMLdata.replace(/\s+/g, ''));
+    })
+  );
+
+  it.effect('should build XML with Comments without parseOrder', () =>
+    Effect.gen(function* () {
+      const input = {
+        any_name: {
+          person: {
+            phone: [122233344550, 122233344551, ''],
+            name: ['<some>Jack</some>Jack', '<some>Mohan</some>'],
+            blank: '',
+            another: { phone: '1245789' },
+          },
+        },
+      };
+      const expected = `
   <any_name>
     <person>
       <!--122233344550-->
@@ -74,10 +78,11 @@ describe('Comments', function () {
     </person>
   </any_name>`;
 
-    const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, commentPropName: 'phone' };
+      const options: XmlBuilderOptions = { processEntities: false, format: true, ignoreAttributes: false, commentPropName: 'phone' };
 
-    const builder = makeBuilder(options);
-    const xmlOutput = run(builder.build(input));
-    expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
-  });
+      const builder = yield* XMLBuilder.make(options);
+      const xmlOutput = yield* builder.build(input);
+      expect(xmlOutput.replace(/\s+/g, '')).toEqual(expected.replace(/\s+/g, ''));
+    })
+  );
 });

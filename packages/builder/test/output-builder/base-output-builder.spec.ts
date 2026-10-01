@@ -9,14 +9,13 @@
 
 import type { MatcherView } from '@endevops/common-xml';
 
+import { assert, describe, expect, it } from '@effect/vitest';
 import { Matcher } from '@endevops/common-xml';
-import { Effect } from 'effect';
-import { describe, expect, it } from 'vite-plus/test';
+import { Effect, Result } from 'effect';
 
 import type { BuilderParserOptions, OutputBuilder, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
 
 import { CompactBuilderFactory, makeBaseOutputBuilder, makeBooleanParser, makeContext, makeValueParserRegistry } from '#/index.ts';
-import { failed, run } from '#/test/helpers/effect.ts';
 
 /**
  * @description The base builder plus the two hooks a spec observes: the child keys `addComment`/`addLiteral` write, and the raw values `addLiteral` merges. This
@@ -130,82 +129,100 @@ describe('makeBaseOutputBuilder — construction', () => {
     expect(makeBaseOutputBuilder({}, {}, matcher, registry()).matcher).toBe(matcher);
   });
 
-  it('resets the parsers by default, so a second builder starts clean', () => {
-    let resets = 0;
-    const counting: ValueParser = {
-      parse: (v: unknown) => Effect.succeed(v),
-      reset: () => {
-        resets++;
-      },
-    };
-    const reg = makeValueParserRegistry();
-    run(reg.register('counting', counting));
-    makeBaseOutputBuilder({}, { tags: { valueParsers: ['counting'] } }, null, reg);
-    expect(resets).toBeGreaterThan(0);
-  });
+  it.effect('resets the parsers by default, so a second builder starts clean', () =>
+    Effect.gen(function* () {
+      let resets = 0;
+      const counting: ValueParser = {
+        parse: (v: unknown) => Effect.succeed(v),
+        reset: () => {
+          resets++;
+        },
+      };
+      const reg = makeValueParserRegistry();
+      yield* reg.register('counting', counting);
+      makeBaseOutputBuilder({}, { tags: { valueParsers: ['counting'] } }, null, reg);
+      expect(resets).toBeGreaterThan(0);
+    })
+  );
 
-  it('skips the reset when told to, for a caller that already reset', () => {
-    let resets = 0;
-    const counting: ValueParser = {
-      parse: (v: unknown) => Effect.succeed(v),
-      reset: () => {
-        resets++;
-      },
-    };
-    const reg = makeValueParserRegistry();
-    run(reg.register('counting', counting));
-    makeBaseOutputBuilder({}, { tags: { valueParsers: ['counting'] } }, null, reg, false);
-    expect(resets).toBe(0);
-  });
+  it.effect('skips the reset when told to, for a caller that already reset', () =>
+    Effect.gen(function* () {
+      let resets = 0;
+      const counting: ValueParser = {
+        parse: (v: unknown) => Effect.succeed(v),
+        reset: () => {
+          resets++;
+        },
+      };
+      const reg = makeValueParserRegistry();
+      yield* reg.register('counting', counting);
+      makeBaseOutputBuilder({}, { tags: { valueParsers: ['counting'] } }, null, reg, false);
+      expect(resets).toBe(0);
+    })
+  );
 });
 
 // ─── addAttribute ───────────────────────────────────────────────────────────────────────────────────────────
 
 describe('makeBaseOutputBuilder — addAttribute', () => {
-  it('applies the configured prefix and suffix', () => {
-    const b = builder({ attributes: { prefix: '@_', suffix: '' } });
-    run(b.addAttribute('id', '1', atA()));
-    expect(Object.keys(b.attributes)).toEqual(['@_id']);
-  });
+  it.effect('applies the configured prefix and suffix', () =>
+    Effect.gen(function* () {
+      const b = builder({ attributes: { prefix: '@_', suffix: '' } });
+      yield* b.addAttribute('id', '1', atA());
+      expect(Object.keys(b.attributes)).toEqual(['@_id']);
+    })
+  );
 
-  it('uses no prefix or suffix when neither is configured', () => {
-    const b = builder({});
-    run(b.addAttribute('id', '1', atA()));
-    expect(Object.keys(b.attributes)).toEqual(['id']);
-  });
+  it.effect('uses no prefix or suffix when neither is configured', () =>
+    Effect.gen(function* () {
+      const b = builder({});
+      yield* b.addAttribute('id', '1', atA());
+      expect(Object.keys(b.attributes)).toEqual(['id']);
+    })
+  );
 
-  it('runs the value through the attribute pipeline, so "1" becomes 1', () => {
-    const b = builder({ attributes: { prefix: '@_' } });
-    run(b.addAttribute('n', '42', atA()));
-    expect(b.attributes['@_n']).toBe(42);
-  });
+  it.effect('runs the value through the attribute pipeline, so "1" becomes 1', () =>
+    Effect.gen(function* () {
+      const b = builder({ attributes: { prefix: '@_' } });
+      yield* b.addAttribute('n', '42', atA());
+      expect(b.attributes['@_n']).toBe(42);
+    })
+  );
 
-  it('passes an isAttribute context, so ws leaves the value alone', () => {
-    const b = builder({ attributes: { prefix: '@_' } }, { attributes: { valueParsers: ['ws'] } });
-    run(b.addAttribute('t', '  a  b  ', atA()));
-    expect(b.attributes['@_t']).toBe('  a  b  ');
-  });
+  it.effect('passes an isAttribute context, so ws leaves the value alone', () =>
+    Effect.gen(function* () {
+      const b = builder({ attributes: { prefix: '@_' } }, { attributes: { valueParsers: ['ws'] } });
+      yield* b.addAttribute('t', '  a  b  ', atA());
+      expect(b.attributes['@_t']).toBe('  a  b  ');
+    })
+  );
 
-  it('records the XML version from the root declaration, where a value parser can read it', () => {
-    const b = builder({});
-    b.tagName = b._rootName;
-    run(b.addAttribute('version', '1.1', atA()));
-    expect(b.sharedContext.get('xmlVersion')).toBe(1.1);
-  });
+  it.effect('records the XML version from the root declaration, where a value parser can read it', () =>
+    Effect.gen(function* () {
+      const b = builder({});
+      b.tagName = b._rootName;
+      yield* b.addAttribute('version', '1.1', atA());
+      expect(b.sharedContext.get('xmlVersion')).toBe(1.1);
+    })
+  );
 
-  it('ignores a version attribute on any other tag', () => {
-    const b = builder({});
-    b.tagName = 'other';
-    run(b.addAttribute('version', '1.1', atA()));
-    expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
-  });
+  it.effect('ignores a version attribute on any other tag', () =>
+    Effect.gen(function* () {
+      const b = builder({});
+      b.tagName = 'other';
+      yield* b.addAttribute('version', '1.1', atA());
+      expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
+    })
+  );
 
-  it('does nothing when the builder has no flat attribute bag', () => {
-    // The base shape has nowhere to put an attribute; a builder with a different
-    // structure overrides addAttribute rather than relying on this.
-    const b = makeBaseOutputBuilder({ attributes: { prefix: '@_' } }, {}, null, registry());
-    run(b.addAttribute('id', '1', atA()));
-  });
+  it.effect('does nothing when the builder has no flat attribute bag', () =>
+    Effect.gen(function* () {
+      // The base shape has nowhere to put an attribute; a builder with a different
+      // structure overrides addAttribute rather than relying on this.
+      const b = makeBaseOutputBuilder({ attributes: { prefix: '@_' } }, {}, null, registry());
+      yield* b.addAttribute('id', '1', atA());
+    })
+  );
 });
 
 // ─── Comment and CDATA policy ─────────────────────────────────────────────────────────────────────────────────
@@ -334,48 +351,62 @@ describe('makeBaseOutputBuilder — getOutput', () => {
 // ─── CompactBuilderFactory ─────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilderFactory', () => {
-  it('starts with the given options and a populated registry', () => {
-    const f = run(CompactBuilderFactory.make());
-    expect(f.builderOptions.tags?.valueParsers).toEqual(['ws', 'entity', 'boolean', 'number']);
-    expect(f.builderOptions.attributes?.valueParsers).toEqual(['entity', 'number', 'boolean']);
-    expect(f.builderOptions.forceArray).toBeNull();
-    expect(typeof f.registry.get).toBe('function');
-  });
+  it.effect('starts with the given options and a populated registry', () =>
+    Effect.gen(function* () {
+      const f = yield* CompactBuilderFactory.make();
+      expect(f.builderOptions.tags?.valueParsers).toEqual(['ws', 'entity', 'boolean', 'number']);
+      expect(f.builderOptions.attributes?.valueParsers).toEqual(['entity', 'number', 'boolean']);
+      expect(f.builderOptions.forceArray).toBeNull();
+      expect(typeof f.registry.get).toBe('function');
+    })
+  );
 
-  it('keeps the options it was given', () => {
-    const f = run(CompactBuilderFactory.make({ tags: { valueParsers: ['trim'] } }));
-    expect(f.builderOptions.tags?.valueParsers).toEqual(['trim']);
-  });
+  it.effect('keeps the options it was given', () =>
+    Effect.gen(function* () {
+      const f = yield* CompactBuilderFactory.make({ tags: { valueParsers: ['trim'] } });
+      expect(f.builderOptions.tags?.valueParsers).toEqual(['trim']);
+    })
+  );
 
-  it('fails with a typed error for a bad option', () => {
-    expect(failed(CompactBuilderFactory.make({ alwaysArray: [''] })).reason._tag).toBe('InvalidOptionEntry');
-  });
+  it.effect('fails with a typed error for a bad option', () =>
+    Effect.gen(function* () {
+      const result = yield* CompactBuilderFactory.make({ alwaysArray: [''] }).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.reason._tag).toBe('InvalidOptionEntry');
+    })
+  );
 
-  it('registers a value parser for every builder it produces afterwards', () => {
-    const f = run(CompactBuilderFactory.make());
-    const parser = makeBooleanParser();
-    run(f.registerValueParser('flag', parser));
-    expect(run(f.registry.get('flag'))).toBe(parser);
-    // The builder the factory hands out shares the factory's registry.
-    const b = makeBaseOutputBuilder({}, { tags: { valueParsers: ['flag'] } }, null, f.registry);
-    expect(run(b.tagsPipeline.run('true'))).toBe(true);
-  });
+  it.effect('registers a value parser for every builder it produces afterwards', () =>
+    Effect.gen(function* () {
+      const f = yield* CompactBuilderFactory.make();
+      const parser = makeBooleanParser();
+      yield* f.registerValueParser('flag', parser);
+      expect(yield* f.registry.get('flag')).toBe(parser);
+      // The builder the factory hands out shares the factory's registry.
+      const b = makeBaseOutputBuilder({}, { tags: { valueParsers: ['flag'] } }, null, f.registry);
+      expect(yield* b.tagsPipeline.run('true')).toBe(true);
+    })
+  );
 
-  it('hands each builder a fresh instance, so per-document state cannot leak', () => {
-    const f = run(CompactBuilderFactory.make());
-    const a = run(f.getInstance({}, null));
-    const b = run(f.getInstance({}, null));
-    expect(a).not.toBe(b);
-    expect(a.sharedContext).not.toBe(b.sharedContext);
-    // A value written for one document is invisible to the next.
-    a.sharedContext.set('xmlVersion', 1.1);
-    expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
-  });
+  it.effect('hands each builder a fresh instance, so per-document state cannot leak', () =>
+    Effect.gen(function* () {
+      const f = yield* CompactBuilderFactory.make();
+      const a = yield* f.getInstance({}, null);
+      const b = yield* f.getInstance({}, null);
+      expect(a).not.toBe(b);
+      expect(a.sharedContext).not.toBe(b.sharedContext);
+      // A value written for one document is invisible to the next.
+      a.sharedContext.set('xmlVersion', 1.1);
+      expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
+    })
+  );
 
-  it('passes its own registry to every builder it produces', () => {
-    const f = run(CompactBuilderFactory.make());
-    expect(run(f.getInstance({}, null)).registry).toBe(f.registry);
-  });
+  it.effect('passes its own registry to every builder it produces', () =>
+    Effect.gen(function* () {
+      const f = yield* CompactBuilderFactory.make();
+      expect((yield* f.getInstance({}, null)).registry).toBe(f.registry);
+    })
+  );
 });
 
 describe('Context is what a builder hands its value parsers', () => {

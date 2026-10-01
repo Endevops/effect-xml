@@ -1,7 +1,11 @@
 'use strict';
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
-import { runAcrossAllInputSources, parseDoc, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
+import type { ParsedNode } from '#/test/helpers/test-runner.ts';
+
+import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 // Regression coverage for the tag-end scanner sharing quote positions with
 // AttributeProcessor.parseAttributes() instead of re-scanning for quotes.
@@ -73,24 +77,28 @@ describe('quote-pair reuse in attribute parsing', function () {
     { skip: { attributes: false } }
   );
 
-  it('latin1-encoded buffer input (fixed-width byte scan) reuses quote pairs correctly', function () {
-    const xml = `<root a="hello" b='world'/>`;
-    const parser = makeParser({ skip: { attributes: false }, decoding: { encoding: 'latin1' } });
-    const result = parseDoc(parser, Buffer.from(xml, 'latin1'));
-    expect(result.root['@_a']).toBe('hello');
-    expect(result.root['@_b']).toBe('world');
-  });
+  it.effect('latin1-encoded buffer input (fixed-width byte scan) reuses quote pairs correctly', () =>
+    Effect.gen(function* () {
+      const xml = `<root a="hello" b='world'/>`;
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, decoding: { encoding: 'latin1' } });
+      const result = (yield* parser.parse(Buffer.from(xml, 'latin1'))) as ParsedNode;
+      expect(result.root['@_a']).toBe('hello');
+      expect(result.root['@_b']).toBe('world');
+    })
+  );
 
-  it('a value split exactly at the closing quote across feed() chunks still parses correctly', function () {
-    const xml = `<root a="hello world" b="second"/>`;
-    const parser = makeParser({ skip: { attributes: false } });
-    // Split right after the opening quote of `a`, and again mid-value, to
-    // force UNEXPECTED_END + rewind while quote pairs were being collected.
-    const splitAt = xml.indexOf('"hello') + 4;
-    runParser(parser.feed(xml.slice(0, splitAt)));
-    runParser(parser.feed(xml.slice(splitAt)));
-    const result = endDoc(parser);
-    expect(result.root['@_a']).toBe('hello world');
-    expect(result.root['@_b']).toBe('second');
-  });
+  it.effect('a value split exactly at the closing quote across feed() chunks still parses correctly', () =>
+    Effect.gen(function* () {
+      const xml = `<root a="hello world" b="second"/>`;
+      const parser = yield* XMLParser.make({ skip: { attributes: false } });
+      // Split right after the opening quote of `a`, and again mid-value, to
+      // force UNEXPECTED_END + rewind while quote pairs were being collected.
+      const splitAt = xml.indexOf('"hello') + 4;
+      yield* parser.feed(xml.slice(0, splitAt));
+      yield* parser.feed(xml.slice(splitAt));
+      const result = (yield* parser.end()) as ParsedNode;
+      expect(result.root['@_a']).toBe('hello world');
+      expect(result.root['@_b']).toBe('second');
+    })
+  );
 });

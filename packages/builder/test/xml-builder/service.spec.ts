@@ -4,43 +4,54 @@
  * service to a program, and that a bad configuration fails at construction rather than at first use.
  */
 
-import { Effect } from 'effect';
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Effect, Result } from 'effect';
 
 import { XMLBuilder } from '#/index.ts';
-import { failedWith, run } from '#/test/helpers/effect.ts';
 
 describe('XMLBuilder service — make', () => {
-  it('produces a builder whose build walks an object to XML', () => {
-    const builder = run(XMLBuilder.make({ ignoreAttributes: false }));
-    expect(run(builder.build({ a: { '@_id': '1', '#text': 'hello' } }))).toBe('<a id="1">hello</a>');
-  });
+  it.effect('produces a builder whose build walks an object to XML', () =>
+    Effect.gen(function* () {
+      const builder = yield* XMLBuilder.make({ ignoreAttributes: false });
+      expect(yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } })).toBe('<a id="1">hello</a>');
+    })
+  );
 
-  it('defaults the options, so `make()` is valid', () => {
-    const builder = run(XMLBuilder.make());
-    expect(run(builder.build({ a: 'hello' }))).toBe('<a>hello</a>');
-  });
+  it.effect('defaults the options, so `make()` is valid', () =>
+    Effect.gen(function* () {
+      const builder = yield* XMLBuilder.make();
+      expect(yield* builder.build({ a: 'hello' })).toBe('<a>hello</a>');
+    })
+  );
 
-  it('fails at construction for a stop-node pattern that will not compile', () => {
-    const error = failedWith(XMLBuilder.make({ stopNodes: ['::user'] }), 'PatternCompilationFailed');
-    expect(error.reason._tag).toBe('PatternCompilationFailed');
-  });
+  it.effect('fails at construction for a stop-node pattern that will not compile', () =>
+    Effect.gen(function* () {
+      const result = yield* XMLBuilder.make({ stopNodes: ['::user'] }).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.reason._tag).toBe('PatternCompilationFailed');
+    })
+  );
 });
 
 describe('XMLBuilder service — layer', () => {
-  it('provides the service to a program that yields it', () => {
-    const program = Effect.gen(function* () {
-      const builder = yield* XMLBuilder;
-      return yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } });
-    });
+  it.effect('provides the service to a program that yields it', () =>
+    Effect.gen(function* () {
+      const program = Effect.gen(function* () {
+        const builder = yield* XMLBuilder;
+        return yield* builder.build({ a: { '@_id': '1', '#text': 'hello' } });
+      });
 
-    const xml = run(Effect.provide(program, XMLBuilder.layer({ ignoreAttributes: false })));
-    expect(xml).toBe('<a id="1">hello</a>');
-  });
+      const xml = yield* Effect.provide(program, XMLBuilder.layer({ ignoreAttributes: false }));
+      expect(xml).toBe('<a id="1">hello</a>');
+    })
+  );
 
-  it('fails while building the layer for a bad configuration', () => {
-    const layer = XMLBuilder.layer({ stopNodes: ['::user'] });
-    const error = failedWith(Effect.provide(Effect.asVoid(XMLBuilder), layer), 'PatternCompilationFailed');
-    expect(error.reason._tag).toBe('PatternCompilationFailed');
-  });
+  it.effect('fails while building the layer for a bad configuration', () =>
+    Effect.gen(function* () {
+      const layer = XMLBuilder.layer({ stopNodes: ['::user'] });
+      const result = yield* Effect.provide(Effect.asVoid(XMLBuilder), layer).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.reason._tag).toBe('PatternCompilationFailed');
+    })
+  );
 });

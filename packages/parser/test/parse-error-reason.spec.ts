@@ -1,21 +1,46 @@
-import { Effect, Exit, Option } from 'effect';
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Effect, Result } from 'effect';
 
-import { AlreadyStreaming, BooleanAttributeRejected, DataMustBeString, DependencyError, DuplicateAttribute, EncodingMismatch, EntityInvalidKey, EntityInvalidValue, EntityMaxCount, EntityMaxExpandedLength, EntityMaxExpansions, EntityMaxSize, ErrorCode, IllegalCharacter, InvalidAttributeName, InvalidDecoder, InvalidInput, InvalidStream, InvalidTag, InvalidTagName, LimitMaxAttributes, LimitMaxNestedTags, MismatchedCloseTag, MultipleNamespaces, NotStreaming, SecurityPrototypePollution, SecurityReservedOption, SecurityRestrictedName, UnexpectedCloseTag, UnexpectedEnd, UnexpectedTrailingData, UnclosedQuote, UnsupportedEncoding, UnquotedAttributeValue, XMLParser, isParseError } from '#/index.ts';
 import type { ErrorCodeValue, ParseError } from '#/index.ts';
-import { makeParser, runParser } from '#/test/helpers/test-runner.ts';
 
-/**
- * @description Run a parse expected to fail and hand back the error in the channel. `Effect.runSync` would throw instead, which is the right behaviour for a test
- * asserting a throw but the wrong tool here — these specs want to inspect the error, not catch it.
- */
-const failedWith = (program: Effect.Effect<unknown, ParseError>): ParseError => {
-  const exit = Effect.runSyncExit(program);
-  if (!Exit.isFailure(exit)) throw new Error('expected the parse to fail');
-  const error = Option.getOrUndefined(Exit.findErrorOption(exit));
-  if (error === undefined) throw new Error('expected a ParseError in the channel');
-  return error;
-};
+import {
+  AlreadyStreaming,
+  BooleanAttributeRejected,
+  DataMustBeString,
+  DependencyError,
+  DuplicateAttribute,
+  EncodingMismatch,
+  EntityInvalidKey,
+  EntityInvalidValue,
+  EntityMaxCount,
+  EntityMaxExpandedLength,
+  EntityMaxExpansions,
+  EntityMaxSize,
+  ErrorCode,
+  IllegalCharacter,
+  InvalidAttributeName,
+  InvalidDecoder,
+  InvalidInput,
+  InvalidStream,
+  InvalidTag,
+  InvalidTagName,
+  LimitMaxAttributes,
+  LimitMaxNestedTags,
+  MismatchedCloseTag,
+  MultipleNamespaces,
+  NotStreaming,
+  SecurityPrototypePollution,
+  SecurityReservedOption,
+  SecurityRestrictedName,
+  UnexpectedCloseTag,
+  UnexpectedEnd,
+  UnexpectedTrailingData,
+  UnclosedQuote,
+  UnsupportedEncoding,
+  UnquotedAttributeValue,
+  XMLParser,
+  isParseError,
+} from '#/index.ts';
 
 /**
  * @description Every reason is its own class, so the assertions here are about what the class carries. Before, a handler that needed the ceiling it tripped, the
@@ -24,71 +49,106 @@ const failedWith = (program: Effect.Effect<unknown, ParseError>): ParseError => 
  * fails silently, the second does not compile.
  */
 describe('ParseError — a class per reason, carrying its payload', () => {
-  it('carries the ceiling and the depth that tripped a nesting limit', function () {
-    const error = failedWith(makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>'));
+  it.effect('carries the ceiling and the depth that tripped a nesting limit', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ limits: { maxNestedTags: 3 } });
+      const result = yield* parser.parse('<a><b><c><d>x</d></c></b></a>').pipe(Effect.result);
+      assert(Result.isFailure(result));
+      const error = result.failure;
 
-    expect(error).toBeInstanceOf(LimitMaxNestedTags);
-    expect(error).toMatchObject({ limit: 3, depth: 4, _tag: 'LIMIT_MAX_NESTED_TAGS' });
-    // The message is unchanged, and still names the tag — a caller reading only the prose is no worse off.
-    expect((error as LimitMaxNestedTags).message).toContain('exceeds limit of 3');
-  });
+      expect(error).toBeInstanceOf(LimitMaxNestedTags);
+      expect(error).toMatchObject({ limit: 3, depth: 4, _tag: 'LIMIT_MAX_NESTED_TAGS' });
+      // The message is unchanged, and still names the tag — a caller reading only the prose is no worse off.
+      expect((error as LimitMaxNestedTags).message).toContain('exceeds limit of 3');
+    })
+  );
 
-  it('carries the attribute ceiling, the count, and which tag', function () {
-    const error = failedWith(makeParser({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } }).parse('<a x="1" y="2" z="3"/>'));
+  it.effect('carries the attribute ceiling, the count, and which tag', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, limits: { maxAttributesPerTag: 2 } });
+      const result = yield* parser.parse('<a x="1" y="2" z="3"/>').pipe(Effect.result);
+      assert(Result.isFailure(result));
+      const error = result.failure;
 
-    expect(error).toBeInstanceOf(LimitMaxAttributes);
-    expect(error).toMatchObject({ limit: 2, count: 3, tag: 'a' });
-  });
+      expect(error).toBeInstanceOf(LimitMaxAttributes);
+      expect(error).toMatchObject({ limit: 2, count: 3, tag: 'a' });
+    })
+  );
 
-  it('carries both tag names on a mismatched close', function () {
-    const error = failedWith(makeParser().parse('<a><b></c></b></a>'));
+  it.effect('carries both tag names on a mismatched close', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse('<a><b></c></b></a>').pipe(Effect.result);
+      assert(Result.isFailure(result));
+      const error = result.failure;
 
-    expect(error).toBeInstanceOf(MismatchedCloseTag);
-    expect(error).toMatchObject({ tag: 'c', expected: 'b' });
-  });
+      expect(error).toBeInstanceOf(MismatchedCloseTag);
+      expect(error).toMatchObject({ tag: 'c', expected: 'b' });
+    })
+  );
 
-  it('carries the name a prototype-polluting check refused', function () {
-    const error = failedWith(makeParser().parse('<__proto__>x</__proto__>'));
+  it.effect('carries the name a prototype-polluting check refused', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse('<__proto__>x</__proto__>').pipe(Effect.result);
+      assert(Result.isFailure(result));
+      const error = result.failure;
 
-    expect(error).toBeInstanceOf(SecurityPrototypePollution);
-    expect(error).toMatchObject({ name: '__proto__' });
-  });
+      expect(error).toBeInstanceOf(SecurityPrototypePollution);
+      expect(error).toMatchObject({ name: '__proto__' });
+    })
+  );
 
-  it('carries the character code and which scanner found it', function () {
-    const inContent = failedWith(makeParser().parse('<a>xy</a>'));
-    const inAttribute = failedWith(makeParser({ skip: { attributes: false } }).parse('<a x="q"/>'));
+  it.effect('carries the character code and which scanner found it', () =>
+    Effect.gen(function* () {
+      const contentParser = yield* XMLParser.make();
+      const contentResult = yield* contentParser.parse('<a>x\x01y</a>').pipe(Effect.result);
+      assert(Result.isFailure(contentResult));
+      const inContent = contentResult.failure;
+      const attrParser = yield* XMLParser.make({ skip: { attributes: false } });
+      const attrResult = yield* attrParser.parse('<a x="q\x01"/>').pipe(Effect.result);
+      assert(Result.isFailure(attrResult));
 
-    // Same illegal code, two different scanners, and a caller treating them differently has to be able to tell them apart without the message.
-    // The field is `charCode`, not `code`, because `code` is the class's own tag.
-    expect(inContent).toBeInstanceOf(IllegalCharacter);
-    expect(inContent).toMatchObject({ charCode: 1, in: 'content' });
-    expect(inAttribute).toMatchObject({ charCode: 1, in: 'attribute' });
-  });
+      // Same illegal code, two different scanners, and a caller treating them differently has to be able to tell them apart without the message.
+      // The field is `charCode`, not `code`, because `code` is the class's own tag.
+      expect(inContent).toBeInstanceOf(IllegalCharacter);
+      expect(inContent).toMatchObject({ charCode: 1, in: 'content' });
+      expect(attrResult.failure).toMatchObject({ charCode: 1, in: 'attribute' });
+    })
+  );
 
-  it('carries the option and the value a reserved-name check refused, and no position', function () {
-    const error = failedWith(XMLParser.make({ nameFor: { text: '__proto__' } }));
+  it.effect('carries the option and the value a reserved-name check refused, and no position', () =>
+    Effect.gen(function* () {
+      const result = yield* XMLParser.make({ nameFor: { text: '__proto__' } }).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      const error = result.failure;
 
-    expect(error).toBeInstanceOf(SecurityReservedOption);
-    expect(error).toMatchObject({ option: 'nameFor.text', value: '__proto__' });
-    // A configuration is refused before the document is read, so there is no offset to report.
-    expect((error as SecurityReservedOption).index).toBeUndefined();
-  });
+      expect(error).toBeInstanceOf(SecurityReservedOption);
+      expect(error).toMatchObject({ option: 'nameFor.text', value: '__proto__' });
+      // A configuration is refused before the document is read, so there is no offset to report.
+      expect((error as SecurityReservedOption).index).toBeUndefined();
+    })
+  );
 
-  it('tells a tag collision from an attribute collision', function () {
-    // A name has to be legal XML *and* reserved to collide, so `nameFor.cdata: 'raw'` is the shape that reaches the check — the obvious example, a
-    // tag literally called `#text`, is rejected earlier as an invalid name.
-    const tag = failedWith(makeParser({ strictReservedNames: true, nameFor: { cdata: 'raw' } }).parse('<a><raw>x</raw></a>'));
-    const attribute = failedWith(
-      makeParser({ strictReservedNames: true, attributes: { groupBy: 'g' }, skip: { attributes: false } }).parse('<a g="x"/>')
-    );
+  it.effect('tells a tag collision from an attribute collision', () =>
+    Effect.gen(function* () {
+      // A name has to be legal XML *and* reserved to collide, so `nameFor.cdata: 'raw'` is the shape that reaches the check — the obvious example, a
+      // tag literally called `#text`, is rejected earlier as an invalid name.
+      const tagParser = yield* XMLParser.make({ strictReservedNames: true, nameFor: { cdata: 'raw' } });
+      const tagResult = yield* tagParser.parse('<a><raw>x</raw></a>').pipe(Effect.result);
+      assert(Result.isFailure(tagResult));
+      const attributeParser = yield* XMLParser.make({ strictReservedNames: true, attributes: { groupBy: 'g' }, skip: { attributes: false } });
+      const attributeResult = yield* attributeParser.parse('<a g="x"/>').pipe(Effect.result);
+      assert(Result.isFailure(attributeResult));
 
-    expect(tag).toBeInstanceOf(SecurityRestrictedName);
-    expect(tag).toMatchObject({ name: 'raw', kind: 'tag' });
-    // Attributes are checked against `attributes.groupBy` only. `X2jOptions.strictReservedNames` also claims to cover `nameFor.*` for attributes, and
-    // it does not — an attribute named like `nameFor.cdata` is accepted. That divergence predates this work and is left alone here rather than changed
-    // silently; the spec pins what the parser actually does, so changing it has to be deliberate.
-    expect(attribute).toMatchObject({ name: 'g', kind: 'attribute' });
-  });
+      expect(tagResult.failure).toBeInstanceOf(SecurityRestrictedName);
+      expect(tagResult.failure).toMatchObject({ name: 'raw', kind: 'tag' });
+      // Attributes are checked against `attributes.groupBy` only. `X2jOptions.strictReservedNames` also claims to cover `nameFor.*` for attributes, and
+      // it does not — an attribute named like `nameFor.cdata` is accepted. That divergence predates this work and is left alone here rather than changed
+      // silently; the spec pins what the parser actually does, so changing it has to be deliberate.
+      expect(attributeResult.failure).toMatchObject({ name: 'g', kind: 'attribute' });
+    })
+  );
 });
 
 /**
@@ -96,67 +156,90 @@ describe('ParseError — a class per reason, carrying its payload', () => {
  * recovering from does not have to write a predicate over a string.
  */
 describe('ParseError — narrowing and recovery', () => {
-  it('recovers from one reason with catchTag, with its payload in the handler', function () {
-    const program = makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>');
+  it.effect('recovers from one reason with catchTag, with its payload in the handler', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ limits: { maxNestedTags: 3 } });
+      const program = parser.parse('<a><b><c><d>x</d></c></b></a>');
 
-    const recovered = Effect.catchTag(program, ErrorCode.LIMIT_MAX_NESTED_TAGS, reason =>
-      Effect.succeed({ rejected: true, atDepth: reason.depth, ceiling: reason.limit })
-    );
+      const recovered = Effect.catchTag(program, ErrorCode.LIMIT_MAX_NESTED_TAGS, reason =>
+        Effect.succeed({ rejected: true, atDepth: reason.depth, ceiling: reason.limit })
+      );
 
-    expect(runParser(recovered)).toEqual({ rejected: true, atDepth: 4, ceiling: 3 });
-  });
+      expect(yield* recovered).toEqual({ rejected: true, atDepth: 4, ceiling: 3 });
+    })
+  );
 
-  it('leaves every other reason failing rather than swallowing it', function () {
-    // The point of a per-reason catch is partial recovery. A catch-all here would be a lie about what the handler covers.
-    const exit = Effect.runSyncExit(
-      Effect.catchTag(makeParser().parse('<a><b></a>'), ErrorCode.LIMIT_MAX_NESTED_TAGS, () => Effect.succeed('caught'))
-    );
+  it.effect('leaves every other reason failing rather than swallowing it', () =>
+    Effect.gen(function* () {
+      // The point of a per-reason catch is partial recovery. A catch-all here would be a lie about what the handler covers.
+      const parser = yield* XMLParser.make();
+      const result = yield* Effect.catchTag(parser.parse('<a><b></a>'), ErrorCode.LIMIT_MAX_NESTED_TAGS, () => Effect.succeed('caught')).pipe(
+        Effect.result
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-  });
+      assert(Result.isFailure(result));
+    })
+  );
 
-  it('recovers several reasons at once with catchTags', function () {
-    const program = makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>');
-    const recovered = Effect.catchTags(program, {
-      LIMIT_MAX_NESTED_TAGS: reason => Effect.succeed(`depth ${reason.depth}`),
-      MISMATCHED_CLOSE_TAG: reason => Effect.succeed(`got ${reason.tag}`),
-    });
+  it.effect('recovers several reasons at once with catchTags', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ limits: { maxNestedTags: 3 } });
+      const program = parser.parse('<a><b><c><d>x</d></c></b></a>');
+      const recovered = Effect.catchTags(program, {
+        LIMIT_MAX_NESTED_TAGS: reason => Effect.succeed(`depth ${reason.depth}`),
+        MISMATCHED_CLOSE_TAG: reason => Effect.succeed(`got ${reason.tag}`),
+      });
 
-    expect(runParser(recovered)).toBe('depth 4');
-  });
+      expect(yield* recovered).toBe('depth 4');
+    })
+  );
 
-  it('narrows an exhaustive switch to the payload of the matched reason', function () {
-    const describe = (error: ParseError): string => {
-      switch (error._tag) {
-        case 'LIMIT_MAX_NESTED_TAGS':
-          return `depth ${error.depth} exceeds ${error.limit}`;
-        case 'MISMATCHED_CLOSE_TAG':
-          return `expected ${error.expected}, got ${error.tag}`;
-        default:
-          return error.message;
+  it.effect('narrows an exhaustive switch to the payload of the matched reason', () =>
+    Effect.gen(function* () {
+      const describeReason = (error: ParseError): string => {
+        switch (error._tag) {
+          case 'LIMIT_MAX_NESTED_TAGS':
+            return `depth ${error.depth} exceeds ${error.limit}`;
+          case 'MISMATCHED_CLOSE_TAG':
+            return `expected ${error.expected}, got ${error.tag}`;
+          default:
+            return error.message;
+        }
+      };
+
+      const depthParser = yield* XMLParser.make({ limits: { maxNestedTags: 3 } });
+      const depthResult = yield* depthParser.parse('<a><b><c><d>x</d></c></b></a>').pipe(Effect.result);
+      assert(Result.isFailure(depthResult));
+      const mismatchParser = yield* XMLParser.make();
+      const mismatchResult = yield* mismatchParser.parse('<a><b></c></b></a>').pipe(Effect.result);
+      assert(Result.isFailure(mismatchResult));
+
+      expect(describeReason(depthResult.failure)).toBe('depth 4 exceeds 3');
+      expect(describeReason(mismatchResult.failure)).toBe('expected b, got c');
+    })
+  );
+
+  it.effect('answers "is this one of ours", which instanceof cannot on a union', () =>
+    Effect.gen(function* () {
+      // `ParseError` is a union of 33 classes, so `err instanceof ParseError` does not exist. `isParseError` is the substitute, and it must not be fooled
+      // by anything that merely looks like one — which includes an `Error` subclass carrying one of our tags, since `_tag` is a plain string.
+      class Foreign extends Error {
+        readonly _tag = 'INVALID_INPUT';
       }
-    };
 
-    expect(describe(failedWith(makeParser({ limits: { maxNestedTags: 3 } }).parse('<a><b><c><d>x</d></c></b></a>')))).toBe('depth 4 exceeds 3');
-    expect(describe(failedWith(makeParser().parse('<a><b></c></b></a>')))).toBe('expected b, got c');
-  });
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse('<a><b></a>').pipe(Effect.result);
+      assert(Result.isFailure(result));
+      const error = result.failure;
 
-  it('answers "is this one of ours", which instanceof cannot on a union', function () {
-    // `ParseError` is a union of 33 classes, so `err instanceof ParseError` does not exist. `isParseError` is the substitute, and it must not be fooled
-    // by anything that merely looks like one — which includes an `Error` subclass carrying one of our tags, since `_tag` is a plain string.
-    class Foreign extends Error {
-      readonly _tag = 'INVALID_INPUT';
-    }
-
-    const error = failedWith(makeParser().parse('<a><b></a>'));
-
-    expect(isParseError(error)).toBe(true);
-    expect(isParseError(new MismatchedCloseTag({ tag: 'a', message: 'boom' }))).toBe(true);
-    expect(isParseError(new Foreign('not ours'))).toBe(false);
-    expect(isParseError(new Error('boom'))).toBe(false);
-    expect(isParseError({ _tag: 'LIMIT_MAX_NESTED_TAGS', message: 'x' })).toBe(false);
-    expect(isParseError(null)).toBe(false);
-  });
+      expect(isParseError(error)).toBe(true);
+      expect(isParseError(new MismatchedCloseTag({ tag: 'a', message: 'boom' }))).toBe(true);
+      expect(isParseError(new Foreign('not ours'))).toBe(false);
+      expect(isParseError(new Error('boom'))).toBe(false);
+      expect(isParseError({ _tag: 'LIMIT_MAX_NESTED_TAGS', message: 'x' })).toBe(false);
+      expect(isParseError(null)).toBe(false);
+    })
+  );
 });
 
 /**
@@ -164,11 +247,18 @@ describe('ParseError — narrowing and recovery', () => {
  * for one value is normally a smell; this one is a compatibility alias and the agreement is the thing worth pinning.
  */
 describe('ParseError — the code alias', () => {
-  it('reads the same as the tag', function () {
-    expect(failedWith(makeParser().parse('<a><b></a>')).code).toBe('MISMATCHED_CLOSE_TAG');
-    // `maxNestedTags: 0` is refused at construction; `1` would not be, since the limit is "a positive integer".
-    expect(failedWith(XMLParser.make({ limits: { maxNestedTags: 0 } })).code).toBe('INVALID_INPUT');
-  });
+  it.effect('reads the same as the tag', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const mismatchResult = yield* parser.parse('<a><b></a>').pipe(Effect.result);
+      assert(Result.isFailure(mismatchResult));
+      expect(mismatchResult.failure.code).toBe('MISMATCHED_CLOSE_TAG');
+      // `maxNestedTags: 0` is refused at construction; `1` would not be, since the limit is "a positive integer".
+      const invalidResult = yield* XMLParser.make({ limits: { maxNestedTags: 0 } }).pipe(Effect.result);
+      assert(Result.isFailure(invalidResult));
+      expect(invalidResult.failure.code).toBe('INVALID_INPUT');
+    })
+  );
 
   it('agrees with the tag on a constructed error', function () {
     const error = new MismatchedCloseTag({ tag: 'a', expected: 'b', message: 'boom', index: 3 });

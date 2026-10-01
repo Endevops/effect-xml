@@ -8,20 +8,19 @@
 
 import type { XmlError } from '@endevops/common-xml';
 
+import { assert, describe, expect, it } from '@effect/vitest';
 import { Expression, Matcher } from '@endevops/common-xml';
-import { Effect } from 'effect';
-import { describe, expect, it } from 'vite-plus/test';
+import { Effect, Result } from 'effect';
 
 import type { BuilderError } from '#/errors.ts';
 import type { CompactParserOptions, FactoryOptions, ForceArrayPredicate } from '#/index.ts';
 
 import { CompactBuilderFactory } from '#/index.ts';
-import { failed, makeFactory, run, runAny } from '#/test/helpers/effect.ts';
 
 /**
- * @description The one place a spec runs an effect from either package. The `run` in the shared helper is typed for this package's `BuilderError`, and several
- * specs also drive `Expression.make`, which fails with `common-xml`'s `XmlError`. A local runner for that channel keeps those call sites free of
- * casts, and the assertion on both error types is what makes the two channels distinguishable in a failure.
+ * @description The one place a spec runs an effect synchronously. Several specs also need an `Expression` in place before the builder is configured, and
+ * `Expression.make` fails with `common-xml`'s `XmlError` rather than this package's `BuilderError`. A local runner for that channel keeps those call
+ * sites free of casts.
  */
 export const runXml = <A>(effect: Effect.Effect<A, XmlError>): A => Effect.runSync(effect);
 
@@ -49,7 +48,7 @@ type WalkNode = Record<string, unknown>;
  *
  * @returns An effect producing `getOutput()`. The walk is a sequence of fallible calls — a builder method, then the matcher's own — so it is written
  *   as one rather than a callback that has to swallow each failure. The channel is the union of the two packages' error types, which is why the specs
- *   run it with `runAny` rather than `run`.
+ *   `yield*` it directly rather than running it synchronously.
  */
 const build = (
   input: WalkNode,
@@ -58,7 +57,8 @@ const build = (
 ): Effect.Effect<unknown, BuilderError | XmlError> =>
   Effect.gen(function* () {
     const matcher = new Matcher();
-    const builder = run(makeFactory(builderOptions).getInstance({ ...PARSER_OPTIONS, ...parserOptions } as CompactParserOptions, matcher.readOnly()));
+    const factory = yield* CompactBuilderFactory.make(builderOptions);
+    const builder = yield* factory.getInstance({ ...PARSER_OPTIONS, ...parserOptions } as CompactParserOptions, matcher.readOnly());
 
     const walk = Effect.fnUntraced(function* (node: WalkNode, tagName: string): Effect.fn.Return<void, BuilderError | XmlError> {
       const attributes: Record<string, unknown> = {};
@@ -114,63 +114,87 @@ const asNode = (value: unknown): WalkNode =>
 // ─── Leaf shapes ──────────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilder — leaf shape', () => {
-  it('collapses a text-only tag to its parsed value', () => {
-    expect(runAny(build({ a: 'text' }))).toEqual({ a: 'text' });
-  });
+  it.effect('collapses a text-only tag to its parsed value', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: 'text' })).toEqual({ a: 'text' });
+    })
+  );
 
-  it('runs text through the value chain, so "42" becomes 42', () => {
-    expect(runAny(build({ a: '42' }))).toEqual({ a: 42 });
-    expect(runAny(build({ a: 'true' }))).toEqual({ a: true });
-  });
+  it.effect('runs text through the value chain, so "42" becomes 42', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '42' })).toEqual({ a: 42 });
+      expect(yield* build({ a: 'true' })).toEqual({ a: true });
+    })
+  );
 
-  it('trims and collapses whitespace in element text', () => {
-    expect(runAny(build({ a: '  spaced   out  ' }))).toEqual({ a: 'spaced out' });
-  });
+  it.effect('trims and collapses whitespace in element text', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '  spaced   out  ' })).toEqual({ a: 'spaced out' });
+    })
+  );
 
-  it('expands entities in element text', () => {
-    expect(runAny(build({ a: '&amp;' }))).toEqual({ a: '&' });
-  });
+  it.effect('expands entities in element text', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '&amp;' })).toEqual({ a: '&' });
+    })
+  );
 
-  it('collapses a tag with no content to an empty string', () => {
-    expect(runAny(build({ a: {} }))).toEqual({ a: '' });
-  });
+  it.effect('collapses a tag with no content to an empty string', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: {} })).toEqual({ a: '' });
+    })
+  );
 
-  it('emits the root object directly, not wrapped', () => {
-    expect(runAny(build({ a: '1', b: '2' }))).toEqual({ a: 1, b: 2 });
-  });
+  it.effect('emits the root object directly, not wrapped', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1', b: '2' })).toEqual({ a: 1, b: 2 });
+    })
+  );
 });
 
 // ─── Object shapes ──────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilder — object shapes', () => {
-  it('nests child tags as an object', () => {
-    expect(runAny(build({ a: { b: '1' } }))).toEqual({ a: { b: 1 } });
-  });
+  it.effect('nests child tags as an object', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { b: '1' } })).toEqual({ a: { b: 1 } });
+    })
+  );
 
-  it('nests deeply', () => {
-    expect(runAny(build({ a: { b: { c: { d: 'deep' } } } }))).toEqual({ a: { b: { c: { d: 'deep' } } } });
-  });
+  it.effect('nests deeply', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { b: { c: { d: 'deep' } } } })).toEqual({ a: { b: { c: { d: 'deep' } } } });
+    })
+  );
 
-  it('keeps siblings as separate keys', () => {
-    expect(runAny(build({ a: { b: '1', c: '2' } }))).toEqual({ a: { b: 1, c: 2 } });
-  });
+  it.effect('keeps siblings as separate keys', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { b: '1', c: '2' } })).toEqual({ a: { b: 1, c: 2 } });
+    })
+  );
 
-  it('merges text into a non-leaf as the text key', () => {
-    expect(runAny(build({ a: { '#text': 'mixed', b: 'child' } }))).toEqual({ a: { b: 'child', '#text': 'mixed' } });
-  });
+  it.effect('merges text into a non-leaf as the text key', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { '#text': 'mixed', b: 'child' } })).toEqual({ a: { b: 'child', '#text': 'mixed' } });
+    })
+  );
 
-  it('does not add a text key to a non-leaf with no text of its own', () => {
-    expect(runAny(build({ a: { b: '1' } }))).toEqual({ a: { b: 1 } });
-    expect(Object.keys((runAny(build({ a: { b: '1' } })) as { a: object }).a)).toEqual(['b']);
-  });
+  it.effect('does not add a text key to a non-leaf with no text of its own', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { b: '1' } })).toEqual({ a: { b: 1 } });
+      expect(Object.keys((yield* build({ a: { b: '1' } }) as { a: object }).a)).toEqual(['b']);
+    })
+  );
 
-  it('produces no cycle for a nested document', () => {
-    // A regression guard: an earlier version of this port captured the wrong
-    // parent in the tag stack, which made every document self-referential.
-    const out = runAny(build({ a: { b: { c: '1' } } })) as { a: { b: { c: unknown } } };
-    expect(out.a).not.toBe(out.a.b);
-    expect(out.a.b.c).toBe(1);
-  });
+  it.effect('produces no cycle for a nested document', () =>
+    Effect.gen(function* () {
+      // A regression guard: an earlier version of this port captured the wrong
+      // parent in the tag stack, which made every document self-referential.
+      const out = (yield* build({ a: { b: { c: '1' } } })) as { a: { b: { c: unknown } } };
+      expect(out.a).not.toBe(out.a.b);
+      expect(out.a.b.c).toBe(1);
+    })
+  );
 });
 
 // ─── Attributes ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -179,122 +203,168 @@ describe('CompactBuilder — attributes', () => {
   // Attribute values go through the attribute value-parser chain, so `'1'`
   // arrives as `1`. Every expectation below is post-chain.
 
-  it('folds attributes into the value when there is text', () => {
-    expect(runAny(build({ a: { '@_id': '1', '#text': 'hello' } }))).toEqual({ a: { '@_id': 1, '#text': 'hello' } });
-  });
+  it.effect('folds attributes into the value when there is text', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { '@_id': '1', '#text': 'hello' } })).toEqual({ a: { '@_id': 1, '#text': 'hello' } });
+    })
+  );
 
-  it('emits a tag with only attributes as an object', () => {
-    expect(runAny(build({ a: { '@_id': '1' } }))).toEqual({ a: { '@_id': 1 } });
-  });
+  it.effect('emits a tag with only attributes as an object', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { '@_id': '1' } })).toEqual({ a: { '@_id': 1 } });
+    })
+  );
 
-  it('does not add an empty text key alongside attributes', () => {
-    // A spurious `#text: ''` would be indistinguishable from real empty text.
-    expect(runAny(build({ a: { '@_id': '1', '#text': '' } }))).toEqual({ a: { '@_id': 1 } });
-  });
+  it.effect('does not add an empty text key alongside attributes', () =>
+    Effect.gen(function* () {
+      // A spurious `#text: ''` would be indistinguishable from real empty text.
+      expect(yield* build({ a: { '@_id': '1', '#text': '' } })).toEqual({ a: { '@_id': 1 } });
+    })
+  );
 
-  it('groups attributes under groupBy when configured', () => {
-    expect(
-      runAny(
-        build({ a: { '@_id': '1', '#text': 'x' } }, {}, { attributes: { prefix: '@_', suffix: '', groupBy: '$' } } as Partial<CompactParserOptions>)
-      )
-    ).toEqual({ a: { $: { '@_id': 1 }, '#text': 'x' } });
-  });
+  it.effect('groups attributes under groupBy when configured', () =>
+    Effect.gen(function* () {
+      expect(
+        yield* build({ a: { '@_id': '1', '#text': 'x' } }, {}, {
+          attributes: { prefix: '@_', suffix: '', groupBy: '$' },
+        } as Partial<CompactParserOptions>)
+      ).toEqual({ a: { $: { '@_id': 1 }, '#text': 'x' } });
+    })
+  );
 
-  it('applies the configured prefix and suffix', () => {
-    expect(
-      runAny(build({ a: { '@_id': '1' } }, {}, { attributes: { prefix: '', suffix: '_s', groupBy: '' } } as Partial<CompactParserOptions>))
-    ).toEqual({ a: { id_s: 1 } });
-  });
+  it.effect('applies the configured prefix and suffix', () =>
+    Effect.gen(function* () {
+      expect(
+        yield* build({ a: { '@_id': '1' } }, {}, { attributes: { prefix: '', suffix: '_s', groupBy: '' } } as Partial<CompactParserOptions>)
+      ).toEqual({ a: { id_s: 1 } });
+    })
+  );
 
-  it('runs attribute values through the attribute chain', () => {
-    expect(runAny(build({ a: { '@_n': '42' } }))).toEqual({ a: { '@_n': 42 } });
-    expect(runAny(build({ a: { '@_b': 'true' } }))).toEqual({ a: { '@_b': true } });
-  });
+  it.effect('runs attribute values through the attribute chain', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { '@_n': '42' } })).toEqual({ a: { '@_n': 42 } });
+      expect(yield* build({ a: { '@_b': 'true' } })).toEqual({ a: { '@_b': true } });
+    })
+  );
 
-  it('does not normalize attribute whitespace', () => {
-    expect(runAny(build({ a: { '@_v': '  x  y  ' } }))).toEqual({ a: { '@_v': '  x  y  ' } });
-  });
+  it.effect('does not normalize attribute whitespace', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { '@_v': '  x  y  ' } })).toEqual({ a: { '@_v': '  x  y  ' } });
+    })
+  );
 });
 
 // ─── forceTextNode ───────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilder — forceTextNode', () => {
-  it('wraps a text-only tag in the text key', () => {
-    expect(runAny(build({ a: 'text' }, { forceTextNode: true }))).toEqual({ a: { '#text': 'text' } });
-  });
+  it.effect('wraps a text-only tag in the text key', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: 'text' }, { forceTextNode: true })).toEqual({ a: { '#text': 'text' } });
+    })
+  );
 
-  it('writes an empty text key for an empty tag', () => {
-    expect(runAny(build({ a: {} }, { forceTextNode: true }))).toEqual({ a: { '#text': '' } });
-  });
+  it.effect('writes an empty text key for an empty tag', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: {} }, { forceTextNode: true })).toEqual({ a: { '#text': '' } });
+    })
+  );
 
-  it('writes an empty text key alongside attributes', () => {
-    expect(runAny(build({ a: { '@_id': '1', '#text': '' } }, { forceTextNode: true }))).toEqual({ a: { '@_id': 1, '#text': '' } });
-  });
+  it.effect('writes an empty text key alongside attributes', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { '@_id': '1', '#text': '' } }, { forceTextNode: true })).toEqual({ a: { '@_id': 1, '#text': '' } });
+    })
+  );
 
-  it('wraps leaves too, and gives a childless parent an empty text key', () => {
-    // forceTextNode is about a uniform shape, so it applies at every level: the
-    // inner `b` is a leaf, and the outer `a` gets `#text: ''` because
-    // closeElement writes the text key whenever the flag is set, not only when
-    // there was text.
-    expect(runAny(build({ a: { b: '1' } }, { forceTextNode: true }))).toEqual({ a: { b: { '#text': 1 }, '#text': '' } });
-  });
+  it.effect('wraps leaves too, and gives a childless parent an empty text key', () =>
+    Effect.gen(function* () {
+      // forceTextNode is about a uniform shape, so it applies at every level: the
+      // inner `b` is a leaf, and the outer `a` gets `#text: ''` because
+      // closeElement writes the text key whenever the flag is set, not only when
+      // there was text.
+      expect(yield* build({ a: { b: '1' } }, { forceTextNode: true })).toEqual({ a: { b: { '#text': 1 }, '#text': '' } });
+    })
+  );
 });
 
 // ─── Repeated tags ──────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilder — repeated tags', () => {
-  it('keeps a single occurrence a bare value', () => {
-    expect(runAny(build({ a: '1' }))).toEqual({ a: 1 });
-  });
+  it.effect('keeps a single occurrence a bare value', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' })).toEqual({ a: 1 });
+    })
+  );
 
-  it('promotes the second occurrence to an array', () => {
-    expect(runAny(build({ a: ['1', '2'] }))).toEqual({ a: [1, 2] });
-  });
+  it.effect('promotes the second occurrence to an array', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: ['1', '2'] })).toEqual({ a: [1, 2] });
+    })
+  );
 
-  it('handles three or more occurrences', () => {
-    expect(runAny(build({ a: ['1', '2', '3'] }))).toEqual({ a: [1, 2, 3] });
-  });
+  it.effect('handles three or more occurrences', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: ['1', '2', '3'] })).toEqual({ a: [1, 2, 3] });
+    })
+  );
 
-  it('collects mixed repeated shapes', () => {
-    expect(runAny(build({ a: ['x', { b: 'y' }] }))).toEqual({ a: ['x', { b: 'y' }] });
-  });
+  it.effect('collects mixed repeated shapes', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: ['x', { b: 'y' }] })).toEqual({ a: ['x', { b: 'y' }] });
+    })
+  );
 
-  it('collects repeated attributed tags', () => {
-    expect(runAny(build({ a: [{ '@_k': '1' }, { '@_k': '2' }] }))).toEqual({ a: [{ '@_k': 1 }, { '@_k': 2 }] });
-  });
+  it.effect('collects repeated attributed tags', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: [{ '@_k': '1' }, { '@_k': '2' }] })).toEqual({ a: [{ '@_k': 1 }, { '@_k': 2 }] });
+    })
+  );
 });
 
 // ─── alwaysArray ───────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilder — alwaysArray', () => {
-  it('wraps a single occurrence when the path matches', () => {
-    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'] }))).toEqual({ a: [1] });
-  });
+  it.effect('wraps a single occurrence when the path matches', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { alwaysArray: ['a'] })).toEqual({ a: [1] });
+    })
+  );
 
-  it('leaves a non-matching tag alone', () => {
-    expect(runAny(build({ a: '1', b: '2' }, { alwaysArray: ['a'] }))).toEqual({ a: [1], b: 2 });
-  });
+  it.effect('leaves a non-matching tag alone', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1', b: '2' }, { alwaysArray: ['a'] })).toEqual({ a: [1], b: 2 });
+    })
+  );
 
-  it('matches at any depth with a deep wildcard', () => {
-    expect(runAny(build({ root: { item: '1' } }, { alwaysArray: ['..item'] }))).toEqual({ root: { item: [1] } });
-  });
+  it.effect('matches at any depth with a deep wildcard', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ root: { item: '1' } }, { alwaysArray: ['..item'] })).toEqual({ root: { item: [1] } });
+    })
+  );
 
-  it('matches an exact path', () => {
-    expect(runAny(build({ a: { b: '1' } }, { alwaysArray: ['a.b'] }))).toEqual({ a: { b: [1] } });
-    expect(runAny(build({ a: { b: '1' } }, { alwaysArray: ['a.c'] }))).toEqual({ a: { b: 1 } });
-  });
+  it.effect('matches an exact path', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { b: '1' } }, { alwaysArray: ['a.b'] })).toEqual({ a: { b: [1] } });
+      expect(yield* build({ a: { b: '1' } }, { alwaysArray: ['a.c'] })).toEqual({ a: { b: 1 } });
+    })
+  );
 
-  it('accepts a pre-compiled Expression', () => {
-    expect(runAny(build({ a: '1' }, { alwaysArray: [runXml(Expression.make('a'))] }))).toEqual({ a: [1] });
-  });
+  it.effect('accepts a pre-compiled Expression', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { alwaysArray: [runXml(Expression.make('a'))] })).toEqual({ a: [1] });
+    })
+  );
 
-  it('accepts a wildcard tag', () => {
-    expect(runAny(build({ a: '1', b: '2' }, { alwaysArray: ['*'] }))).toEqual({ a: [1], b: [2] });
-  });
+  it.effect('accepts a wildcard tag', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1', b: '2' }, { alwaysArray: ['*'] })).toEqual({ a: [1], b: [2] });
+    })
+  );
 
-  it('changes nothing when the list is empty', () => {
-    expect(runAny(build({ a: '1' }, { alwaysArray: [] }))).toEqual({ a: 1 });
-  });
+  it.effect('changes nothing when the list is empty', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { alwaysArray: [] })).toEqual({ a: 1 });
+    })
+  );
 });
 
 // ─── forceArray voting ───────────────────────────────────────────────────────────────────────────────────────
@@ -302,180 +372,238 @@ describe('CompactBuilder — alwaysArray', () => {
 describe('CompactBuilder — forceArray', () => {
   const vote = (fn: ForceArrayPredicate) => fn;
 
-  it('forces when it votes true', () => {
-    expect(runAny(build({ a: '1' }, { forceArray: vote(() => true) }))).toEqual({ a: [1] });
-  });
+  it.effect('forces when it votes true', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { forceArray: vote(() => true) })).toEqual({ a: [1] });
+    })
+  );
 
-  it('abstains when it returns undefined, leaving the default shape', () => {
-    expect(runAny(build({ a: '1' }, { forceArray: vote(() => undefined) }))).toEqual({ a: 1 });
-  });
+  it.effect('abstains when it returns undefined, leaving the default shape', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { forceArray: vote(() => undefined) })).toEqual({ a: 1 });
+    })
+  );
 
-  it('vetoes when it returns false, overriding an alwaysArray match', () => {
-    // The whole reason forceArray can return three states: a veto has to be able
-    // to beat alwaysArray, and an abstention must not.
-    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) }))).toEqual({ a: 1 });
-  });
+  it.effect('vetoes when it returns false, overriding an alwaysArray match', () =>
+    Effect.gen(function* () {
+      // The whole reason forceArray can return three states: a veto has to be able
+      // to beat alwaysArray, and an abstention must not.
+      expect(yield* build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) })).toEqual({ a: 1 });
+    })
+  );
 
-  it('loses to an alwaysArray match when it abstains', () => {
-    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => undefined) }))).toEqual({ a: [1] });
-  });
+  it.effect('loses to an alwaysArray match when it abstains', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => undefined) })).toEqual({ a: [1] });
+    })
+  );
 
-  it('agrees with alwaysArray when both vote true', () => {
-    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => true) }))).toEqual({ a: [1] });
-  });
+  it.effect('agrees with alwaysArray when both vote true', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => true) })).toEqual({ a: [1] });
+    })
+  );
 
-  it('decides per tag from the path', () => {
-    expect(runAny(build({ a: '1', b: '2' }, { forceArray: vote(m => m.getCurrentTag() === 'a') }))).toEqual({ a: [1], b: 2 });
-  });
+  it.effect('decides per tag from the path', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1', b: '2' }, { forceArray: vote(m => m.getCurrentTag() === 'a') })).toEqual({ a: [1], b: 2 });
+    })
+  );
 
-  it('sees the leaf flag', () => {
-    expect(runAny(build({ a: { b: '1' } }, { forceArray: vote((_m, isLeaf) => (isLeaf ? true : undefined)) }))).toEqual({ a: { b: [1] } });
-  });
+  it.effect('sees the leaf flag', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: { b: '1' } }, { forceArray: vote((_m, isLeaf) => (isLeaf ? true : undefined)) })).toEqual({ a: { b: [1] } });
+    })
+  );
 
-  it('sees an alwaysArray match it does not agree with', () => {
-    expect(runAny(build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) }))).toEqual({ a: 1 });
-  });
+  it.effect('sees an alwaysArray match it does not agree with', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '1' }, { alwaysArray: ['a'], forceArray: vote(() => false) })).toEqual({ a: 1 });
+    })
+  );
 
-  it('treats a non-boolean return as an abstention', () => {
-    // The implementation maps only an explicit true or false to a vote, so
-    // anything else is silence — which is what lets a callback return a
-    // conditional expression without guarding every branch.
-    const truthy = () => 'yes' as unknown as boolean;
-    expect(runAny(build({ a: '1' }, { forceArray: truthy }))).toEqual({ a: 1 });
-  });
+  it.effect('treats a non-boolean return as an abstention', () =>
+    Effect.gen(function* () {
+      // The implementation maps only an explicit true or false to a vote, so
+      // anything else is silence — which is what lets a callback return a
+      // conditional expression without guarding every branch.
+      const truthy = () => 'yes' as unknown as boolean;
+      expect(yield* build({ a: '1' }, { forceArray: truthy })).toEqual({ a: 1 });
+    })
+  );
 });
 
 // ─── textJoint ───────────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilder — textJoint', () => {
-  it('joins nothing when there is one chunk', () => {
-    expect(runAny(build({ a: 'x' }, { textJoint: ' ' }))).toEqual({ a: 'x' });
-  });
+  it.effect('joins nothing when there is one chunk', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: 'x' }, { textJoint: ' ' })).toEqual({ a: 'x' });
+    })
+  );
 
-  it('collapses consecutive text into the whitespace-normalized value', () => {
-    // `ws` runs first in the default chain, so any joint the caller sets is
-    // normalized away for element text — visible only on a non-default chain.
-    expect(runAny(build({ a: 'x' }, { textJoint: '|', tags: { valueParsers: [] } }))).toEqual({ a: 'x' });
-  });
+  it.effect('collapses consecutive text into the whitespace-normalized value', () =>
+    Effect.gen(function* () {
+      // `ws` runs first in the default chain, so any joint the caller sets is
+      // normalized away for element text — visible only on a non-default chain.
+      expect(yield* build({ a: 'x' }, { textJoint: '|', tags: { valueParsers: [] } })).toEqual({ a: 'x' });
+    })
+  );
 
-  it('applies the joint when the chain does not normalize', () => {
-    const builder = makeFactory({ textJoint: '|', tags: { valueParsers: [] } });
-    const matcher = new Matcher();
-    const b = run(builder.getInstance(PARSER_OPTIONS, matcher.readOnly()));
-    matcher.push('a');
-    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
-    b.addValue('one', matcher.readOnly());
-    b.addValue('two', matcher.readOnly());
-    b.addValue('three', matcher.readOnly());
-    run(b.closeElement(matcher.readOnly(), { name: 'a' }));
-    matcher.pop();
-    expect(b.getOutput()).toEqual({ a: 'one|two|three' });
-  });
+  it.effect('applies the joint when the chain does not normalize', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make({ textJoint: '|', tags: { valueParsers: [] } });
+      const matcher = new Matcher();
+      const b = yield* factory.getInstance(PARSER_OPTIONS, matcher.readOnly());
+      matcher.push('a');
+      b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
+      b.addValue('one', matcher.readOnly());
+      b.addValue('two', matcher.readOnly());
+      b.addValue('three', matcher.readOnly());
+      yield* b.closeElement(matcher.readOnly(), { name: 'a' });
+      matcher.pop();
+      expect(b.getOutput()).toEqual({ a: 'one|two|three' });
+    })
+  );
 
-  it('defaults the joint to nothing', () => {
-    const builder = makeFactory({ tags: { valueParsers: [] } });
-    const matcher = new Matcher();
-    const b = run(builder.getInstance(PARSER_OPTIONS, matcher.readOnly()));
-    matcher.push('a');
-    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
-    b.addValue('one', matcher.readOnly());
-    b.addValue('two', matcher.readOnly());
-    run(b.closeElement(matcher.readOnly(), { name: 'a' }));
-    matcher.pop();
-    expect(b.getOutput()).toEqual({ a: 'onetwo' });
-  });
+  it.effect('defaults the joint to nothing', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make({ tags: { valueParsers: [] } });
+      const matcher = new Matcher();
+      const b = yield* factory.getInstance(PARSER_OPTIONS, matcher.readOnly());
+      matcher.push('a');
+      b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
+      b.addValue('one', matcher.readOnly());
+      b.addValue('two', matcher.readOnly());
+      yield* b.closeElement(matcher.readOnly(), { name: 'a' });
+      matcher.pop();
+      expect(b.getOutput()).toEqual({ a: 'onetwo' });
+    })
+  );
 });
 
 // ─── Chains ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilder — value-parser chains', () => {
-  it('uses ws/entity/boolean/number for tags by default', () => {
-    expect(runAny(build({ a: '  42  ' }))).toEqual({ a: 42 });
-  });
+  it.effect('uses ws/entity/boolean/number for tags by default', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '  42  ' })).toEqual({ a: 42 });
+    })
+  );
 
-  it('omits ws from attributes', () => {
-    // Attribute whitespace is significant, so it is not normalized away.
-    expect(runAny(build({ a: { '@_v': '  x  y  ' } }))).toEqual({ a: { '@_v': '  x  y  ' } });
-  });
+  it.effect('omits ws from attributes', () =>
+    Effect.gen(function* () {
+      // Attribute whitespace is significant, so it is not normalized away.
+      expect(yield* build({ a: { '@_v': '  x  y  ' } })).toEqual({ a: { '@_v': '  x  y  ' } });
+    })
+  );
 
-  it('normalizes element text with a configured ws', () => {
-    expect(runAny(build({ a: '  x  y  ' }, { tags: { valueParsers: ['ws'] } }))).toEqual({ a: 'x y' });
-  });
+  it.effect('normalizes element text with a configured ws', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '  x  y  ' }, { tags: { valueParsers: ['ws'] } })).toEqual({ a: 'x y' });
+    })
+  );
 
-  it('leaves text alone with an empty chain', () => {
-    expect(runAny(build({ a: '  42  ' }, { tags: { valueParsers: [] } }))).toEqual({ a: '  42  ' });
-  });
+  it.effect('leaves text alone with an empty chain', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '  42  ' }, { tags: { valueParsers: [] } })).toEqual({ a: '  42  ' });
+    })
+  );
 
-  it('accepts a chain of instances', () => {
-    expect(runAny(build({ a: '  true  ' }, { tags: { valueParsers: ['ws'] } }))).toEqual({ a: 'true' });
-  });
+  it.effect('accepts a chain of instances', () =>
+    Effect.gen(function* () {
+      expect(yield* build({ a: '  true  ' }, { tags: { valueParsers: ['ws'] } })).toEqual({ a: 'true' });
+    })
+  );
 });
 
 // ─── Factory ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 describe('CompactBuilderFactory', () => {
-  it('hands out a fresh builder per document', () => {
-    const factory = makeFactory();
-    const matcher = new Matcher();
-    expect(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()))).not.toBe(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly())));
-  });
+  it.effect('hands out a fresh builder per document', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make();
+      const matcher = new Matcher();
+      expect(yield* factory.getInstance(PARSER_OPTIONS, matcher.readOnly())).not.toBe(yield* factory.getInstance(PARSER_OPTIONS, matcher.readOnly()));
+    })
+  );
 
-  it('gives each builder its own shared context', () => {
-    const factory = makeFactory();
-    const matcher = new Matcher();
-    const a = run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()));
-    const b = run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()));
-    a.sharedContext.set('xmlVersion', 1.1);
-    expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
-  });
+  it.effect('gives each builder its own shared context', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make();
+      const matcher = new Matcher();
+      const a = yield* factory.getInstance(PARSER_OPTIONS, matcher.readOnly());
+      const b = yield* factory.getInstance(PARSER_OPTIONS, matcher.readOnly());
+      a.sharedContext.set('xmlVersion', 1.1);
+      expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
+    })
+  );
 
-  it('resolves the chains once, in the constructor', () => {
-    const factory = makeFactory();
-    expect(factory.builderOptions.tags?.valueParsers).toEqual(['ws', 'entity', 'boolean', 'number']);
-    expect(factory.builderOptions.attributes?.valueParsers).toEqual(['entity', 'number', 'boolean']);
-  });
+  it.effect('resolves the chains once, in the constructor', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make();
+      expect(factory.builderOptions.tags?.valueParsers).toEqual(['ws', 'entity', 'boolean', 'number']);
+      expect(factory.builderOptions.attributes?.valueParsers).toEqual(['entity', 'number', 'boolean']);
+    })
+  );
 
-  it('keeps a configured chain', () => {
-    const factory = makeFactory({ tags: { valueParsers: ['trim'] } });
-    expect(factory.builderOptions.tags?.valueParsers).toEqual(['trim']);
-    expect(factory.builderOptions.attributes?.valueParsers).toEqual(['entity', 'number', 'boolean']);
-  });
+  it.effect('keeps a configured chain', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make({ tags: { valueParsers: ['trim'] } });
+      expect(factory.builderOptions.tags?.valueParsers).toEqual(['trim']);
+      expect(factory.builderOptions.attributes?.valueParsers).toEqual(['entity', 'number', 'boolean']);
+    })
+  );
 
-  it('compiles alwaysArray once, at construction', () => {
-    const factory = makeFactory({ alwaysArray: ['a', 'b'] });
-    expect(factory.builderOptions._alwaysArraySet.size).toBe(2);
-  });
+  it.effect('compiles alwaysArray once, at construction', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make({ alwaysArray: ['a', 'b'] });
+      expect(factory.builderOptions._alwaysArraySet.size).toBe(2);
+    })
+  );
 
-  it('defaults forceArray to null', () => {
-    expect(makeFactory().builderOptions.forceArray).toBeNull();
-  });
+  it.effect('defaults forceArray to null', () =>
+    Effect.gen(function* () {
+      expect((yield* CompactBuilderFactory.make()).builderOptions.forceArray).toBeNull();
+    })
+  );
 
-  it('shares one registry across every builder it produces', () => {
-    const factory = makeFactory();
-    const matcher = new Matcher();
-    expect(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly())).registry).toBe(factory.registry);
-  });
+  it.effect('shares one registry across every builder it produces', () =>
+    Effect.gen(function* () {
+      const factory = yield* CompactBuilderFactory.make();
+      const matcher = new Matcher();
+      expect((yield* factory.getInstance(PARSER_OPTIONS, matcher.readOnly())).registry).toBe(factory.registry);
+    })
+  );
 
-  it('rejects an empty alwaysArray pattern', () => {
-    expect(failed(CompactBuilderFactory.make({ alwaysArray: [''] })).message).toContain('alwaysArray expression cannot be empty');
-  });
+  it.effect('rejects an empty alwaysArray pattern', () =>
+    Effect.gen(function* () {
+      const result = yield* CompactBuilderFactory.make({ alwaysArray: [''] }).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.message).toContain('alwaysArray expression cannot be empty');
+    })
+  );
 
-  it('rejects an alwaysArray entry that is not a string or expression', () => {
-    for (const bad of [42, null, {}, undefined]) {
-      expect(failed(CompactBuilderFactory.make({ alwaysArray: [bad as unknown as string] })).message).toContain(
-        'Invalid alwaysArray entry: expected a string, or Expression.'
-      );
-    }
-  });
+  it.effect('rejects an alwaysArray entry that is not a string or expression', () =>
+    Effect.gen(function* () {
+      for (const bad of [42, null, {}, undefined]) {
+        const result = yield* CompactBuilderFactory.make({ alwaysArray: [bad as unknown as string] }).pipe(Effect.result);
+        assert(Result.isFailure(result));
+        expect(result.failure.message).toContain('Invalid alwaysArray entry: expected a string, or Expression.');
+      }
+    })
+  );
 
-  it('refuses a forbidden key in the options', () => {
-    // Reached through JSON.parse so `__proto__` is an own enumerable key, which
-    // is the case a naive object spread would let through.
-    for (const key of ['__proto__', 'constructor', 'prototype']) {
-      const options = JSON.parse(`{"${key}": {"polluted": true}}`) as FactoryOptions;
-      const resolved = run(CompactBuilderFactory.make(options)).builderOptions as unknown as Record<string, unknown>;
-      expect(Object.prototype.hasOwnProperty.call(resolved, key)).toBe(false);
-    }
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-  });
+  it.effect('refuses a forbidden key in the options', () =>
+    Effect.gen(function* () {
+      // Reached through JSON.parse so `__proto__` is an own enumerable key, which
+      // is the case a naive object spread would let through.
+      for (const key of ['__proto__', 'constructor', 'prototype']) {
+        const options = JSON.parse(`{"${key}": {"polluted": true}}`) as FactoryOptions;
+        const resolved = (yield* CompactBuilderFactory.make(options)).builderOptions as unknown as Record<string, unknown>;
+        expect(Object.prototype.hasOwnProperty.call(resolved, key)).toBe(false);
+      }
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    })
+  );
 });

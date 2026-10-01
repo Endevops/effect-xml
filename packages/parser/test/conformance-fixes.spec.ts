@@ -1,27 +1,27 @@
+import { assert, describe, expect, it } from '@effect/vitest';
 // oxlint-disable vitest/expect-expect
 import { CompactBuilderFactory } from '@endevops/builder';
-import { describe, it, expect } from 'vite-plus/test';
+import { Effect, Result } from 'effect';
 
 import type { ErrorCodeValue } from '#/options.ts';
-import type { ParseError } from '#/parse-error.ts';
 
 import { ErrorCode } from '#/parse-error.ts';
-import { makeParser, runAcrossAllInputSources, runParser } from '#/test/helpers/test-runner.ts';
+import { runAcrossAllInputSources } from '#/test/helpers/test-runner.ts';
 import { sanitizeContent } from '#/util.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 // Builder with no value-parser pipeline at all, so assertions see exactly
 // what the parser core produced (no 'ws' collapsing, no entity decoding).
-const rawBuilder = () => runParser(CompactBuilderFactory.make({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } }));
+const rawBuilder = () => CompactBuilderFactory.make({ tags: { valueParsers: [] }, attributes: { valueParsers: [] } });
 
-function expectCode(fn: () => unknown, code: ErrorCodeValue): void {
-  let thrown: ParseError | null = null;
-  try {
-    fn();
-  } catch (err) {
-    thrown = err as ParseError;
-  }
-  expect(thrown).not.toBeNull();
-  expect(thrown!.code).toBe(code);
+/**
+ * @description Assert a parse effect fails with a specific `ParseError` code. Kept as a helper because every illegal-input case is the same shape: run the parse,
+ * keep the failure, check the code. The `Result` is what the effect's own channel produced, so a defect (a thrown non-`ParseError`) is not silently
+ * accepted as a typed failure.
+ */
+function expectCode(result: Result.Result<unknown, { code: ErrorCodeValue }>, code: ErrorCodeValue): void {
+  assert(Result.isFailure(result));
+  expect(result.failure.code).toBe(code);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,45 +141,77 @@ describe('Attribute value whitespace folding', function () {
 // 4. Illegal literal control characters — always reject
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Illegal literal control characters', function () {
-  it('a raw NUL byte in element text throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => runParser(makeParser().parse(`<root>a\x00b</root>`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('a raw NUL byte in element text throws ILLEGAL_CHARACTER', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<root>a\x00b</root>`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 
-  it('a raw ESC byte in element text throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => runParser(makeParser().parse(`<root>a\x1Bb</root>`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('a raw ESC byte in element text throws ILLEGAL_CHARACTER', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<root>a\x1Bb</root>`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 
-  it('a raw control character in an attribute value throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => runParser(makeParser({ skip: { attributes: false } }).parse(`<e a="a\x01b"/>`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('a raw control character in an attribute value throws ILLEGAL_CHARACTER', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false } });
+      expectCode(yield* parser.parse(`<e a="a\x01b"/>`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 
-  it('a raw control character in CDATA content throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => runParser(makeParser().parse(`<root><![CDATA[a\x02b]]></root>`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('a raw control character in CDATA content throws ILLEGAL_CHARACTER', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<root><![CDATA[a\x02b]]></root>`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 
-  it('a raw control character in comment content throws ILLEGAL_CHARACTER', function () {
-    expectCode(() => runParser(makeParser().parse(`<root><!--a\x03b--><x/></root>`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('a raw control character in comment content throws ILLEGAL_CHARACTER', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<root><!--a\x03b--><x/></root>`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 
-  it('tab, LF, and CR do not throw', function () {
-    expect(() => runParser(makeParser().parse(`<root>a\tb\nc\rd</root>`))).not.toThrow();
-  });
+  it.effect('tab, LF, and CR do not throw', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse(`<root>a\tb\nc\rd</root>`).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('&#0; (a reference, not a literal byte) does not throw via this check', function () {
-    expect(() => runParser(makeParser().parse(`<root>a&#0;b</root>`))).not.toThrow();
-  });
+  it.effect('&#0; (a reference, not a literal byte) does not throw via this check', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse(`<root>a&#0;b</root>`).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('throws the same way for a document declared XML 1.0', function () {
-    expectCode(() => runParser(makeParser().parse(`<?xml version="1.0"?><root>a\x00b</root>`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('throws the same way for a document declared XML 1.0', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<?xml version="1.0"?><root>a\x00b</root>`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 
-  it('throws the same way for a document declared XML 1.1', function () {
-    expectCode(() => runParser(makeParser().parse(`<?xml version="1.1"?><root>a\x00b</root>`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('throws the same way for a document declared XML 1.1', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<?xml version="1.1"?><root>a\x00b</root>`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 
-  it('still throws even when the parser is configured for lenient/HTML parsing', function () {
-    expectCode(() => runParser(makeParser({ autoClose: 'html' }).parse(`<root>a\x00b`)), ErrorCode.ILLEGAL_CHARACTER);
-  });
+  it.effect('still throws even when the parser is configured for lenient/HTML parsing', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ autoClose: 'html' });
+      expectCode(yield* parser.parse(`<root>a\x00b`).pipe(Effect.result), ErrorCode.ILLEGAL_CHARACTER);
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,27 +231,28 @@ describe('Duplicate attributes — attributes.duplicate', function () {
     { skip: { attributes: false }, attributes: { duplicate: 'ignore' } }
   );
 
-  it("'ignore': the matcher itself sees the first value, not the second", function () {
-    let seenValue;
-    runParser(
-      makeParser({
+  it.effect("'ignore': the matcher itself sees the first value, not the second", () =>
+    Effect.gen(function* () {
+      let seenValue;
+      const parser = yield* XMLParser.make({
         skip: { attributes: false },
         attributes: { duplicate: 'ignore' },
         exitIf: matcher => {
           seenValue = matcher.getAttrValue('a');
           return false;
         },
-      }).parse(`<e a="1" a="2"></e>`)
-    );
-    expect(seenValue).toBe('1');
-  });
+      });
+      yield* parser.parse(`<e a="1" a="2"></e>`);
+      expect(seenValue).toBe('1');
+    })
+  );
 
-  it("'throw': rejects the document as soon as a repeat is found", function () {
-    expectCode(
-      () => runParser(makeParser({ skip: { attributes: false }, attributes: { duplicate: 'throw' } }).parse(`<e a="1" a="2"/>`)),
-      ErrorCode.DUPLICATE_ATTRIBUTE
-    );
-  });
+  it.effect("'throw': rejects the document as soon as a repeat is found", () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, attributes: { duplicate: 'throw' } });
+      expectCode(yield* parser.parse(`<e a="1" a="2"/>`).pipe(Effect.result), ErrorCode.DUPLICATE_ATTRIBUTE);
+    })
+  );
 
   runAcrossAllInputSources("three repeats — 'overwrite' still takes the last", `<e a="1" a="2" a="3"/>`, result => expect(result.e['@_a']).toBe(3), {
     skip: { attributes: false },
@@ -230,12 +263,12 @@ describe('Duplicate attributes — attributes.duplicate', function () {
     attributes: { duplicate: 'ignore' },
   });
 
-  it("three repeats — 'throw' still rejects on the second occurrence", function () {
-    expectCode(
-      () => runParser(makeParser({ skip: { attributes: false }, attributes: { duplicate: 'throw' } }).parse(`<e a="1" a="2" a="3"/>`)),
-      ErrorCode.DUPLICATE_ATTRIBUTE
-    );
-  });
+  it.effect("three repeats — 'throw' still rejects on the second occurrence", () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, attributes: { duplicate: 'throw' } });
+      expectCode(yield* parser.parse(`<e a="1" a="2" a="3"/>`).pipe(Effect.result), ErrorCode.DUPLICATE_ATTRIBUTE);
+    })
+  );
 
   runAcrossAllInputSources(
     'the same attribute name on sibling tags is never an error, under any mode',
@@ -262,21 +295,33 @@ describe('Duplicate attributes — attributes.duplicate', function () {
 // 6. Unquoted attribute values — always reject, never configurable
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Unquoted attribute values', function () {
-  it('<e a=b/> throws UNQUOTED_ATTRIBUTE_VALUE', function () {
-    expectCode(() => runParser(makeParser().parse(`<e a=b/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
-  });
+  it.effect('<e a=b/> throws UNQUOTED_ATTRIBUTE_VALUE', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<e a=b/>`).pipe(Effect.result), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    })
+  );
 
-  it('<e a=b"c"/> throws UNQUOTED_ATTRIBUTE_VALUE', function () {
-    expectCode(() => runParser(makeParser().parse(`<e a=b"c"/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
-  });
+  it.effect('<e a=b"c"/> throws UNQUOTED_ATTRIBUTE_VALUE', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<e a=b"c"/>`).pipe(Effect.result), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    })
+  );
 
-  it('<e a=b=c/> throws UNQUOTED_ATTRIBUTE_VALUE', function () {
-    expectCode(() => runParser(makeParser().parse(`<e a=b=c/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
-  });
+  it.effect('<e a=b=c/> throws UNQUOTED_ATTRIBUTE_VALUE', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      expectCode(yield* parser.parse(`<e a=b=c/>`).pipe(Effect.result), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    })
+  );
 
-  it('<e name=amit gupta/> throws immediately, no attribute reaches output', function () {
-    expectCode(() => runParser(makeParser({ skip: { attributes: false } }).parse(`<e name=amit gupta/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
-  });
+  it.effect('<e name=amit gupta/> throws immediately, no attribute reaches output', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false } });
+      expectCode(yield* parser.parse(`<e name=amit gupta/>`).pipe(Effect.result), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    })
+  );
 
   runAcrossAllInputSources(
     "a properly quoted value containing '>' or '<' parses normally",
@@ -288,9 +333,12 @@ describe('Unquoted attribute values', function () {
     { skip: { attributes: false } }
   );
 
-  it('still throws when the parser is configured for lenient/HTML parsing', function () {
-    expectCode(() => runParser(makeParser({ autoClose: 'html' }).parse(`<e a=b/>`)), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
-  });
+  it.effect('still throws when the parser is configured for lenient/HTML parsing', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ autoClose: 'html' });
+      expectCode(yield* parser.parse(`<e a=b/>`).pipe(Effect.result), ErrorCode.UNQUOTED_ATTRIBUTE_VALUE);
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -313,12 +361,12 @@ describe('attributes.booleanType', function () {
     attributes: { booleanType: 'ignore' },
   });
 
-  it("'throw': rejects the document as soon as a valueless attribute is found", function () {
-    expectCode(
-      () => runParser(makeParser({ skip: { attributes: false }, attributes: { booleanType: 'throw' } }).parse(`<e flag/>`)),
-      ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED
-    );
-  });
+  it.effect("'throw': rejects the document as soon as a valueless attribute is found", () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, attributes: { booleanType: 'throw' } });
+      expectCode(yield* parser.parse(`<e flag/>`).pipe(Effect.result), ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED);
+    })
+  );
 
   runAcrossAllInputSources(
     "other attributes are unaffected under 'allow'",
@@ -341,12 +389,12 @@ describe('attributes.booleanType', function () {
     { skip: { attributes: false }, attributes: { booleanType: 'ignore' } }
   );
 
-  it("other attributes never reach the builder under 'throw' either (whole tag rejected)", function () {
-    expectCode(
-      () => runParser(makeParser({ skip: { attributes: false }, attributes: { booleanType: 'throw' } }).parse(`<e a="1" flag b="2"/>`)),
-      ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED
-    );
-  });
+  it.effect("other attributes never reach the builder under 'throw' either (whole tag rejected)", () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { attributes: false }, attributes: { booleanType: 'throw' } });
+      expectCode(yield* parser.parse(`<e a="1" flag b="2"/>`).pipe(Effect.result), ErrorCode.BOOLEAN_ATTRIBUTE_REJECTED);
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,7 +426,11 @@ describe('Regression coverage — unaffected by the conformance fixes', function
     expect(result.b).toBe(2);
   });
 
-  it('an empty document parses without error', function () {
-    expect(() => runParser(makeParser().parse(``))).not.toThrow();
-  });
+  it.effect('an empty document parses without error', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      const result = yield* parser.parse(``).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 });

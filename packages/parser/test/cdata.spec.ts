@@ -1,10 +1,14 @@
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
 
-import { parseDoc, endDoc, makeParser, runParser } from '#/test/helpers/test-runner.ts';
+import type { ParsedNode } from '#/test/helpers/test-runner.ts';
+
+import { XMLParser } from '#/xml-parser.ts';
 
 describe('CDATA', function () {
-  it('should parse CDATA and store it separately when nameFor.cdata is set', function () {
-    const xmlData = `
+  it.effect('should parse CDATA and store it separately when nameFor.cdata is set', () =>
+    Effect.gen(function* () {
+      const xmlData = `
       <root>
         <script><![CDATA[
           function test() {
@@ -15,27 +19,31 @@ describe('CDATA', function () {
         ]]></script>
       </root>`;
 
-    const parser = makeParser({ nameFor: { cdata: '#cdata' } });
-    const result = parseDoc(parser, xmlData);
+      const parser = yield* XMLParser.make({ nameFor: { cdata: '#cdata' } });
+      const result = (yield* parser.parse(xmlData)) as ParsedNode;
 
-    expect(result.root.script['#cdata']).toBeDefined();
-    expect(result.root.script['#cdata']).toContain('function test()');
-  });
+      expect(result.root.script['#cdata']).toBeDefined();
+      expect(result.root.script['#cdata']).toContain('function test()');
+    })
+  );
 
-  it('should merge CDATA with text content when nameFor.cdata is empty string (default)', function () {
-    const xmlData = `
+  it.effect('should merge CDATA with text content when nameFor.cdata is empty string (default)', () =>
+    Effect.gen(function* () {
+      const xmlData = `
       <root>
         <data><![CDATA[Some <raw> data & more]]></data>
       </root>`;
 
-    const parser = makeParser(); // nameFor.cdata defaults to ''
-    const result = parseDoc(parser, xmlData);
+      const parser = yield* XMLParser.make(); // nameFor.cdata defaults to ''
+      const result = (yield* parser.parse(xmlData)) as ParsedNode;
 
-    expect(result.root.data).toBe('Some <raw> data & more');
-  });
+      expect(result.root.data).toBe('Some <raw> data & more');
+    })
+  );
 
-  it('should handle multiple CDATA sections', function () {
-    const xmlData = `
+  it.effect('should handle multiple CDATA sections', () =>
+    Effect.gen(function* () {
+      const xmlData = `
       <root>
         <content>
           <![CDATA[First CDATA]]>
@@ -44,60 +52,69 @@ describe('CDATA', function () {
         </content>
       </root>`;
 
-    const parser = makeParser({ nameFor: { cdata: '#cdata' } });
-    const result = parseDoc(parser, xmlData);
+      const parser = yield* XMLParser.make({ nameFor: { cdata: '#cdata' } });
+      const result = (yield* parser.parse(xmlData)) as ParsedNode;
 
-    expect(result.root.content['#cdata']).toBeDefined();
-  });
+      expect(result.root.content['#cdata']).toBeDefined();
+    })
+  );
 
-  it('should preserve special characters in CDATA without parsing', function () {
-    const xmlData = `
+  it.effect('should preserve special characters in CDATA without parsing', () =>
+    Effect.gen(function* () {
+      const xmlData = `
       <root>
         <xml><![CDATA[<tag attr="value">text & more</tag>]]></xml>
       </root>`;
 
-    const parser = makeParser({ nameFor: { cdata: '#cdata' } });
-    const result = parseDoc(parser, xmlData);
+      const parser = yield* XMLParser.make({ nameFor: { cdata: '#cdata' } });
+      const result = (yield* parser.parse(xmlData)) as ParsedNode;
 
-    expect(result.root.xml['#cdata']).toContain('<tag attr="value">');
-    expect(result.root.xml['#cdata']).toContain('&');
-  });
+      expect(result.root.xml['#cdata']).toContain('<tag attr="value">');
+      expect(result.root.xml['#cdata']).toContain('&');
+    })
+  );
 
-  it('should handle empty CDATA sections', function () {
-    const xmlData = `
+  it.effect('should handle empty CDATA sections', () =>
+    Effect.gen(function* () {
+      const xmlData = `
       <root>
         <empty><![CDATA[]]></empty>
       </root>`;
 
-    const parser = makeParser({ nameFor: { cdata: '#cdata' } });
-    const result = parseDoc(parser, xmlData);
+      const parser = yield* XMLParser.make({ nameFor: { cdata: '#cdata' } });
+      const result = (yield* parser.parse(xmlData)) as ParsedNode;
 
-    expect(result.root.empty['#cdata']).toBeDefined();
-  });
+      expect(result.root.empty['#cdata']).toBeDefined();
+    })
+  );
 
-  it('should exclude CDATA entirely when skip.cdata is true', function () {
-    const xmlData = `
+  it.effect('should exclude CDATA entirely when skip.cdata is true', () =>
+    Effect.gen(function* () {
+      const xmlData = `
       <root>
         <script><![CDATA[some code here]]></script>
       </root>`;
 
-    const parser = makeParser({ skip: { cdata: true } });
-    const result = parseDoc(parser, xmlData);
+      const parser = yield* XMLParser.make({ skip: { cdata: true } });
+      const result = (yield* parser.parse(xmlData)) as ParsedNode;
 
-    // CDATA skipped — tag is empty
-    expect(result.root.script).toBe('');
-  });
+      // CDATA skipped — tag is empty
+      expect(result.root.script).toBe('');
+    })
+  );
 
-  it('should join text without space by default', function () {
-    const parser = makeParser();
-    runParser(parser.feed(`<root><a><![CDATA[hel]]>`));
-    runParser(parser.feed(`<![CDATA[lo]]></a>`));
-    runParser(parser.feed(`<b>hel<![CDATA[lo`));
-    runParser(parser.feed(`]]></b>`));
-    runParser(parser.feed(`<c><![CDATA[hel]]>lo</c>`));
-    runParser(parser.feed(`</root>`));
-    const result = endDoc(parser);
-    const expected = { root: { a: 'hello', b: 'hello', c: 'hello' } };
-    expect(result).toEqual(expected);
-  });
+  it.effect('should join text without space by default', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make();
+      yield* parser.feed(`<root><a><![CDATA[hel]]>`);
+      yield* parser.feed(`<![CDATA[lo]]></a>`);
+      yield* parser.feed(`<b>hel<![CDATA[lo`);
+      yield* parser.feed(`]]></b>`);
+      yield* parser.feed(`<c><![CDATA[hel]]>lo</c>`);
+      yield* parser.feed(`</root>`);
+      const result = (yield* parser.end()) as ParsedNode;
+      const expected = { root: { a: 'hello', b: 'hello', c: 'hello' } };
+      expect(result).toEqual(expected);
+    })
+  );
 });

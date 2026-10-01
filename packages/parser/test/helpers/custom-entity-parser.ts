@@ -6,15 +6,17 @@ import { BuilderError as BuilderErrorCtor } from '@endevops/builder';
 import { EntityDecoder } from '@endevops/common-xml';
 import { Effect as Eff } from 'effect';
 
-import { runParser } from '#/test/helpers/test-runner.ts';
-
 /**
  * @description A value parser that expands DOCTYPE entities. `@nodable/entities`' `EntityDecoder` is a standalone decoder, not a `BaseValueParser`, so this adapts
  * it to the value-parser contract the builder's pipeline expects: `parse(val, context)` instead of `decode(str)`, plus the `init` / `reset` lifecycle
  * the pipeline calls. The DOCTYPE's entity map only arrives through the shared context, which the pipeline supplies after construction — so the
  * decoder is fed from the context rather than from constructor options. `implements ValueParser` is what makes the contract checkable rather than
  * conventional. The pipeline calls `init`, `reset` and `parse` through the interface rather than through this class, so nothing here names them;
- * without the clause a rename or a changed signature would compile cleanly and fail only when a DOCTYPE spec ran.
+ * without the clause a rename or a changed signature would compile cleanly and fail only when a DOCTYPE spec ran. The decoder is per-instance, not
+ * shared: it carries the expansion counters and registered entity tables for one parser, and two parsers sharing one would accumulate each other's
+ * counts. Construction and the entity-registration calls are `Effect.runSync`ed because `ValueParser` is a synchronous interface — the pipeline hands
+ * back no fiber to yield on — so this is the one hop that has to cross a synchronous boundary. Every `EntityDecoder` entry point here is infallible
+ * for the inputs a test supplies.
  */
 export default class EntityParser implements ValueParser {
   /**
@@ -27,13 +29,13 @@ export default class EntityParser implements ValueParser {
 
   /**
    * @description `EntityDecoder.make` rather than `new EntityDecoder`, because building a decoder can fail — a `null` options object is a caller who wrote
-   * something the signature does not allow, and `common-xml` reports that as its own error rather than quietly building the decoder nobody asked for.
-   * Construction here is a `runParser` of that effect, so the refusal surfaces as a thrown `XmlError` at the one place that builds this.
+   * something the signature does not allow, and `common-xml` reports that as its own error rather than quietly building the decoder nobody asked
+   * for.
    *
    * @param options - Decoder options.
    */
   constructor(options?: EntityDecoderOptions) {
-    this.#decoder = runParser(EntityDecoder.make(options));
+    this.#decoder = Eff.runSync(EntityDecoder.make(options));
   }
 
   /**
@@ -54,7 +56,7 @@ export default class EntityParser implements ValueParser {
   #ensureDecoder(): void {
     if (!this.#seen) {
       const entities = this.ctx?.get('inputEntities');
-      if (entities) runParser(this.#decoder.addInputEntities(entities as Parameters<EntityDecoder['addInputEntities']>[0]));
+      if (entities) Eff.runSync(this.#decoder.addInputEntities(entities as Parameters<EntityDecoder['addInputEntities']>[0]));
       this.#seen = true;
     }
   }
@@ -64,7 +66,7 @@ export default class EntityParser implements ValueParser {
    * tests exercise. Run for its value — see {@link EntityParser.reset} for why that matters.
    */
   addExternalEntity(key: string, value: string): void {
-    runParser(this.#decoder.addExternalEntity(key, value));
+    Eff.runSync(this.#decoder.addExternalEntity(key, value));
   }
 
   /**

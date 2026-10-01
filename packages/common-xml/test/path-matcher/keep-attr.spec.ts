@@ -5,11 +5,13 @@
  * untouched.
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it } from '@effect/vitest';
+import { Effect } from 'effect';
+
+import type { MatcherView } from '#/index.ts';
 
 import { Matcher } from '#/index.ts';
-import type { MatcherView } from '#/index.ts';
-import { expr } from '#/test/helpers/effect.ts';
+import Expression from '#/path-matcher/expression.ts';
 
 describe('kept-attribute lookup', () => {
   it('is readable from the node that declared the attribute and from deeper descendants', () => {
@@ -164,22 +166,24 @@ describe('compatibility', () => {
     expect(m.hasAnyParentAttr('a')).toBe(false);
   });
 
-  it('leaves expression matching unaffected', () => {
-    const m = new Matcher();
-    m.push('Envelope', null, 'soap');
-    m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
-    m.push('UserId');
+  it.effect('leaves expression matching unaffected', () =>
+    Effect.gen(function* () {
+      const m = new Matcher();
+      m.push('Envelope', null, 'soap');
+      m.push('Body', { version: '1.1' }, 'soap', { keep: ['version'] });
+      m.push('UserId');
 
-    const userExpr = expr('soap::Envelope.soap::Body.UserId');
-    expect(m.matches(userExpr)).toBe(true);
+      const userExpr = yield* Expression.make('soap::Envelope.soap::Body.UserId');
+      expect(m.matches(userExpr)).toBe(true);
 
-    const deepExpr = expr('..UserId');
-    expect(m.matches(deepExpr)).toBe(true);
+      const deepExpr = yield* Expression.make('..UserId');
+      expect(m.matches(deepExpr)).toBe(true);
 
-    // "[^version]" is NOT special syntax here - parsed as a literal attribute
-    // name "^version" on the current node, which won't exist, so this
-    // correctly does not match. Confirms no new syntax leaked in.
-    const literalCaret = expr('UserId[^version]');
-    expect(m.matches(literalCaret)).toBe(false);
-  });
+      // "[^version]" is NOT special syntax here - parsed as a literal attribute
+      // name "^version" on the current node, which won't exist, so this
+      // correctly does not match. Confirms no new syntax leaked in.
+      const literalCaret = yield* Expression.make('UserId[^version]');
+      expect(m.matches(literalCaret)).toBe(false);
+    })
+  );
 });

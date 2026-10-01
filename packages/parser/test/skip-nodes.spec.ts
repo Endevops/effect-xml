@@ -1,15 +1,12 @@
-import { describe, it, expect } from 'vite-plus/test';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Effect, Result } from 'effect';
 
+import type { ParsedNode } from '#/test/helpers/test-runner.ts';
+
+import { buildOptions } from '#/options-builder.ts';
 import { xmlEnclosures, quoteEnclosures } from '#/stop-node-processor.ts';
-import {
-  makeParser,
-  makeParserOrThrow,
-  runAcrossAllInputSources,
-  runAcrossAllInputSourcesWithException,
-  parseDoc,
-  endDoc,
-  runParser,
-} from '#/test/helpers/test-runner.ts';
+import { runAcrossAllInputSources, runAcrossAllInputSourcesWithException } from '#/test/helpers/test-runner.ts';
+import { XMLParser } from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Basic skip tag functionality
@@ -381,49 +378,55 @@ describe('Skip Tags — per-tag independence', function () {
 // 9. Feedable input source — chunk-boundary survival
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Skip Tags — feedable input source', function () {
-  it('should correctly skip a tag when fed character by character', function () {
-    const xmlData = `<root><keep>visible</keep><drop><child>gone</child></drop><after>also visible</after></root>`;
-    const options = { skip: { tags: ['root.drop'] } };
+  it.effect('should correctly skip a tag when fed character by character', () =>
+    Effect.gen(function* () {
+      const xmlData = `<root><keep>visible</keep><drop><child>gone</child></drop><after>also visible</after></root>`;
+      const options = { skip: { tags: ['root.drop'] } };
 
-    const parser = makeParser(options);
-    for (let i = 0; i < xmlData.length; i++) {
-      runParser(parser.feed(xmlData[i]));
-    }
-    const result = endDoc(parser);
+      const parser = yield* XMLParser.make(options);
+      for (let i = 0; i < xmlData.length; i++) {
+        yield* parser.feed(xmlData[i]!);
+      }
+      const result = (yield* parser.end()) as ParsedNode;
 
-    expect(result.root.keep).toBe('visible');
-    expect(result.root.after).toBe('also visible');
-    expect(result.root.drop).toBeUndefined();
-  });
+      expect(result.root.keep).toBe('visible');
+      expect(result.root.after).toBe('also visible');
+      expect(result.root.drop).toBeUndefined();
+    })
+  );
 
-  it('should handle xmlEnclosures skip tag with chunk-boundary survival', function () {
-    const xmlData = `<root><keep>ok</keep><drop>text <!-- </drop> fake --> real</drop><after>ok</after></root>`;
-    const options = { skip: { tags: [{ expression: 'root.drop', skipEnclosures: [...xmlEnclosures] }] } };
+  it.effect('should handle xmlEnclosures skip tag with chunk-boundary survival', () =>
+    Effect.gen(function* () {
+      const xmlData = `<root><keep>ok</keep><drop>text <!-- </drop> fake --> real</drop><after>ok</after></root>`;
+      const options = { skip: { tags: [{ expression: 'root.drop', skipEnclosures: [...xmlEnclosures] }] } };
 
-    const parser = makeParser(options);
-    for (let i = 0; i < xmlData.length; i++) {
-      runParser(parser.feed(xmlData[i]));
-    }
-    const result = endDoc(parser);
+      const parser = yield* XMLParser.make(options);
+      for (let i = 0; i < xmlData.length; i++) {
+        yield* parser.feed(xmlData[i]!);
+      }
+      const result = (yield* parser.end()) as ParsedNode;
 
-    expect(result.root.keep).toBe('ok');
-    expect(result.root.after).toBe('ok');
-    expect(result.root.drop).toBeUndefined();
-  });
+      expect(result.root.keep).toBe('ok');
+      expect(result.root.after).toBe('ok');
+      expect(result.root.drop).toBeUndefined();
+    })
+  );
 
-  it('should handle nested skip tag with chunk-boundary survival', function () {
-    const xmlData = `<root><drop><drop>inner</drop><more>content</more></drop><after>visible</after></root>`;
-    const options = { skip: { tags: [{ expression: 'root.drop', nested: true }] } };
+  it.effect('should handle nested skip tag with chunk-boundary survival', () =>
+    Effect.gen(function* () {
+      const xmlData = `<root><drop><drop>inner</drop><more>content</more></drop><after>visible</after></root>`;
+      const options = { skip: { tags: [{ expression: 'root.drop', nested: true }] } };
 
-    const parser = makeParser(options);
-    for (let i = 0; i < xmlData.length; i++) {
-      runParser(parser.feed(xmlData[i]));
-    }
-    const result = endDoc(parser);
+      const parser = yield* XMLParser.make(options);
+      for (let i = 0; i < xmlData.length; i++) {
+        yield* parser.feed(xmlData[i]!);
+      }
+      const result = (yield* parser.end()) as ParsedNode;
 
-    expect(result.root.drop).toBeUndefined();
-    expect(result.root.after).toBe('visible');
-  });
+      expect(result.root.drop).toBeUndefined();
+      expect(result.root.after).toBe('visible');
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -454,109 +457,144 @@ describe('Skip Tags — error scenarios', function () {
     { skip: { tags: [{ expression: 'root.drop', skipEnclosures: [...xmlEnclosures] }] } }
   );
 
-  it('should throw for an empty skip.tags expression string', function () {
-    expect(() => makeParserOrThrow({ skip: { tags: [''] } })).toThrowError('skip.tags expression cannot be empty');
-  });
+  it.effect('should throw for an empty skip.tags expression string', () =>
+    Effect.gen(function* () {
+      const result = yield* buildOptions({ skip: { tags: [''] } }).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.message).toBe('skip.tags expression cannot be empty');
+    })
+  );
 
-  it('should throw for an invalid skip.tags entry type', function () {
-    expect(() => makeParserOrThrow({ skip: { tags: [42 as unknown as string] } })).toThrowError(
-      'Invalid skip.tags entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.'
-    );
-  });
+  it.effect('should throw for an invalid skip.tags entry type', () =>
+    Effect.gen(function* () {
+      const result = yield* buildOptions({ skip: { tags: [42 as unknown as string] } }).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.message).toBe(
+        'Invalid skip.tags entry: expected a string, Expression, or { expression, nested?, skipEnclosures? } object.'
+      );
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 11. OptionsBuilder validation — skip.tags entry forms
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Skip Tags — OptionsBuilder entry normalization', function () {
-  it('accepts plain string shorthand', function () {
-    expect(() => makeParser({ skip: { tags: ['root.drop'] } })).not.toThrow();
-  });
+  it.effect('accepts plain string shorthand', () =>
+    Effect.gen(function* () {
+      const result = yield* XMLParser.make({ skip: { tags: ['root.drop'] } }).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('accepts object form with string expression', function () {
-    expect(() => makeParser({ skip: { tags: [{ expression: 'root.drop', nested: true, skipEnclosures: [] }] } })).not.toThrow();
-  });
+  it.effect('accepts object form with string expression', () =>
+    Effect.gen(function* () {
+      const result = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.drop', nested: true, skipEnclosures: [] }] } }).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('accepts object form without optional fields', function () {
-    expect(() => makeParser({ skip: { tags: [{ expression: 'root.drop' }] } })).not.toThrow();
-  });
+  it.effect('accepts object form without optional fields', () =>
+    Effect.gen(function* () {
+      const result = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.drop' }] } }).pipe(Effect.result);
+      assert(Result.isSuccess(result));
+    })
+  );
 
-  it('defaults nested to false when omitted', function () {
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.drop' }] } });
-    const expr = parser.options.skip.tags[0];
-    expect(expr.data?.nested).toBe(false);
-  });
+  it.effect('defaults nested to false when omitted', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.drop' }] } });
+      const expr = parser.options.skip.tags[0];
+      expect(expr.data?.nested).toBe(false);
+    })
+  );
 
-  it('defaults skipEnclosures to [] when omitted', function () {
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.drop' }] } });
-    const expr = parser.options.skip.tags[0];
-    expect(expr.data?.skipEnclosures).toEqual([]);
-  });
+  it.effect('defaults skipEnclosures to [] when omitted', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.drop' }] } });
+      const expr = parser.options.skip.tags[0];
+      expect(expr.data?.skipEnclosures).toEqual([]);
+    })
+  );
 
-  it('embeds config into Expression.data', function () {
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.drop', nested: true, skipEnclosures: [...xmlEnclosures] }] } });
-    const expr = parser.options.skip.tags[0];
-    expect(expr.data?.nested).toBe(true);
-    expect(expr.data?.skipEnclosures).toEqual(xmlEnclosures);
-  });
+  it.effect('embeds config into Expression.data', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.drop', nested: true, skipEnclosures: [...xmlEnclosures] }] } });
+      const expr = parser.options.skip.tags[0];
+      expect(expr.data?.nested).toBe(true);
+      expect(expr.data?.skipEnclosures).toEqual(xmlEnclosures);
+    })
+  );
 
-  it('skip.tagsSet is a sealed ExpressionSet', function () {
-    const parser = makeParser({ skip: { tags: ['root.drop'] } });
-    expect(parser.options.skip.tagsSet).toBeDefined();
-    expect(parser.options.skip.tagsSet.size).toBe(1);
-    expect(parser.options.skip.tagsSet.isSealed).toBe(true);
-  });
+  it.effect('skip.tagsSet is a sealed ExpressionSet', () =>
+    Effect.gen(function* () {
+      const parser = yield* XMLParser.make({ skip: { tags: ['root.drop'] } });
+      expect(parser.options.skip.tagsSet).toBeDefined();
+      expect(parser.options.skip.tagsSet.size).toBe(1);
+      expect(parser.options.skip.tagsSet.isSealed).toBe(true);
+    })
+  );
 });
 
 describe('Skip Tags — nested and namespace', function () {
-  it('should determine nested skip tag', function () {
-    const xml = `<root><code>safe <code>nested</code> still raw</code></root>`;
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.code', nested: true }] } });
+  it.effect('should determine nested skip tag', () =>
+    Effect.gen(function* () {
+      const xml = `<root><code>safe <code>nested</code> still raw</code></root>`;
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.code', nested: true }] } });
 
-    const expected = { root: '' };
-    const result = parseDoc(parser, xml);
+      const expected = { root: '' };
+      const result = (yield* parser.parse(xml)) as ParsedNode;
 
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
 
-  it('should determine nested skip tag with namespace when nsPrefix is not skipped', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.ns::code', nested: true }] } });
+  it.effect('should determine nested skip tag with namespace when nsPrefix is not skipped', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.ns::code', nested: true }] } });
 
-    const expected = { root: '' };
+      const expected = { root: '' };
 
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
 
-  it('should determine nested skip tag with namespace when nsPrefix is not skipped and namespace is not used in expression', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.code', nested: true }] } });
+  it.effect('should determine nested skip tag with namespace when nsPrefix is not skipped and namespace is not used in expression', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.code', nested: true }] } });
 
-    const expected = { root: '' };
+      const expected = { root: '' };
 
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
-  it('should determine nested skip tag with namespace when nsPrefix is skipped', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.ns::code', nested: true }], nsPrefix: true } });
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
+  it.effect('should determine nested skip tag with namespace when nsPrefix is skipped', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.ns::code', nested: true }], nsPrefix: true } });
 
-    const expected = { root: '' };
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
-  it('should determine nested skip tag with namespace when nsPrefix is skipped and namespace is not used in expression', function () {
-    const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
-    const parser = makeParser({ skip: { tags: [{ expression: 'root.code', nested: true }], nsPrefix: true } });
+      const expected = { root: '' };
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
+  it.effect('should determine nested skip tag with namespace when nsPrefix is skipped and namespace is not used in expression', () =>
+    Effect.gen(function* () {
+      const xml = `<root><ns:code>safe <ns:code>nested</ns:code> still raw</ns:code></root>`;
+      const parser = yield* XMLParser.make({ skip: { tags: [{ expression: 'root.code', nested: true }], nsPrefix: true } });
 
-    const expected = { root: '' };
-    const result = parseDoc(parser, xml);
-    // console.log(JSON.stringify(result, null, 4));
-    expect(result).toEqual(expected);
-  });
+      const expected = { root: '' };
+      const result = (yield* parser.parse(xml)) as ParsedNode;
+      // console.log(JSON.stringify(result, null, 4));
+      expect(result).toEqual(expected);
+    })
+  );
 });

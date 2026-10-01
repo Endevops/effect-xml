@@ -96,21 +96,21 @@ export interface XMLParser {
   /**
    * @description Structural errors collected during the last parse call.
    *
-   * @returns An effect producing the collected entries. Infallible.
+   * @returns The collected entries.
    */
-  getParseErrors(): Effect.Effect<Array<ParseErrorEntry>>;
+  getParseErrors(): Array<ParseErrorEntry>;
   /**
    * @description Characters currently retained in the incremental-parse buffer, or `null` when no `feed()` session is open.
    *
-   * @returns An effect producing the retained character count, or `null`. Infallible.
+   * @returns The retained character count, or `null`.
    */
-  getFeedBufferLength(): Effect.Effect<number | null>;
+  getFeedBufferLength(): number | null;
   /**
    * @description The pending-byte count at which the next `feed()` triggers a parse pass.
    *
-   * @returns An effect producing the current threshold. Infallible.
+   * @returns The current threshold.
    */
-  getFeedBatchThreshold(): Effect.Effect<number>;
+  getFeedBatchThreshold(): number;
 }
 
 /**
@@ -451,24 +451,24 @@ const createParserService = (resolved: ResolvedOptions): XMLParser => {
     },
 
     /**
-     * @description Structural errors collected during the last parse call.
+     * @description Structural errors collected during the last parse call. A plain read of state the last parse already produced, so it is not an effect.
      */
-    getParseErrors(): Effect.Effect<Array<ParseErrorEntry>> {
-      return Effect.succeed(state.lastParseErrors ?? []);
+    getParseErrors(): Array<ParseErrorEntry> {
+      return state.lastParseErrors ?? [];
     },
 
     /**
      * @description Characters currently retained in the incremental-parse buffer, or `null` when no `feed()` session is open.
      */
-    getFeedBufferLength(): Effect.Effect<number | null> {
-      return Effect.succeed(state.feedSource === null ? null : state.feedSource.buffer.length);
+    getFeedBufferLength(): number | null {
+      return state.feedSource === null ? null : state.feedSource.buffer.length;
     },
 
     /**
      * @description The pending-byte count at which the next `feed()` triggers a parse pass.
      */
-    getFeedBatchThreshold(): Effect.Effect<number> {
-      return Effect.succeed(state.batchThreshold);
+    getFeedBatchThreshold(): number {
+      return state.batchThreshold;
     },
   };
 

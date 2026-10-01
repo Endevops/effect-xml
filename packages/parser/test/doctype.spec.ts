@@ -1,18 +1,20 @@
+import { assert, describe, it, expect } from '@effect/vitest';
 import { CompactBuilderFactory } from '@endevops/builder';
 import { COMMON_HTML } from '@endevops/common-xml';
-import { describe, it, expect } from 'vite-plus/test';
+import { Effect, Result } from 'effect';
+
+import type { ParseError } from '#/parse-error.ts';
+import type { XMLParser } from '#/xml-parser.ts';
 
 import EntityParser from '#/test/helpers/custom-entity-parser.ts';
 import {
   runAcrossAllInputSources,
   runAcrossAllInputSourcesWithException,
   runAcrossAllInputSourcesWithFactory,
-  createInputSource,
-  makeParserOrThrow,
-  parseDoc,
-  runParser,
+  parseInput,
   INPUT_TYPES,
 } from '#/test/helpers/test-runner.ts';
+import { XMLParser as XMLParserService } from '#/xml-parser.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: XML with a DOCTYPE internal subset
@@ -26,16 +28,17 @@ const withDocType = (entities: Record<string, string>, body: string): string => 
 
 // Helper: build a parser with a custom EntityDecoder configuration.
 // Keeps test bodies concise — callers only specify what they care about.
-// Three effects meet here: the decoder is built by `EntityDecoder.make` inside
-// the helper, the output builder factory by `CompactBuilderFactory.make`, and
-// the parser itself by `XMLParser.make`. Each is run for its value, so a
-// refusal surfaces as the thrown error a test can assert on.
-const makeParser = (doctypeOpts = {}, entitiesOpts = {}, parserOpts = {}, builderOpts = {}) => {
-  const evp = new EntityParser(entitiesOpts);
-  const factory = runParser(CompactBuilderFactory.make(builderOpts));
-  runParser(factory.registerValueParser('entity', evp));
-  return makeParserOrThrow({ ...parserOpts, doctypeOptions: { enabled: false, ...doctypeOpts }, OutputBuilder: factory });
-};
+// Two effects meet here: the output builder factory is built by
+// `CompactBuilderFactory.make`, and the parser itself by `XMLParser.make`.
+// Both are yielded inside the returned effect, so a refusal stays in the error
+// channel rather than surfacing as a thrown value.
+const makeParser = (doctypeOpts = {}, entitiesOpts = {}, parserOpts = {}, builderOpts = {}): Effect.Effect<XMLParser, ParseError> =>
+  Effect.gen(function* () {
+    const evp = new EntityParser(entitiesOpts);
+    const factory = yield* CompactBuilderFactory.make(builderOpts).pipe(Effect.orDie);
+    yield* factory.registerValueParser('entity', evp).pipe(Effect.orDie);
+    return yield* XMLParserService.make({ ...parserOpts, doctypeOptions: { enabled: false, ...doctypeOpts }, OutputBuilder: factory });
+  });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. DOCTYPE PARSING — cursor always advances past the block
@@ -161,11 +164,12 @@ describe('DOCTYPE — replaceEntities value parser gate', function () {
     result => {
       expect(result.root).toBe('&greeting;');
     },
-    () => {
+    () =>
       // No EntityDecoder registered; chain has no 'entity'
-      const builder = runParser(CompactBuilderFactory.make({ tags: { valueParsers: ['boolean', 'number'] } }));
-      return makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
-    }
+      Effect.gen(function* () {
+        const builder = yield* CompactBuilderFactory.make({ tags: { valueParsers: ['boolean', 'number'] } });
+        return yield* XMLParserService.make({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+      })
   );
 
   runAcrossAllInputSources(
@@ -254,30 +258,34 @@ describe('EntityDecoder html option — HTML named entities', function () {
 // 6. External entities via EntityDecoder.addExternalEntity()
 // ─────────────────────────────────────────────────────────────────────────────
 describe('EntityDecoder.addExternalEntity() — external entities', function () {
-  it('should replace a registered external entity', function () {
-    const evp = new EntityParser();
-    evp.addExternalEntity('copy2', '©©');
-    const builder = runParser(CompactBuilderFactory.make());
-    runParser(builder.registerValueParser('entity', evp));
-    const parser = makeParserOrThrow({ OutputBuilder: builder });
-    const result = parseDoc(parser, '<root>&copy2;</root>');
-    expect(result.root).toBe('©©');
-  });
+  it.effect('should replace a registered external entity', () =>
+    Effect.gen(function* () {
+      const evp = new EntityParser();
+      evp.addExternalEntity('copy2', '©©');
+      const builder = yield* CompactBuilderFactory.make();
+      yield* builder.registerValueParser('entity', evp);
+      const parser = yield* XMLParserService.make({ OutputBuilder: builder });
+      const result = yield* parser.parse('<root>&copy2;</root>');
+      expect(result.root).toBe('©©');
+    })
+  );
 
   it("should throw when entity key contains '&'", function () {
     const evp = new EntityParser();
     expect(() => evp.addExternalEntity('&copy', '©')).toThrow();
   });
 
-  it('external entity coexists with docType entity — both replaced', function () {
-    const evp = new EntityParser();
-    evp.addExternalEntity('ext', 'external');
-    const builder = runParser(CompactBuilderFactory.make());
-    runParser(builder.registerValueParser('entity', evp));
-    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
-    const result = parseDoc(parser, withDocType({ dt: 'doctype' }, '<root>&dt; &ext;</root>'));
-    expect(result.root).toBe('doctype external');
-  });
+  it.effect('external entity coexists with docType entity — both replaced', () =>
+    Effect.gen(function* () {
+      const evp = new EntityParser();
+      evp.addExternalEntity('ext', 'external');
+      const builder = yield* CompactBuilderFactory.make();
+      yield* builder.registerValueParser('entity', evp);
+      const parser = yield* XMLParserService.make({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+      const result = yield* parser.parse(withDocType({ dt: 'doctype' }, '<root>&dt; &ext;</root>'));
+      expect(result.root).toBe('doctype external');
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,12 +371,14 @@ describe('Security — maxTotalExpansions', function () {
   // so we write the three input-type cases inline.
   const throwXml = `<!DOCTYPE root [<!ENTITY e "x">]><root>&e;&e;&e;&e;&e;&e;</root>`;
   INPUT_TYPES.forEach(inputType => {
-    it(`should throw when total expansions exceeds limit [${inputType}]`, function () {
-      const parser = makeParser({ enabled: true }, { limit: { maxTotalExpansions: 3 } });
-      expect(() => createInputSource(throwXml, inputType).parse(parser)).toThrowError(
-        '[EntityReplacer] Entity expansion count limit exceeded: 4 > 3'
-      );
-    });
+    it.effect(`should throw when total expansions exceeds limit [${inputType}]`, () =>
+      Effect.gen(function* () {
+        const parser = yield* makeParser({ enabled: true }, { limit: { maxTotalExpansions: 3 } });
+        const result = yield* parseInput(parser, throwXml, inputType).pipe(Effect.result);
+        assert(Result.isFailure(result));
+        expect(result.failure.message).toMatch('[EntityReplacer] Entity expansion count limit exceeded: 4 > 3');
+      })
+    );
   });
 
   runAcrossAllInputSourcesWithFactory(
@@ -382,14 +392,18 @@ describe('Security — maxTotalExpansions', function () {
     () => makeParser({ enabled: true }, { limit: { maxTotalExpansions: 3 } })
   );
 
-  it('maxTotalExpansions counts external entity expansions too', function () {
-    const evp = new EntityParser({ limit: { maxTotalExpansions: 2 } });
-    evp.addExternalEntity('e', 'x');
-    const builder = runParser(CompactBuilderFactory.make());
-    runParser(builder.registerValueParser('entity', evp));
-    const parser = makeParserOrThrow({ OutputBuilder: builder });
-    expect(() => runParser(parser.parse('<root>&e;&e;&e;</root>'))).toThrowError('[EntityReplacer] Entity expansion count limit exceeded: 3 > 2');
-  });
+  it.effect('maxTotalExpansions counts external entity expansions too', () =>
+    Effect.gen(function* () {
+      const evp = new EntityParser({ limit: { maxTotalExpansions: 2 } });
+      evp.addExternalEntity('e', 'x');
+      const builder = yield* CompactBuilderFactory.make();
+      yield* builder.registerValueParser('entity', evp);
+      const parser = yield* XMLParserService.make({ OutputBuilder: builder });
+      const result = yield* parser.parse('<root>&e;&e;&e;</root>').pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.message).toMatch('[EntityReplacer] Entity expansion count limit exceeded: 3 > 2');
+    })
+  );
 
   runAcrossAllInputSourcesWithFactory(
     'maxTotalExpansions: 0 — unlimited',
@@ -444,53 +458,58 @@ describe('Security — maxExpandedLength', function () {
 // 12. Security — Billion Laughs (entity explosion attack)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Security — Billion Laughs mitigation', function () {
-  it("entity values containing '&' are silently discarded (no recursive expansion)", function () {
-    const evp = new EntityParser();
-    const builder = runParser(CompactBuilderFactory.make());
-    runParser(builder.registerValueParser('entity', evp));
-    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
-    // lol2 references lol1 — would be the start of a Billion Laughs chain.
-    // DocTypeReader skips any entity value containing '&', so lol2 is never stored.
-    const result = parseDoc(
-      parser,
-      `<!DOCTYPE root [
+  it.effect("entity values containing '&' are silently discarded (no recursive expansion)", () =>
+    Effect.gen(function* () {
+      const evp = new EntityParser();
+      const builder = yield* CompactBuilderFactory.make();
+      yield* builder.registerValueParser('entity', evp);
+      const parser = yield* XMLParserService.make({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+      // lol2 references lol1 — would be the start of a Billion Laughs chain.
+      // DocTypeReader skips any entity value containing '&', so lol2 is never stored.
+      const result = yield* parser.parse(
+        `<!DOCTYPE root [
       <!ENTITY lol1 "lol">
       <!ENTITY lol2 "&lol1;&lol1;&lol1;">
     ]><root>&lol1;&lol2;</root>`
-    );
-    // lol1 is replaced; lol2 was not stored so it stays as-is
-    expect(result.root).toBe('lol&lol2;');
-  });
+      );
+      // lol1 is replaced; lol2 was not stored so it stays as-is
+      expect(result.root).toBe('lol&lol2;');
+    })
+  );
 
-  it('flat repetition attack is caught by maxTotalExpansions', function () {
-    const evp = new EntityParser({ limit: { maxTotalExpansions: 100 } });
-    const builder = runParser(CompactBuilderFactory.make());
-    runParser(builder.registerValueParser('entity', evp));
-    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
-    const refs = '&e;'.repeat(200);
-    expect(() => runParser(parser.parse(`<!DOCTYPE root [<!ENTITY e "x">]><root>${refs}</root>`))).toThrowError(
-      '[EntityReplacer] Entity expansion count limit exceeded: 101 > 100'
-    );
-  });
+  it.effect('flat repetition attack is caught by maxTotalExpansions', () =>
+    Effect.gen(function* () {
+      const evp = new EntityParser({ limit: { maxTotalExpansions: 100 } });
+      const builder = yield* CompactBuilderFactory.make();
+      yield* builder.registerValueParser('entity', evp);
+      const parser = yield* XMLParserService.make({ doctypeOptions: { enabled: true }, OutputBuilder: builder });
+      const refs = '&e;'.repeat(200);
+      const result = yield* parser.parse(`<!DOCTYPE root [<!ENTITY e "x">]><root>${refs}</root>`).pipe(Effect.result);
+      assert(Result.isFailure(result));
+      expect(result.failure.message).toMatch('[EntityReplacer] Entity expansion count limit exceeded: 101 > 100');
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 13. Per-parse isolation — counters reset between parses
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Per-parse isolation', function () {
-  it('expansion counters reset between parses — second parse should not carry over', function () {
-    const evp = new EntityParser({ limit: { maxTotalExpansions: 5 } });
-    const builderFactory = runParser(CompactBuilderFactory.make());
-    runParser(builderFactory.registerValueParser('entity', evp));
-    const parser = makeParserOrThrow({ doctypeOptions: { enabled: true }, OutputBuilder: builderFactory });
-    const xml = `<!DOCTYPE root [<!ENTITY e "x">]><root>&e;&e;&e;&e;&e;</root>`;
-    const r1 = parseDoc(parser, xml);
-    expect(r1.root).toBe('xxxxx');
+  it.effect('expansion counters reset between parses — second parse should not carry over', () =>
+    Effect.gen(function* () {
+      const evp = new EntityParser({ limit: { maxTotalExpansions: 5 } });
+      const builderFactory = yield* CompactBuilderFactory.make();
+      yield* builderFactory.registerValueParser('entity', evp);
+      const parser = yield* XMLParserService.make({ doctypeOptions: { enabled: true }, OutputBuilder: builderFactory });
+      const xml = `<!DOCTYPE root [<!ENTITY e "x">]><root>&e;&e;&e;&e;&e;</root>`;
+      const r1 = yield* parser.parse(xml);
+      expect(r1.root).toBe('xxxxx');
 
-    // Second parse — counters reset automatically in addInputEntities()
-    const r2 = parseDoc(parser, xml);
-    expect(r2.root).toBe('xxxxx');
-  });
+      // Second parse — counters reset automatically in addInputEntities()
+      const r2 = yield* parser.parse(xml);
+      expect(r2.root).toBe('xxxxx');
+    })
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -8,15 +8,13 @@
  * unchanged as the code moves.
  */
 
-import type { Effect } from 'effect';
-
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Effect, Result } from 'effect';
 
 import type { BuilderError } from '#/errors.ts';
 import type { XmlUnsafeRule } from '#/index.ts';
 
 import { XML_UNSAFE_RULES, allUnsafeXml, isUnsafeXml, whyUnsafeXml } from '#/index.ts';
-import { failedWith, run } from '#/test/helpers/effect.ts';
 
 /**
  * @description A rule paired with a string it must catch and a string that must slip past.
@@ -112,10 +110,12 @@ describe('XML_UNSAFE_RULES', () => {
 describe('the XML rules', () => {
   for (const [id, { trips, nearMiss }] of Object.entries(CASES)) {
     describe(id, () => {
-      it(`catches ${JSON.stringify(trips)}`, () => {
-        expect(rule(id).pattern.test(trips)).toBe(true);
-        expect(run(isUnsafeXml(trips))).toBe(true);
-      });
+      it.effect(`catches ${JSON.stringify(trips)}`, () =>
+        Effect.gen(function* () {
+          expect(rule(id).pattern.test(trips)).toBe(true);
+          expect(yield* isUnsafeXml(trips)).toBe(true);
+        })
+      );
 
       it(`lets ${JSON.stringify(nearMiss)} through`, () => {
         // The near-miss may still trip a *different* rule, so this asserts the
@@ -168,139 +168,180 @@ describe('isUnsafeXml — values that must never be refused', () => {
   ];
 
   for (const value of benign) {
-    it(`accepts ${JSON.stringify(value)}`, () => {
-      expect(run(isUnsafeXml(value))).toBe(false);
-      expect(run(whyUnsafeXml(value))).toBeNull();
-      expect(run(allUnsafeXml(value))).toEqual([]);
-    });
+    it.effect(`accepts ${JSON.stringify(value)}`, () =>
+      Effect.gen(function* () {
+        expect(yield* isUnsafeXml(value)).toBe(false);
+        expect(yield* whyUnsafeXml(value)).toBeNull();
+        expect(yield* allUnsafeXml(value)).toEqual([]);
+      })
+    );
   }
 });
 
 // ─── Attack shapes ───────────────────────────────────────────────────────────────────────────────────────────
 
 describe('isUnsafeXml — real attack payloads', () => {
-  it('catches an external entity pointing at a local file', () => {
-    expect(run(isUnsafeXml('<!ENTITY xxe SYSTEM "file:///etc/passwd">'))).toBe(true);
-  });
+  it.effect('catches an external entity pointing at a local file', () =>
+    Effect.gen(function* () {
+      expect(yield* isUnsafeXml('<!ENTITY xxe SYSTEM "file:///etc/passwd">')).toBe(true);
+    })
+  );
 
-  it('catches a billion-laughs chain', () => {
-    const bomb = '<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">';
-    expect(run(isUnsafeXml(bomb))).toBe(true);
-  });
+  it.effect('catches a billion-laughs chain', () =>
+    Effect.gen(function* () {
+      const bomb = '<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">';
+      expect(yield* isUnsafeXml(bomb)).toBe(true);
+    })
+  );
 
-  it('catches a public external entity', () => {
-    expect(run(isUnsafeXml('<!ENTITY x SYSTEM PUBLIC "http://evil/x" >'))).toBe(true);
-  });
+  it.effect('catches a public external entity', () =>
+    Effect.gen(function* () {
+      expect(yield* isUnsafeXml('<!ENTITY x SYSTEM PUBLIC "http://evil/x" >')).toBe(true);
+    })
+  );
 
-  it('catches an internal DTD smuggled into content', () => {
-    expect(run(isUnsafeXml('<!DOCTYPE note [<!ENTITY x "y">]>'))).toBe(true);
-  });
+  it.effect('catches an internal DTD smuggled into content', () =>
+    Effect.gen(function* () {
+      expect(yield* isUnsafeXml('<!DOCTYPE note [<!ENTITY x "y">]>')).toBe(true);
+    })
+  );
 
-  it('catches a CDATA breakout', () => {
-    expect(run(isUnsafeXml('safe]]><script>not-a-script-but-a-breakout</script>'))).toBe(true);
-  });
+  it.effect('catches a CDATA breakout', () =>
+    Effect.gen(function* () {
+      expect(yield* isUnsafeXml('safe]]><script>not-a-script-but-a-breakout</script>')).toBe(true);
+    })
+  );
 
-  it('catches a namespace redefinition', () => {
-    expect(run(isUnsafeXml('<root xmlns="http://attacker.example/">'))).toBe(true);
-  });
+  it.effect('catches a namespace redefinition', () =>
+    Effect.gen(function* () {
+      expect(yield* isUnsafeXml('<root xmlns="http://attacker.example/">')).toBe(true);
+    })
+  );
 
-  it('is case-insensitive where the upstream rules are', () => {
-    for (const value of ['<!doctype x', 'system "x"', '<!entity x "y">', 'xmlns="x"']) {
-      expect(run(isUnsafeXml(value))).toBe(true);
-    }
-  });
+  it.effect('is case-insensitive where the upstream rules are', () =>
+    Effect.gen(function* () {
+      for (const value of ['<!doctype x', 'system "x"', '<!entity x "y">', 'xmlns="x"']) {
+        expect(yield* isUnsafeXml(value)).toBe(true);
+      }
+    })
+  );
 });
 
 // ─── Reporting ──────────────────────────────────────────────────────────────────────────────────────────────
 
 describe('whyUnsafeXml', () => {
-  it('names the rule that caught the value', () => {
-    const match = run(whyUnsafeXml('SYSTEM "file:///etc/passwd"'));
-    expect(match?.rule.id).toBe('xml-entity-system');
-  });
+  it.effect('names the rule that caught the value', () =>
+    Effect.gen(function* () {
+      const match = yield* whyUnsafeXml('SYSTEM "file:///etc/passwd"');
+      expect(match?.rule.id).toBe('xml-entity-system');
+    })
+  );
 
-  it('reports the offending span, not the whole value', () => {
-    const match = run(whyUnsafeXml('harmless prefix SYSTEM "x" harmless suffix'));
-    // The rule's pattern stops at the opening quote — it looks for the keyword
-    // followed by a quote, not for the whole identifier — so the span is
-    // `SYSTEM "` and not the URL that follows.
-    expect(match?.matchedText).toBe('SYSTEM "');
-  });
+  it.effect('reports the offending span, not the whole value', () =>
+    Effect.gen(function* () {
+      const match = yield* whyUnsafeXml('harmless prefix SYSTEM "x" harmless suffix');
+      // The rule's pattern stops at the opening quote — it looks for the keyword
+      // followed by a quote, not for the whole identifier — so the span is
+      // `SYSTEM "` and not the URL that follows.
+      expect(match?.matchedText).toBe('SYSTEM "');
+    })
+  );
 
-  it('returns the first match when several rules would fire', () => {
-    // First-match-wins is the contract, and the order is the table above.
-    const match = run(whyUnsafeXml('<!DOCTYPE a SYSTEM "b">'));
-    expect(match?.rule.id).toBe('xml-doctype-injection');
-  });
+  it.effect('returns the first match when several rules would fire', () =>
+    Effect.gen(function* () {
+      // First-match-wins is the contract, and the order is the table above.
+      const match = yield* whyUnsafeXml('<!DOCTYPE a SYSTEM "b">');
+      expect(match?.rule.id).toBe('xml-doctype-injection');
+    })
+  );
 
-  it('is null for a safe value', () => {
-    expect(run(whyUnsafeXml('hello'))).toBeNull();
-  });
+  it.effect('is null for a safe value', () =>
+    Effect.gen(function* () {
+      expect(yield* whyUnsafeXml('hello')).toBeNull();
+    })
+  );
 });
 
 describe('allUnsafeXml', () => {
-  it('reports every rule that fires, in rule order', () => {
-    const ids = run(allUnsafeXml('<!DOCTYPE a SYSTEM "b">')).map(m => m.rule.id);
-    expect(ids).toEqual(['xml-doctype-injection', 'xml-entity-system']);
-  });
+  it.effect('reports every rule that fires, in rule order', () =>
+    Effect.gen(function* () {
+      const ids = (yield* allUnsafeXml('<!DOCTYPE a SYSTEM "b">')).map(m => m.rule.id);
+      expect(ids).toEqual(['xml-doctype-injection', 'xml-entity-system']);
+    })
+  );
 
-  it('is a superset of whyUnsafeXml', () => {
-    for (const value of ['<![CDATA[x]]>', 'a-->b?>c', 'SYSTEM "x" PUBLIC "y"']) {
-      const first = run(whyUnsafeXml(value));
-      const all = run(allUnsafeXml(value));
-      expect(all.length).toBeGreaterThanOrEqual(1);
-      expect(all.map(m => m.rule.id)).toContain(first?.rule.id);
-    }
-  });
+  it.effect('is a superset of whyUnsafeXml', () =>
+    Effect.gen(function* () {
+      for (const value of ['<![CDATA[x]]>', 'a-->b?>c', 'SYSTEM "x" PUBLIC "y"']) {
+        const first = yield* whyUnsafeXml(value);
+        const all = yield* allUnsafeXml(value);
+        expect(all.length).toBeGreaterThanOrEqual(1);
+        expect(all.map(m => m.rule.id)).toContain(first?.rule.id);
+      }
+    })
+  );
 
-  it('returns an empty array for a safe value', () => {
-    expect(run(allUnsafeXml('hello'))).toEqual([]);
-  });
+  it.effect('returns an empty array for a safe value', () =>
+    Effect.gen(function* () {
+      expect(yield* allUnsafeXml('hello')).toEqual([]);
+    })
+  );
 });
 
 // ─── Determinism ────────────────────────────────────────────────────────────────────────────────────────────
 
 describe('the rules are stateless', () => {
-  it('gives the same verdict every time the same value is tested', () => {
-    const value = '<![CDATA[x]]> SYSTEM "y"';
-    const verdicts = Array.from({ length: 5 }, () => run(isUnsafeXml(value)));
-    expect(new Set(verdicts).size).toBe(1);
-  });
+  it.effect('gives the same verdict every time the same value is tested', () =>
+    Effect.gen(function* () {
+      const value = '<![CDATA[x]]> SYSTEM "y"';
+      const verdicts: Array<boolean> = [];
+      for (let i = 0; i < 5; i++) verdicts.push(yield* isUnsafeXml(value));
+      expect(new Set(verdicts).size).toBe(1);
+    })
+  );
 
-  it('gives the same report every time allUnsafeXml runs', () => {
-    const value = '<!DOCTYPE a SYSTEM "b">';
-    const first = run(allUnsafeXml(value)).map(m => m.rule.id);
-    for (let i = 0; i < 3; i++) {
-      expect(run(allUnsafeXml(value)).map(m => m.rule.id)).toEqual(first);
-    }
-  });
+  it.effect('gives the same report every time allUnsafeXml runs', () =>
+    Effect.gen(function* () {
+      const value = '<!DOCTYPE a SYSTEM "b">';
+      const first = (yield* allUnsafeXml(value)).map(m => m.rule.id);
+      for (let i = 0; i < 3; i++) {
+        expect((yield* allUnsafeXml(value)).map(m => m.rule.id)).toEqual(first);
+      }
+    })
+  );
 
-  it('does not let one value leak state into the next', () => {
-    run(isUnsafeXml('<![CDATA['));
-    expect(run(isUnsafeXml('clean'))).toBe(false);
-  });
+  it.effect('does not let one value leak state into the next', () =>
+    Effect.gen(function* () {
+      yield* isUnsafeXml('<![CDATA[');
+      expect(yield* isUnsafeXml('clean')).toBe(false);
+    })
+  );
 });
 
 // ─── Input contract ─────────────────────────────────────────────────────────────────────────────────────────
 
 describe('the rules reject a non-string', () => {
-  it('fails rather than coercing, so a caller cannot pass a number by accident', () => {
-    // A silent String() would let an entity value of `0` or `null` skip the check.
-    for (const bad of [undefined, null, 0, 1, true, {}, []]) {
-      // Each predicate names *itself* in the failure. The original hard-coded `isUnsafeXml`
-      // even when one of its two siblings raised it, which sent a caller to the wrong function.
-      // Typed as `Effect<unknown, BuilderError>` because the loop only reads the error —
-      // the three predicates' success types differ and nothing here depends on them.
-      const predicates: ReadonlyArray<readonly [(value: string) => Effect.Effect<unknown, BuilderError>, string]> = [
-        [isUnsafeXml, 'isUnsafeXml'],
-        [whyUnsafeXml, 'whyUnsafeXml'],
-        [allUnsafeXml, 'allUnsafeXml'],
-      ];
-      for (const [fn, name] of predicates) {
-        const error = failedWith(fn(bad as unknown as string), 'InvalidArgument');
-        expect(error.message).toContain(`${name}: first argument must be a string`);
-        expect(error.reason._tag === 'InvalidArgument' && error.reason.function).toBe(name);
+  it.effect('fails rather than coercing, so a caller cannot pass a number by accident', () =>
+    Effect.gen(function* () {
+      // A silent String() would let an entity value of `0` or `null` skip the check.
+      for (const bad of [undefined, null, 0, 1, true, {}, []]) {
+        // Each predicate names *itself* in the failure. The original hard-coded `isUnsafeXml`
+        // even when one of its two siblings raised it, which sent a caller to the wrong function.
+        // Typed as `Effect<unknown, BuilderError>` because the loop only reads the error —
+        // the three predicates' success types differ and nothing here depends on them.
+        const predicates: ReadonlyArray<readonly [(value: string) => Effect.Effect<unknown, BuilderError>, string]> = [
+          [isUnsafeXml, 'isUnsafeXml'],
+          [whyUnsafeXml, 'whyUnsafeXml'],
+          [allUnsafeXml, 'allUnsafeXml'],
+        ];
+        for (const [fn, name] of predicates) {
+          const result = yield* fn(bad as unknown as string).pipe(Effect.result);
+          assert(Result.isFailure(result));
+          const error = result.failure;
+          expect(error.message).toContain(`${name}: first argument must be a string`);
+          expect(error.reason._tag === 'InvalidArgument' && error.reason.function).toBe(name);
+        }
       }
-    }
-  });
+    })
+  );
 });
