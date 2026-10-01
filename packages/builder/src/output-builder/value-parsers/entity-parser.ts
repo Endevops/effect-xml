@@ -95,7 +95,7 @@ export const makeEntitiesValueParser = (options?: EntitiesValueParserOptions, is
     if (!seen) {
       const version = sharedContext?.get('xmlVersion');
       const entities = sharedContext?.get('inputEntities');
-      if (version) yield* Effect.mapError(current.setXmlVersion(version as number), fromDecoder(''));
+      if (version) current.setXmlVersion(version as number);
       if (entities) yield* Effect.mapError(current.addInputEntities(entities as Record<string, string>), fromDecoder(''));
       seen = true;
     }

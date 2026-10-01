@@ -1,8 +1,10 @@
 /**
- * @description Bridges between this package's `Effect` API and the synchronous style the specs are written in. Every fallible operation in the library returns an
- * `Effect`, so a spec asserting on a successful result has to run that effect, and a spec asserting on a failure has to read the error out of the
- * exit. Doing either inline, at four hundred call sites, would bury the assertions. These helpers keep each call site down to the one line that is
- * actually about the behaviour under test. Four shapes, and the choice between them is the interesting part:
+ * @description Bridges between the parts of this package that still report through `Effect` and the synchronous style the specs are written in. Most of the
+ * library is now plain synchronous functions — the name predicates, `validate`, `sanitize`, `Expression`, `ExpressionSet`'s reads and every `Matcher`
+ * method — but the entity decoder/encoder, `Expression.make`, and `ExpressionSet.add`/`addAll` still return effects. A spec asserting on a successful
+ * effect has to run it, and a spec asserting on a failure has to read the error out of the exit. Doing either inline, at four hundred call sites,
+ * would bury the assertions. These helpers keep each call site down to the one line that is actually about the behaviour under test. Four shapes, and
+ * the choice between them is the interesting part:
  *
  * - {@link run} for a call that must succeed. A failure there is a bug in the library or the test rather than an expected outcome, so it throws
  *   carrying the error's own reason and message instead of reporting a vague mismatch.

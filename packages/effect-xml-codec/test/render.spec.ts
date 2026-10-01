@@ -4,7 +4,6 @@
  */
 
 import { EntityEncoder } from '@endevops/common-xml';
-import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlValue } from '#/index.ts';
@@ -242,14 +241,13 @@ describe('the escaping helpers agree with @endevops/common-xml', () => {
   const reference = new EntityEncoder({ encodeAllNamed: false });
 
   /**
-   * @description Run the reference encoder, which returns an effect. `EntityEncoder.encode` is effectful so it can report a failure in the error channel, but its
-   * channel is `never` — encoding a string either produces one or needs nothing done — which is what makes `runSync` sound here rather than a cast.
+   * @description Run the reference encoder. `EntityEncoder.encode` is a plain synchronous function, so this is a direct call.
    *
    * @param input - The string to encode.
    *
    * @returns The encoded string.
    */
-  const encodeWith = (input: string): string => Effect.runSync(reference.encode(input));
+  const encodeWith = (input: string): string => reference.encode(input);
 
   /**
    * @description Every ASCII character on its own, in every position the fast path scans, so a character the two tables disagree about cannot hide at an index the

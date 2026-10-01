@@ -23,7 +23,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
             forceArray: matcher => {
-              return runParser(matcher.matches(rootItemExp));
+              return matcher.matches(rootItemExp);
             },
           })
         ),
@@ -48,7 +48,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
           CompactBuilderFactory.make({
             forceArray: matcher => {
               // Force all tags under 'items' to be arrays
-              return runParser(matcher.matches(runParser(Expression.make('root.items.*'))));
+              return matcher.matches(runParser(Expression.make('root.items.*')));
             },
           })
         ),
@@ -99,7 +99,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
             forceArray: matcher => {
-              return runParser(matcher.matches(rootItemExp));
+              return matcher.matches(rootItemExp);
             },
           })
         ),
@@ -125,7 +125,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
           CompactBuilderFactory.make({
             forceArray: matcher => {
               // Force array only for items with type="special"
-              return runParser(matcher.matches(rootItemExp)) && runParser(matcher.getAttrValue('type')) === 'special';
+              return matcher.matches(rootItemExp) && matcher.getAttrValue('type') === 'special';
             },
           })
         ),
@@ -150,7 +150,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
             forceArray: matcher => {
-              return runParser(matcher.matches(runParser(Expression.make('..target'))));
+              return matcher.matches(runParser(Expression.make('..target')));
             },
           })
         ),
@@ -174,7 +174,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
             forceArray: matcher => {
-              return runParser(matcher.matches(rootItemExp));
+              return matcher.matches(rootItemExp);
             },
           })
         ),
@@ -294,9 +294,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item.length).toBe(1);
         expect(result.root.item[0]['#text']).toBe('Single Value');
       },
-      {
-        OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)), forceTextNode: true })),
-      }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => matcher.matches(rootItemExp), forceTextNode: true })) }
     );
 
     runAcrossAllInputSources(
@@ -312,9 +310,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(result.root.item[0]['#text']).toBe('First');
         expect(result.root.item[1]['#text']).toBe('Second');
       },
-      {
-        OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)), forceTextNode: true })),
-      }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => matcher.matches(rootItemExp), forceTextNode: true })) }
     );
   });
 
@@ -376,7 +372,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         OutputBuilder: runParser(
           CompactBuilderFactory.make({
             forceArray: matcher => {
-              return runParser(matcher.matches(runParser(Expression.make('root.a.b.c.d.e'))));
+              return matcher.matches(runParser(Expression.make('root.a.b.c.d.e')));
             },
           })
         ),
@@ -402,7 +398,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
           expect(result.root.item[i]).toBe(i + 1);
         }
       },
-      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)) })) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => matcher.matches(rootItemExp) })) }
     );
   });
 
@@ -497,7 +493,7 @@ describe('Output Builder Options - forceArray and forceTextNode', function () {
         expect(Array.isArray(result.root.item)).toBe(true);
         expect(result.root.item[0]).toBe('Value');
       },
-      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => runParser(matcher.matches(rootItemExp)) })) }
+      { OutputBuilder: runParser(CompactBuilderFactory.make({ forceArray: matcher => matcher.matches(rootItemExp) })) }
     );
 
     runAcrossAllInputSources(

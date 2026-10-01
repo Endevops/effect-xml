@@ -6,20 +6,16 @@
 // XML 1.1 spec: https://www.w3.org/TR/xml11/#NT-NameStartChar
 // XML NS spec:  https://www.w3.org/TR/xml-names/#NT-NCName
 //
-// Two error conventions run through this module, and the split is deliberate:
+// Every name question here is a plain synchronous function. A regex test cannot
+// fail and a character substitution has nothing to fail about, so there is no
+// effect to model: the five predicates answer a boolean, `sanitize` rewrites a
+// string, and `validate`/`validateAll`/`createValidator` return a discriminant
+// (or a memoized predicate) directly.
 //
-//   - The five boolean validators and `sanitize` are infallible. A regex test cannot fail and a
-//     character-substitution has nothing to fail about, so they stay plain synchronous functions and stay
-//     usable as predicates — which is how the builder and the codec call them, per name, inside their own
-//     hot loops.
-//   - `createValidator`, `validate` and `validateAll` can fail, on an unknown production, and so return an
-//     `Effect` with an {@link XmlError} rather than throwing. The failure is unreachable from TypeScript,
-//     where `Production` is a closed union; it is the guard for untyped JavaScript callers and for values
-//     that crossed a boundary as `unknown`.
-
-import { Effect } from 'effect';
-
-import type { XmlError } from '../errors.ts';
+// The one failure any of them can report is an unknown production, which is
+// unreachable from TypeScript where `Production` is a closed union. It remains
+// the guard for untyped JavaScript callers and for values that crossed a
+// boundary as `unknown`, and it is raised by throwing an {@link XmlError}.
 
 import { XmlError as XmlErrorCtor } from '../errors.ts';
 
@@ -82,19 +78,17 @@ export interface CreateValidatorOptions extends ValidationOptions {
 }
 
 /**
- * @description An effectful validator with a private string cache attached. Call `reset` to drop the cache; the function stays correct afterwards. The call
- * signature returns an `Effect` for the same reason the six short-hand predicates do: the package has one shape for every way of asking whether a
- * name is valid, so a caller who starts with `qName` and switches to `createValidator` for the memoized form is not also switching the shape of the
- * answer. The channel is empty in practice, but it is the channel, not a bare boolean that a future check would have to widen.
+ * @description A validator with a private string cache attached. Call `reset` to drop the cache; the function stays correct afterwards. It answers with a plain
+ * boolean, the same shape {@link isQName} and the other predicates use.
  */
 export interface MemoizedValidator {
-  (str: string): Effect.Effect<boolean, XmlError>;
+  (str: string): boolean;
   /**
-   * @description Clears the internal cache.
+   * @description Clears the internal cache, so the next call re-tests every string.
    *
-   * @returns An effect that clears the cache. Infallible, so the channel is empty.
+   * @returns Nothing.
    */
-  reset: () => Effect.Effect<void, XmlError>;
+  reset: () => void;
 }
 
 /**
@@ -272,15 +266,14 @@ const getRegexes = (xmlVersion: XmlVersion = '1.0', asciiOnly = false): Producti
 // ---------------------------------------------------------------------------
 // Boolean validators
 //
-// Two spellings of each: the plain `is*` predicate, and the Effect-returning one that wraps it. A regex test cannot fail — and every one of these is called
-// per name inside a parser's or codec's hot loop — so the predicate is the real implementation and the Effect is the uniform-shape wrapper for callers already
-// in an Effect. Calling the Effect form per name means allocating and running an effect to read a boolean, which for a document with a handful of repeated
-// names is most of the cost of resolving them.
+// One plain predicate per production. A regex test cannot fail, and every one of these is called per name
+// inside a parser's or codec's hot loop, so a boolean is the honest answer and there is no effect to
+// allocate or run.
 // ---------------------------------------------------------------------------
 
 /**
  * @description Whether the string is a valid XML Name. Colons are allowed anywhere (Name production). Used for: DOCTYPE entity names, notation names, DTD element
- * declarations. The synchronous form; {@link name} is its Effect-returning wrapper.
+ * declarations.
  *
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -292,7 +285,6 @@ export const isName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: V
 
 /**
  * @description Whether the string is a valid NCName (Non-Colonized Name). Colons are not permitted. Used for: namespace prefixes, local names, SVG id attributes.
- * The synchronous form; {@link ncName} is its Effect-returning wrapper.
  *
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -304,7 +296,7 @@ export const isNcName = (str: string, { xmlVersion = '1.0', asciiOnly = false }:
 
 /**
  * @description Whether the string is a valid QName (Qualified Name). Allows exactly one colon as a prefix separator: `prefix:localName`. Used for: element and
- * attribute names in namespace-aware XML/SVG. The synchronous form; {@link qName} is its Effect-returning wrapper.
+ * attribute names in namespace-aware XML/SVG.
  *
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -315,8 +307,7 @@ export const isQName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: 
   getRegexes(xmlVersion, asciiOnly).qName.test(str);
 
 /**
- * @description Whether the string is a valid NMToken. Like Name but no restriction on the first character. Used for: DTD NMTOKEN attribute values. The synchronous
- * form; {@link nmToken} is its Effect-returning wrapper.
+ * @description Whether the string is a valid NMToken. Like Name but no restriction on the first character. Used for: DTD NMTOKEN attribute values.
  *
  * @param str - The candidate token.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -327,8 +318,7 @@ export const isNmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }
   getRegexes(xmlVersion, asciiOnly).nmToken.test(str);
 
 /**
- * @description Whether the string is a valid NMTokens value — a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values. The
- * synchronous form; {@link nmTokens} is its Effect-returning wrapper.
+ * @description Whether the string is a valid NMTokens value — a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values.
  *
  * @param str - The candidate list.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -337,64 +327,6 @@ export const isNmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }
  */
 export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
   getRegexes(xmlVersion, asciiOnly).nmTokens.test(str);
-
-/**
- * @description Returns true if the string is a valid XML Name. Colons are allowed anywhere (Name production). Used for: DOCTYPE entity names, notation names, DTD
- * element declarations.
- *
- * @param str - The candidate name.
- * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
- *
- * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
- *   package has one shape.
- */
-export const name = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isName(str, opts));
-
-/**
- * @description Returns true if the string is a valid NCName (Non-Colonized Name). Colons are not permitted. Used for: namespace prefixes, local names, SVG id
- * attributes.
- *
- * @param str - The candidate name.
- * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
- *
- * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
- *   package has one shape.
- */
-export const ncName = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isNcName(str, opts));
-
-/**
- * @description Returns true if the string is a valid QName (Qualified Name). Allows exactly one colon as a prefix separator: `prefix:localName`. Used for: element
- * and attribute names in namespace-aware XML/SVG.
- *
- * @param str - The candidate name.
- * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
- *
- * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
- *   package has one shape.
- */
-export const qName = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isQName(str, opts));
-
-/**
- * @description Returns true if the string is a valid NMToken. Like Name but no restriction on the first character. Used for: DTD NMTOKEN attribute values.
- *
- * @param str - The candidate token.
- * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
- *
- * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
- *   package has one shape.
- */
-export const nmToken = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isNmToken(str, opts));
-
-/**
- * @description Returns true if the string is a valid NMTokens value — a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values.
- *
- * @param str - The candidate list.
- * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
- *
- * @returns An effect producing whether `str` satisfies the production. Infallible, so the error channel is empty; it exists so every validator in the
- *   package has one shape.
- */
-export const nmTokens = (str: string, opts: ValidationOptions = {}): Effect.Effect<boolean, XmlError> => Effect.succeed(isNmTokens(str, opts));
 
 // ---------------------------------------------------------------------------
 // Memoized validator factory
@@ -421,15 +353,33 @@ export const nmTokens = (str: string, opts: ValidationOptions = {}): Effect.Effe
 // ---------------------------------------------------------------------------
 
 /**
+ * @description Throw when a production is not one of the five this module knows, so `createValidator`, `validate` and `validateAll` report it the same way. The
+ * single place the unknown-production guard lives. It is unreachable from TypeScript, where `Production` is a closed union; this is the guard for
+ * untyped JavaScript callers.
+ *
+ * @param production - The production to check.
+ *
+ * @returns Nothing.
+ *
+ * @throws {XmlError} With the `InvalidProduction` reason for an unknown production.
+ */
+const checkProduction = (production: Production): void => {
+  if (PRODUCTIONS.includes(production)) return;
+  throw new XmlErrorCtor({
+    reason: { _tag: 'InvalidProduction', production, expected: PRODUCTIONS.join(', ') },
+    message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
+  });
+};
+
+/**
  * @description Returns a memoized boolean validator for a single production, with options fixed at creation time. Repeated calls with the same string after the
  * first are served from a private cache instead of re-running the regex.
  *
  * @example
  *   ```typescript
- *   import { Effect } from 'effect';
  *   import { createValidator } from '@endevops/common-xml';
  *
- *   const isNCName = Effect.runSync(Effect.orElseSucceed(createValidator('ncName'), () => () => false));
+ *   const isNCName = createValidator('ncName');
  *   isNCName('svg:circle'); // false — a colon is not an NCName
  *   ```;
  *
@@ -437,43 +387,34 @@ export const nmTokens = (str: string, opts: ValidationOptions = {}): Effect.Effe
  * @param opts - `maxCacheSize` bounds the cache (default 2048). Once reached, new strings are validated but not cached; existing entries keep being
  *   served.
  *
- * @returns An effect producing a validator function with a `reset` method that clears its cache. Fails with {@link XmlError} and the
- *   `InvalidProduction` reason when `production` is not one of the five known productions — unreachable from TypeScript, kept as the guard for
- *   untyped JavaScript callers.
+ * @returns A validator function with a `reset` method that clears its cache.
+ *
+ * @throws {XmlError} With the `InvalidProduction` reason when `production` is not one of the five known productions — unreachable from TypeScript,
+ *   kept as the guard for untyped JavaScript callers.
  */
 export const createValidator = (
   production: Production,
   { xmlVersion = '1.0', asciiOnly = false, maxCacheSize = 2048 }: CreateValidatorOptions = {}
-): Effect.Effect<MemoizedValidator, XmlError> => {
-  if (!PRODUCTIONS.includes(production)) {
-    return Effect.fail(
-      new XmlErrorCtor({
-        reason: { _tag: 'InvalidProduction', production, expected: PRODUCTIONS.join(', ') },
-        message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
-      })
-    );
-  }
+): MemoizedValidator => {
+  checkProduction(production);
 
   const regex = getRegexes(xmlVersion, asciiOnly)[production];
   let cache = new Map<string, boolean>();
 
-  return Effect.succeed(
-    Object.assign(
-      (str: string): Effect.Effect<boolean, XmlError> => {
-        const cached = cache.get(str);
-        if (cached !== undefined) return Effect.succeed(cached);
+  return Object.assign(
+    (str: string): boolean => {
+      const cached = cache.get(str);
+      if (cached !== undefined) return cached;
 
-        const result = regex.test(str);
-        if (cache.size < maxCacheSize) cache.set(str, result);
-        return Effect.succeed(result);
+      const result = regex.test(str);
+      if (cache.size < maxCacheSize) cache.set(str, result);
+      return result;
+    },
+    {
+      reset: (): void => {
+        cache = new Map();
       },
-      {
-        reset: (): Effect.Effect<void, XmlError> =>
-          Effect.sync(() => {
-            cache = new Map();
-          }),
-      }
-    )
+    }
   );
 };
 
@@ -482,44 +423,25 @@ export const createValidator = (
 // ---------------------------------------------------------------------------
 
 /**
- * @description The reason a name failed a production, as an effect. The single place the unknown-production guard lives, so `validate` and `validateAll` cannot
- * drift into reporting it differently.
- *
- * @param production - The production to check.
- *
- * @returns `Effect.void` for a known production, or the `InvalidProduction` failure.
- */
-const checkProduction = (production: Production): Effect.Effect<void, XmlError> =>
-  PRODUCTIONS.includes(production)
-    ? Effect.void
-    : Effect.fail(
-        new XmlErrorCtor({
-          reason: { _tag: 'InvalidProduction', production, expected: PRODUCTIONS.join(', ') },
-          message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
-        })
-      );
-
-/**
  * @description The diagnostic body {@link validate} reports, with the production already known to be valid. Kept separate so the reason-finding logic carries no
- * unknown-production check and the batch path can map over it without re-entering the guard per element. The error channel is the one the predicates
- * carry, not a new one — asking which production failed cannot fail differently from asking whether it passed.
+ * unknown-production check and the batch path can map over it without re-entering the guard per element.
  *
  * @param str - The candidate name.
  * @param production - The production to validate against, already checked.
  * @param xmlVersion - Which version's character classes to use.
  * @param asciiOnly - Whether the ASCII-only fast path applied.
  *
- * @returns An effect producing the discriminated result.
+ * @returns The discriminated result.
  */
-const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, asciiOnly: boolean): Effect.Effect<ValidationResult, XmlError> => {
-  const validators: Record<Production, (str: string, opts?: ValidationOptions) => Effect.Effect<boolean, XmlError>> = {
-    name,
-    ncName,
-    qName,
-    nmToken,
-    nmTokens,
+const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, asciiOnly: boolean): ValidationResult => {
+  const validators: Record<Production, (str: string, opts?: ValidationOptions) => boolean> = {
+    name: isName,
+    ncName: isNcName,
+    qName: isQName,
+    nmToken: isNmToken,
+    nmTokens: isNmTokens,
   };
-  return Effect.map(validators[production](str, { xmlVersion, asciiOnly }), isValid => diagnoseWith(str, production, isValid, asciiOnly));
+  return diagnoseWith(str, production, validators[production](str, { xmlVersion, asciiOnly }), asciiOnly);
 };
 
 /**
@@ -629,10 +551,9 @@ const diagnoseWith = (str: string, production: Production, isValid: boolean, asc
  *
  * @example
  *   ```typescript
- *   import { Effect } from 'effect';
  *   import { validate } from '@endevops/common-xml';
  *
- *   Effect.runSync(Effect.orElseSucceed(validate('not a name', 'ncName'), () => null));
+ *   validate('not a name', 'ncName');
  *   // { valid: false, production: 'ncName', input: 'not a name', reason: 'First character " " is not a valid NameStartChar', position: 0 }
  *   ```;
  *
@@ -640,23 +561,20 @@ const diagnoseWith = (str: string, production: Production, isValid: boolean, asc
  * @param production - The production to validate against.
  * @param opts - Version and ASCII-only selection, as for the boolean validators.
  *
- * @returns An effect producing a discriminated result: the plain triple when valid, or the offending `reason` and `position` when not. A name that
- *   fails to validate is a successful call with `valid: false`, not a failed effect — a name being invalid is the question being answered, not a
- *   failure of the function. Fails only with {@link XmlError} and the `InvalidProduction` reason, which is unreachable from TypeScript and is the
- *   guard for untyped JavaScript callers.
+ * @returns A discriminated result: the plain triple when valid, or the offending `reason` and `position` when not. A name that fails to validate is a
+ *   `valid: false` result, not a throw — an invalid name is the question being answered, not a failure of the function.
+ *
+ * @throws {XmlError} With the `InvalidProduction` reason for an unknown production, which is unreachable from TypeScript and is the guard for untyped
+ *   JavaScript callers.
  */
 export const validate = (
   str: string,
   production: Production,
   { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
-): Effect.Effect<ValidationResult, XmlError> =>
-  // A generator, not `Effect.as(diagnose(...))`: the argument to `as` is a
-  // value, so the diagnostic would run — and index an unknown production into
-  // the validator table — before the guard had a chance to fail.
-  Effect.gen(function* () {
-    yield* checkProduction(production);
-    return yield* diagnose(str, production, xmlVersion, asciiOnly);
-  });
+): ValidationResult => {
+  checkProduction(production);
+  return diagnose(str, production, xmlVersion, asciiOnly);
+};
 
 // ---------------------------------------------------------------------------
 // Batch validator
@@ -667,10 +585,9 @@ export const validate = (
  *
  * @example
  *   ```typescript
- *   import { Effect } from 'effect';
  *   import { validateAll } from '@endevops/common-xml';
  *
- *   const results = Effect.runSync(Effect.orElseSucceed(validateAll(['a', '1b'], 'ncName'), () => []));
+ *   const results = validateAll(['a', '1b'], 'ncName');
  *   results.filter(r => !r.valid).length; // 1 — '1b' cannot start with a digit
  *   ```;
  *
@@ -678,19 +595,19 @@ export const validate = (
  * @param production - The production to validate against.
  * @param opts - Version and ASCII-only selection, as for the boolean validators.
  *
- * @returns An effect producing one result per input, in the same order. Fails with {@link XmlError} and the `InvalidProduction` reason, checked once
- *   up front rather than once per string — an unknown production would otherwise fail on the first element, and an empty input would silently
- *   succeed.
+ * @returns One result per input, in the same order.
+ *
+ * @throws {XmlError} With the `InvalidProduction` reason, checked once up front rather than once per string — an unknown production would otherwise
+ *   fail on the first element, and an empty input would silently succeed.
  */
 export const validateAll = (
   strings: string[],
   production: Production,
   { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
-): Effect.Effect<ValidationResult[], XmlError> =>
-  Effect.gen(function* () {
-    yield* checkProduction(production);
-    return yield* Effect.forEach(strings, str => diagnose(str, production, xmlVersion, asciiOnly));
-  });
+): ValidationResult[] => {
+  checkProduction(production);
+  return strings.map(str => diagnose(str, production, xmlVersion, asciiOnly));
+};
 
 // ---------------------------------------------------------------------------
 // Sanitizer
@@ -698,8 +615,7 @@ export const validateAll = (
 
 /**
  * @description Transforms an invalid string into the nearest valid XML name for the given production: strips or replaces illegal characters, fixes an invalid
- * start character by prepending the replacement, and removes colons for NCName. The synchronous form; {@link sanitize} is its Effect-returning
- * wrapper.
+ * start character by prepending the replacement, and removes colons for NCName.
  *
  * @param str - The candidate name.
  * @param production - The production to sanitize for. Defaults to `'name'`.
@@ -707,11 +623,7 @@ export const validateAll = (
  *
  * @returns A string that satisfies `production` for the ASCII range, or the nearest approximation of it.
  */
-export const sanitizeSync = (
-  str: string,
-  production: Production = 'name',
-  { replacement = '_', asciiOnly = false }: SanitizeOptions = {}
-): string => {
+export const sanitize = (str: string, production: Production = 'name', { replacement = '_', asciiOnly = false }: SanitizeOptions = {}): string => {
   if (!str) return replacement;
 
   let result = str;
@@ -734,17 +646,3 @@ export const sanitizeSync = (
 
   return result || replacement;
 };
-
-/**
- * @description Transforms an invalid string into the nearest valid XML name for the given production: strips or replaces illegal characters, fixes an invalid
- * start character by prepending the replacement, and removes colons for NCName.
- *
- * @param str - The candidate name.
- * @param production - The production to sanitize for. Defaults to `'name'`.
- * @param opts - `replacement` is the substitute character (default `'_'`); `asciiOnly` also replaces non-ASCII characters.
- *
- * @returns An effect producing a string that satisfies `production` for the ASCII range, or the nearest approximation of it. Infallible, so the error
- *   channel is empty; it exists so every entry point in the package has one shape.
- */
-export const sanitize = (str: string, production: Production = 'name', opts: SanitizeOptions = {}): Effect.Effect<string, XmlError> =>
-  Effect.sync(() => sanitizeSync(str, production, opts));

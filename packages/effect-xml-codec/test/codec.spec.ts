@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { XmlValue } from '#/index.ts';
 
-import { parseXmlSync, renderXml, toCodecXml, XmlParseError } from '#/index.ts';
+import { parseXmlDocument, renderXml, toCodecXml, XmlParseError } from '#/index.ts';
 
 /**
  * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
@@ -46,11 +46,11 @@ describe('toCodecXml() — with the text layer', () => {
   });
 
   it('parses a document into the value tree and decodes it', () => {
-    expect(Schema.decodeSync(codec)(parseXmlSync(text))).toEqual(value);
+    expect(Schema.decodeSync(codec)(parseXmlDocument(text).value)).toEqual(value);
   });
 
   it('round-trips a value through text', () => {
-    expect(Schema.decodeSync(codec)(parseXmlSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' })))).toEqual(value);
+    expect(Schema.decodeSync(codec)(parseXmlDocument(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' })).value)).toEqual(value);
   });
 
   it('keeps an @-prefixed key as an attribute and #text as character data', () => {
@@ -59,14 +59,14 @@ describe('toCodecXml() — with the text layer', () => {
     const anchorValue = { '@href': '/a', '#text': 'link' };
     const anchorText = renderXml(Schema.encodeSync(anchor)(anchorValue), { rootName: 'a' });
     expect(anchorText).toBe('<a href="/a">link</a>');
-    expect(Schema.decodeSync(anchor)(parseXmlSync(anchorText))).toEqual(anchorValue);
+    expect(Schema.decodeSync(anchor)(parseXmlDocument(anchorText).value)).toEqual(anchorValue);
   });
 });
 
 describe('toCodecXml() — schema shapes through the text layer', () => {
   const roundTrip = (schema: AnyCodec, value: unknown): unknown => {
     const codec = toCodecXml(schema);
-    return Schema.decodeSync(codec)(parseXmlSync(renderXml(Schema.encodeSync(codec)(value) as XmlValue, { rootName: 'r' })));
+    return Schema.decodeSync(codec)(parseXmlDocument(renderXml(Schema.encodeSync(codec)(value) as XmlValue, { rootName: 'r' })).value);
   };
 
   it('handles a number field, as decimal text', () => {
@@ -143,12 +143,12 @@ describe('toCodecXml() — schema shapes through the text layer', () => {
 
 describe('toCodecXml() — failures', () => {
   it('throws a typed parse error from a malformed document', () => {
-    expect(() => parseXmlSync('<r><a>x</r>')).toThrow(XmlParseError);
+    expect(() => parseXmlDocument('<r><a>x</r>').value).toThrow(XmlParseError);
   });
 
   it('reports a schema mismatch as a failure, not as a parse error', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.Number }));
-    const exit = Effect.runSyncExit(Schema.decodeUnknownEffect(codec)(parseXmlSync('<r><a>not a number</a></r>')));
+    const exit = Effect.runSyncExit(Schema.decodeUnknownEffect(codec)(parseXmlDocument('<r><a>not a number</a></r>').value));
     expect(Exit.isSuccess(exit)).toBe(false);
   });
 

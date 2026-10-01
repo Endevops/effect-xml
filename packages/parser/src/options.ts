@@ -1,4 +1,4 @@
-import type { Expression, ExpressionSet, MatcherView, XmlError } from '@endevops/common-xml';
+import type { Expression, ExpressionSet, MatcherView } from '@endevops/common-xml';
 import type { Effect } from 'effect';
 
 import type { EncodingRegistry } from './encoding/encoding-registry.ts';
@@ -320,12 +320,10 @@ export interface AutoCloseOptions {
 /**
  * @description The `exitIf` callback: given the read-only matcher positioned at a closing tag, answer `true` to stop the parse immediately. On `true` the parser
  * finalizes the output, unwinds every open ancestor with a synthetic close, and attaches a non-enumerable `__exitInfo` to the result. Any other value
- * — including `undefined` — continues parsing. See {@link X2jOptions.exitIf} for the option itself. The answer is an `Effect`, for the same reason
- * every matcher question in `@endevops/common-xml` is: a predicate that asks the matcher anything — a tag name, an attribute value, a position
- * counter — has nothing to return but an effect now, and a predicate typed to return `boolean` could not be written against the matcher it is handed.
- * The parser runs it per opening tag.
+ * — including `undefined` — continues parsing. See {@link X2jOptions.exitIf} for the option itself. It is a plain predicate because it runs inside
+ * the parser's synchronous walk and every matcher read is plain, so there is no effect to model. The parser runs it per opening tag.
  */
-export type ExitIfPredicate = (matcher: MatcherView) => Effect.Effect<boolean, XmlError>;
+export type ExitIfPredicate = (matcher: MatcherView) => boolean;
 
 export type AutoCloseInput = 'html' | 'closeAll' | Partial<AutoCloseOptions> | null;
 
@@ -504,16 +502,12 @@ export interface X2jOptions {
    *     yield *
    *     XMLParser.make({
    *       skip: { attributes: false },
-   *       exitIf: matcher =>
-   *         Effect.map(matcher.getCurrentTag(), tag => tag === 'item').pipe(
-   *           Effect.andThen(matcher.getAttrValue('id')),
-   *           (b, id) => b && id === 'stop-here'
-   *         ),
+   *       exitIf: matcher => matcher.getCurrentTag() === 'item' && matcher.getAttrValue('id') === 'stop-here',
    *     });
    *
    * @param matcher - Read-only path matcher positioned at the triggering tag.
    *
-   * @returns An effect answering `true` to stop parsing now; any other value to continue.
+   * @returns `true` to stop parsing now; any other value to continue.
    */
   exitIf?: ExitIfPredicate | null | undefined;
 }

@@ -16,7 +16,7 @@
 //   const codec = toCodecXml(Book);
 //
 //   const document = renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
-//   const value = Schema.decodeSync(codec)(parseXmlSync(document));
+//   const value = Schema.decodeSync(codec)(parseXmlDocument(document).value);
 //
 // The conventions are in the keys, not in a transformation: a key starting with
 // `@` is an attribute, `#text` is character data, and every other key is a child
@@ -33,7 +33,7 @@ import { Schema } from 'effect';
  * @example
  *   ```typescript
  *   import { Schema } from 'effect';
- *   import { parseXmlSync, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
+ *   import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
  *
  *   const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: Schema.Number });
  *   const codec = toCodecXml(Book);
@@ -43,7 +43,7 @@ import { Schema } from 'effect';
  *   renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
  *   // => '<book id="1"><title>Dune</title><pages>412</pages></book>'
  *
- *   Schema.decodeSync(codec)(parseXmlSync('<book id="1"><title>Dune</title><pages>412</pages></book>'));
+ *   Schema.decodeSync(codec)(parseXmlDocument('<book id="1"><title>Dune</title><pages>412</pages></book>').value);
  *   // => { '@id': '1', title: 'Dune', pages: 412 }
  *   ```;
  */

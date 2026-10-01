@@ -55,31 +55,29 @@ import type { MatcherView } from '@endevops/common-xml';
 
 ### Available methods
 
-**Every one of them answers with an `Effect`.** Asking a path matcher anything — a tag name, an
-attribute value, a position counter — is a lookup that can fail on malformed state, and a synchronous
-return would have nowhere to put that failure. Compose them in an `Effect.gen`, or run one at a time
-where a value is wanted immediately.
+**Every one of them answers with a plain value.** Asking a path matcher anything — a tag name, an
+attribute value, a position counter — is a synchronous read of state the parser already holds, so
+there is no failure to model and no effect to run. Call them directly, including from inside a
+value parser's `Effect.gen`.
 
-| Method                   | Answers                                                  |
-| ------------------------ | -------------------------------------------------------- |
-| `matches(expression)`    | `Effect<boolean>` — does current path match?             |
-| `matchesAny(exprSet)`    | `Effect<boolean>` — match any of a set?                  |
-| `getCurrentTag()`        | `Effect<string \| undefined>` — current tag name         |
-| `getCurrentNamespace()`  | `Effect<string \| undefined>` — namespace prefix         |
-| `getAttrValue(name)`     | `Effect<unknown>` — attribute value on current node      |
-| `hasAttr(name)`          | `Effect<boolean>`                                        |
-| `getAnyParentAttr(name)` | `Effect<unknown>` — nearest ancestor that has it         |
-| `hasAnyParentAttr(name)` | `Effect<boolean>`                                        |
-| `getPosition()`          | `Effect<number>` — child index of current node           |
-| `getCounter()`           | `Effect<number>` — occurrence count at this level        |
-| `getIndex()`             | `Effect<number>` — offset of the current tag             |
-| `getDepth()`             | `Effect<number>` — nesting depth                         |
-| `toString()`             | `Effect<string>` — path string, e.g. `"root.users.user"` |
-| `toArray()`              | `Effect<string[]>` — array of tag names                  |
+| Method                   | Answers                                          |
+| ------------------------ | ------------------------------------------------ |
+| `matches(expression)`    | `boolean` — does current path match?             |
+| `matchesAny(exprSet)`    | `boolean` — match any of a set?                  |
+| `getCurrentTag()`        | `string \| undefined` — current tag name         |
+| `getCurrentNamespace()`  | `string \| undefined` — namespace prefix         |
+| `getAttrValue(name)`     | `unknown` — attribute value on current node      |
+| `hasAttr(name)`          | `boolean`                                        |
+| `getAnyParentAttr(name)` | `unknown` — nearest ancestor that has it         |
+| `hasAnyParentAttr(name)` | `boolean`                                        |
+| `getPosition()`          | `number` — child index of current node           |
+| `getCounter()`           | `number` — occurrence count at this level        |
+| `getIndex()`             | `number` — offset of the current tag             |
+| `getDepth()`             | `number` — nesting depth                         |
+| `toString()`             | `string` — path string, e.g. `"root.users.user"` |
+| `toArray()`              | `string[]` — array of tag names                  |
 
 Read-only by construction, not by guard. `MatcherView` is a facade holding a private reference to the parent `Matcher`, and the mutating methods are simply not on it: `push`, `pop`, `reset`, `updateCurrent` and `restore` do not exist there. Calling one throws an ordinary `TypeError` because the property is `undefined`, not because the view checks anything. Nothing stops a caller that kept its own reference to the `Matcher`, so treat the view as read-only by convention.
-
-The same rule turned `ExpressionSet.size` and `ExpressionSet.isSealed` into methods rather than getters.
 
 ---
 
@@ -100,7 +98,7 @@ class CurrencyParser {
     return Effect.gen(function* () {
       if (typeof val !== 'string') return val;
       const matcher = context?.matcher;
-      if (!matcher || !(yield* matcher.matches(priceExpr))) return val;
+      if (!matcher || !matcher.matches(priceExpr)) return val;
       return parseFloat(val.replace(/[$€£¥₹,]/g, ''));
     });
   }

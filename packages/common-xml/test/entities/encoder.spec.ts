@@ -37,7 +37,7 @@ const withExplicitUndefined = (options: Record<string, unknown>): EntityEncoderO
  *
  * @returns Whatever `encode` returns for it.
  */
-const encodeValue = (encoder: EntityEncoder, value: unknown): unknown => run(encoder.encode(value as string));
+const encodeValue = (encoder: EntityEncoder, value: unknown): unknown => encoder.encode(value as string);
 
 /**
  * @description The codepoints of a string as four-digit uppercase hex, so an assertion about a character reads the way the HTML5 specification writes it. The step
@@ -83,87 +83,87 @@ const namesFor = (value: string): string[] =>
 
 describe('the XML-unsafe characters', () => {
   it('escapes all five, and nothing else in ASCII', () => {
-    expect(run(new EntityEncoder().encode('& < > " \''))).toBe('&amp; &lt; &gt; &quot; &apos;');
+    expect(new EntityEncoder().encode('& < > " \'')).toBe('&amp; &lt; &gt; &quot; &apos;');
   });
 
   it('leaves every other ASCII character alone, so ordinary prose is untouched', () => {
     const encoder = new EntityEncoder();
-    expect(run(encoder.encode('Hello, world 123!'))).toBe('Hello, world 123!');
+    expect(encoder.encode('Hello, world 123!')).toBe('Hello, world 123!');
   });
 
   it('escapes a run of them in order', () => {
-    expect(run(new EntityEncoder().encode('<a href="x">a & b</a>'))).toBe('&lt;a href=&quot;x&quot;&gt;a &amp; b&lt;/a&gt;');
+    expect(new EntityEncoder().encode('<a href="x">a & b</a>')).toBe('&lt;a href=&quot;x&quot;&gt;a &amp; b&lt;/a&gt;');
   });
 
   it('escapes one at the very end of the string, where no two characters follow it', () => {
     // The main loop stops two characters short so a three-character probe needs no bounds check; the tail block is what covers the end.
-    expect(run(new EntityEncoder().encode('a<'))).toBe('a&lt;');
-    expect(run(new EntityEncoder().encode('a><'))).toBe('a&gt;&lt;');
+    expect(new EntityEncoder().encode('a<')).toBe('a&lt;');
+    expect(new EntityEncoder().encode('a><')).toBe('a&gt;&lt;');
   });
 
   it('escapes one at the very start, where nothing precedes it', () => {
-    expect(run(new EntityEncoder().encode('&a'))).toBe('&amp;a');
+    expect(new EntityEncoder().encode('&a')).toBe('&amp;a');
   });
 });
 
 describe('the replacement budget', () => {
   it('stops mid-string once it is spent and copies the rest of the input through', () => {
     const encoder = new EntityEncoder({ maxReplacements: 2 });
-    expect(run(encoder.encode('<>&'))).toBe('&lt;&gt;&');
+    expect(encoder.encode('<>&')).toBe('&lt;&gt;&');
     expect(encoder.replacementsCount).toBe(2);
   });
 
   it('returns the input unchanged for every later call, until reset', () => {
     const encoder = new EntityEncoder({ maxReplacements: 1 });
-    expect(run(encoder.encode('<<'))).toBe('&lt;<');
-    expect(run(encoder.encode('<<'))).toBe('<<');
-    expect(run(encoder.encode('&&'))).toBe('&&');
+    expect(encoder.encode('<<')).toBe('&lt;<');
+    expect(encoder.encode('<<')).toBe('<<');
+    expect(encoder.encode('&&')).toBe('&&');
   });
 
   it('counts named replacements against the same budget as escaped ASCII ones', () => {
     const encoder = new EntityEncoder({ maxReplacements: 2 });
-    expect(run(encoder.encode('<é'))).toBe('&lt;&eacute;');
+    expect(encoder.encode('<é')).toBe('&lt;&eacute;');
     expect(encoder.replacementsCount).toBe(2);
   });
 
   it('is cumulative across calls, which is what makes it a per-instance budget', () => {
     const encoder = new EntityEncoder({ maxReplacements: 3 });
-    run(encoder.encode('<'));
-    run(encoder.encode('<'));
+    encoder.encode('<');
+    encoder.encode('<');
     expect(encoder.replacementsCount).toBe(2);
-    expect(run(encoder.encode('<'))).toBe('&lt;');
+    expect(encoder.encode('<')).toBe('&lt;');
     expect(encoder.replacementsCount).toBe(3);
-    expect(run(encoder.encode('<'))).toBe('<');
+    expect(encoder.encode('<')).toBe('<');
   });
 
   it('gives the budget back on reset, without changing the options', () => {
     const encoder = new EntityEncoder({ maxReplacements: 1 });
-    run(encoder.encode('<'));
+    encoder.encode('<');
     expect(encoder.replacementsCount).toBe(1);
-    run(encoder.reset());
+    encoder.reset();
     expect(encoder.replacementsCount).toBe(0);
     expect(encoder.maxReplacements).toBe(1);
-    expect(run(encoder.encode('<'))).toBe('&lt;');
+    expect(encoder.encode('<')).toBe('&lt;');
   });
 
   it('does not count a replacement it did not make, so a string with nothing to replace leaves the budget intact', () => {
     const encoder = new EntityEncoder({ maxReplacements: 1 });
-    expect(run(encoder.encode('plain ascii'))).toBe('plain ascii');
+    expect(encoder.encode('plain ascii')).toBe('plain ascii');
     expect(encoder.replacementsCount).toBe(0);
-    expect(run(encoder.encode('<'))).toBe('&lt;');
+    expect(encoder.encode('<')).toBe('&lt;');
   });
 
   it('does not count an input it refused to look at, because the budget check comes after the two fast paths', () => {
     const encoder = new EntityEncoder({ maxReplacements: 1 });
-    expect(run(encoder.encode(''))).toBe('');
-    expect(run(encoder.encode('no ampersand here'))).toBe('no ampersand here');
+    expect(encoder.encode('')).toBe('');
+    expect(encoder.encode('no ampersand here')).toBe('no ampersand here');
     expect(encoder.replacementsCount).toBe(0);
   });
 
   it('is unlimited by default, and by a limit of zero', () => {
     expect(new EntityEncoder().maxReplacements).toBe(0);
     const encoder = new EntityEncoder({ maxReplacements: 0 });
-    expect(run(encoder.encode('<>&<>&'))).toBe('&lt;&gt;&amp;&lt;&gt;&amp;');
+    expect(encoder.encode('<>&<>&')).toBe('&lt;&gt;&amp;&lt;&gt;&amp;');
   });
 });
 
@@ -171,65 +171,65 @@ describe('the replacement budget', () => {
 
 describe('named non-ASCII characters', () => {
   it('replaces a single character with the named entity for it', () => {
-    expect(run(new EntityEncoder().encode('©'))).toBe('&COPY;');
-    expect(run(new EntityEncoder().encode('é'))).toBe('&eacute;');
+    expect(new EntityEncoder().encode('©')).toBe('&COPY;');
+    expect(new EntityEncoder().encode('é')).toBe('&eacute;');
   });
 
   it('replaces a two-code-unit value with its name, which is how a letter outside the BMP is spelled', () => {
     // U+1D504 is one character and two UTF-16 code units, so the encoder has to match a surrogate pair rather than a character.
-    expect(run(new EntityEncoder().encode('𝔄'))).toBe('&Afr;');
+    expect(new EntityEncoder().encode('𝔄')).toBe('&Afr;');
   });
 
   it('replaces a two-code-unit value in the middle of a string', () => {
-    expect(run(new EntityEncoder().encode('x𝔄y'))).toBe('x&Afr;y');
+    expect(new EntityEncoder().encode('x𝔄y')).toBe('x&Afr;y');
   });
 
   it('replaces a match at the very end, where the tail block handles it', () => {
-    expect(run(new EntityEncoder().encode('x𝔄'))).toBe('x&Afr;');
-    expect(run(new EntityEncoder().encode('xብር'))).toBe('x&birr;');
+    expect(new EntityEncoder().encode('x𝔄')).toBe('x&Afr;');
+    expect(new EntityEncoder().encode('xብር')).toBe('x&birr;');
   });
 
   it('leaves a non-ASCII character it has no name for exactly as it is', () => {
-    expect(run(new EntityEncoder().encode('日本語'))).toBe('日本語');
+    expect(new EntityEncoder().encode('日本語')).toBe('日本語');
   });
 
   it('does not consume the characters around a failed three-character probe', () => {
     // A failed lookahead must leave the position alone, or the character after the probe would be skipped and lost.
-    expect(run(new EntityEncoder().encode('é日é'))).toBe('&eacute;日&eacute;');
+    expect(new EntityEncoder().encode('é日é')).toBe('&eacute;日&eacute;');
   });
 
   it('replaces a two-code-unit value whose base character has no name of its own', () => {
     // U+224D followed by U+20D2 is named as the pair, and neither code point is named on its own, so the two-code-unit probe is the only thing that
     // can find it.
     expect(codePointsOf('≍⃒')).toEqual(['224D', '20D2']);
-    expect(run(new EntityEncoder().encode('≍⃒'))).toBe('&nvap;');
+    expect(new EntityEncoder().encode('≍⃒')).toBe('&nvap;');
   });
 
   it('replaces the base character on its own when it has a name, leaving the combining mark unclaimed', () => {
     // U+224F is named by itself, so the one-character lookup is what fires once the two-code-unit probe misses — and U+20D2 is not named at all, so
     // it stays. The output is a named entity followed by a bare combining mark, which is a correct encoding of a sequence no single name covers.
     expect(codePointsOf('≏⃒')).toEqual(['224F', '20D2']);
-    expect(run(new EntityEncoder().encode('≏⃒'))).toBe('&HumpEqual;⃒');
+    expect(new EntityEncoder().encode('≏⃒')).toBe('&HumpEqual;⃒');
   });
 });
 
 describe('the two fast paths', () => {
   it('returns a string with no ampersand, quote or non-ASCII character without touching the counter', () => {
     const encoder = new EntityEncoder();
-    expect(run(encoder.encode('Hello, world 123'))).toBe('Hello, world 123');
+    expect(encoder.encode('Hello, world 123')).toBe('Hello, world 123');
     expect(encoder.replacementsCount).toBe(0);
   });
 
   it('returns the empty string without touching the counter', () => {
     const encoder = new EntityEncoder();
-    expect(run(encoder.encode(''))).toBe('');
+    expect(encoder.encode('')).toBe('');
     expect(encoder.replacementsCount).toBe(0);
   });
 
   it('takes the second fast path for a string that has a non-ASCII character but nothing to replace', () => {
     // The pre-scan is satisfied by the non-ASCII character, so the method proceeds; the loop then finds no match and the input comes back whole.
     const encoder = new EntityEncoder();
-    expect(run(encoder.encode('日本語'))).toBe('日本語');
+    expect(encoder.encode('日本語')).toBe('日本語');
     expect(encoder.replacementsCount).toBe(0);
   });
 });
@@ -295,11 +295,11 @@ describe('preserved upstream quirk: encodeXmlSafe off passes the five characters
   // characters left alone is what they asked for, and for a caller who wanted them named is a surprise. Not endorsed: the option reads as "escape them a
   // different way" and it is not that.
   it('emits all five literally', () => {
-    expect(run(new EntityEncoder({ encodeXmlSafe: false }).encode('& < > " \''))).toBe('& < > " \'');
+    expect(new EntityEncoder({ encodeXmlSafe: false }).encode('& < > " \'')).toBe('& < > " \'');
   });
 
   it('leaves the named non-ASCII lookups working, so the option is not a switch for the whole method', () => {
-    expect(run(new EntityEncoder({ encodeXmlSafe: false }).encode('& ©'))).toBe('& &COPY;');
+    expect(new EntityEncoder({ encodeXmlSafe: false }).encode('& ©')).toBe('& &COPY;');
   });
 
   it('has no alternative name available for them, because the trie entries for those codes are unreachable', () => {
@@ -309,12 +309,12 @@ describe('preserved upstream quirk: encodeXmlSafe off passes the five characters
     expect(trie1.get(60)).toBe('&less;');
     expect(trie1.get(62)).toBe('&greater;');
     expect(trie1.get(34)).toBe('&QUOT;');
-    expect(run(new EntityEncoder({ encodeXmlSafe: false }).encode('&<>'))).toBe('&<>');
+    expect(new EntityEncoder({ encodeXmlSafe: false }).encode('&<>')).toBe('&<>');
   });
 
   it('is on unless it is explicitly false, so an absent option cannot disable escaping', () => {
     expect(new EntityEncoder().encodeXmlSafe).toBe(true);
-    expect(run(new EntityEncoder({}).encode('&'))).toBe('&amp;');
+    expect(new EntityEncoder({}).encode('&')).toBe('&amp;');
   });
 });
 
@@ -324,25 +324,25 @@ describe('preserved upstream quirk: encodeAllNamed off only disables the one-cha
   // endorsed: the option's own documentation says it leaves single characters alone, which is narrower than a reader expects from the name.
   it('leaves a single character alone', () => {
     const encoder = new EntityEncoder({ encodeAllNamed: false });
-    expect(run(encoder.encode('©'))).toBe('©');
-    expect(run(encoder.encode('é'))).toBe('é');
+    expect(encoder.encode('©')).toBe('©');
+    expect(encoder.encode('é')).toBe('é');
   });
 
   it('still replaces a two-code-unit value, which is the gap', () => {
-    expect(run(new EntityEncoder({ encodeAllNamed: false }).encode('𝔄'))).toBe('&Afr;');
+    expect(new EntityEncoder({ encodeAllNamed: false }).encode('𝔄')).toBe('&Afr;');
   });
 
   it('still replaces a two-code-unit value in the middle of a string', () => {
-    expect(run(new EntityEncoder({ encodeAllNamed: false }).encode('x𝔄y'))).toBe('x&Afr;y');
+    expect(new EntityEncoder({ encodeAllNamed: false }).encode('x𝔄y')).toBe('x&Afr;y');
   });
 
   it('still escapes the XML-unsafe ASCII characters, which are not a named lookup at all', () => {
-    expect(run(new EntityEncoder({ encodeAllNamed: false }).encode('<'))).toBe('&lt;');
+    expect(new EntityEncoder({ encodeAllNamed: false }).encode('<')).toBe('&lt;');
   });
 
   it('is on unless it is explicitly false', () => {
     expect(new EntityEncoder().encodeAllNamed).toBe(true);
-    expect(run(new EntityEncoder(withExplicitUndefined({ encodeAllNamed: undefined })).encode('©'))).toBe('&COPY;');
+    expect(new EntityEncoder(withExplicitUndefined({ encodeAllNamed: undefined })).encode('©')).toBe('&COPY;');
   });
 });
 
@@ -352,12 +352,12 @@ describe('preserved upstream quirk: the name chosen for a character is the last 
   // this is only surprising to a reader who expected a particular spelling, and to a caller diffing output. Not endorsed: it is arbitrary, and it is
   // fixed for a given build but not derivable from the API.
   it('emits &COPY; for a copyright sign rather than the more familiar &copy;', () => {
-    expect(run(new EntityEncoder().encode('©'))).toBe('&COPY;');
+    expect(new EntityEncoder().encode('©')).toBe('&COPY;');
   });
 
   it('emits the lowercase name where the uppercase is not in the table, so the collision is what decides it', () => {
     // `eacute` has no upper-case twin in the table, so there is nothing to collide with and the one name is the answer.
-    expect(run(new EntityEncoder().encode('é'))).toBe('&eacute;');
+    expect(new EntityEncoder().encode('é')).toBe('&eacute;');
   });
 
   it('is a wide problem, not a single one: 173 replacement texts have several names', () => {
@@ -377,24 +377,24 @@ describe('preserved upstream quirk: the name chosen for a character is the last 
       const candidates = namesFor(character);
       const winner = candidates.at(-1) as string;
       expect(candidates.length, `${winner} was expected to be one of several names`).toBeGreaterThan(1);
-      expect(run(new EntityEncoder().encode(character)), `${winner} should win`).toBe(`&${winner};`);
+      expect(new EntityEncoder().encode(character), `${winner} should win`).toBe(`&${winner};`);
     }
   });
 
   it('does not choose between the several names for the five XML-unsafe characters, because their own table handles those first', () => {
     // The trie would serve `&AMP;` and `&less;` here. The ASCII branch never reaches it, so the spelling a caller sees is the fixed one, whatever the
     // collisions in the table would have picked.
-    expect(run(new EntityEncoder().encode('&'))).toBe('&amp;');
-    expect(run(new EntityEncoder().encode('<'))).toBe('&lt;');
-    expect(run(new EntityEncoder().encode('>'))).toBe('&gt;');
-    expect(run(new EntityEncoder().encode('"'))).toBe('&quot;');
-    expect(run(new EntityEncoder().encode("'"))).toBe('&apos;');
+    expect(new EntityEncoder().encode('&')).toBe('&amp;');
+    expect(new EntityEncoder().encode('<')).toBe('&lt;');
+    expect(new EntityEncoder().encode('>')).toBe('&gt;');
+    expect(new EntityEncoder().encode('"')).toBe('&quot;');
+    expect(new EntityEncoder().encode("'")).toBe('&apos;');
   });
 
   it('decodes whatever it emitted, so the choice of name never costs a caller the character', () => {
     const encoder = new EntityEncoder();
     const decoder = run(EntityDecoder.make({ namedEntities: ALL_ENTITIES }));
-    expect(run(decoder.decode(run(encoder.encode('©<>&"\''))))).toBe('©<>&"\'');
+    expect(run(decoder.decode(encoder.encode('©<>&"\'')))).toBe('©<>&"\'');
   });
 });
 
@@ -404,7 +404,7 @@ describe('preserved upstream quirk: a negative replacement budget is unlimited',
   // inspecting the field sees a limit the method is not applying.
   it('replaces without limit, and leaves the counter at zero because it is never incremented', () => {
     const encoder = new EntityEncoder({ maxReplacements: -1 });
-    expect(run(encoder.encode('<>&<>&'))).toBe('&lt;&gt;&amp;&lt;&gt;&amp;');
+    expect(encoder.encode('<>&<>&')).toBe('&lt;&gt;&amp;&lt;&gt;&amp;');
     expect(encoder.replacementsCount).toBe(0);
   });
 
@@ -413,14 +413,14 @@ describe('preserved upstream quirk: a negative replacement budget is unlimited',
   });
 
   it('replaces past the number it was given, which is what a limit of one would have stopped', () => {
-    expect(run(new EntityEncoder({ maxReplacements: 1 }).encode('<<'))).toBe('&lt;<');
-    expect(run(new EntityEncoder({ maxReplacements: -1 }).encode('<<'))).toBe('&lt;&lt;');
+    expect(new EntityEncoder({ maxReplacements: 1 }).encode('<<')).toBe('&lt;<');
+    expect(new EntityEncoder({ maxReplacements: -1 }).encode('<<')).toBe('&lt;&lt;');
   });
 });
 
 describe('construction', () => {
   it('needs no options at all', () => {
-    expect(run(new EntityEncoder().encode('<'))).toBe('&lt;');
+    expect(new EntityEncoder().encode('<')).toBe('&lt;');
   });
 
   it('resolves the three options to plain values at construction time', () => {
@@ -434,15 +434,15 @@ describe('construction', () => {
     // `options.maxReplacements || 0`, so an explicit `undefined` and an absent key land on the same `0`.
     const encoder = new EntityEncoder(withExplicitUndefined({ maxReplacements: undefined }));
     expect(encoder.maxReplacements).toBe(0);
-    expect(run(encoder.encode('<<<'))).toBe('&lt;&lt;&lt;');
+    expect(encoder.encode('<<<')).toBe('&lt;&lt;&lt;');
   });
 
   it('starts every instance with a spent counter of zero, so two encoders do not share a budget', () => {
     const first = new EntityEncoder({ maxReplacements: 1 });
     const second = new EntityEncoder({ maxReplacements: 1 });
-    run(first.encode('<'));
+    first.encode('<');
     expect(second.replacementsCount).toBe(0);
-    expect(run(second.encode('<'))).toBe('&lt;');
+    expect(second.encode('<')).toBe('&lt;');
   });
 });
 
@@ -462,7 +462,7 @@ describe('decode(encode(x))', () => {
 
   for (const sample of ['<a href="x">café & ©</a>', 'plain ascii with no entities at all', '日本語 & é', '𝔄 ብር ⩭̸ ↝̸ ≍⃒', '’ ¸ ˆ ≏', '&<>"\'']) {
     it(`gives back ${JSON.stringify(sample)}`, () => {
-      expect(run(fullDecoder().decode(run(new EntityEncoder().encode(sample))))).toBe(sample);
+      expect(run(fullDecoder().decode(new EntityEncoder().encode(sample)))).toBe(sample);
     });
   }
 
@@ -470,7 +470,7 @@ describe('decode(encode(x))', () => {
     // A single failure would mean the encoder emitted a spelling the table cannot resolve, which is the only way this round trip can actually break.
     const encoder = new EntityEncoder();
     const decoder = fullDecoder();
-    const failures = distinctValues().filter(value => run(decoder.decode(run(encoder.encode(value)))) !== value);
+    const failures = distinctValues().filter(value => run(decoder.decode(encoder.encode(value))) !== value);
     expect(failures).toEqual([]);
   });
 
@@ -478,7 +478,7 @@ describe('decode(encode(x))', () => {
     const encoder = new EntityEncoder({ encodeAllNamed: false });
     const decoder = fullDecoder();
     const values = distinctValues().filter(value => value.length > 1);
-    const failures = values.filter(value => run(decoder.decode(run(encoder.encode(value)))) !== value);
+    const failures = values.filter(value => run(decoder.decode(encoder.encode(value))) !== value);
     expect(failures).toEqual([]);
   });
 
@@ -486,7 +486,7 @@ describe('decode(encode(x))', () => {
     // The other direction, and the reason the option exists: encoding `é` and decoding it back needs a table, and without one the caller gets the
     // reference text rather than the character.
     const bare = run(EntityDecoder.make());
-    const encoded = run(new EntityEncoder().encode('café & ©'));
+    const encoded = new EntityEncoder().encode('café & ©');
     expect(encoded).toBe('caf&eacute; &amp; &COPY;');
     expect(run(bare.decode(encoded))).toBe('caf&eacute; & &COPY;');
   });
@@ -494,8 +494,8 @@ describe('decode(encode(x))', () => {
   it('re-encodes a decoded string to the same spelling, so the collision is stable across a round trip', () => {
     const encoder = new EntityEncoder();
     const decoder = fullDecoder();
-    const once = run(encoder.encode('©'));
-    expect(run(encoder.encode(run(decoder.decode(once))))).toBe(once);
+    const once = encoder.encode('©');
+    expect(encoder.encode(run(decoder.decode(once)))).toBe(once);
   });
 });
 
@@ -518,7 +518,7 @@ describe('the trie entries the encoder cannot reach', () => {
 
   it('replaces the astral values through trie2 rather than trie3, so the dead branch is provably not the one doing the work', () => {
     expect(trie2.has(0xd835)).toBe(true);
-    expect(run(new EntityEncoder().encode('𝔄'))).toBe('&Afr;');
+    expect(new EntityEncoder().encode('𝔄')).toBe('&Afr;');
   });
 
   it('reaches a two-code-unit value whose first code is astral, so the surrogate is the key and not a decoded character', () => {

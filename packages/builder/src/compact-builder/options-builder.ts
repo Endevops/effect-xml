@@ -3,10 +3,9 @@ import type { Expression, ExpressionSet } from '@endevops/common-xml';
 import { ExpressionSet as ExpressionSetImpl } from '@endevops/common-xml';
 import { Effect } from 'effect';
 
-import type { BuilderError } from '../errors.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
-import { addToSet, BuilderError as BuilderErrorCtor, compilePattern, liftXml } from '../errors.ts';
+import { BuilderError, addToSet, compilePattern } from '../errors.ts';
 
 /**
  * @description The chain used for element text when the caller configures none.
@@ -111,7 +110,7 @@ function compileAlwaysArray(entries: (string | Expression)[]): Effect.Effect<Exp
 function toPattern(entry: string | Expression, optionName: string): Effect.Effect<string, BuilderError> {
   const reject = (problem: 'expression cannot be empty' | 'expected a string, or Expression') =>
     Effect.fail(
-      new BuilderErrorCtor({
+      new BuilderError({
         reason: { _tag: 'InvalidOptionEntry', option: optionName, problem },
         message:
           problem === 'expression cannot be empty'
@@ -129,9 +128,7 @@ function toPattern(entry: string | Expression, optionName: string): Effect.Effec
     (entry as Expression).pattern.length > 0 &&
     Array.isArray((entry as Expression).segments)
   ) {
-    // `toString` is effectful, so an already-compiled expression is reduced by
-    // running it rather than stringified.
-    return liftXml(entry.toString());
+    return Effect.succeed(entry.toString());
   }
   return reject('expected a string, or Expression');
 }

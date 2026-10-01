@@ -39,6 +39,7 @@ export default class EntityParser implements ValueParser {
   /**
    * @description Receive the pipeline's shared context. Called once per document, before any value is parsed.
    */
+  // fallow-ignore-next-line unused-class-member
   init(ctx: SharedContext): void {
     this.ctx = ctx;
   }
@@ -67,12 +68,11 @@ export default class EntityParser implements ValueParser {
   }
 
   /**
-   * @description Clear the decoder state between documents. Called by the pipeline before each parse run. `EntityDecoder.reset` answers with an `Effect`, so it is
-   * run rather than merely called — a discarded effect here would leave the previous document's entities in the table and the flag below would
-   * suppress re-registration, so the second document would silently inherit the first one's DOCTYPE.
+   * @description Clear the decoder state between documents. Called by the pipeline before each parse run. `EntityDecoder.reset` clears the input entities and the
+   * counters in place, so the previous document's entities cannot silently carry into the next one.
    */
   reset(): void {
-    runParser(this.#decoder.reset());
+    this.#decoder.reset();
     this.#seen = false;
   }
 

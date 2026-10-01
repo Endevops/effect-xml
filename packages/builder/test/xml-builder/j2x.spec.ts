@@ -180,9 +180,9 @@ describe('XMLBuilder', function () {
       tagValueProcessor: (_tagName, a) => {
         // The original coerced with `a = '' + a`; `String(a)` is the same coercion, in a form that narrows for `encode()`.
         const text = String(a);
-        return entityEncoder.encode(text);
+        return Effect.succeed(entityEncoder.encode(text));
       },
-      attributeValueProcessor: (_attrName, a) => entityEncoder.encode(String(a)),
+      attributeValueProcessor: (_attrName, a) => Effect.succeed(entityEncoder.encode(String(a))),
       attributeNamePrefix: '',
       ignoreAttributes: false,
       suppressEmptyNode: true,

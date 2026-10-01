@@ -1,6 +1,3 @@
-import { Effect } from 'effect';
-
-import type { XmlError } from '../errors.ts';
 import type Expression from './expression.ts';
 import type { PositionSelector, Segment } from './expression.ts';
 
@@ -148,25 +145,18 @@ export class MatcherView {
   /**
    * @description The current tag name, or `undefined` on an empty path.
    */
-  getCurrentTag(): Effect.Effect<string | undefined, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const path = this.#matcher.path;
-      return path.length > 0 ? path[path.length - 1]?.tag : undefined;
-    });
+  getCurrentTag(): string | undefined {
+    const path = this.#matcher.path;
+    return path.length > 0 ? path[path.length - 1]?.tag : undefined;
   }
 
   /**
    * @description The current tag's namespace, or `undefined` if it has none or the path is empty.
    */
-  getCurrentNamespace(): Effect.Effect<string | undefined, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const path = this.#matcher.path;
-      return path.length > 0 ? path[path.length - 1]?.namespace : undefined;
-    });
+  // fallow-ignore-next-line unused-class-member
+  getCurrentNamespace(): string | undefined {
+    const path = this.#matcher.path;
+    return path.length > 0 ? path[path.length - 1]?.namespace : undefined;
   }
 
   /**
@@ -176,14 +166,11 @@ export class MatcherView {
    *
    * @returns The attribute value, or `undefined`.
    */
-  getAttrValue(attrName: string): Effect.Effect<unknown, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const path = this.#matcher.path;
-      if (path.length === 0) return undefined;
-      return path[path.length - 1]?.values?.[attrName];
-    });
+  // fallow-ignore-next-line unused-class-member
+  getAttrValue(attrName: string): unknown {
+    const path = this.#matcher.path;
+    if (path.length === 0) return undefined;
+    return path[path.length - 1]?.values?.[attrName];
   }
 
   /**
@@ -193,15 +180,12 @@ export class MatcherView {
    *
    * @returns Whether the attribute is present on the current node.
    */
-  hasAttr(attrName: string): Effect.Effect<boolean, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const path = this.#matcher.path;
-      if (path.length === 0) return false;
-      const current = path[path.length - 1];
-      return current !== undefined && current.values !== undefined && attrName in current.values;
-    });
+  // fallow-ignore-next-line unused-class-member
+  hasAttr(attrName: string): boolean {
+    const path = this.#matcher.path;
+    if (path.length === 0) return false;
+    const current = path[path.length - 1];
+    return current !== undefined && current.values !== undefined && attrName in current.values;
   }
 
   /**
@@ -211,12 +195,8 @@ export class MatcherView {
    *
    * @returns The value, or `undefined` if no ancestor kept this attribute.
    */
-  getAnyParentAttr(attrName: string): Effect.Effect<unknown, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      return yield* this.#matcher.getAnyParentAttr(attrName);
-    });
+  getAnyParentAttr(attrName: string): unknown {
+    return this.#matcher.getAnyParentAttr(attrName);
   }
 
   /**
@@ -226,38 +206,28 @@ export class MatcherView {
    *
    * @returns Whether a kept entry with that name exists.
    */
-  hasAnyParentAttr(attrName: string): Effect.Effect<boolean, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      return yield* this.#matcher.hasAnyParentAttr(attrName);
-    });
+  // fallow-ignore-next-line unused-class-member
+  hasAnyParentAttr(attrName: string): boolean {
+    return this.#matcher.hasAnyParentAttr(attrName);
   }
 
   /**
    * @description The current node's index among its siblings, or `-1` on an empty path.
    */
-  getPosition(): Effect.Effect<number, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const path = this.#matcher.path;
-      if (path.length === 0) return -1;
-      return path[path.length - 1]?.position ?? 0;
-    });
+  getPosition(): number {
+    const path = this.#matcher.path;
+    if (path.length === 0) return -1;
+    return path[path.length - 1]?.position ?? 0;
   }
 
   /**
    * @description The current node's occurrence count among same-named siblings, or `-1` on an empty path.
    */
-  getCounter(): Effect.Effect<number, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const path = this.#matcher.path;
-      if (path.length === 0) return -1;
-      return path[path.length - 1]?.counter ?? 0;
-    });
+  // fallow-ignore-next-line unused-class-member
+  getCounter(): number {
+    const path = this.#matcher.path;
+    if (path.length === 0) return -1;
+    return path[path.length - 1]?.counter ?? 0;
   }
 
   /**
@@ -267,23 +237,16 @@ export class MatcherView {
    *
    * @returns The current node's sibling index.
    */
-  getIndex(): Effect.Effect<number, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      return yield* this.getPosition();
-    });
+  // fallow-ignore-next-line unused-class-member
+  getIndex(): number {
+    return this.getPosition();
   }
 
   /**
    * @description The current path depth, zero on an empty path.
    */
-  getDepth(): Effect.Effect<number, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#matcher.path.length;
-    });
+  getDepth(): number {
+    return this.#matcher.path.length;
   }
 
   /**
@@ -294,10 +257,9 @@ export class MatcherView {
    *
    * @returns The joined path.
    */
-  toString(separator?: string, includeNamespace = true): Effect.Effect<string, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.map(this.#matcher.toString(separator, includeNamespace), joined => joined);
+  // fallow-ignore-next-line unused-class-member
+  toString(separator?: string, includeNamespace = true): string {
+    return this.#matcher.toString(separator, includeNamespace);
   }
 
   /**
@@ -305,12 +267,9 @@ export class MatcherView {
    *
    * @returns One entry per level, root first.
    */
-  toArray(): Effect.Effect<string[], XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#matcher.path.map(n => n.tag);
-    });
+  // fallow-ignore-next-line unused-class-member
+  toArray(): string[] {
+    return this.#matcher.path.map(n => n.tag);
   }
 
   /**
@@ -320,12 +279,8 @@ export class MatcherView {
    *
    * @returns Whether the current path matches.
    */
-  matches(expression: Expression): Effect.Effect<boolean, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      return yield* this.#matcher.matches(expression);
-    });
+  matches(expression: Expression): boolean {
+    return this.#matcher.matches(expression);
   }
 
   /**
@@ -338,12 +293,8 @@ export class MatcherView {
    * @returns Whether any expression in the set matches.
    */
   // fallow-ignore-next-line unused-class-member
-  matchesAny(exprSet: ExpressionSet): Effect.Effect<boolean, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      return yield* exprSet.matchesAny(this.#matcher);
-    });
+  matchesAny(exprSet: ExpressionSet): boolean {
+    return exprSet.matchesAny(this.#matcher);
   }
 }
 
@@ -597,17 +548,13 @@ class Matcher {
     attrValues: Record<string, unknown> | null = null,
     namespace: string | null = null,
     options: PushOptions | null = null
-  ): Effect.Effect<void, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      this.#pathStringCache = null;
-      this.#releaseCurrentValues();
-      const counters = this.#advanceSiblingCounters(tagName, namespace);
-      this.path.push(buildPathNode(tagName, attrValues, namespace, counters));
-      // `#retainKeptAttrs` reads the depth off the stack, so it runs after the push.
-      this.#retainKeptAttrs(attrValues, options);
-    });
+  ): void {
+    this.#pathStringCache = null;
+    this.#releaseCurrentValues();
+    const counters = this.#advanceSiblingCounters(tagName, namespace);
+    this.path.push(buildPathNode(tagName, attrValues, namespace, counters));
+    // `#retainKeptAttrs` reads the depth off the stack, so it runs after the push.
+    this.#retainKeptAttrs(attrValues, options);
   }
 
   /**
@@ -693,32 +640,28 @@ class Matcher {
    *
    * @returns The popped node, or `undefined` if the path was already empty.
    */
-  pop(): Effect.Effect<PathNode | undefined, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      if (this.path.length === 0) return undefined;
-      this.#pathStringCache = null;
+  pop(): PathNode | undefined {
+    if (this.path.length === 0) return undefined;
+    this.#pathStringCache = null;
 
-      const node = this.path.pop();
+    const node = this.path.pop();
 
-      if (this.siblingStacks.length > this.path.length + 1) {
-        this.siblingStacks.length = this.path.length + 1;
-      }
+    if (this.siblingStacks.length > this.path.length + 1) {
+      this.siblingStacks.length = this.path.length + 1;
+    }
 
-      // Drop any kept attributes that belonged to the popped node (or deeper).
-      // #keptAttrs is depth-ordered (push only ever appends increasing depths),
-      // so this is a backward scan that stops at the first surviving entry —
-      // typically O(1) since kept attrs are rare by design.
-      const poppedDepth = this.path.length + 1;
-      while (this.#keptAttrs.length > 0) {
-        const last = this.#keptAttrs[this.#keptAttrs.length - 1];
-        if (last === undefined || last.depth < poppedDepth) break;
-        this.#keptAttrs.pop();
-      }
+    // Drop any kept attributes that belonged to the popped node (or deeper).
+    // #keptAttrs is depth-ordered (push only ever appends increasing depths),
+    // so this is a backward scan that stops at the first surviving entry —
+    // typically O(1) since kept attrs are rare by design.
+    const poppedDepth = this.path.length + 1;
+    while (this.#keptAttrs.length > 0) {
+      const last = this.#keptAttrs[this.#keptAttrs.length - 1];
+      if (last === undefined || last.depth < poppedDepth) break;
+      this.#keptAttrs.pop();
+    }
 
-      return node;
-    });
+    return node;
   }
 
   /**
@@ -726,37 +669,25 @@ class Matcher {
    *
    * @param attrValues - The attribute values.
    */
-  updateCurrent(attrValues: Record<string, unknown>): Effect.Effect<void, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const current = this.#current;
-      if (current !== undefined && attrValues !== null && attrValues !== undefined) {
-        current.values = attrValues;
-      }
-    });
+  updateCurrent(attrValues: Record<string, unknown>): void {
+    const current = this.#current;
+    if (current !== undefined && attrValues !== null && attrValues !== undefined) {
+      current.values = attrValues;
+    }
   }
 
   /**
    * @description The current tag name, or `undefined` on an empty path.
    */
-  getCurrentTag(): Effect.Effect<string | undefined, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#current?.tag;
-    });
+  getCurrentTag(): string | undefined {
+    return this.#current?.tag;
   }
 
   /**
    * @description The current tag's namespace, or `undefined` if it has none or the path is empty.
    */
-  getCurrentNamespace(): Effect.Effect<string | undefined, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#current?.namespace;
-    });
+  getCurrentNamespace(): string | undefined {
+    return this.#current?.namespace;
   }
 
   /**
@@ -766,12 +697,8 @@ class Matcher {
    *
    * @returns The attribute value, or `undefined`.
    */
-  getAttrValue(attrName: string): Effect.Effect<unknown, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#current?.values?.[attrName];
-    });
+  getAttrValue(attrName: string): unknown {
+    return this.#current?.values?.[attrName];
   }
 
   /**
@@ -781,13 +708,9 @@ class Matcher {
    *
    * @returns Whether the attribute is present on the current node.
    */
-  hasAttr(attrName: string): Effect.Effect<boolean, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const current = this.#current;
-      return current !== undefined && current.values !== undefined && attrName in current.values;
-    });
+  hasAttr(attrName: string): boolean {
+    const current = this.#current;
+    return current !== undefined && current.values !== undefined && attrName in current.values;
   }
 
   /**
@@ -799,16 +722,12 @@ class Matcher {
    *
    * @returns The value, or `undefined` if no ancestor kept this attribute.
    */
-  getAnyParentAttr(attrName: string): Effect.Effect<unknown, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const kept = this.#keptAttrs;
-      for (let i = kept.length - 1; i >= 0; i--) {
-        if (kept[i]?.name === attrName) return kept[i]?.value;
-      }
-      return undefined;
-    });
+  getAnyParentAttr(attrName: string): unknown {
+    const kept = this.#keptAttrs;
+    for (let i = kept.length - 1; i >= 0; i--) {
+      if (kept[i]?.name === attrName) return kept[i]?.value;
+    }
+    return undefined;
   }
 
   /**
@@ -818,42 +737,30 @@ class Matcher {
    *
    * @returns Whether a kept entry with that name exists.
    */
-  hasAnyParentAttr(attrName: string): Effect.Effect<boolean, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const kept = this.#keptAttrs;
-      for (let i = kept.length - 1; i >= 0; i--) {
-        if (kept[i]?.name === attrName) return true;
-      }
-      return false;
-    });
+  hasAnyParentAttr(attrName: string): boolean {
+    const kept = this.#keptAttrs;
+    for (let i = kept.length - 1; i >= 0; i--) {
+      if (kept[i]?.name === attrName) return true;
+    }
+    return false;
   }
 
   /**
    * @description The current node's index among its siblings, or `-1` on an empty path.
    */
-  getPosition(): Effect.Effect<number, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const current = this.#current;
-      if (current === undefined) return -1;
-      return current.position ?? 0;
-    });
+  getPosition(): number {
+    const current = this.#current;
+    if (current === undefined) return -1;
+    return current.position ?? 0;
   }
 
   /**
    * @description The current node's occurrence count among same-named siblings, or `-1` on an empty path.
    */
-  getCounter(): Effect.Effect<number, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const current = this.#current;
-      if (current === undefined) return -1;
-      return current.counter ?? 0;
-    });
+  getCounter(): number {
+    const current = this.#current;
+    if (current === undefined) return -1;
+    return current.counter ?? 0;
   }
 
   /**
@@ -867,23 +774,15 @@ class Matcher {
    * @returns The current node's sibling index.
    */
   // fallow-ignore-next-line unused-class-member
-  getIndex(): Effect.Effect<number, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      return yield* this.getPosition();
-    });
+  getIndex(): number {
+    return this.getPosition();
   }
 
   /**
    * @description The current path depth, zero on an empty path.
    */
-  getDepth(): Effect.Effect<number, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.path.length;
-    });
+  getDepth(): number {
+    return this.path.length;
   }
 
   /**
@@ -895,24 +794,20 @@ class Matcher {
    *
    * @returns The joined path.
    */
-  toString(separator?: string, includeNamespace = true): Effect.Effect<string, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      const sep = separator || this.separator;
-      const isDefault = sep === this.separator && includeNamespace === true;
+  toString(separator?: string, includeNamespace = true): string {
+    const sep = separator || this.separator;
+    const isDefault = sep === this.separator && includeNamespace === true;
 
-      if (isDefault) {
-        if (this.#pathStringCache !== null) {
-          return this.#pathStringCache;
-        }
-        const result = this.path.map(n => (n.namespace ? `${n.namespace}:${n.tag}` : n.tag)).join(sep);
-        this.#pathStringCache = result;
-        return result;
+    if (isDefault) {
+      if (this.#pathStringCache !== null) {
+        return this.#pathStringCache;
       }
+      const result = this.path.map(n => (n.namespace ? `${n.namespace}:${n.tag}` : n.tag)).join(sep);
+      this.#pathStringCache = result;
+      return result;
+    }
 
-      return this.path.map(n => (includeNamespace && n.namespace ? `${n.namespace}:${n.tag}` : n.tag)).join(sep);
-    });
+    return this.path.map(n => (includeNamespace && n.namespace ? `${n.namespace}:${n.tag}` : n.tag)).join(sep);
   }
 
   /**
@@ -923,26 +818,18 @@ class Matcher {
    * @returns One entry per level, root first.
    */
   // fallow-ignore-next-line unused-class-member
-  toArray(): Effect.Effect<string[], XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.path.map(n => n.tag);
-    });
+  toArray(): string[] {
+    return this.path.map(n => n.tag);
   }
 
   /**
    * @description Return to the empty path, dropping the path, the sibling bookkeeping and every kept attribute.
    */
-  reset(): Effect.Effect<void, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      this.#pathStringCache = null;
-      this.path = [];
-      this.siblingStacks = [];
-      this.#keptAttrs = [];
-    });
+  reset(): void {
+    this.#pathStringCache = null;
+    this.path = [];
+    this.siblingStacks = [];
+    this.#keptAttrs = [];
   }
 
   /**
@@ -952,22 +839,18 @@ class Matcher {
    *
    * @returns Whether the current path matches.
    */
-  matches(expression: Expression): Effect.Effect<boolean, XmlError> {
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      const segments = expression.segments;
+  matches(expression: Expression): boolean {
+    const segments = expression.segments;
 
-      if (segments.length === 0) {
-        return false;
-      }
+    if (segments.length === 0) {
+      return false;
+    }
 
-      if (yield* expression.hasDeepWildcard()) {
-        return yield* this.#matchWithDeepWildcard(segments);
-      }
+    if (expression.hasDeepWildcard) {
+      return this.#matchWithDeepWildcard(segments);
+    }
 
-      return yield* this.#matchSimple(segments);
-    });
+    return this.#matchSimple(segments);
   }
 
   /**
@@ -977,23 +860,21 @@ class Matcher {
    *
    * @returns Whether every segment matches.
    */
-  #matchSimple(segments: readonly Segment[]): Effect.Effect<boolean, XmlError> {
-    return Effect.gen({ self: this }, function* () {
-      if (this.path.length !== segments.length) {
+  #matchSimple(segments: readonly Segment[]): boolean {
+    if (this.path.length !== segments.length) {
+      return false;
+    }
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const node = this.path[i];
+      if (segment === undefined || node === undefined) return false;
+      if (!this.#matchSegment(segment, node, i === this.path.length - 1)) {
         return false;
       }
+    }
 
-      for (let i = 0; i < segments.length; i++) {
-        const segment = segments[i];
-        const node = this.path[i];
-        if (segment === undefined || node === undefined) return false;
-        if (!(yield* this.#matchSegment(segment, node, i === this.path.length - 1))) {
-          return false;
-        }
-      }
-
-      return true;
-    });
+    return true;
   }
 
   /**
@@ -1005,23 +886,21 @@ class Matcher {
    *
    * @returns Whether the pattern is exhausted against the path.
    */
-  #matchWithDeepWildcard(segments: readonly Segment[]): Effect.Effect<boolean, XmlError> {
-    return Effect.gen({ self: this }, function* () {
-      let pathIdx = this.path.length - 1;
-      let segIdx = segments.length - 1;
+  #matchWithDeepWildcard(segments: readonly Segment[]): boolean {
+    let pathIdx = this.path.length - 1;
+    let segIdx = segments.length - 1;
 
-      while (segIdx >= 0 && pathIdx >= 0) {
-        const step = yield* this.#deepStep(segments, segIdx, pathIdx);
-        if (step.status === 'failed') return false;
-        // A `..` in final position absorbs everything still left of the path.
-        if (step.status === 'exhausted') return true;
-        pathIdx = step.pathIdx;
-        segIdx = step.segIdx;
-      }
+    while (segIdx >= 0 && pathIdx >= 0) {
+      const step = this.#deepStep(segments, segIdx, pathIdx);
+      if (step.status === 'failed') return false;
+      // A `..` in final position absorbs everything still left of the path.
+      if (step.status === 'exhausted') return true;
+      pathIdx = step.pathIdx;
+      segIdx = step.segIdx;
+    }
 
-      // Running out of path first means the pattern still had segments to place.
-      return segIdx < 0;
-    });
+    // Running out of path first means the pattern still had segments to place.
+    return segIdx < 0;
   }
 
   /**
@@ -1033,9 +912,9 @@ class Matcher {
    *
    * @returns Where the walk resumes, or how it ended.
    */
-  #deepStep(segments: readonly Segment[], segIdx: number, pathIdx: number): Effect.Effect<DeepStep, XmlError> {
+  #deepStep(segments: readonly Segment[], segIdx: number, pathIdx: number): DeepStep {
     const segment = segments[segIdx];
-    if (segment === undefined) return Effect.succeed(DEEP_STEP_FAILED);
+    if (segment === undefined) return DEEP_STEP_FAILED;
     if (segment.type === 'deep-wildcard') return this.#deepStepWildcard(segments, segIdx, pathIdx);
     return this.#deepStepLiteral(segment, segIdx, pathIdx);
   }
@@ -1050,13 +929,12 @@ class Matcher {
    *
    * @returns Where the walk resumes, or that it failed.
    */
-  #deepStepLiteral(segment: Segment, segIdx: number, pathIdx: number): Effect.Effect<DeepStep, XmlError> {
+  #deepStepLiteral(segment: Segment, segIdx: number, pathIdx: number): DeepStep {
     const node = this.path[pathIdx];
-    if (node === undefined) return Effect.succeed(DEEP_STEP_FAILED);
+    if (node === undefined) return DEEP_STEP_FAILED;
 
-    return Effect.map(this.#matchSegment(segment, node, pathIdx === this.path.length - 1), matched => {
-      return matched ? { status: 'matched', pathIdx: pathIdx - 1, segIdx: segIdx - 1 } : DEEP_STEP_FAILED;
-    });
+    const matched = this.#matchSegment(segment, node, pathIdx === this.path.length - 1);
+    return matched ? { status: 'matched', pathIdx: pathIdx - 1, segIdx: segIdx - 1 } : DEEP_STEP_FAILED;
   }
 
   /**
@@ -1070,26 +948,22 @@ class Matcher {
    *
    * @returns Where the walk resumes, or how it ended.
    */
-  #deepStepWildcard(segments: readonly Segment[], segIdx: number, pathIdx: number): Effect.Effect<DeepStep, XmlError> {
-    if (segIdx === 0) return Effect.succeed(DEEP_STEP_EXHAUSTED);
+  #deepStepWildcard(segments: readonly Segment[], segIdx: number, pathIdx: number): DeepStep {
+    if (segIdx === 0) return DEEP_STEP_EXHAUSTED;
     const absorbed = segments[segIdx - 1];
-    if (absorbed === undefined) return Effect.succeed(DEEP_STEP_FAILED);
+    if (absorbed === undefined) return DEEP_STEP_FAILED;
 
-    // A generator passed to `Effect.gen` is a plain function, so `this` inside it is
-    // not the instance. Captured here, once, and the body reads as it did.
-    return Effect.gen({ self: this }, function* () {
-      for (let i = pathIdx; i >= 0; i--) {
-        const node = this.path[i];
-        if (node === undefined) continue;
-        if (yield* this.#matchSegment(absorbed, node, i === this.path.length - 1)) {
-          // Placing `absorbed` consumes two pattern segments — the wildcard and
-          // the segment above it — against one path level, so the pattern cursor
-          // moves in by two while the path cursor moves in by one.
-          return { status: 'matched', pathIdx: i - 1, segIdx: segIdx - 2 };
-        }
+    for (let i = pathIdx; i >= 0; i--) {
+      const node = this.path[i];
+      if (node === undefined) continue;
+      if (this.#matchSegment(absorbed, node, i === this.path.length - 1)) {
+        // Placing `absorbed` consumes two pattern segments — the wildcard and
+        // the segment above it — against one path level, so the pattern cursor
+        // moves in by two while the path cursor moves in by one.
+        return { status: 'matched', pathIdx: i - 1, segIdx: segIdx - 2 };
       }
-      return DEEP_STEP_FAILED;
-    });
+    }
+    return DEEP_STEP_FAILED;
   }
 
   /**
@@ -1103,17 +977,13 @@ class Matcher {
    *
    * @returns Whether the segment matches the node.
    */
-  #matchSegment(segment: Segment, node: PathNode, isCurrentNode: boolean): Effect.Effect<boolean, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return (
-        tagNameMatches(segment, node) &&
-        namespaceMatches(segment, node) &&
-        attributeConditionMatches(segment, node, isCurrentNode) &&
-        positionConditionMatches(segment, node, isCurrentNode)
-      );
-    });
+  #matchSegment(segment: Segment, node: PathNode, isCurrentNode: boolean): boolean {
+    return (
+      tagNameMatches(segment, node) &&
+      namespaceMatches(segment, node) &&
+      attributeConditionMatches(segment, node, isCurrentNode) &&
+      positionConditionMatches(segment, node, isCurrentNode)
+    );
   }
 
   /**
@@ -1125,7 +995,7 @@ class Matcher {
    * @returns Whether any expression in the set matches.
    */
   // fallow-ignore-next-line unused-class-member
-  matchesAny(exprSet: ExpressionSet): Effect.Effect<boolean, XmlError> {
+  matchesAny(exprSet: ExpressionSet): boolean {
     return exprSet.matchesAny(this);
   }
 
@@ -1134,16 +1004,12 @@ class Matcher {
    *
    * @returns A deep-enough copy: the maps and nodes are new, so later pushes cannot reach back into the snapshot.
    */
-  snapshot(): Effect.Effect<MatcherSnapshot, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return {
-        path: this.path.map(node => ({ ...node })),
-        siblingStacks: this.siblingStacks.map(level => (level ? { counts: new Map(level.counts), total: level.total } : level)),
-        keptAttrs: this.#keptAttrs.map(entry => ({ ...entry })),
-      };
-    });
+  snapshot(): MatcherSnapshot {
+    return {
+      path: this.path.map(node => ({ ...node })),
+      siblingStacks: this.siblingStacks.map(level => (level ? { counts: new Map(level.counts), total: level.total } : level)),
+      keptAttrs: this.#keptAttrs.map(entry => ({ ...entry })),
+    };
   }
 
   /**
@@ -1151,17 +1017,13 @@ class Matcher {
    *
    * @param snapshot - A snapshot from a previous {@link Matcher.snapshot} call.
    */
-  restore(snapshot: MatcherSnapshot): Effect.Effect<void, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      this.#pathStringCache = null;
-      this.path = snapshot.path.map(node => ({ ...node }));
-      this.siblingStacks = snapshot.siblingStacks.map(level => (level ? { counts: new Map(level.counts), total: level.total } : level));
-      // Tolerates a hand-built snapshot that predates kept attributes, which
-      // `keptAttrs` being optional in the type would otherwise invite.
-      this.#keptAttrs = (snapshot.keptAttrs ?? []).map(entry => ({ ...entry }));
-    });
+  restore(snapshot: MatcherSnapshot): void {
+    this.#pathStringCache = null;
+    this.path = snapshot.path.map(node => ({ ...node }));
+    this.siblingStacks = snapshot.siblingStacks.map(level => (level ? { counts: new Map(level.counts), total: level.total } : level));
+    // Tolerates a hand-built snapshot that predates kept attributes, which
+    // `keptAttrs` being optional in the type would otherwise invite.
+    this.#keptAttrs = (snapshot.keptAttrs ?? []).map(entry => ({ ...entry }));
   }
 
   /**
@@ -1176,12 +1038,8 @@ class Matcher {
    *
    * @returns The reusable view.
    */
-  readOnly(): Effect.Effect<MatcherView, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#view;
-    });
+  readOnly(): MatcherView {
+    return this.#view;
   }
 }
 

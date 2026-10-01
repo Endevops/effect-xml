@@ -33,7 +33,7 @@ import { afterAll, beforeAll, expect, test } from 'vite-plus/test';
 
 import type { XmlValue } from '#/index.ts';
 
-import { parseXmlSync, renderXml, toCodecXml } from '#/index.ts';
+import { parseXmlDocument, renderXml, toCodecXml } from '#/index.ts';
 
 // ---------------------------------------------------------------------------
 // The documents under test
@@ -298,7 +298,7 @@ test('decoding — a small document', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => Schema.decodeSync(orderCodec)(parseXmlSync(orderDocument)))
+      measure(() => Schema.decodeSync(orderCodec)(parseXmlDocument(orderDocument).value))
     ),
     bench(
       '@endevops/flexible-xml-parser',
@@ -316,7 +316,7 @@ test('decoding — a 500-row document', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => Schema.decodeSync(reportCodec)(parseXmlSync(reportDocument)))
+      measure(() => Schema.decodeSync(reportCodec)(parseXmlDocument(reportDocument).value))
     ),
     bench(
       '@endevops/flexible-xml-parser',
@@ -334,7 +334,7 @@ test('decoding — one large text node', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => Schema.decodeSync(noteCodec)(parseXmlSync(noteDocument)))
+      measure(() => Schema.decodeSync(noteCodec)(parseXmlDocument(noteDocument).value))
     ),
     bench(
       '@endevops/flexible-xml-parser',
@@ -356,7 +356,9 @@ test('a full round trip, both halves measured', async ({ bench }) => {
   await bench.compare(
     bench(
       'this codec',
-      measure(() => Schema.decodeSync(orderCodec)(parseXmlSync(renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT }))))
+      measure(() =>
+        Schema.decodeSync(orderCodec)(parseXmlDocument(renderXml(Schema.encodeSync(orderCodec)(order) as XmlValue, { rootName: ROOT })).value)
+      )
     ),
     bench(
       'then parser, both @endevops',

@@ -503,8 +503,8 @@ describe('Skip Tags — OptionsBuilder entry normalization', function () {
   it('skip.tagsSet is a sealed ExpressionSet', function () {
     const parser = makeParser({ skip: { tags: ['root.drop'] } });
     expect(parser.options.skip.tagsSet).toBeDefined();
-    expect(runParser(parser.options.skip.tagsSet.size())).toBe(1);
-    expect(runParser(parser.options.skip.tagsSet.isSealed())).toBe(true);
+    expect(parser.options.skip.tagsSet.size).toBe(1);
+    expect(parser.options.skip.tagsSet.isSealed).toBe(true);
   });
 });
 

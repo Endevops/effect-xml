@@ -3,10 +3,10 @@
  * not a legal XML name.
  */
 
+import { isQName } from '@endevops/common-xml';
 import { describe, expect, it } from 'vite-plus/test';
 
-import { attributeName, isAttributeKey, isReservedKey, isTextKey, isValidName, resolveName, ATTRIBUTE_PREFIX, TEXT_KEY } from '#/index.ts';
-import { run } from '#/test/helpers/effect.ts';
+import { attributeName, isAttributeKey, isReservedKey, isTextKey, resolveName, ATTRIBUTE_PREFIX, TEXT_KEY } from '#/index.ts';
 
 describe('the attribute prefix', () => {
   it('is the single character the convention documents', () => {
@@ -59,79 +59,79 @@ describe('the text key', () => {
   });
 });
 
-describe('run(resolveName())', () => {
+describe('resolveName()', () => {
   it('leaves a legal name alone', () => {
-    expect(run(resolveName('title'))).toBe('title');
-    expect(run(resolveName('_private'))).toBe('_private');
-    expect(run(resolveName('a-b.c'))).toBe('a-b.c');
+    expect(resolveName('title')).toBe('title');
+    expect(resolveName('_private')).toBe('_private');
+    expect(resolveName('a-b.c')).toBe('a-b.c');
   });
 
   it('leaves a prefixed name alone, prefix included', () => {
-    expect(run(resolveName('soap:Envelope'))).toBe('soap:Envelope');
-    expect(run(resolveName('xml:lang'))).toBe('xml:lang');
+    expect(resolveName('soap:Envelope')).toBe('soap:Envelope');
+    expect(resolveName('xml:lang')).toBe('xml:lang');
   });
 
   it('leaves a non-ASCII legal name alone', () => {
-    expect(run(resolveName('café'))).toBe('café');
+    expect(resolveName('café')).toBe('café');
   });
 
   it('repairs an illegal name by default', () => {
-    expect(run(resolveName('not a name'))).toBe('not_a_name');
-    expect(run(resolveName('1st'))).toBe('_1st');
-    expect(run(resolveName('-leading'))).toBe('_-leading');
+    expect(resolveName('not a name')).toBe('not_a_name');
+    expect(resolveName('1st')).toBe('_1st');
+    expect(resolveName('-leading')).toBe('_-leading');
   });
 
   it('keeps a namespace prefix through a repair rather than dropping it', () => {
     // Repairing with the `name` production keeps colons; repairing with `ncName`
     // would turn `soap:Envelope` into `soapEnvelope` and silently lose the
     // prefix, which is a different name rather than a fixed one.
-    expect(run(resolveName('soap:Envelope room'))).toBe('soap:Envelope_room');
+    expect(resolveName('soap:Envelope room')).toBe('soap:Envelope_room');
   });
 
   it('writes an illegal name unchanged in ignore mode', () => {
-    expect(run(resolveName('not a name', { mode: 'ignore' }))).toBe('not a name');
+    expect(resolveName('not a name', { mode: 'ignore' })).toBe('not a name');
   });
 
   it('fails an illegal name in error mode, naming the reason', () => {
-    expect(() => run(resolveName('not a name', { mode: 'error' }))).toThrow(/Invalid XML name "not a name"/);
-    expect(() => run(resolveName('not a name', { mode: 'error' }))).toThrow(/not a valid NameChar/);
+    expect(() => resolveName('not a name', { mode: 'error' })).toThrow(/Invalid XML name "not a name"/);
+    expect(() => resolveName('not a name', { mode: 'error' })).toThrow(/not a valid NameChar/);
   });
 
   it('accepts a legal name in error mode', () => {
-    expect(run(resolveName('title', { mode: 'error' }))).toBe('title');
+    expect(resolveName('title', { mode: 'error' })).toBe('title');
   });
 
   it('rejects a name that is only legal in XML 1.1 when 1.0 was asked for', () => {
     // U+0487 is a combining mark: a legal NameChar in 1.1, not in 1.0.
     const combining = 'a\u0487';
-    expect(run(resolveName(combining, { mode: 'error', xmlVersion: '1.1' }))).toBe(combining);
-    expect(() => run(resolveName(combining, { mode: 'error', xmlVersion: '1.0' }))).toThrow(/Invalid XML name/);
+    expect(resolveName(combining, { mode: 'error', xmlVersion: '1.1' })).toBe(combining);
+    expect(() => resolveName(combining, { mode: 'error', xmlVersion: '1.0' })).toThrow(/Invalid XML name/);
   });
 });
 
-describe('run(isValidName())', () => {
+describe('isQName()', () => {
   it('accepts what the resolver leaves alone', () => {
     for (const name of ['title', 'a-b', 'a.b', 'ns:x', 'café']) {
-      expect(run(isValidName(name))).toBe(true);
-      expect(run(resolveName(name))).toBe(name);
+      expect(isQName(name)).toBe(true);
+      expect(resolveName(name)).toBe(name);
     }
   });
 
   it('rejects what the resolver has to rewrite', () => {
     for (const name of ['1bad', 'a b', '', '-lead']) {
-      expect(run(isValidName(name))).toBe(false);
-      expect(run(resolveName(name))).not.toBe(name);
+      expect(isQName(name)).toBe(false);
+      expect(resolveName(name)).not.toBe(name);
     }
   });
 
   it('allows at most one colon, which is what separates a QName from a Name', () => {
-    expect(run(isValidName('a:b'))).toBe(true);
-    expect(run(isValidName('a:b:c'))).toBe(false);
+    expect(isQName('a:b')).toBe(true);
+    expect(isQName('a:b:c')).toBe(false);
   });
 
   it('agrees with the resolver about XML 1.1 names', () => {
     // U+0487 is a combining mark: legal in 1.1, not in 1.0.
-    expect(run(isValidName('a\u0487', '1.1'))).toBe(true);
-    expect(run(isValidName('a\u0487', '1.0'))).toBe(false);
+    expect(isQName('a\u0487', { xmlVersion: '1.1' })).toBe(true);
+    expect(isQName('a\u0487', { xmlVersion: '1.0' })).toBe(false);
   });
 });

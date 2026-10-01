@@ -258,10 +258,9 @@ describe('PEM integration — matcher in value parser context', function () {
 
     class AdminUpperParser implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
-        // `matches` is an effect now, and a path question asked of a live
-        // matcher cannot fail — so it is run for its answer here rather than
-        // widening this parser's own `BuilderError` channel with `XmlError`.
-        if (context?.matcher && runParser(context.matcher.matches(adminExpr))) {
+        // `matches` is a plain predicate now, so the answer is used directly
+        // rather than run out of an effect.
+        if (context?.matcher && context.matcher.matches(adminExpr)) {
           return Effect.succeed(typeof val === 'string' ? val.toUpperCase() : val);
         }
         return Effect.succeed(val);
@@ -414,7 +413,7 @@ describe('PEM integration — matcher in value parser context', function () {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (typeof val !== 'string') return Effect.succeed(val);
         const matcher = context?.matcher;
-        if (matcher && (runParser(matcher.matches(priceExpr)) || runParser(matcher.matches(qtyExpr)))) {
+        if (matcher && (matcher.matches(priceExpr) || matcher.matches(qtyExpr))) {
           const n = parseFloat(val);
           return Effect.succeed(isNaN(n) ? val : n);
         }
@@ -449,7 +448,7 @@ describe('PEM integration — matcher in value parser context', function () {
     class PrefixIdParser implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (!context?.isAttribute) return Effect.succeed(val);
-        if (context.elementName === 'id' && context.matcher && runParser(context.matcher.matches(productIdExpr))) {
+        if (context.elementName === 'id' && context.matcher && context.matcher.matches(productIdExpr)) {
           return Effect.succeed('PROD-' + val);
         }
         return Effect.succeed(val);
@@ -486,7 +485,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
         const addElement = base.addElement.bind(base);
         return {
           addElement(tag, matcher) {
-            tagPaths.push(runParser(matcher.toString()));
+            tagPaths.push(matcher.toString());
             addElement(tag, matcher);
           },
         };
@@ -506,7 +505,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
         const closeElement = base.closeElement.bind(base);
         return {
           closeElement(matcher, closeMeta) {
-            closedPaths.push(runParser(matcher.toString()));
+            closedPaths.push(matcher.toString());
             return closeElement(matcher, closeMeta);
           },
         };
@@ -527,7 +526,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
         const addElement = base.addElement.bind(base);
         return {
           addElement(tag, matcher) {
-            const resolved = runParser(matcher.matches(legacyExpr)) ? { ...tag, name: 'newName' } : tag;
+            const resolved = matcher.matches(legacyExpr) ? { ...tag, name: 'newName' } : tag;
             addElement(resolved, matcher);
           },
         };
@@ -552,7 +551,7 @@ describe('PEM integration — matcher in custom OutputBuilder', function () {
         let skipDepth = 0;
         return {
           addElement(tag, matcher) {
-            if (runParser(matcher.matches(skipExpr))) {
+            if (matcher.matches(skipExpr)) {
               skipDepth++;
               return;
             }
@@ -660,7 +659,7 @@ describe('PEM integration — ReadOnlyMatcher guards', function () {
     class PathCapture implements ValueParser {
       parse(val: unknown, context?: Context): Effect.Effect<unknown, BuilderError> {
         if (context && !context.isAttribute) {
-          capturedPaths.push(runParser(context.matcher!.toString()));
+          capturedPaths.push(context.matcher!.toString());
         }
         return Effect.succeed(val);
       }

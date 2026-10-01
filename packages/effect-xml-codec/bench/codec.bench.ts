@@ -1,9 +1,9 @@
 /**
  * @description Throughput benchmarks for the two hot paths an application that serializes XML spends its time in: turning a typed value into a document, and
  * turning a document back into one. Split by layer as well as by direction, because the question "is the codec slow" has two very different answers
- * depending on whether the cost is in Effect's schema derivation, in this package's renderer, or in the parser. `renderXml` and `parseXmlSync` are
- * measured on their own for exactly that reason: the gap between a codec row and its bare counterpart is what Effect's derivation costs, and that is
- * not something this package can optimise. Every benchmark folds its result into a module-scope counter that `afterAll` reads back. A discarded
+ * depending on whether the cost is in Effect's schema derivation, in this package's renderer, or in the parser. `renderXml` and `parseXmlDocument`
+ * are measured on their own for exactly that reason: the gap between a codec row and its bare counterpart is what Effect's derivation costs, and that
+ * is not something this package can optimise. Every benchmark folds its result into a module-scope counter that `afterAll` reads back. A discarded
  * result is a result the JIT is free to delete, which would make a benchmark that measured nothing look like a very fast codec. The `escape` suite is
  * the one to read first. Escaping is the only place the renderer touches every character of the document, so it is the only part whose cost scales
  * with content rather than with structure, and the two rows between them say how much of a document's serialization is escaping.
@@ -14,7 +14,7 @@ import { afterAll, expect, test } from 'vite-plus/test';
 
 import type { XmlValue } from '#/index.ts';
 
-import { isXmlArray, isXmlRecord, parseXmlSync, renderXml, toCodecXml } from '#/index.ts';
+import { isXmlArray, isXmlRecord, parseXmlDocument, renderXml, toCodecXml } from '#/index.ts';
 
 /**
  * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document like this is
@@ -144,7 +144,7 @@ const encoderFor = (schema: Schema.Constraint, rootName: string): ((value: never
  */
 const decoderFor = (schema: Schema.Constraint): ((text: string) => unknown) => {
   const codec = toCodecXml(schema as never);
-  return text => Schema.decodeSync(codec)(parseXmlSync(text));
+  return text => Schema.decodeSync(codec)(parseXmlDocument(text).value);
 };
 
 afterAll(() => {
@@ -198,7 +198,8 @@ test('codec — the layer underneath', async ({ bench }) => {
     }),
     bench('parse, no schema', () => {
       observed += sizeOf(
-        parseXmlSync('<r id="A-1001"><title>Dune</title><total>1234.56</total><placed>true</placed><tag>a</tag><tag>b</tag><tag>c</tag></r>')
+        parseXmlDocument('<r id="A-1001"><title>Dune</title><total>1234.56</total><placed>true</placed><tag>a</tag><tag>b</tag><tag>c</tag></r>')
+          .value
       );
     }),
     BUDGET
@@ -240,10 +241,10 @@ test('codec — the document shape', async ({ bench }) => {
       observed += renderXml(xml, { rootName: 'report', format: true }).length;
     }),
     bench('parse, 500 rows', () => {
-      observed += sizeOf(parseXmlSync(rowsDocument));
+      observed += sizeOf(parseXmlDocument(rowsDocument).value);
     }),
     bench('parse, 500 rows, keeping whitespace', () => {
-      observed += sizeOf(parseXmlSync(rowsDocument, { preserveWhitespace: true }));
+      observed += sizeOf(parseXmlDocument(rowsDocument, { preserveWhitespace: true }).value);
     }),
     BUDGET
   );

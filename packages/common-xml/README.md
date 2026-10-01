@@ -430,9 +430,9 @@ Omit the type argument and `data` is `unknown`, which is what an untyped embedde
 
 ##### Methods
 
-- `hasDeepWildcard()` → boolean
-- `hasAttributeCondition()` → boolean
-- `hasPositionSelector()` → boolean
+- `hasDeepWildcard` → boolean (getter)
+- `hasAttributeCondition` → boolean (getter)
+- `hasPositionSelector` → boolean (getter)
 - `toString()` → string
 
 #### Matcher
@@ -1270,10 +1270,10 @@ ncName('my-id'); // true
 ncName('xlink:href'); // false ← colon not allowed
 
 // QName — exactly one colon as prefix separator, used for element/attribute names
-qName('svg:circle'); // true
-qName('foo'); // true  ← unprefixed QName is valid
-qName('a:b:c'); // false ← only one colon allowed
-qName(':foo'); // false ← cannot start with colon
+isQName('svg:circle'); // true
+isQName('foo'); // true  ← unprefixed QName is valid
+isQName('a:b:c'); // false ← only one colon allowed
+isQName(':foo'); // false ← cannot start with colon
 
 // NMToken — any NameChar at start, used for DTD NMTOKEN attributes
 nmToken('123'); // true  ← digit start is fine
@@ -1472,26 +1472,27 @@ sanitize('my element', 'name', { replacement: '-' }); // 'my-element'
 
 ### API
 
-#### `name(str, opts?)` → `boolean`
+#### `isName(str, opts?)` → `boolean`
 
-#### `ncName(str, opts?)` → `boolean`
+#### `isNcName(str, opts?)` → `boolean`
 
-#### `qName(str, opts?)` → `boolean`
+#### `isQName(str, opts?)` → `boolean`
 
-#### `nmToken(str, opts?)` → `boolean`
+#### `isNmToken(str, opts?)` → `boolean`
 
-#### `nmTokens(str, opts?)` → `boolean`
+#### `isNmTokens(str, opts?)` → `boolean`
 
 `opts`:
 
 - `xmlVersion`: `'1.0'` (default) | `'1.1'`
 - `asciiOnly`: boolean (default `false`) — ASCII-only fast path, see above
 
-#### `createValidator(production, opts?)` → `Effect<(str) => boolean, XmlError>`
+#### `createValidator(production, opts?)` → `MemoizedValidator`
 
-The validator function itself is memoized and synchronous, with a `.reset()`.
-Fails with the `InvalidProduction` reason — unreachable from TypeScript, where
-`Production` is a closed union.
+The returned validator is memoized and synchronous — `(str) => boolean` with a
+`.reset()` — and throws an `XmlError` with the `InvalidProduction` reason for an
+unknown production, which is unreachable from TypeScript where `Production` is a
+closed union.
 
 `opts`:
 
@@ -1499,19 +1500,19 @@ Fails with the `InvalidProduction` reason — unreachable from TypeScript, where
 - `asciiOnly`: boolean (default `false`)
 - `maxCacheSize`: number (default `2048`) — cache stops accepting new entries once reached; existing entries keep serving hits
 
-#### `validate(str, production, opts?)` → `Effect<ValidationResult, XmlError>`
+#### `validate(str, production, opts?)` → `ValidationResult`
 
 `production`: `'name'` | `'ncName'` | `'qName'` | `'nmToken'` | `'nmTokens'`
 
-Fails only with the `InvalidProduction` reason. A name that fails to _validate_
-is a successful call carrying `valid: false` — being invalid is the question
-being answered, not a failure of the function.
+Throws only with the `InvalidProduction` reason. A name that fails to _validate_
+is a result carrying `valid: false` — being invalid is the question being
+answered, not a failure of the function.
 
 `opts`: same as boolean validators (`xmlVersion`, `asciiOnly`)
 
-#### `validateAll(strings[], production, opts?)` → `Effect<ValidationResult[], XmlError>`
+#### `validateAll(strings[], production, opts?)` → `ValidationResult[]`
 
-Fails with the `InvalidProduction` reason, checked once up front rather than per
+Throws with the `InvalidProduction` reason, checked once up front rather than per
 element, so an empty array fails the same way a populated one does.
 
 `opts`: same as `validate`

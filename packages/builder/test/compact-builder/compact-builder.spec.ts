@@ -58,9 +58,7 @@ const build = (
 ): Effect.Effect<unknown, BuilderError | XmlError> =>
   Effect.gen(function* () {
     const matcher = new Matcher();
-    const builder = run(
-      makeFactory(builderOptions).getInstance({ ...PARSER_OPTIONS, ...parserOptions } as CompactParserOptions, runXml(matcher.readOnly()))
-    );
+    const builder = run(makeFactory(builderOptions).getInstance({ ...PARSER_OPTIONS, ...parserOptions } as CompactParserOptions, matcher.readOnly()));
 
     const walk = Effect.fnUntraced(function* (node: WalkNode, tagName: string): Effect.fn.Return<void, BuilderError | XmlError> {
       const attributes: Record<string, unknown> = {};
@@ -77,10 +75,10 @@ const build = (
         }
       }
 
-      runXml(matcher.push(tagName));
-      for (const [name, value] of Object.entries(attributes)) yield* builder.addAttribute(name, value, runXml(matcher.readOnly()));
-      builder.addElement({ name: tagName, index: runXml(matcher.getDepth()) }, runXml(matcher.readOnly()));
-      if (text) builder.addValue(text, runXml(matcher.readOnly()));
+      matcher.push(tagName);
+      for (const [name, value] of Object.entries(attributes)) yield* builder.addAttribute(name, value, matcher.readOnly());
+      builder.addElement({ name: tagName, index: matcher.getDepth() }, matcher.readOnly());
+      if (text) builder.addValue(text, matcher.readOnly());
       for (const [name, value] of children) {
         if (Array.isArray(value)) {
           for (const item of value) yield* walk(asNode(item), name);
@@ -88,8 +86,8 @@ const build = (
           yield* walk(asNode(value), name);
         }
       }
-      yield* builder.closeElement(runXml(matcher.readOnly()), { name: tagName });
-      runXml(matcher.pop());
+      yield* builder.closeElement(matcher.readOnly(), { name: tagName });
+      matcher.pop();
     });
 
     for (const [name, value] of Object.entries(input)) {
@@ -327,7 +325,7 @@ describe('CompactBuilder — forceArray', () => {
   });
 
   it('decides per tag from the path', () => {
-    expect(runAny(build({ a: '1', b: '2' }, { forceArray: vote(m => runXml(m.getCurrentTag()) === 'a') }))).toEqual({ a: [1], b: 2 });
+    expect(runAny(build({ a: '1', b: '2' }, { forceArray: vote(m => m.getCurrentTag() === 'a') }))).toEqual({ a: [1], b: 2 });
   });
 
   it('sees the leaf flag', () => {
@@ -363,27 +361,27 @@ describe('CompactBuilder — textJoint', () => {
   it('applies the joint when the chain does not normalize', () => {
     const builder = makeFactory({ textJoint: '|', tags: { valueParsers: [] } });
     const matcher = new Matcher();
-    const b = run(builder.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
-    runXml(matcher.push('a'));
-    b.addElement({ name: 'a', index: 1 }, runXml(matcher.readOnly()));
-    b.addValue('one', runXml(matcher.readOnly()));
-    b.addValue('two', runXml(matcher.readOnly()));
-    b.addValue('three', runXml(matcher.readOnly()));
-    run(b.closeElement(runXml(matcher.readOnly()), { name: 'a' }));
-    runXml(matcher.pop());
+    const b = run(builder.getInstance(PARSER_OPTIONS, matcher.readOnly()));
+    matcher.push('a');
+    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
+    b.addValue('one', matcher.readOnly());
+    b.addValue('two', matcher.readOnly());
+    b.addValue('three', matcher.readOnly());
+    run(b.closeElement(matcher.readOnly(), { name: 'a' }));
+    matcher.pop();
     expect(b.getOutput()).toEqual({ a: 'one|two|three' });
   });
 
   it('defaults the joint to nothing', () => {
     const builder = makeFactory({ tags: { valueParsers: [] } });
     const matcher = new Matcher();
-    const b = run(builder.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
-    runXml(matcher.push('a'));
-    b.addElement({ name: 'a', index: 1 }, runXml(matcher.readOnly()));
-    b.addValue('one', runXml(matcher.readOnly()));
-    b.addValue('two', runXml(matcher.readOnly()));
-    run(b.closeElement(runXml(matcher.readOnly()), { name: 'a' }));
-    runXml(matcher.pop());
+    const b = run(builder.getInstance(PARSER_OPTIONS, matcher.readOnly()));
+    matcher.push('a');
+    b.addElement({ name: 'a', index: 1 }, matcher.readOnly());
+    b.addValue('one', matcher.readOnly());
+    b.addValue('two', matcher.readOnly());
+    run(b.closeElement(matcher.readOnly(), { name: 'a' }));
+    matcher.pop();
     expect(b.getOutput()).toEqual({ a: 'onetwo' });
   });
 });
@@ -419,16 +417,14 @@ describe('CompactBuilderFactory', () => {
   it('hands out a fresh builder per document', () => {
     const factory = makeFactory();
     const matcher = new Matcher();
-    expect(run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())))).not.toBe(
-      run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())))
-    );
+    expect(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()))).not.toBe(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly())));
   });
 
   it('gives each builder its own shared context', () => {
     const factory = makeFactory();
     const matcher = new Matcher();
-    const a = run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
-    const b = run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly())));
+    const a = run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()));
+    const b = run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly()));
     a.sharedContext.set('xmlVersion', 1.1);
     expect(b.sharedContext.get('xmlVersion')).toBeUndefined();
   });
@@ -447,7 +443,7 @@ describe('CompactBuilderFactory', () => {
 
   it('compiles alwaysArray once, at construction', () => {
     const factory = makeFactory({ alwaysArray: ['a', 'b'] });
-    expect(runXml(factory.builderOptions._alwaysArraySet.size())).toBe(2);
+    expect(factory.builderOptions._alwaysArraySet.size).toBe(2);
   });
 
   it('defaults forceArray to null', () => {
@@ -457,7 +453,7 @@ describe('CompactBuilderFactory', () => {
   it('shares one registry across every builder it produces', () => {
     const factory = makeFactory();
     const matcher = new Matcher();
-    expect(run(factory.getInstance(PARSER_OPTIONS, runXml(matcher.readOnly()))).registry).toBe(factory.registry);
+    expect(run(factory.getInstance(PARSER_OPTIONS, matcher.readOnly())).registry).toBe(factory.registry);
   });
 
   it('rejects an empty alwaysArray pattern', () => {

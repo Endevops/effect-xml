@@ -6,7 +6,7 @@ import { Effect } from 'effect';
 import type { BuilderError } from '../../errors.ts';
 import type { Context, ValueParser } from '../value-parser.ts';
 
-import { addToSet, compilePattern, liftXml } from '../../errors.ts';
+import { addToSet, compilePattern } from '../../errors.ts';
 
 /**
  * @description Options for the whitespace normalizer.
@@ -46,25 +46,24 @@ const makeNormalizer = (excludeSet: ExpressionSet): ValueParser => ({
    *
    * @returns The normalized string, or `val` unchanged when normalization does not apply.
    */
-  parse: Effect.fnUntraced(function* (val: unknown, ctx?: Context): Effect.fn.Return<unknown, BuilderError> {
-    if (typeof val !== 'string') return val;
+  parse: (val: unknown, ctx?: Context): Effect.Effect<unknown, BuilderError> => {
+    if (typeof val !== 'string') return Effect.succeed(val);
 
     if (ctx) {
       // Only normalize element text, not attribute values
-      if (ctx.isAttribute) return val;
+      if (ctx.isAttribute) return Effect.succeed(val);
 
       if (ctx.matcher) {
         // Respect xml:space="preserve" on any ancestor
-        if ((yield* liftXml(ctx.matcher.getAnyParentAttr('xml:space'))) === 'preserve') return val;
+        if (ctx.matcher.getAnyParentAttr('xml:space') === 'preserve') return Effect.succeed(val);
 
         // Respect user-configured exclusion paths
-        const size = yield* liftXml(excludeSet.size());
-        if (size > 0 && (yield* liftXml(excludeSet.matchesAny(ctx.matcher)))) return val;
+        if (excludeSet.size > 0 && excludeSet.matchesAny(ctx.matcher)) return Effect.succeed(val);
       }
     }
 
-    return val.replace(/[ \t\r\n]+/g, ' ').trim();
-  }),
+    return Effect.succeed(val.replace(/[ \t\r\n]+/g, ' ').trim());
+  },
 });
 
 /**

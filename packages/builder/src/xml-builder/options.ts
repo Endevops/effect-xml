@@ -126,9 +126,10 @@ export interface XmlBuilderOptions {
    *
    * @example
    *   ```typescript
+   *   import { Effect } from 'effect';
    *   import { EntityEncoder } from '@endevops/common-xml';
    *   const encoder = new EntityEncoder();
-   *   new XMLBuilder({ tagValueProcessor: (_tag, value) => encoder.encode(String(value)) });
+   *   new XMLBuilder({ tagValueProcessor: (_tag, value) => Effect.succeed(encoder.encode(String(value))) });
    *   ```;
    */
   tagValueProcessor?: ValueProcessor;

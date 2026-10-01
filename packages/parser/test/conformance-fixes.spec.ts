@@ -1,5 +1,4 @@
 import { CompactBuilderFactory } from '@endevops/builder';
-import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { ErrorCodeValue } from '#/options.ts';
@@ -205,8 +204,8 @@ describe('Duplicate attributes — attributes.duplicate', function () {
         skip: { attributes: false },
         attributes: { duplicate: 'ignore' },
         exitIf: matcher => {
-          seenValue = runParser(matcher.getAttrValue('a'));
-          return Effect.succeed(false);
+          seenValue = matcher.getAttrValue('a');
+          return false;
         },
       }).parse(`<e a="1" a="2"></e>`)
     );

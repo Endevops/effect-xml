@@ -5,10 +5,6 @@
 // non-ASCII goes through the integer-keyed tries in `entity-tries.ts`.
 // Splitting them is what keeps the ASCII path free of trie work.
 
-import { Effect } from 'effect';
-
-import type { XmlError } from '../errors.ts';
-
 import { trie1, trie2, trie3 } from './entity-tries.ts';
 
 // Replacement strings indexed by char code — direct array access, no hashing.
@@ -173,24 +169,22 @@ export class EntityEncoder {
    *
    * @example
    *   ```typescript
-   *   import { Effect } from 'effect';
    *   import { EntityEncoder } from '@endevops/common-xml';
    *
    *   const encoder = new EntityEncoder();
-   *   Effect.runSync(encoder.encode('<a href="x">& é')); // '&lt;a href=&QUOT;x&QUOT;&gt;&amp; &COPY; é'
+   *   encoder.encode('<a href="x">& é'); // '&lt;a href=&QUOT;x&QUOT;&gt;&amp; &COPY; é'
    *   ```;
    *
    * @param str - The string to encode.
    *
-   * @returns The encoded string as an effect, which may be the identical string when there was nothing to replace or the budget was already spent.
-   *   The error channel is empty and stays empty: escaping a character has nothing to fail about, and the replacement budget is a budget rather than
-   *   a limit — running out stops the work instead of failing it. The effect is here so this composes with {@link EntityDecoder.decode}, which does
-   *   have a failure mode, without the caller having to branch on which half can fail.
+   * @returns The encoded string, which may be the identical string when there was nothing to replace or the budget was already spent. Escaping a
+   *   character has nothing to fail about, and the replacement budget is a budget rather than a limit — running out stops the work instead of failing
+   *   it.
    */
-  encode(str: string): Effect.Effect<string> {
-    if (typeof str !== 'string' || str.length === 0) return Effect.succeed(str);
-    if (!NEEDS_PROCESSING.test(str)) return Effect.succeed(str);
-    if (this.maxReplacements > 0 && this.replacementsCount >= this.maxReplacements) return Effect.succeed(str);
+  encode(str: string): string {
+    if (typeof str !== 'string' || str.length === 0) return str;
+    if (!NEEDS_PROCESSING.test(str)) return str;
+    if (this.maxReplacements > 0 && this.replacementsCount >= this.maxReplacements) return str;
 
     // Two passes of one walk. The main one stops at `len - 2` so a three-character
     // probe there is still readable without a bounds check; the tail covers what
@@ -204,7 +198,7 @@ export class EntityEncoder {
     let { result, last } = tail;
     if (last < len) result += str.substring(last);
 
-    return Effect.succeed(result);
+    return result;
   }
 
   /**
@@ -446,11 +440,9 @@ export class EntityEncoder {
   /**
    * @description Reset the replacement counter. The three options are untouched, so a limited encoder stays limited and only gets its budget back.
    *
-   * @returns An effect that zeroes the counter. Infallible; the channel is empty because the package has one shape for its public surface.
+   * @returns Nothing.
    */
-  reset(): Effect.Effect<void, XmlError> {
-    return Effect.sync(() => {
-      this.replacementsCount = 0;
-    });
+  reset(): void {
+    this.replacementsCount = 0;
   }
 }

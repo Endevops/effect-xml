@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import type { BuilderParserOptions, OutputBuilder, TagDetailLike, ValueParser, ValueParserRegistryLike } from '#/index.ts';
 
 import { CompactBuilderFactory, makeBaseOutputBuilder, makeBooleanParser, makeContext, makeValueParserRegistry } from '#/index.ts';
-import { failed, run, runXml } from '#/test/helpers/effect.ts';
+import { failed, run } from '#/test/helpers/effect.ts';
 
 /**
  * @description The base builder plus the two hooks a spec observes: the child keys `addComment`/`addLiteral` write, and the raw values `addLiteral` merges. This
@@ -47,8 +47,8 @@ interface RecordingBuilder extends OutputBuilder {
  */
 const atA = (): MatcherView => {
   const matcher = new Matcher();
-  runXml(matcher.push('a'));
-  return runXml(matcher.readOnly());
+  matcher.push('a');
+  return matcher.readOnly();
 };
 
 const registry = (): ValueParserRegistryLike => makeValueParserRegistry();

@@ -181,58 +181,31 @@ export default class Expression<T = unknown> {
   }
 
   /**
-   * @description How many segments the pattern parsed into.
-   */
-  length(): Effect.Effect<number, XmlError> {
-    // Was a getter. A getter cannot return an effect, and the package has one shape
-    // for its public surface, so it is a method now.
-    return Effect.sync(() => {
-      return this.segments.length;
-    });
-  }
-
-  /**
    * @description Whether the pattern contains a `..` deep wildcard, and so cannot be matched by depth.
    */
-  hasDeepWildcard(): Effect.Effect<boolean, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#hasDeepWildcard;
-    });
+  get hasDeepWildcard(): boolean {
+    return this.#hasDeepWildcard;
   }
 
   /**
    * @description Whether any segment carries an attribute condition.
    */
-  hasAttributeCondition(): Effect.Effect<boolean, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#hasAttributeCondition;
-    });
+  get hasAttributeCondition(): boolean {
+    return this.#hasAttributeCondition;
   }
 
   /**
    * @description Whether any segment carries a position selector.
    */
-  hasPositionSelector(): Effect.Effect<boolean, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.#hasPositionSelector;
-    });
+  get hasPositionSelector(): boolean {
+    return this.#hasPositionSelector;
   }
 
   /**
    * @description The original pattern string, so a log line or error message can echo what was configured.
    */
-  toString(): Effect.Effect<string, XmlError> {
-    // The body cannot fail, so it is wrapped rather than rewritten into a generator: same
-    // branches, and the compiler points at every call site that now has to run it.
-    return Effect.sync(() => {
-      return this.pattern;
-    });
+  toString(): string {
+    return this.pattern;
   }
 }
 

@@ -14,7 +14,7 @@ import type { BuilderError } from '../errors.ts';
 import type { ResolvedXmlBuilderOptions } from './options.ts';
 import type { NameValidator } from './walk.ts';
 
-import { liftXml, nestingExceeded, runValueProcessor } from '../errors.ts';
+import { nestingExceeded, runValueProcessor } from '../errors.ts';
 import { safeCdata, safeComment, valToStr } from './util.ts';
 import {
   attributePair,
@@ -133,7 +133,7 @@ export default function toXml(jArray: unknown, options: ResolvedXmlBuilderOption
 
     // Detect XML version for use in name validation
     const xmlVersion = detectXmlVersionFromArray(jArray, options);
-    const qNameValidator: NameValidator = yield* nameValidatorFor(xmlVersion);
+    const qNameValidator: NameValidator = nameValidatorFor(xmlVersion);
     // Initialize matcher for path tracking
     const matcher = new PathMatcher();
 
@@ -163,8 +163,8 @@ function arrToStr(
   qNameValidator: NameValidator
 ): Effect.Effect<string, BuilderError> {
   return Effect.gen(function* () {
-    if (options.maxNestedTags && (yield* liftXml(matcher.getDepth())) > options.maxNestedTags) {
-      return yield* nestingExceeded(options.maxNestedTags, yield* liftXml(matcher.getDepth()));
+    if (options.maxNestedTags && matcher.getDepth() > options.maxNestedTags) {
+      return yield* nestingExceeded(options.maxNestedTags, matcher.getDepth());
     }
 
     if (!Array.isArray(arr)) {
@@ -239,21 +239,21 @@ const renderOrderedNode = Effect.fnUntraced(function* (
   const attrValues = extractAttributeValues(tagObj[':@'], options);
 
   // Push resolved tag to matcher WITH attributes
-  yield* liftXml(matcher.push(tagName, attrValues));
+  matcher.push(tagName, attrValues);
 
   // Check if this is a stop node using Expression matching
-  const isStopNode = yield* checkStopNode(matcher, ctx.stopNodeExpressions);
+  const isStopNode = checkStopNode(matcher, ctx.stopNodeExpressions);
 
   // Text, CDATA, comment and processing-instruction nodes stand outside the element form: they write into
   // the flow of the output and leave no element for a body to be wrapped in.
   const standalone = yield* renderOrderedStandalone(tagObj, rawTagName, tagName, isStopNode, isPreviousElementTag, ctx);
   if (standalone !== null) {
-    yield* liftXml(matcher.pop());
+    matcher.pop();
     return standalone;
   }
 
   const xmlStr = yield* renderOrderedElement(tagObj, rawTagName, tagName, isStopNode, ctx);
-  yield* liftXml(matcher.pop());
+  matcher.pop();
   return { xmlStr, isPreviousElementTag: true };
 });
 

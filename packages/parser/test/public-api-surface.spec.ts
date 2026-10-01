@@ -57,7 +57,7 @@ describe('Public API surface', function () {
     const limits: LimitsOptions = { maxNestedTags: 10 };
     const feedable: FeedableOptions = { autoFlush: true };
     const autoClose: AutoCloseInput = 'html';
-    const exitIf: ExitIfPredicate = () => Effect.succeed(false);
+    const exitIf: ExitIfPredicate = () => false;
 
     const options: X2jOptions = { skip, nameFor, attributes, tags, doctypeOptions, limits, feedable, autoClose, exitIf };
 

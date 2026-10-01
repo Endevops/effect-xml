@@ -8,7 +8,7 @@ import type { BuilderError } from '../errors.ts';
 import type { IgnoreAttributesPredicate, ResolvedXmlBuilderOptions, XmlBuilderOptions } from './options.ts';
 import type { NameValidator, OrderedTag } from './ordered.ts';
 
-import { liftXml, nestingExceeded, runValueProcessor } from '../errors.ts';
+import { nestingExceeded, runValueProcessor } from '../errors.ts';
 import getIgnoreAttributesFn from './ignore-attributes.ts';
 import buildFromOrderedJs, { nameValidatorFor } from './ordered.ts';
 import { escapeAttribute, safeCdata, safeComment, valToStr } from './util.ts';
@@ -233,7 +233,7 @@ interface XmlBuilderState {
   /**
    * @description Whether the matcher's current position matches any stop-node pattern.
    */
-  readonly checkStopNode: (matcher: Matcher) => Effect.Effect<boolean, BuilderError>;
+  readonly checkStopNode: (matcher: Matcher) => boolean;
   /**
    * @description Render a text-valued node, routing CDATA, comments and processing instructions to their own forms.
    */
@@ -333,7 +333,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
           // Initialize matcher for path tracking
           const matcher = new PathMatcher();
           const xmlVersion = detectXmlVersionFromObj(jObj as Record<string, unknown>, options);
-          const qNameValidator: NameValidator = yield* nameValidatorFor(xmlVersion);
+          const qNameValidator: NameValidator = nameValidatorFor(xmlVersion);
           return (yield* this.j2x(jObj as Record<string, unknown>, 0, matcher, qNameValidator)).val;
         }
       }),
@@ -347,14 +347,14 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
       ): Effect.fn.Return<J2xResult, BuilderError> {
         let attrStr = '';
         let val = '';
-        if (this.options.maxNestedTags && (yield* liftXml(matcher.getDepth())) >= this.options.maxNestedTags) {
-          return yield* nestingExceeded(this.options.maxNestedTags, yield* liftXml(matcher.getDepth()));
+        if (this.options.maxNestedTags && matcher.getDepth() >= this.options.maxNestedTags) {
+          return yield* nestingExceeded(this.options.maxNestedTags, matcher.getDepth());
         }
         // Get jPath based on option: string for backward compatibility, or Matcher for new features
-        const jPath = this.options.jPath ? yield* liftXml(matcher.toString()) : matcher;
+        const jPath = this.options.jPath ? matcher.toString() : matcher;
 
         // Check if current node is a stopNode (will be used for attribute encoding)
-        const isCurrentStopNode = yield* this.checkStopNode(matcher);
+        const isCurrentStopNode = this.checkStopNode(matcher);
 
         const ctx: WalkContext = { level, matcher, qNameValidator, jPath, isCurrentStopNode };
 
@@ -467,9 +467,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
         return closeTag;
       },
 
-      checkStopNode: Effect.fnUntraced(function* (this: XmlBuilderState, matcher: Matcher): Effect.fn.Return<boolean, BuilderError> {
-        return yield* matchesStopNode(matcher, this.stopNodeExpressions);
-      }),
+      checkStopNode: (matcher: Matcher) => matchesStopNode(matcher, stopNodeExpressions),
 
       buildTextValNode: Effect.fnUntraced(function* (
         this: XmlBuilderState,
@@ -527,22 +525,22 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
         const attrValues = this.extractAttributes(object);
 
         // Push tag to matcher before recursion WITH attributes
-        yield* liftXml(matcher.push(key, attrValues));
+        matcher.push(key, attrValues);
 
         // Check if this entire node is a stopNode
-        const isStopNode = yield* this.checkStopNode(matcher);
+        const isStopNode = this.checkStopNode(matcher);
 
         if (isStopNode) {
           // For stopNodes, build raw content without entity encoding
           const rawContent = this.buildRawContent(object);
           const attrStr = this.buildAttributesForStopNode(object);
-          yield* liftXml(matcher.pop());
+          matcher.pop();
           return this.buildObjectNode(rawContent, key, attrStr, level);
         }
 
         const result = yield* this.j2x(object, level + 1, matcher, qNameValidator);
         // Pop tag from matcher after recursion
-        yield* liftXml(matcher.pop());
+        matcher.pop();
 
         // PI/XML-declaration tags must never emit text content — route through
         // buildTextValNode which correctly ignores the text node for "?" tags.
@@ -806,7 +804,7 @@ const renderPrimitiveTagValue = Effect.fnUntraced(function* (
   }
 
   // Check if this is a stopNode before building
-  if (yield* checkStopNodeAt(builder, resolvedKey, ctx.matcher)) {
+  if (checkStopNodeAt(builder, resolvedKey, ctx.matcher)) {
     // Build as raw content without encoding
     return renderStopNodeText(builder, value, resolvedKey, ctx.level);
   }
@@ -891,10 +889,10 @@ const renderListObjectItem = Effect.fnUntraced(function* (
   }
 
   // Push tag to matcher before recursive call
-  yield* liftXml(ctx.matcher.push(resolvedKey));
+  ctx.matcher.push(resolvedKey);
   const result = yield* builder.j2x(item, ctx.level + 1, ctx.matcher, ctx.qNameValidator);
   // Pop tag from matcher after recursive call
-  yield* liftXml(ctx.matcher.pop());
+  ctx.matcher.pop();
 
   // Only a list written through attributesGroupName has attributes to give the shared tag; in the flat
   // layout an item's attributes belong to the item's own tag, which this branch does not write.
@@ -930,7 +928,7 @@ const renderListPrimitiveItem = Effect.fnUntraced(function* (
   }
 
   // Check if this is a stopNode before building
-  if (yield* checkStopNodeAt(builder, resolvedKey, ctx.matcher)) {
+  if (checkStopNodeAt(builder, resolvedKey, ctx.matcher)) {
     // Build as raw content without encoding
     return renderStopNodeText(builder, item, resolvedKey, ctx.level);
   }
@@ -1007,13 +1005,11 @@ const renderGroupedAttributes = Effect.fnUntraced(function* (
  *
  * @returns An effect producing whether the child is a stop node.
  */
-function checkStopNodeAt(builder: XmlBuilderState, key: string, matcher: Matcher): Effect.Effect<boolean, BuilderError> {
-  return Effect.gen(function* () {
-    yield* liftXml(matcher.push(key));
-    const isStopNode = yield* builder.checkStopNode(matcher);
-    yield* liftXml(matcher.pop());
-    return isStopNode;
-  });
+function checkStopNodeAt(builder: XmlBuilderState, key: string, matcher: Matcher): boolean {
+  matcher.push(key);
+  const isStopNode = builder.checkStopNode(matcher);
+  matcher.pop();
+  return isStopNode;
 }
 
 /**

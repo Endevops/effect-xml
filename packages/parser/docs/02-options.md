@@ -186,18 +186,15 @@ See [07-auto-close.md](./07-auto-close.md) for full details.
 
 A callback invoked after each opening tag. Answer `true` to stop parsing immediately.
 
-It is handed the `ReadOnlyMatcher` and answers with an `Effect`, not a `boolean` — every question the
-matcher can be asked is itself an effect (see [09-path-expressions.md](./09-path-expressions.md)), so a
-predicate typed to return a boolean could not be written against the matcher it is given.
+It is handed the `ReadOnlyMatcher` and answers with a plain `boolean` — every question the matcher
+can be asked is a plain read (see [09-path-expressions.md](./09-path-expressions.md)), so the
+predicate is synchronous and runs inside the parser's walk.
 
 ```typescript
-import { Effect } from 'effect';
-
-exitIf: matcher => Effect.map(matcher.getCurrentTag(), name => name === 'stopHere'),
+exitIf: matcher => matcher.getCurrentTag() === 'stopHere',
 ```
 
-A predicate that needs no matcher at all wraps the boolean: `exitIf: () => Effect.succeed(true)` stops
-at the first tag.
+A predicate that needs no matcher at all ignores it: `exitIf: () => true` stops at the first tag.
 
 ---
 

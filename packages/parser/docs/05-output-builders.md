@@ -34,7 +34,7 @@ import { CompactBuilderFactory } from '@endevops/builder';
 const builder = Effect.runSync(
   CompactBuilderFactory.make({
     alwaysArray: ['..item', '..book'], // always wrap these tags in arrays
-    forceArray: (matcher, isLeafNode) => Effect.runSync(matcher.toString()).endsWith('.product'),
+    forceArray: matcher => matcher.toString().endsWith('.product'),
     forceTextNode: false, // when true, text-only tags always use { '#text': val }
     textJoint: '', // join string for multiple text nodes in one tag
   })
@@ -43,9 +43,9 @@ const builder = Effect.runSync(
 Effect.runSync(XMLParser.make({ OutputBuilder: builder }));
 ```
 
-`forceArray` still answers with a plain boolean — the builder is already mid-document when it votes,
-so it runs the matcher's effect and unwraps it inline. `matcher.toString()` is a path question like
-any other; a predicate that can be written without one takes no matcher call at all.
+`forceArray` answers with a plain boolean, and every matcher read is plain, so the predicate is
+synchronous. `matcher.toString()` is a path question like any other; a predicate that can be written
+without one takes no matcher call at all.
 
 ### New Options
 

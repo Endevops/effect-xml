@@ -15,30 +15,24 @@ import { Effect } from 'effect';
 import type { BuilderError } from '../errors.ts';
 import type { ResolvedXmlBuilderOptions } from './options.ts';
 
-import { compilePattern, fromPatternError, liftXml, tryResolveName } from '../errors.ts';
+import { compilePattern, tryResolveName } from '../errors.ts';
 import { escapeAttribute } from './util.ts';
 
 /**
- * @description A memoized QName validator. It returns an effect, as every validator in `common-xml` does, and the walks test it before deciding a name needs
- * repairing — so a name the validator rejects is the one that reaches `sanitizeName`. Named separately so the signature reads at each use site
- * without repeating the `MemoizedValidator` import.
+ * @description A memoized QName validator. The walks test it before deciding a name needs repairing — so a name the validator rejects is the one that reaches
+ * `sanitizeName`. Named separately so the signature reads at each use site without repeating the `MemoizedValidator` import.
  */
-export type NameValidator = (name: string) => Effect.Effect<boolean, BuilderError>;
+export type NameValidator = (name: string) => boolean;
 
 /**
- * @description Build the memoized QName validator for an XML version. `createValidator` reports an unknown production through `common-xml`'s error channel,
- * unreachable for the literal `'qName'` here. Mapping rather than falling back to a stub, so a production that is not what this claims would fail
- * loudly instead of silently validating nothing.
+ * @description Build the memoized QName validator for an XML version. Validating a name is a regex test that cannot fail, so `createValidator` answers with a
+ * plain predicate.
  *
  * @param xmlVersion - The version detected from the document.
  *
- * @returns An effect producing the validator.
+ * @returns The validator.
  */
-export const nameValidatorFor = (xmlVersion: XmlVersion): Effect.Effect<NameValidator, BuilderError> =>
-  Effect.gen(function* () {
-    const validate = yield* Effect.mapError(createValidator('qName', { xmlVersion }), cause => fromPatternError('qName', cause));
-    return (name: string) => Effect.mapError(validate(name), cause => fromPatternError(name, cause));
-  });
+export const nameValidatorFor = (xmlVersion: XmlVersion): NameValidator => createValidator('qName', { xmlVersion });
 
 /**
  * @description Resolve a tag or attribute name through `sanitizeName` if one is configured. QName validation runs first, so the resolver is only invoked for names
@@ -63,10 +57,9 @@ export function resolveTagName(
   return Effect.gen(function* () {
     const resolve = options.sanitizeName;
     if (!resolve) return name;
-    if (yield* qNameValidator(name)) return name;
-    // `readOnly` is an effect, so the view is built before the callback runs rather than inside it
-    // — the callback is a plain function, and a plain function cannot run an effect.
-    const view = yield* liftXml(matcher.readOnly());
+    if (qNameValidator(name)) return name;
+    // `readOnly` is a plain read, so the view is built before the callback runs.
+    const view = matcher.readOnly();
     return yield* tryResolveName(name, () => resolve(name, { isAttribute, matcher: view }));
   });
 }
@@ -102,20 +95,18 @@ export function compileStopNodes(stopNodes: (string | Expression)[]): Effect.Eff
  * @param matcher - The live path.
  * @param stopNodeExpressions - The pre-compiled patterns.
  *
- * @returns An effect producing whether this node should be copied through verbatim.
+ * @returns Whether this node should be copied through verbatim.
  */
-export function checkStopNode(matcher: Matcher, stopNodeExpressions: Expression[]): Effect.Effect<boolean, BuilderError> {
-  return Effect.gen(function* () {
-    if (!stopNodeExpressions || stopNodeExpressions.length === 0) return false;
+export function checkStopNode(matcher: Matcher, stopNodeExpressions: Expression[]): boolean {
+  if (!stopNodeExpressions || stopNodeExpressions.length === 0) return false;
 
-    for (let i = 0; i < stopNodeExpressions.length; i++) {
-      const expression = stopNodeExpressions[i];
-      if (expression !== undefined && (yield* liftXml(matcher.matches(expression)))) {
-        return true;
-      }
+  for (let i = 0; i < stopNodeExpressions.length; i++) {
+    const expression = stopNodeExpressions[i];
+    if (expression !== undefined && matcher.matches(expression)) {
+      return true;
     }
-    return false;
-  });
+  }
+  return false;
 }
 
 /**

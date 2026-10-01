@@ -1,5 +1,4 @@
 import { Expression } from '@endevops/common-xml';
-import { Effect } from 'effect';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type { ExitIfPredicate } from '#/options.ts';
@@ -90,7 +89,7 @@ describe('exitIf — wasExited reflection', function () {
   it('wasExited returns false when exitIf never fires', function () {
     const parser = makeParser({
       exitIf() {
-        return Effect.succeed(false);
+        return false;
       },
     });
     runParser(parser.parse(`<root><a>ok</a></root>`));
@@ -356,7 +355,7 @@ describe.skip('exitIf — onExit builder callback', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('exitIf — OptionsBuilder validation', function () {
   it('accepts a function as exitIf', function () {
-    expect(() => makeParser({ exitIf: () => Effect.succeed(false) })).not.toThrow();
+    expect(() => makeParser({ exitIf: () => false })).not.toThrow();
   });
 
   it('accepts null as exitIf (feature disabled)', function () {

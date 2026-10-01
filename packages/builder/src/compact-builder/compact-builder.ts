@@ -1,6 +1,6 @@
-import type { MatcherView, XmlError } from '@endevops/common-xml';
+import type { MatcherView } from '@endevops/common-xml';
 
-import { Context, Effect, Layer } from 'effect';
+import { Context, Effect, Layer, Predicate } from 'effect';
 
 import type { BuilderError } from '../errors.ts';
 import type { OutputBuilder, TagDetailLike, ValueParserRegistryLike } from '../output-builder/index.ts';
@@ -9,7 +9,6 @@ import type { ValueParser } from '../output-builder/index.ts';
 import type { ValueParserRegistry } from '../output-builder/index.ts';
 import type { FactoryOptions, ResolvedFactoryOptions } from './options.ts';
 
-import { BuilderError as BuilderErrorCtor } from '../errors.ts';
 import { makeBaseOutputBuilder, makeContext, makeValueParserRegistry } from '../output-builder/index.ts';
 import { buildOptions } from './options-builder.ts';
 
@@ -51,21 +50,6 @@ export interface TagFrame {
  * whole design of this builder.
  */
 export type CompactValue = string | Record<string, unknown>;
-
-/**
- * @description Run a `common-xml` effect in the middle of a synchronous decision.
- *
- * @param effect - The effect to run.
- *
- * @returns The successful value.
- */
-const runXml = <A>(effect: Effect.Effect<A, XmlError>): A =>
-  Effect.runSync(
-    Effect.mapError(
-      effect,
-      cause => new BuilderErrorCtor({ reason: { _tag: 'EntityDecodingFailed', value: '', cause: cause.message }, message: cause.message })
-    )
-  );
 
 /**
  * @description The minimal-object builder a parser drives for one document, and the methods the shape rules are written in. Built by {@link makeCompactBuilder}.
@@ -233,7 +217,7 @@ export const makeCompactBuilder = (
      * @returns The vote, or `undefined` to abstain.
      */
     _alwaysArrayVote(): boolean | undefined {
-      return runXml(this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView)) ? true : undefined;
+      return this.builderOptions._alwaysArraySet.matchesAny(this.matcher as MatcherView) ? true : undefined;
     },
 
     /**
@@ -245,7 +229,7 @@ export const makeCompactBuilder = (
      */
     _forceArrayVote(isLeafNode: boolean): boolean | undefined {
       const forceArray = this.builderOptions.forceArray;
-      if (typeof forceArray !== 'function') return undefined;
+      if (!Predicate.isFunction(forceArray)) return undefined;
       const result = forceArray(this.matcher as MatcherView, isLeafNode);
       return typeof result === 'boolean' ? result : undefined;
     },

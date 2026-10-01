@@ -26,7 +26,7 @@ import { Effect } from 'effect';
 import type { NameMode } from './conventions.ts';
 import type { XmlValue } from './xml-value.ts';
 
-import { ATTRIBUTE_PREFIX, resolveNameSync, TEXT_KEY } from './conventions.ts';
+import { ATTRIBUTE_PREFIX, resolveName, TEXT_KEY } from './conventions.ts';
 import { asParseError, XmlParseError } from './errors.ts';
 
 /**
@@ -54,7 +54,7 @@ export interface XmlDocument {
 }
 
 /**
- * @description Options for {@link parseXml} and {@link parseXmlSync}.
+ * @description Options for {@link parseXml} and {@link parseXmlDocument}.
  */
 export interface XmlParseOptions {
   /**
@@ -88,7 +88,8 @@ export interface XmlParseOptions {
  * into the error channel rather than left to become a defect. A failed parse is an expected outcome of reading untrusted text — it is what
  * `catchTag`, `retry` and a fallback all key off — and only a defect would hide it. The span is the boundary a performance trace hangs off: it
  * carries the document's length, which is the size that drives the parser's cost, so a slow parse in a profile can be attributed to the input that
- * produced it. The `…Sync` forms are the untraced fast path for callers who have already decided not to allocate an `Effect`.
+ * produced it. A caller that wants the value outside an `Effect` uses {@link parseXmlDocument}, which is the same walk with the failure thrown
+ * instead.
  *
  * @param text - The document to read.
  * @param options - Whitespace, depth and name-handling settings.
@@ -99,18 +100,6 @@ export const parseXml = (text: string, options: XmlParseOptions = {}): Effect.Ef
   Effect.try({ try: () => parseDocument(text, options).value, catch: asParseError }).pipe(
     Effect.withSpan('XmlCodec.parseXml', { attributes: { 'xml.length': text.length } })
   );
-
-/**
- * @description Parses an XML document, throwing instead of returning a failed `Effect`.
- *
- * @param text - The document to read.
- * @param options - Whitespace, depth and name-handling settings.
- *
- * @returns The root element's content as an {@link XmlValue}.
- *
- * @throws {XmlParseError} When the document is not well-formed.
- */
-export const parseXmlSync = (text: string, options: XmlParseOptions = {}): XmlValue => parseDocument(text, options).value;
 
 /**
  * @description Parses an XML document, keeping the root element's name.
@@ -253,7 +242,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     // the document to read a boolean.
     let name: string;
     try {
-      name = resolveNameSync(raw, nameOptions);
+      name = resolveName(raw, nameOptions);
     } catch (cause) {
       throw new XmlParseError({
         message: `${what} ${JSON.stringify(raw)} is not a legal XML name: ${cause instanceof Error ? cause.message : String(cause)}`,

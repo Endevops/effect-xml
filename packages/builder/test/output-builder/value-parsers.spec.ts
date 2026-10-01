@@ -42,8 +42,8 @@ const runXml = <A>(effect: Effect.Effect<A, XmlError>): A => Effect.runSync(effe
  */
 const atA = (): MatcherView => {
   const matcher = new Matcher();
-  runXml(matcher.push('a'));
-  return runXml(matcher.readOnly());
+  matcher.push('a');
+  return matcher.readOnly();
 };
 
 // ─── FinalValue ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -233,9 +233,9 @@ describe('WSNormalizer', () => {
 
   it('leaves the value alone under xml:space="preserve"', () => {
     const matcher = new Matcher();
-    runXml(matcher.push('root', { 'xml:space': 'preserve' }, null, { keep: ['xml:space'] }));
-    runXml(matcher.push('pre'));
-    const ctx = makeContext('pre', runXml(matcher.readOnly()), true, false);
+    matcher.push('root', { 'xml:space': 'preserve' }, null, { keep: ['xml:space'] });
+    matcher.push('pre');
+    const ctx = makeContext('pre', matcher.readOnly(), true, false);
     expect(run(ws.parse('  a  b  ', ctx))).toBe('  a  b  ');
   });
 
@@ -243,56 +243,56 @@ describe('WSNormalizer', () => {
     // `getAnyParentAttr` walks the kept-attribute stack, so the scope ends when
     // the node that declared it is popped, not merely when a sibling is entered.
     const matcher = new Matcher();
-    runXml(matcher.push('keepme', { 'xml:space': 'preserve' }, null, { keep: ['xml:space'] }));
-    runXml(matcher.push('pre'));
-    expect(run(ws.parse('  a  b  ', makeContext('pre', runXml(matcher.readOnly()), true, false)))).toBe('  a  b  ');
+    matcher.push('keepme', { 'xml:space': 'preserve' }, null, { keep: ['xml:space'] });
+    matcher.push('pre');
+    expect(run(ws.parse('  a  b  ', makeContext('pre', matcher.readOnly(), true, false)))).toBe('  a  b  ');
 
-    runXml(matcher.pop());
-    runXml(matcher.pop());
-    runXml(matcher.push('div'));
-    expect(run(ws.parse('  a  b  ', makeContext('div', runXml(matcher.readOnly()), true, false)))).toBe('a b');
+    matcher.pop();
+    matcher.pop();
+    matcher.push('div');
+    expect(run(ws.parse('  a  b  ', makeContext('div', matcher.readOnly(), true, false)))).toBe('a b');
   });
 
   it('normalizes in a subtree that never declared preserve', () => {
     const matcher = new Matcher();
-    runXml(matcher.push('root'));
-    runXml(matcher.push('pre'));
-    expect(run(ws.parse('  a  b  ', makeContext('pre', runXml(matcher.readOnly()), true, false)))).toBe('a b');
+    matcher.push('root');
+    matcher.push('pre');
+    expect(run(ws.parse('  a  b  ', makeContext('pre', matcher.readOnly(), true, false)))).toBe('a b');
   });
 
   it('leaves an excluded path alone, at any depth', () => {
     const parser = run(makeWSNormalizer({ exclude: ['..pre'] }));
     const matcher = new Matcher();
-    runXml(matcher.push('root'));
-    runXml(matcher.push('section'));
-    runXml(matcher.push('pre'));
-    const ctx = makeContext('pre', runXml(matcher.readOnly()), true, false);
+    matcher.push('root');
+    matcher.push('section');
+    matcher.push('pre');
+    const ctx = makeContext('pre', matcher.readOnly(), true, false);
     expect(run(parser.parse('  a  b  ', ctx))).toBe('  a  b  ');
   });
 
   it('normalizes a path that is not excluded', () => {
     const parser = run(makeWSNormalizer({ exclude: ['..pre'] }));
     const matcher = new Matcher();
-    runXml(matcher.push('root'));
-    runXml(matcher.push('div'));
-    const ctx = makeContext('div', runXml(matcher.readOnly()), true, false);
+    matcher.push('root');
+    matcher.push('div');
+    const ctx = makeContext('div', matcher.readOnly(), true, false);
     expect(run(parser.parse('  a  b  ', ctx))).toBe('a b');
   });
 
   it('accepts a pre-compiled Expression in exclude', () => {
     const parser = run(makeWSNormalizer({ exclude: [runXml(Expression.make('..code'))] }));
     const matcher = new Matcher();
-    runXml(matcher.push('root'));
-    runXml(matcher.push('code'));
-    expect(run(parser.parse('  a  b  ', makeContext('code', runXml(matcher.readOnly()), true, false)))).toBe('  a  b  ');
+    matcher.push('root');
+    matcher.push('code');
+    expect(run(parser.parse('  a  b  ', makeContext('code', matcher.readOnly(), true, false)))).toBe('  a  b  ');
   });
 
   it('normalizes when exclude is empty', () => {
     const parser = run(makeWSNormalizer({ exclude: [] }));
     const matcher = new Matcher();
-    runXml(matcher.push('root'));
-    runXml(matcher.push('pre'));
-    expect(run(parser.parse('  a  b  ', makeContext('pre', runXml(matcher.readOnly()), true, false)))).toBe('a b');
+    matcher.push('root');
+    matcher.push('pre');
+    expect(run(parser.parse('  a  b  ', makeContext('pre', matcher.readOnly(), true, false)))).toBe('a b');
   });
 });
 

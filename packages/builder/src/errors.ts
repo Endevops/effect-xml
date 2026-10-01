@@ -158,8 +158,8 @@ export const BuilderErrorReason = Schema.TaggedUnion({
 
   /**
    * @description A caller-supplied value processor failed. `tagValueProcessor` and `attributeValueProcessor` are hooks, and the point of a hook is that the
-   * caller's code runs inside the walk. Both return an effect, because the common way to use one — running a value through `EntityEncoder` — can
-   * fail. The error is mapped here rather than left to widen this package's channel to a union, and the caller's own message rides along in `cause`.
+   * caller's code runs inside the walk. Both return an effect, so a processor can run its own effect; a failure it reports is mapped here rather than
+   * left to widen this package's channel to a union, and the caller's own message rides along in `cause`.
    */
   ValueProcessingFailed: {
     /**
@@ -309,9 +309,9 @@ export const tryResolveName = <A>(name: string, resolve: () => A): Effect.Effect
 
 /**
  * @description Run one caller-supplied value processor, mapping a failure into this package's error. The hooks are the last place a caller's own code runs on the
- * way out, and the usual way to use one — encoding a value with `EntityEncoder` — can fail. Mapping rather than letting the caller's error type leak
- * keeps one error channel, and the message rides along in `cause` so nothing is lost. Both walks need this, and neither should report a processor
- * failure differently from the other, so it lives here rather than beside either one.
+ * way out, and a processor may itself be effectful. Mapping rather than letting the caller's error type leak keeps one error channel, and the message
+ * rides along in `cause` so nothing is lost. Both walks need this, and neither should report a processor failure differently from the other, so it
+ * lives here rather than beside either one.
  *
  * @param hook - Which processor is being run, named in the failure.
  * @param name - The tag or attribute the processor was given.
@@ -328,18 +328,3 @@ export const runValueProcessor = (
     const message = cause instanceof Error ? cause.message : String(cause);
     return new BuilderError({ reason: { _tag: 'ValueProcessingFailed', hook, name, cause: message }, message });
   });
-
-/**
- * @description Lift any `common-xml` effect into this package's error channel. The builder asks `common-xml` questions of its own — a path match, a depth, an
- * ancestor attribute — and those arrive typed as `XmlError`. Three of them cannot fail for the objects the builder holds, but the package keeps one
- * error channel rather than a union a caller has to branch on twice, so they are mapped here instead.
- *
- * @param effect - The effect to lift.
- *
- * @returns An effect in this package's channel.
- */
-export const liftXml = <A>(effect: Effect.Effect<A, XmlError>): Effect.Effect<A, BuilderError> =>
-  Effect.mapError(
-    effect,
-    cause => new BuilderError({ reason: { _tag: 'EntityDecodingFailed', value: '', cause: cause.message }, message: cause.message })
-  );

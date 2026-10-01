@@ -12,14 +12,14 @@
  *   import { Effect } from 'effect';
  *   import { COMMON_HTML, EntityDecoder, Expression, Matcher, createValidator, sanitize } from '@endevops/common-xml';
  *
- *   // Infallible operations stay synchronous — a regex test cannot fail.
- *   const isQName = Effect.runSync(Effect.orElseSucceed(createValidator('qName'), () => () => false));
+ *   // Infallible operations are plain synchronous functions — a regex test cannot fail.
+ *   const isQName = createValidator('qName');
  *   isQName('svg:circle'); // true
  *   sanitize('not a name', 'ncName'); // 'not_a_name'
  *
- *   // Anything that can fail returns an Effect with an XmlError channel.
+ *   // The entity decoder can fail on an expansion limit, so it reports through an Effect.
  *   const decoder = new EntityDecoder({ namedEntities: COMMON_HTML });
- *   Effect.runSync(Effect.orElseSucceed(decoder.decode('caf&eacute; &#233;'), () => '')); // decoded text
+ *   Effect.runSync(decoder.decode('caf&eacute; &#233;')); // decoded text
  *
  *   // Compile patterns once at config time; construction is Expression.make, not `new`.
  *   const script = Effect.runSync(Expression.make('..script'));
@@ -89,23 +89,7 @@ import {
   XML,
 } from './entities/index.ts';
 import { XmlError, XmlErrorReason } from './errors.ts';
-import {
-  createValidator,
-  isName,
-  isNcName,
-  isNmToken,
-  isNmTokens,
-  isQName,
-  name,
-  ncName,
-  nmToken,
-  nmTokens,
-  qName,
-  sanitize,
-  sanitizeSync,
-  validate,
-  validateAll,
-} from './naming/index.ts';
+import { createValidator, isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate, validateAll } from './naming/index.ts';
 import { Expression, ExpressionSet, Matcher, MatcherView } from './path-matcher/index.ts';
 
 export { EntityDecoder, EntityEncoder, ENTITY_ACTION };
@@ -127,23 +111,7 @@ export {
   SHAPES,
   XML,
 };
-export {
-  createValidator,
-  isName,
-  isNcName,
-  isNmToken,
-  isNmTokens,
-  isQName,
-  name,
-  ncName,
-  nmToken,
-  nmTokens,
-  qName,
-  sanitize,
-  sanitizeSync,
-  validate,
-  validateAll,
-};
+export { createValidator, isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate, validateAll };
 export { Expression, ExpressionSet, Matcher, MatcherView };
 export { XmlError, XmlErrorReason };
 export type { XmlErrorReasonType };

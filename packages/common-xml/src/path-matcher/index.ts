@@ -5,12 +5,20 @@
  *
  * @example
  *   ```typescript
+ *   import { Effect } from 'effect';
  *   import { Expression, ExpressionSet, Matcher } from '@endevops/common-xml';
  *
- *   // Compile once at config time
- *   const stopNodes = new ExpressionSet().add(new Expression('root.users.user')).add(new Expression('..script')).seal();
+ *   // Compile once at config time. `add` can fail on a sealed set, so it is an effect.
+ *   const stopNodes = Effect.runSync(
+ *   Effect.gen(function* () {
+ *   const set = new ExpressionSet();
+ *   yield* set.add(new Expression('root.users.user'));
+ *   yield* set.add(new Expression('..script'));
+ *   return set.seal();
+ *   })
+ *   );
  *
- *   // Walk the tree
+ *   // Walk the tree. Every read is plain.
  *   const matcher = new Matcher();
  *   matcher.push('root', {});
  *   matcher.push('users', {});

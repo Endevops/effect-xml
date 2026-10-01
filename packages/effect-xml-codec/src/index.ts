@@ -7,7 +7,7 @@
  * @example
  *   ```typescript
  *   import { Schema } from 'effect';
- *   import { parseXmlSync, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
+ *   import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
  *
  *   const Book = Schema.Struct({
  *     '@id': Schema.String,
@@ -21,7 +21,7 @@
  *   const text = renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' });
  *   // => '<book id="1"><title>Dune</title><tag>sci-fi</tag></book>'
  *
- *   Schema.decodeSync(codec)(parseXmlSync(text)); // => value
+ *   Schema.decodeSync(codec)(parseXmlDocument(text).value); // => value
  *   ```;
  *
  * @packageDocumentation
@@ -38,7 +38,6 @@ export {
   isAttributeKey,
   isReservedKey,
   isTextKey,
-  isValidName,
   resolveName,
   TEXT_KEY,
 } from './conventions.ts';
@@ -46,7 +45,7 @@ export {
 export { XmlParseError } from './errors.ts';
 
 export type { XmlDocument, XmlParseOptions } from './parse.ts';
-export { parseXml, parseXmlDocument, parseXmlSync } from './parse.ts';
+export { parseXml, parseXmlDocument } from './parse.ts';
 
 export type { XmlRenderOptions } from './render.ts';
 export { escapeAttribute, escapeText, renderXml } from './render.ts';

@@ -13,23 +13,23 @@
  * - One test for input shape, one benchmark per input with the fast path off and on — where the length and unicode costs actually show up.
  */
 
-import { Effect } from 'effect';
-
-/**
- * @description Run a validator, for the benchmark bodies below. The predicate is effectful as every entry point in the package is, and the bodies run it, so the
- * number reported is what a caller actually pays rather than a bare regex test.
- *
- * @param effect - The effect to run.
- *
- * @returns The successful value.
- */
-const runSync = Effect.runSync;
 import { afterAll, expect, test } from 'vite-plus/test';
 
-import type { XmlError } from '#/errors.ts';
 import type { Production, ValidationOptions } from '#/index.ts';
 
-import * as xmlNaming from '#/index.ts';
+import { isName, isNcName, isNmToken, isNmTokens, isQName } from '#/index.ts';
+
+/**
+ * @description The five predicates, keyed by production so the grid below can iterate them. Each is a plain synchronous function — a regex test cannot fail — and
+ * the benchmark bodies call it directly, so the number reported is what a caller actually pays rather than an Effect's allocation.
+ */
+const VALIDATORS: Record<Production, (input: string, options?: ValidationOptions) => boolean> = {
+  name: isName,
+  ncName: isNcName,
+  qName: isQName,
+  nmToken: isNmToken,
+  nmTokens: isNmTokens,
+};
 
 /**
  * @description The five productions under test, in the order the runtime error message lists them.
@@ -81,16 +81,14 @@ let observed = 0;
 const BUDGET = { time: 200, warmupTime: 50 } as const;
 
 /**
- * @description Bound a validator to a local. Reading it off the namespace object would go through the module runner's export getter on every call, which is
- * measurable at the iteration counts a 200ms sample reaches.
+ * @description Bound a validator to a local. Reading it off the keyed record would go through a property lookup on every call, which is measurable at the
+ * iteration counts a 200ms sample reaches.
  *
  * @param production - Which production to bind.
  *
- * @returns The validator. It is effectful, as every entry point in the package is, and the bodies below run it
- * rather than timing a bare boolean.
+ * @returns The plain boolean predicate for that production.
  */
-const validatorFor = (production: Production): ((input: string, options?: ValidationOptions) => Effect.Effect<boolean, XmlError>) =>
-  xmlNaming[production];
+const validatorFor = (production: Production): ((input: string, options?: ValidationOptions) => boolean) => VALIDATORS[production];
 
 afterAll(() => {
   // If the sink is still empty, the benchmark bodies never reached the line
@@ -111,7 +109,7 @@ for (const { label, options } of OPTION_SETS) {
         // production does byte-identical work and the rows compare directly.
         // The two 1000-character inputs dominate the per-op time here, which
         // is why the next test measures the shapes separately.
-        for (const input of INPUTS) observed += runSync(validate(input, options)) ? 1 : 0;
+        for (const input of INPUTS) observed += validate(input, options) ? 1 : 0;
       });
     });
 
@@ -125,7 +123,7 @@ test('input shape — name production', async ({ bench }) => {
   const measurements = Object.entries(CASES).flatMap(([caseLabel, input]) =>
     [false, true].map(asciiOnly =>
       bench(`${caseLabel} / asciiOnly=${asciiOnly}`, () => {
-        observed += runSync(validate(input, { xmlVersion: '1.0', asciiOnly })) ? 1 : 0;
+        observed += validate(input, { xmlVersion: '1.0', asciiOnly }) ? 1 : 0;
       })
     )
   );

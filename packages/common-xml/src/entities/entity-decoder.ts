@@ -886,13 +886,11 @@ export class EntityDecoder {
    *
    * @returns This decoder, so a call can be chained onto the document it ends.
    */
-  reset(): Effect.Effect<this, XmlError> {
-    return Effect.sync(() => {
-      this.#inputMap = Object.create(null);
-      this.#totalExpansions = 0;
-      this.#expandedLength = 0;
-      return this;
-    });
+  reset(): this {
+    this.#inputMap = Object.create(null);
+    this.#totalExpansions = 0;
+    this.#expandedLength = 0;
+    return this;
   }
 
   /**
@@ -901,12 +899,10 @@ export class EntityDecoder {
    *
    * @param version - The declared version.
    *
-   * @returns An effect that records the version. Infallible; the channel is empty because the package has one shape for its public surface.
+   * @returns Nothing.
    */
-  setXmlVersion(version: number): Effect.Effect<void, XmlError> {
-    return Effect.sync(() => {
-      this.#ncrXmlVersion = version === 1.1 ? 1.1 : 1.0;
-    });
+  setXmlVersion(version: number): void {
+    this.#ncrXmlVersion = version === 1.1 ? 1.1 : 1.0;
   }
 
   /**

@@ -85,7 +85,7 @@ const decodeValue = (decoder: EntityDecoder, value: unknown): unknown => run(dec
  * @param version - The version to hand it.
  */
 const setXmlVersionWith = (decoder: EntityDecoder, version: unknown): void => {
-  run(decoder.setXmlVersion(version as number));
+  decoder.setXmlVersion(version as number);
 };
 
 /**
@@ -509,7 +509,7 @@ describe('expansion limits', () => {
     const decoder = run(EntityDecoder.make({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } }));
     expect(run(decoder.decode('&amp;'))).toBe('&');
     expect(failed(decoder.decode('&amp;')).message).toContain('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
-    run(decoder.reset());
+    decoder.reset();
     expect(run(decoder.decode('&amp;'))).toBe('&');
   });
 });
@@ -715,32 +715,32 @@ describe('preserved upstream quirk: a throwing hook and a throwing input registr
 
 describe('reset', () => {
   it('returns the decoder, so a call can be chained onto the document it ends', () => {
-    expect(run(run(EntityDecoder.make()).reset())).toBeInstanceOf(EntityDecoder);
+    expect(run(EntityDecoder.make()).reset()).toBeInstanceOf(EntityDecoder);
   });
 
   it('drops the per-document input entities', () => {
     const decoder = decoderWithBothTiers();
     expect(run(decoder.decode('&inputName;'))).toBe('INPUT');
-    run(decoder.reset());
+    decoder.reset();
     expect(run(decoder.decode('&inputName;'))).toBe('&inputName;');
   });
 
   it('keeps the persistent external entities, which is the whole distinction from the input map', () => {
     const decoder = decoderWithBothTiers();
-    run(decoder.reset());
+    decoder.reset();
     expect(run(decoder.decode('&externalName;'))).toBe('EXTERNAL');
   });
 
   it('keeps the caller table it was constructed with', () => {
     const decoder = run(EntityDecoder.make({ namedEntities: { n: 'N' } }));
-    run(decoder.reset());
+    decoder.reset();
     expect(run(decoder.decode('&n;'))).toBe('N');
   });
 
   it('keeps the XML version a declaration set', () => {
     const decoder = run(EntityDecoder.make());
-    run(decoder.setXmlVersion(1.1));
-    run(decoder.reset());
+    decoder.setXmlVersion(1.1);
+    decoder.reset();
     // The C0 control surviving is what says the version survived: under 1.0 the same reference is deleted.
     expect(run(decoder.decode('a&#x1;b'))).toBe('a\u0001b');
   });

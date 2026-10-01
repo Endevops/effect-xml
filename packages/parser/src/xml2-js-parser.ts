@@ -3,7 +3,6 @@ import type { Production } from '@endevops/common-xml';
 
 import { ExpressionSet, Matcher } from '@endevops/common-xml';
 import { createValidator } from '@endevops/common-xml';
-import { Effect } from 'effect';
 
 import type { InputSourceLike } from './input-source/input-source.ts';
 import type {
@@ -42,7 +41,6 @@ import {
   UnexpectedTrailingData,
   isParseError,
   runBuilder,
-  runXml,
 } from './parse-error.ts';
 import { StopNodeProcessor } from './stop-node-processor.ts';
 import { DANGEROUS_PROPERTY_NAMES, absolutePosition, criticalProperties, errorPositionOf, sanitizeContent } from './util.ts';
@@ -253,7 +251,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     this.matcher = new Matcher();
 
     //create once and reuse
-    this.readonlyMatcher = runXml(this.matcher.readOnly());
+    this.readonlyMatcher = this.matcher.readOnly();
 
     // AutoClose handler — created once per parser instance, reset on each parse
     this.autoCloseHandler = options.autoClose ? new AutoCloseHandler(options.autoClose) : null;
@@ -268,13 +266,13 @@ export default class Xml2JsParser implements TagExpressionParser {
     // every question as an effect. Read here, once per parser instance, to
     // decide whether the hot path is worth installing a real predicate at all.
     this.stopNodeExpressionsSet = this.options.tags.stopNodesSet ?? new ExpressionSet();
-    this.isStopNode = runXml(this.stopNodeExpressionsSet.size()) === 0 ? noTagConfig : isStopNode;
+    this.isStopNode = this.stopNodeExpressionsSet.size === 0 ? noTagConfig : isStopNode;
     this.skipTagExpressionsSet = this.options.skip.tagsSet ?? new ExpressionSet();
-    this.isSkipTag = runXml(this.skipTagExpressionsSet.size()) === 0 ? noTagConfig : isSkipTag;
+    this.isSkipTag = this.skipTagExpressionsSet.size === 0 ? noTagConfig : isSkipTag;
 
     // exitIf: optional predicate called after each opening tag is pushed.
     // Stored directly — it's a plain function, not an ExpressionSet.
-    this._exitIf = typeof options.exitIf === 'function' ? options.exitIf : () => Effect.succeed(false);
+    this._exitIf = typeof options.exitIf === 'function' ? options.exitIf : () => false;
 
     // Tag/attribute name cache — read from `options`, not created fresh here.
     // `XMLParser` creates a brand-new Xml2JsParser on every parse() call but
@@ -318,7 +316,7 @@ export default class Xml2JsParser implements TagExpressionParser {
 
     if (!this.matcher) {
       this.matcher = new Matcher();
-      this.readonlyMatcher = runXml(this.matcher.readOnly());
+      this.readonlyMatcher = this.matcher.readOnly();
     }
 
     this.outputBuilder = this._createOutputBuilder();
@@ -347,6 +345,7 @@ export default class Xml2JsParser implements TagExpressionParser {
    *
    * @param strData - The whole document as a string.
    */
+  // fallow-ignore-next-line unused-class-member
   parse(strData: string): unknown {
     this.source = new StringSource(strData);
     this.initializeParser();
@@ -359,6 +358,7 @@ export default class Xml2JsParser implements TagExpressionParser {
    *
    * @param data - The whole document as bytes.
    */
+  // fallow-ignore-next-line unused-class-member
   parseBytesArr(data: Uint8Array): unknown {
     const registry = this.options.decoding?._registry;
     const profile = buildProfileForBuffer(data, this.options.decoding as DecodingOptions, registry);
@@ -648,9 +648,9 @@ export default class Xml2JsParser implements TagExpressionParser {
 
     // ── Two-pass attribute handling ──────────────────────────────────────────
     if (tagExp.rawAttributesLen > 0) {
-      runXml(this.matcher.push(matcherTagName, tagExp.rawAttributes, tagNamespace, keepSpace));
+      this.matcher.push(matcherTagName, tagExp.rawAttributes, tagNamespace, keepSpace);
     } else {
-      runXml(this.matcher.push(matcherTagName, {}, tagNamespace));
+      this.matcher.push(matcherTagName, {}, tagNamespace);
     }
 
     // Resolve skip/stop BEFORE touching the output builder
@@ -707,7 +707,7 @@ export default class Xml2JsParser implements TagExpressionParser {
       this._openStopNode(tagExp, tagDetail, stopNodeConfig);
     } else if (skipTagConfig) {
       this._openSkipTag(tagExp, tagDetail, skipTagConfig);
-    } else if (runXml(this._exitIf(this.readonlyMatcher))) {
+    } else if (this._exitIf(this.readonlyMatcher)) {
       this._triggerExitIf(tagDetail);
     } else {
       this.pushTag(tagDetail);
@@ -721,7 +721,7 @@ export default class Xml2JsParser implements TagExpressionParser {
   _openUnpairedTag(tagDetail: TagDetailLike): void {
     this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
     runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
-    runXml(this.matcher.pop());
+    this.matcher.pop();
   }
 
   /**
@@ -733,7 +733,7 @@ export default class Xml2JsParser implements TagExpressionParser {
       this.outputBuilder.addElement(tagDetail, this.readonlyMatcher);
       runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, this._closeMetaFor(tagDetail)));
     }
-    runXml(this.matcher.pop());
+    this.matcher.pop();
   }
 
   /**
@@ -752,7 +752,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     this.outputBuilder.onStopNode?.(tagDetail, content, this.readonlyMatcher, stopEnd);
     this.outputBuilder.addValue(content, this.readonlyMatcher);
     runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
-    runXml(this.matcher.pop());
+    this.matcher.pop();
     this._stopNodeProcessor = null;
     this._stopNodeProcessorMeta = null;
   }
@@ -766,7 +766,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     this._stopNodeProcessorMeta = { tagDetail, isSkip: true };
     this._stopNodeProcessor.activate();
     this._stopNodeProcessor.collect(this.source); // advance source; content discarded
-    runXml(this.matcher.pop());
+    this.matcher.pop();
     this._stopNodeProcessor = null;
     this._stopNodeProcessorMeta = null;
   }
@@ -778,7 +778,7 @@ export default class Xml2JsParser implements TagExpressionParser {
    */
   _triggerExitIf(tagDetail: TagDetailLike): void {
     const exitDepth = this.tagsStack.length; // number of ancestors open before this tag
-    runXml(this.matcher.pop()); // undo the push for the triggering tag
+    this.matcher.pop(); // undo the push for the triggering tag
 
     while (this.currentTagDetail && !this.currentTagDetail.root) {
       this.addTextNode();
@@ -814,7 +814,7 @@ export default class Xml2JsParser implements TagExpressionParser {
       this.outputBuilder.addValue(content, this.readonlyMatcher);
       runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, { name: tagDetail.name, closeEnd: stopEnd.index }));
     }
-    runXml(this.matcher.pop());
+    this.matcher.pop();
     this._stopNodeProcessor = null;
     this._stopNodeProcessorMeta = null;
   }
@@ -840,7 +840,7 @@ export default class Xml2JsParser implements TagExpressionParser {
    */
   popTag(closeMeta?: CloseMeta): void {
     runBuilder(this.outputBuilder.closeElement(this.readonlyMatcher, closeMeta ?? { name: this.currentTagDetail?.name as string }));
-    runXml(this.matcher.pop());
+    this.matcher.pop();
     this.currentTagDetail = this.tagsStack.pop() ?? null;
   }
 
@@ -935,7 +935,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     // question asked mid-walk, so it is run rather than read — an effect read
     // as a value is an object, and an object is truthy, so every name would
     // validate.
-    const ok = runXml(this.getNameValidator('qName')(name));
+    const ok = this.getNameValidator('qName')(name);
     if (ok) {
       if (cache.size >= NAME_CACHE_LIMIT) cache.clear();
       cache.add(name);
@@ -953,7 +953,7 @@ export default class Xml2JsParser implements TagExpressionParser {
     let validator = this._nameValidators[production];
     if (!validator) {
       const xmlVersion = this.xmlDec.version === 1.1 ? '1.1' : '1.0';
-      validator = runXml(createValidator(production, { xmlVersion }));
+      validator = createValidator(production, { xmlVersion });
       this._nameValidators[production] = validator;
     }
     return validator;
@@ -971,7 +971,7 @@ export default class Xml2JsParser implements TagExpressionParser {
       const options = this.options;
       let attrName = resolveNsPrefix(rawAttrName, options.skip.nsPrefix, this.source);
       if (attrName === false) return false;
-      if (!runXml(this.getNameValidator('qName')(attrName))) {
+      if (!this.getNameValidator('qName')(attrName)) {
         //TODO: make it optional
         throw new InvalidAttributeName({ name: attrName, message: `Invalid attribute name: ${attrName}`, index: errorPositionOf(this.source).index });
       }
@@ -1135,7 +1135,7 @@ function isSourceExhaustedError(err: unknown): boolean {
  * the hot path answering a question already settled — and `size` is a method now, so it is not even free.
  */
 function isStopNode(this: Xml2JsParser): TagExpressionConfig | null {
-  const matched = runXml(this.stopNodeExpressionsSet.findMatch(this.matcher));
+  const matched = this.stopNodeExpressionsSet.findMatch(this.matcher);
   return matched ? (matched.data ?? null) : null;
 }
 
@@ -1145,6 +1145,6 @@ function isStopNode(this: Xml2JsParser): TagExpressionConfig | null {
  * `this.isSkipTag()`, so the receiver is the parser. See {@link isStopNode} for why there is no emptiness check here.
  */
 function isSkipTag(this: Xml2JsParser): TagExpressionConfig | null {
-  const matched = runXml(this.skipTagExpressionsSet.findMatch(this.matcher));
+  const matched = this.skipTagExpressionsSet.findMatch(this.matcher);
   return matched ? (matched.data ?? null) : null;
 }

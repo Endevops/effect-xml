@@ -22,7 +22,7 @@ import type { XmlVersion } from '@endevops/common-xml';
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
-import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveNameSync, TEXT_KEY } from './conventions.ts';
+import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveName, TEXT_KEY } from './conventions.ts';
 import { isXmlArray } from './xml-value.ts';
 
 /**
@@ -160,7 +160,7 @@ const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: 
   return name => {
     const hit = cache.get(name);
     if (hit !== undefined) return hit;
-    const resolved = resolveNameSync(name, { mode: options.name, xmlVersion: options.xmlVersion });
+    const resolved = resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion });
     cache.set(name, resolved);
     return resolved;
   };

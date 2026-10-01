@@ -196,7 +196,7 @@ const defaultOptions: ResolvedOptions = {
   // An explicit `null` from the caller means "no predicate"; the default here
   // is the always-false one so the hot path never tests for null. It answers as
   // an effect like any other, so the parser's call site has one shape.
-  exitIf: () => Effect.succeed(false),
+  exitIf: () => false,
 
   //onStopNode(tagDetail, rawContent, matcher)
   // --- output ---
@@ -505,7 +505,7 @@ function normalizeTagList(entries: ReadonlyArray<TagEntry>, optionName: string):
     for (const entry of entries) {
       compiled.push(yield* normalizeTagEntry(entry, optionName, set));
     }
-    yield* Effect.mapError(set.seal(), fromUpstreamError);
+    set.seal();
     return { entries: compiled, set };
   });
 }

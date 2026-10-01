@@ -1175,30 +1175,10 @@ export const fromUpstreamError = (cause: XmlError | BuilderError): DependencyErr
   });
 
 /**
- * @description Run a `common-xml` effect in the middle of a synchronous decision, mapping its failure into a thrown {@link DependencyError}. Every `common-xml`
- * call the parser makes — a path match, a depth, a sibling counter, a name validator — happens inside a synchronous walk over the document, and its
- * answer is needed immediately: a stop-node check has to know _now_ whether this tag is a stop node, not two generator steps from now. So the effect
- * is run here, and an effect read as a value is exactly the bug this guards against — an `Effect` is an object, and an object is truthy, which would
- * make every match succeed and every validator pass. The `common-xml` members the parser calls cannot fail for the values it passes them — a literal
- * production, a matcher the parser owns — so reaching the failure branch would mean a defect rather than a bad document. The mapping is here anyway,
- * because leaving it out would make the next member added to `common-xml` throw a `FiberFailure` from inside the parser.
- *
- * @deprecated
- *
- * @param effect - The effect to run.
- *
- * @returns The successful value.
- *
- * @throws {DependencyError} When the effect fails.
- */
-export const runXml = <A>(effect: Effect.Effect<A, XmlError>): A => Effect.runSync(Effect.mapError(effect, fromUpstreamError));
-
-/**
- * @description Run a `@endevops/builder` effect in the middle of a synchronous decision, mapping its failure into a thrown {@link DependencyError}. The builder's
- * counterpart to {@link runXml}, and for the same reason: `closeElement` and `addAttribute` are called once per tag from the synchronous walk, and
- * both can genuinely fail — on an entity expansion limit, or a value processor a caller supplied.
- *
- * @deprecated
+ * @description Run a `@endevops/builder` effect in the middle of a synchronous decision, mapping its failure into a thrown {@link DependencyError}. The parser
+ * walks the document synchronously, and `closeElement`, `addAttribute` and `getInstance` are called once per tag from that walk; each can genuinely
+ * fail — on an entity expansion limit, or a value processor a caller supplied — so the effect is run here and its failure is converted into the
+ * parser's own {@link DependencyError} rather than left to escape as a defect.
  *
  * @param effect - The effect to run.
  *
