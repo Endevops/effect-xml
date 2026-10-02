@@ -46,7 +46,7 @@ export type { NameMode, ResolveNameOptions } from './conventions.ts';
 
 export { XmlParseError, XmlRenderError } from './errors.ts';
 
-export { NAMESPACE_KEY, PREFIX_KEY } from './namespaces.ts';
+export { NAME_KEY, NAMESPACE_KEY, PREFIX_KEY } from './namespaces.ts';
 export type { NamespacePlan, XmlNamespace } from './namespaces.ts';
 
 export { parseXml } from './parse.ts';

@@ -65,13 +65,19 @@ decision rather than the parser's:
 ## Namespaces
 
 A schema describes a value in local names, so a namespace is an annotation on
-the schema node that owns the element rather than part of the field name. Two
-annotations, both accepted by `Schema.annotate`:
+the schema node that owns the element rather than part of the field name. Three
+annotations, all accepted by `Schema.annotate`:
 
 | Annotation     | Meaning                                                                                       |
 | -------------- | --------------------------------------------------------------------------------------------- |
 | `xmlNamespace` | The element's namespace URI.                                                                  |
 | `xmlPrefix`    | The wire prefix to write for it. Omit it to write the namespace as the default (`xmlns="…"`). |
+| `xmlName`      | The wire local name, when it differs from the schema key.                                     |
+
+`xmlName` renames one node, element or attribute, without touching the schema's
+own name. The prefix still comes from `xmlPrefix`, so the name is a local name
+and must not contain a colon. On the root schema it also names the root element,
+unless the `rootName` option is given.
 
 The annotation is attached with `Schema.annotate`:
 

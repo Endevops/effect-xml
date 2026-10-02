@@ -10,6 +10,9 @@
 //   - `xmlPrefix` is the wire prefix to write for that URI. When it is omitted
 //     the namespace is written as the default namespace (`xmlns="…"`), and an
 //     unprefixed element name is used.
+//   - `xmlName` is the wire local name to write when it differs from the schema
+//     field's own name. It applies to an element or an attribute, and a colon
+//     is not allowed because the prefix comes from `xmlPrefix`.
 //
 // The namespace of an element is inherited by its descendants, the way an XML
 // default namespace is. An attribute never inherits: it is in a namespace only
@@ -37,7 +40,7 @@ import { ATTRIBUTE_PREFIX, isAttributeKey, TEXT_KEY } from './conventions.ts';
 
 declare module 'effect/Schema' {
   namespace Annotations {
-    interface Annotations {
+    interface XmlAnnotations {
       /**
        * @description The namespace URI this schema's element belongs to. Read as the local name on the wire, with `xmlPrefix` choosing the prefix.
        */
@@ -47,7 +50,15 @@ declare module 'effect/Schema' {
        * @description The wire prefix to write for {@link xmlNamespace}. Omit it to write the namespace as the default (`xmlns="…"`) with unprefixed element names.
        */
       readonly xmlPrefix?: string | undefined;
+
+      /**
+       * @description The local name to write for an element or attribute, when it differs from the schema key. A colon is not allowed here; the prefix comes from
+       * {@link xmlPrefix}.
+       */
+      readonly xmlName?: string | undefined;
     }
+
+    interface Annotations extends XmlAnnotations {}
   }
 }
 
@@ -60,6 +71,11 @@ export const NAMESPACE_KEY = 'xmlNamespace';
  * @description The annotation key holding the wire prefix for an element's namespace.
  */
 export const PREFIX_KEY = 'xmlPrefix';
+
+/**
+ * @description The annotation key holding the wire local name for an element or attribute.
+ */
+export const NAME_KEY = 'xmlName';
 
 /**
  * @description An element's namespace: the URI, and the prefix to write it with. An empty prefix is the default namespace.
@@ -80,9 +96,19 @@ export interface NamespacePlan {
   readonly byKey: ReadonlyMap<string, XmlNamespace>;
 
   /**
+   * @description The wire local name of each key that overrides the schema's own name with `xmlName`.
+   */
+  readonly nameByKey: ReadonlyMap<string, string>;
+
+  /**
    * @description The root element's namespace, or `undefined` when the root is unannotated.
    */
   readonly root: XmlNamespace | undefined;
+
+  /**
+   * @description The root element's local name from its `xmlName` annotation, or `undefined`.
+   */
+  readonly rootName: string | undefined;
 
   /**
    * @description The schema key for a resolved `(uri, local)` name, keyed `uri|local`. Lets a document with any prefix resolve back to the schema.
@@ -98,15 +124,13 @@ export interface NamespacePlan {
  *
  * @returns The namespace, or `undefined`.
  */
-const namespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
+const annotationAt = (ast: SchemaAST.AST, key: string): unknown => {
   const seen = new Set<SchemaAST.AST>();
-  const find = (node: SchemaAST.AST): XmlNamespace | undefined => {
+  const find = (node: SchemaAST.AST): unknown => {
     if (seen.has(node)) return undefined;
     seen.add(node);
-    const annotations = SchemaAST.resolve(node);
-    if (typeof annotations?.[NAMESPACE_KEY] === 'string') {
-      return { uri: annotations[NAMESPACE_KEY], prefix: typeof annotations[PREFIX_KEY] === 'string' ? annotations[PREFIX_KEY] : '' };
-    }
+    const value = SchemaAST.resolve(node)?.[key];
+    if (value !== undefined) return value;
     if (node._tag === 'Union') {
       for (const member of node.types) {
         const found = find(member);
@@ -120,6 +144,33 @@ const namespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
 };
 
 /**
+ * @description The namespace an AST's own annotations declare, or `undefined`. `Schema.optional` and `Schema.suspend` wrap a node without moving its annotation,
+ * so both are unwrapped to find the namespace the field carries.
+ *
+ * @param ast - The AST to read.
+ *
+ * @returns The namespace, or `undefined`.
+ */
+const namespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
+  const uri = annotationAt(ast, NAMESPACE_KEY);
+  if (typeof uri !== 'string') return undefined;
+  const prefix = annotationAt(ast, PREFIX_KEY);
+  return { uri, prefix: typeof prefix === 'string' ? prefix : '' };
+};
+
+/**
+ * @description The wire local name an AST's own annotations declare, or `undefined`.
+ *
+ * @param ast - The AST to read.
+ *
+ * @returns The local name, or `undefined`.
+ */
+const nameOf = (ast: SchemaAST.AST): string | undefined => {
+  const name = annotationAt(ast, NAME_KEY);
+  return typeof name === 'string' ? name : undefined;
+};
+
+/**
  * @description The namespace a property carries when its annotation was attached with `Schema.annotateKey` rather than to the field's schema.
  *
  * @param ast - The property's value AST, whose context holds the key annotations.
@@ -128,10 +179,22 @@ const namespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
  */
 const keyNamespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
   const annotations = ast.context?.annotations;
-  if (typeof annotations?.[NAMESPACE_KEY] === 'string') {
-    return { uri: annotations[NAMESPACE_KEY], prefix: typeof annotations[PREFIX_KEY] === 'string' ? annotations[PREFIX_KEY] : '' };
-  }
-  return undefined;
+  const uri = annotations?.[NAMESPACE_KEY];
+  if (typeof uri !== 'string') return undefined;
+  const prefix = annotations?.[PREFIX_KEY];
+  return { uri, prefix: typeof prefix === 'string' ? prefix : '' };
+};
+
+/**
+ * @description The wire local name a property's key annotations declare, or `undefined`.
+ *
+ * @param ast - The property's value AST, whose context holds the key annotations.
+ *
+ * @returns The local name, or `undefined`.
+ */
+const keyNameOf = (ast: SchemaAST.AST): string | undefined => {
+  const name = ast.context?.annotations?.[NAME_KEY];
+  return typeof name === 'string' ? name : undefined;
 };
 
 /**
@@ -159,6 +222,7 @@ const localName = (key: string): string => (isAttributeKey(key) ? key.slice(ATTR
  */
 interface Scan {
   readonly byKey: Map<string, XmlNamespace>;
+  readonly nameByKey: Map<string, string>;
   readonly problems: Array<string>;
   readonly seen: Set<SchemaAST.AST>;
 }
@@ -179,9 +243,45 @@ const record = (scan: Scan, key: string, namespace: XmlNamespace | undefined): v
 };
 
 /**
- * @description Records one struct property. An attribute carries its namespace only when annotated; an element field falls back to the namespace it inherits. A
- * field whose name already carries a prefix cannot also carry a namespace annotation, and an attribute namespace needs a prefix because a default
- * namespace does not apply to attributes.
+ * @description Records a field's `xmlName` override, refusing one that carries a prefix because the prefix comes from `xmlPrefix`.
+ *
+ * @param scan - The scan state.
+ * @param key - The schema key.
+ * @param name - The annotated local name, or `undefined`.
+ */
+const recordName = (scan: Scan, key: string, name: string | undefined): void => {
+  if (name === undefined) return;
+  if (name.includes(':')) scan.problems.push(`xmlName "${name}" on "${key}" must be a local name; use xmlPrefix for the prefix`);
+  else scan.nameByKey.set(key, name);
+};
+
+/**
+ * @description Records a field's namespace, refusing the two annotations that cannot be honored: a namespaced field whose name already carries a prefix, and a
+ * namespaced attribute without a prefix, because a default namespace does not apply to attributes.
+ *
+ * @param scan - The scan state.
+ * @param key - The schema key.
+ * @param isAttribute - Whether the key is an attribute.
+ * @param field - The field's own namespace, or `undefined`.
+ * @param inherited - The namespace the enclosing element passes down.
+ */
+const recordFieldNamespace = (
+  scan: Scan,
+  key: string,
+  isAttribute: boolean,
+  field: XmlNamespace | undefined,
+  inherited: XmlNamespace | undefined
+): void => {
+  if (field !== undefined && key.includes(':'))
+    scan.problems.push(`"${key}" already carries a prefix, so it cannot also carry a namespace annotation`);
+  else if (isAttribute && field !== undefined && field.prefix === '')
+    scan.problems.push(`the attribute "${key}" needs xmlPrefix, because a default namespace does not apply to attributes`);
+  else record(scan, key, isAttribute ? field : (field ?? inherited));
+};
+
+/**
+ * @description Records one struct property: its `xmlName`, its namespace, and the namespace its descendants inherit. An attribute carries a namespace only when
+ * annotated; an element field falls back to the namespace it inherits.
  *
  * @param scan - The scan state.
  * @param property - The property signature.
@@ -191,11 +291,8 @@ const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherit
   const key = typeof property.name === 'string' ? property.name : String(property.name);
   const isAttribute = isAttributeKey(key);
   const field = keyNamespaceOf(property.type) ?? namespaceOf(property.type);
-  if (field !== undefined && key.includes(':'))
-    scan.problems.push(`"${key}" already carries a prefix, so it cannot also carry a namespace annotation`);
-  else if (isAttribute && field !== undefined && field.prefix === '')
-    scan.problems.push(`the attribute "${key}" needs xmlPrefix, because a default namespace does not apply to attributes`);
-  else record(scan, key, isAttribute ? field : (field ?? inherited));
+  recordName(scan, key, keyNameOf(property.type) ?? nameOf(property.type));
+  recordFieldNamespace(scan, key, isAttribute, field, inherited);
   scanNode(scan, property.type, isAttribute ? inherited : (field ?? inherited));
 };
 
@@ -263,13 +360,21 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
  * @returns The plan, or the annotations that cannot be honored.
  */
 export const namespacePlan = (schema: Schema.Constraint): { readonly plan: NamespacePlan } | { readonly error: string } => {
-  const scan: Scan = { byKey: new Map(), problems: [], seen: new Set() };
+  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), problems: [], seen: new Set() };
   scanNode(scan, schema.ast, undefined);
-  if (scan.problems.length > 0) return { error: [...new Set(scan.problems)].join('; ') };
 
   const byResolved = new Map<string, string>();
-  for (const [key, namespace] of scan.byKey) byResolved.set(`${namespace.uri}|${localName(key)}`, key);
-  return { plan: { byKey: scan.byKey, root: namespaceOf(schema.ast), byResolved } };
+  for (const key of new Set([...scan.byKey.keys(), ...scan.nameByKey.keys()])) {
+    const namespace = scan.byKey.get(key);
+    const local = scan.nameByKey.get(key) ?? localName(key);
+    const resolved = `${namespace?.uri ?? ''}|${local}`;
+    const previous = byResolved.get(resolved);
+    if (previous !== undefined && previous !== key) scan.problems.push(`"${previous}" and "${key}" both resolve to "${local}"`);
+    else byResolved.set(resolved, key);
+  }
+
+  if (scan.problems.length > 0) return { error: [...new Set(scan.problems)].join('; ') };
+  return { plan: { byKey: scan.byKey, nameByKey: scan.nameByKey, root: namespaceOf(schema.ast), rootName: nameOf(schema.ast), byResolved } };
 };
 
 /**
@@ -325,10 +430,11 @@ const declare = (out: Record<string, XmlValue>, scope: Record<string, string | u
  *
  * @returns The key to write.
  */
-const wireKey = (key: string, namespace: XmlNamespace | undefined): string => {
-  if (namespace === undefined || namespace.prefix === '') return key;
+const wireKey = (plan: NamespacePlan, key: string, namespace: XmlNamespace | undefined): string => {
   const isAttribute = isAttributeKey(key);
-  return `${isAttribute ? ATTRIBUTE_PREFIX : ''}${namespace.prefix}:${localName(key)}`;
+  const local = plan.nameByKey.get(key) ?? localName(key);
+  if (namespace === undefined || namespace.prefix === '') return isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local;
+  return `${isAttribute ? ATTRIBUTE_PREFIX : ''}${namespace.prefix}:${local}`;
 };
 
 /**
@@ -346,10 +452,10 @@ const encodeFields = (value: XmlRecord, plan: NamespacePlan, out: Record<string,
     const childNamespace = plan.byKey.get(key);
     if (isAttributeKey(key)) {
       if (childNamespace !== undefined) declare(out, scope, childNamespace);
-      out[wireKey(key, childNamespace)] = child;
+      out[wireKey(plan, key, childNamespace)] = child;
       continue;
     }
-    out[wireKey(key, childNamespace)] = encodeNames(child, plan, childNamespace, scope);
+    out[wireKey(plan, key, childNamespace)] = encodeNames(child, plan, childNamespace, scope);
   }
 };
 

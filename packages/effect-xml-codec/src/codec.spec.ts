@@ -187,6 +187,67 @@ describe('toCodecXml() — namespaces', () => {
   });
 });
 
+describe('toCodecXml() — xmlName', () => {
+  const ATOM = 'http://www.w3.org/2005/Atom';
+
+  it('writes an element name that differs from the schema field', () => {
+    const codec = toCodecXml(Schema.Struct({ mimeType: Schema.String.annotate({ xmlName: 'mime-type' }) }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ mimeType: 'text/plain' })).toBe('<r><mime-type>text/plain</mime-type></r>');
+    expect(Schema.decodeSync(codec)('<r><mime-type>text/plain</mime-type></r>')).toEqual({ mimeType: 'text/plain' });
+  });
+
+  it('writes an attribute name that differs from the schema field', () => {
+    const codec = toCodecXml(Schema.Struct({ '@mimeType': Schema.String.annotate({ xmlName: 'mime-type' }) }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ '@mimeType': 'text/plain' })).toBe('<r mime-type="text/plain"/>');
+    expect(Schema.decodeSync(codec)('<r mime-type="text/plain"/>')).toEqual({ '@mimeType': 'text/plain' });
+  });
+
+  it('names the root element from the annotation', () => {
+    const codec = toCodecXml(Schema.Struct({ a: Schema.String }).annotate({ xmlName: 'feed' }));
+    expect(Schema.encodeSync(codec)({ a: 'x' })).toBe('<feed><a>x</a></feed>');
+  });
+
+  it('combines xmlName with a namespace prefix', () => {
+    const codec = toCodecXml(
+      Schema.Struct({ payload: Schema.String.annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom', xmlName: 'Body' }) }).annotate({
+        xmlNamespace: ATOM,
+        xmlPrefix: 'atom',
+      }),
+      { rootName: 'feed' }
+    );
+    const value = { payload: 'x' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe(`<atom:feed xmlns:atom="${ATOM}"><atom:Body>x</atom:Body></atom:feed>`);
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('combines xmlName with a namespaced attribute', () => {
+    const codec = toCodecXml(
+      Schema.Struct({ '@format': Schema.String.annotate({ xmlName: 'mime-type', xmlNamespace: 'urn:meta', xmlPrefix: 'meta' }) }),
+      { rootName: 'note' }
+    );
+    expect(Schema.encodeSync(codec)({ '@format': 'text/plain' })).toBe('<note xmlns:meta="urn:meta" meta:mime-type="text/plain"/>');
+    expect(Schema.decodeSync(codec)('<note xmlns:meta="urn:meta" meta:mime-type="text/plain"/>')).toEqual({ '@format': 'text/plain' });
+  });
+
+  it('renames nested elements inside a namespace', () => {
+    const codec = toCodecXml(
+      Schema.Struct({ order: Schema.Struct({ total: Schema.String.annotate({ xmlName: 'Total' }) }).annotate({ xmlName: 'Order' }) }).annotate({
+        xmlNamespace: 'urn:shop',
+      }),
+      { rootName: 'shop' }
+    );
+    const value = { order: { total: '10' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<shop xmlns="urn:shop"><Order><Total>10</Total></Order></shop>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('refuses an xmlName that carries a prefix', () => {
+    expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlName: 'soap:a' }) }))).toThrow(/must be a local name/);
+  });
+});
+
 describe('toCodecXml() — failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });

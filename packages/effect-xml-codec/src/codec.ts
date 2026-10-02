@@ -78,18 +78,19 @@ export interface toCodecXml<S extends Schema.Constraint> extends Schema.decodeTo
 export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlCodecOptions = {}): toCodecXml<S> => {
   const tree = Schema.toCodecStringTree(schema);
 
-  const rootName = options.rootName ?? SchemaAST.resolveIdentifier(schema.ast) ?? SchemaAST.resolveTitle(schema.ast) ?? DEFAULT_ROOT_NAME;
-
-  // A schema that annotates a namespace gets text-bound prefix resolution: its
-  // local names are written with the annotated prefixes, and a document written
-  // with any prefix for the same URI reads back. A schema with no annotation
-  // takes the plain path, byte for byte as before.
+  // A schema that annotates a namespace or a node name gets text-bound
+  // rewriting: its local names are written with the annotated prefixes and
+  // names, and a document written with any prefix for the same URI reads back.
+  // A schema with no annotation takes the plain path, byte for byte as before.
   const planned = namespacePlan(schema);
   if ('error' in planned) {
     throw new Error(`Invalid XML namespace annotation: ${planned.error}.`);
   }
   const plan = planned.plan;
-  const namespaced = plan.byKey.size > 0 || plan.root !== undefined;
+  const active = plan.byKey.size > 0 || plan.nameByKey.size > 0 || plan.root !== undefined || plan.rootName !== undefined;
+
+  const rootName =
+    options.rootName ?? plan.rootName ?? SchemaAST.resolveIdentifier(schema.ast) ?? SchemaAST.resolveTitle(schema.ast) ?? DEFAULT_ROOT_NAME;
   const wireRootName = plan.root !== undefined && plan.root.prefix !== '' && !rootName.includes(':') ? `${plan.root.prefix}:${rootName}` : rootName;
 
   const renderOptions: XmlRenderOptions = { ...options, rootName: wireRootName };
@@ -105,22 +106,23 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
         // error's own message rather than a generic one.
         decode: (text, parseOptions) =>
           parseXml(text, options).pipe(
-            Effect.map(value => (namespaced ? decodeNames(value, plan, {}) : value)),
+            Effect.map(value => (active ? decodeNames(value, plan, {}) : value)),
             Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, text, parseOptions))
           ),
         encode: (value, parseOptions) => {
-          if (namespaced && Array.isArray(value) && plan.root !== undefined) {
+          if (active && Array.isArray(value) && (plan.root !== undefined || plan.rootName !== undefined)) {
             // A root array has no element of its own to carry the root's
-            // declaration; renderXml wraps it, so there is nowhere to put it.
+            // declaration or name; renderXml wraps it, so there is nowhere to
+            // put them.
             return Effect.fail(
               new SchemaIssue.InvalidValue(
-                { message: 'An array at the root of a namespaced schema cannot carry the root namespace declaration.' },
+                { message: 'An array at the root of a namespaced schema cannot carry the root namespace or name.' },
                 value,
                 parseOptions
               )
             );
           }
-          const wire = namespaced ? encodeNames(value as XmlValue, plan, plan.root, {}) : (value as XmlValue);
+          const wire = active ? encodeNames(value as XmlValue, plan, plan.root, {}) : (value as XmlValue);
           return renderXml(wire, renderOptions).pipe(
             Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, value, parseOptions))
           );
