@@ -16,7 +16,7 @@
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { isQName, sanitize, validate } from '@endevops/common-xml';
-import { Effect, Match } from 'effect';
+import { Effect, Result } from 'effect';
 
 import { XmlParseError } from './errors.ts';
 
@@ -102,38 +102,57 @@ export const isTextKey = (key: string): boolean => key === TEXT_KEY;
 export const isReservedKey = (key: string): boolean => isTextKey(key);
 
 /**
+ * @description Resolves a name to something legal in an XML document, synchronously. The renderer and the parser both resolve a name per element and per attribute
+ * — the codec's hot path — so the walk calls this directly and keeps the work in plain JavaScript. `'error'` mode reports an illegal name by throwing
+ * an {@link XmlParseError}; the callers that need it in a typed channel use {@link resolveName}, which wraps this.
+ *
+ * @param name - The candidate element or attribute name.
+ * @param options - Repair mode and XML version.
+ *
+ * @returns The name to write, unchanged when it was already legal.
+ *
+ * @throws {XmlParseError} When the name is illegal and the mode is `'error'`.
+ */
+export const resolveNameSync = (name: string, { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}): string => {
+  if (isQName(name, { xmlVersion })) return name;
+  if (mode === 'ignore') return name;
+  if (mode === 'repair') return sanitize(name, 'name', { replacement: '_' });
+
+  // `validate` only fails for an unknown production, which `'qName'` is not, so
+  // this runs a plain result and the failure is the reason the name is refused.
+  const result = Effect.runSync(validate(name, 'qName', { xmlVersion }));
+  const reason = !result.valid ? result.reason : 'is not a legal XML name';
+  throw new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
+};
+
+/**
+ * @description {@link resolveNameSync} with the thrown failure folded into a {@link Result}, so an effectful caller can carry it in a typed channel without a
+ * try/catch of its own.
+ *
+ * @param name - The candidate element or attribute name.
+ * @param options - Repair mode and XML version.
+ *
+ * @returns The resolved name, or the failure to report.
+ */
+const resolveNameResult = (name: string, options: ResolveNameOptions): Result.Result<string, XmlParseError> => {
+  try {
+    return Result.succeed(resolveNameSync(name, options));
+  } catch (cause) {
+    if (cause instanceof XmlParseError) return Result.fail(cause);
+    return Result.fail(new XmlParseError({ message: cause instanceof Error ? cause.message : String(cause), position: -1, input: name }));
+  }
+};
+
+/**
  * @description Resolves a name to something legal in an XML document. The renderer and the parser both resolve a name per element and per attribute, and an
  * illegal name under `'error'` mode is a rejection rather than a value, so this returns an `Effect` with the `XmlParseError` in its error channel
  * rather than throwing it. Callers `yield*` it and the failure composes with `catchTag` and the rest; the two internal call sites in `parse.ts` and
- * `render.ts` translate it into the error type their own walk reports.
+ * `render.ts` use {@link resolveNameSync} directly, because their walks are synchronous hot paths.
  *
  * @param name - The candidate element or attribute name.
  * @param options - Repair mode and XML version.
  *
  * @returns An effect producing the name to write, unchanged when it was already legal.
  */
-export const resolveName = Effect.fnUntraced(function* (
-  name: string,
-  { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}
-): Effect.fn.Return<string, XmlParseError> {
-  if (isQName(name, { xmlVersion })) return name;
-
-  return yield* Match.value(mode).pipe(
-    Match.when('ignore', () => Effect.succeed(name)),
-    Match.when('error', () =>
-      validate(name, 'qName', { xmlVersion }).pipe(
-        // `validate` only fails for an unknown production, which `'qName'` is not,
-        // so this mapping is unreachable; it is here so the channel stays typed.
-        Effect.mapError(
-          cause => new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${cause.message}`, position: -1, input: name })
-        ),
-        Effect.flatMap(result => {
-          const reason = !result.valid ? result.reason : 'is not a legal XML name';
-          return new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
-        })
-      )
-    ),
-    Match.when('repair', () => Effect.succeed(sanitize(name, 'name', { replacement: '_' }))),
-    Match.exhaustive
-  );
-});
+export const resolveName = (name: string, options: ResolveNameOptions = {}): Effect.Effect<string, XmlParseError> =>
+  Effect.suspend(() => Effect.fromResult(resolveNameResult(name, options)));

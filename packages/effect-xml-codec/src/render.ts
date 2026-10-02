@@ -6,6 +6,15 @@
 // character class, and one array of chunks joined once rather than a growing
 // string.
 //
+// The walk itself is plain synchronous functions rather than a chain of
+// `yield*`es. Publicly `renderXml` is still an `Effect` — it suspends the walk so
+// it runs lazily, and folds the one failure the walk can report into the typed
+// error channel — but inside a document there is no effect boundary per element
+// or per attribute. A 500-row report is thousands of elements, and a fiber step
+// for each of them was most of what the `render 500 rows` row measured. The
+// typed failure survives: the walk throws an {@link XmlRenderError} and
+// `renderXml` catches it into `Effect.fail`.
+//
 // Escaping is the part that scales with the size of the document rather than
 // with its structure, and it is written out here rather than delegated, for a
 // measured reason. `@endevops/common-xml` escapes by applying five sequential
@@ -19,12 +28,12 @@
 
 import type { XmlVersion } from '@endevops/common-xml';
 
-import { Effect } from 'effect';
+import { Effect, Result } from 'effect';
 
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
-import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveName, TEXT_KEY } from './conventions.ts';
+import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveNameSync, TEXT_KEY } from './conventions.ts';
 import { XmlRenderError } from './errors.ts';
 
 /**
@@ -134,10 +143,9 @@ interface ResolvedOptions {
   readonly maxDepth: number;
 
   /**
-   * @description Resolves a field name to a legal XML name, in the mode this render was configured with. See {@link makeNamer} for why it is an `Effect` rather
-   * than a call to `resolveName`.
+   * @description Resolves a field name to a legal XML name, in the mode this render was configured with. Synchronous and memoized; see {@link makeNamer}.
    */
-  readonly namer: (name: string) => Effect.Effect<string, XmlRenderError>;
+  readonly namer: (name: string) => string;
 
   /**
    * @description The indent for a given depth, when pretty-printing. Built on first use at each depth and kept, so an indented document builds one string per
@@ -150,25 +158,22 @@ interface ResolvedOptions {
  * @description Builds the name resolver for one render. Every element and every attribute name goes through here, and a document repeats names: a thousand
  * `<item>` elements, or the same `id` on every row. A validator that runs a regex per occurrence pays that cost a thousand times for one answer, so
  * the first result is remembered and the rest are lookups. It also keeps the mode and version in one place, which is what stops a caller from
- * resolving a name with different settings than the render it is part of. The resolver fails with an {@link XmlRenderError} rather than throwing:
- * `resolveName` reports an illegal name in `'error'` mode through its own error channel, and the failure is translated into the render's error type
- * here. The cache is checked first, so a name already seen resolves without allocating an effect.
+ * resolving a name with different settings than the render it is part of. A cache miss calls {@link resolveNameSync}, which throws an
+ * {@link XmlParseError} in `'error'` mode; {@link renderXml} catches it and reports it as an {@link XmlRenderError}.
  *
  * @param options - Resolved render options.
  *
- * @returns A function from field name to an effect producing the legal XML name.
+ * @returns A function from field name to the legal XML name.
  */
-const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: string) => Effect.Effect<string, XmlRenderError>) => {
+const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: string) => string) => {
   const cache = new Map<string, string>();
-  return Effect.fnUntraced(function* (name: string): Effect.fn.Return<string, XmlRenderError> {
+  return (name: string): string => {
     const hit = cache.get(name);
     if (hit !== undefined) return hit;
-    const resolved = yield* resolveName(name, { mode: options.name, xmlVersion: options.xmlVersion }).pipe(
-      Effect.mapError(failure => new XmlRenderError({ message: failure.message }))
-    );
+    const resolved = resolveNameSync(name, { mode: options.name, xmlVersion: options.xmlVersion });
     cache.set(name, resolved);
     return resolved;
-  });
+  };
 };
 
 /**
@@ -284,17 +289,60 @@ const escape = (value: string, pattern: RegExp, table: ReadonlyArray<string | un
  *
  * - `@`-prefixed keys become attributes, the reserved `#text` key becomes character data, and every other key becomes a child element.
  * - An array repeats its name — a document whose root value is an array wraps it in the root element and names each member `itemName`.
- * - A string is character data. The walk is written as an `Effect` so that what can go wrong lands in the error channel rather than being thrown: each
- *   step appends to the chunk buffer and either continues or fails with an {@link XmlRenderError}. `Effect.fnUntraced` is the shape for it because
- *   the walk is a library hot path with no tracing boundary of its own. A caller not already in an `Effect` runs it with `Effect.runSync`, which
- *   throws the failure it produced.
+ * - A string is character data. The walk is synchronous, and what can go wrong is reported by throwing an {@link XmlRenderError}; {@link renderXml}
+ *   folds that into the effect's typed error channel. A caller not already in an `Effect` runs it with `Effect.runSync`, which throws the failure it
+ *   produced.
  *
  * @param value - The value to render.
  * @param options - Root name, formatting, empty-element and name-resolution settings.
  *
  * @returns An effect producing the XML document as a string.
  */
-export const renderXml = Effect.fnUntraced(function* (value: XmlValue, options: XmlRenderOptions = {}): Effect.fn.Return<string, XmlRenderError> {
+export const renderXml = (value: XmlValue, options: XmlRenderOptions = {}): Effect.Effect<string, XmlRenderError> =>
+  Effect.suspend(() => Effect.fromResult(renderResult(value, options)));
+
+/**
+ * @description Runs the synchronous walk and folds the one failure it reports into a {@link Result}, which {@link renderXml} turns back into an `Effect`. Kept
+ * separate so the walk itself can throw without the public API ever throwing.
+ *
+ * @param value - The value to render.
+ * @param options - The options as the caller wrote them.
+ *
+ * @returns The document, or the failure to report.
+ */
+const renderResult = (value: XmlValue, options: XmlRenderOptions): Result.Result<string, XmlRenderError> => {
+  try {
+    return Result.succeed(render(value, options));
+  } catch (cause) {
+    return Result.fail(toRenderError(cause));
+  }
+};
+
+/**
+ * @description Reports a failure the synchronous walk threw in the render's own error type. The walk only throws an {@link XmlRenderError} of its own or an
+ * {@link XmlParseError} from the name resolver; the latter carries the message the spec asserts on, so it is carried across rather than replaced.
+ *
+ * @param cause - Whatever was thrown.
+ *
+ * @returns The failure to report.
+ */
+const toRenderError = (cause: unknown): XmlRenderError => {
+  if (cause instanceof XmlRenderError) return cause;
+  if (cause instanceof Error) return new XmlRenderError({ message: cause.message });
+  return new XmlRenderError({ message: String(cause) });
+};
+
+/**
+ * @description The synchronous walk behind {@link renderXml}.
+ *
+ * @param value - The value to render.
+ * @param options - The options as the caller wrote them.
+ *
+ * @returns The XML document as a string.
+ *
+ * @throws {XmlRenderError} When the value nests past `maxDepth`, or the name resolver refuses a field name.
+ */
+const render = (value: XmlValue, options: XmlRenderOptions): string => {
   const resolved = resolveOptions(options);
   const out: Array<string> = [];
 
@@ -303,18 +351,28 @@ export const renderXml = Effect.fnUntraced(function* (value: XmlValue, options: 
   // array repeats that element's own name, so this wrapping is the only place
   // `itemName` is ever used.
   if (Array.isArray(value)) {
-    const tag = yield* resolved.namer(resolved.rootName);
+    const tag = resolved.namer(resolved.rootName);
     out.push('<', tag, '>');
-    for (const member of value) yield* renderElement(out, resolved.itemName, member, 1, resolved);
+    for (const member of value) renderElement(out, resolved.itemName, member, 1, resolved);
     if (resolved.format) out.push('\n');
     out.push('</', tag, '>');
   } else {
-    yield* renderElement(out, resolved.rootName, value, 0, resolved);
+    renderElement(out, resolved.rootName, value, 0, resolved);
   }
 
   if (resolved.format) out.push('\n');
   return out.join('');
-});
+};
+
+/**
+ * @description Whether a value is a record of `XmlValue` fields rather than an array. Written as a guard because `Array.isArray` does not narrow a `ReadonlyArray`
+ * out of a union that also holds a string-indexed record, so the walk's last branch cannot rely on the earlier array check to narrow `value` for it.
+ *
+ * @param value - The candidate value.
+ *
+ * @returns Whether the value is a record.
+ */
+const isXmlRecord = (value: XmlValue): value is XmlRecord => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
  * @description Renders one named element and its subtree. The value an {@link XmlValue} holds decides which of the four shapes below it takes — a repeated run of
@@ -327,17 +385,11 @@ export const renderXml = Effect.fnUntraced(function* (value: XmlValue, options: 
  * @param depth - Current nesting depth, for indentation and the depth cap.
  * @param options - Resolved render options.
  */
-const renderElement = Effect.fnUntraced(function* (
-  out: Array<string>,
-  name: string,
-  value: XmlValue,
-  depth: number,
-  options: ResolvedOptions
-): Effect.fn.Return<void, XmlRenderError> {
-  yield* assertWithinDepth(depth, options);
+const renderElement = (out: Array<string>, name: string, value: XmlValue, depth: number, options: ResolvedOptions): void => {
+  assertWithinDepth(depth, options);
 
   if (Array.isArray(value)) {
-    yield* renderRepeated(out, name, value, depth, options);
+    renderRepeated(out, name, value, depth, options);
     return;
   }
 
@@ -346,15 +398,18 @@ const renderElement = Effect.fnUntraced(function* (
   // one element that has nothing in front of it.
   if (options.format && depth > 0) openLine(out, depth, options);
 
-  const tag = yield* options.namer(name);
+  const tag = options.namer(name);
 
   if (typeof value === 'string' || value === undefined) {
     renderLeaf(out, tag, value, options);
     return;
   }
 
-  yield* renderRecord(out, tag, value, depth, options);
-});
+  // The array case returned above; the guard narrows the rest, since
+  // `Array.isArray` alone leaves a `ReadonlyArray` in the union.
+  if (!isXmlRecord(value)) return;
+  renderRecord(out, tag, value, depth, options);
+};
 
 /**
  * @description Refuses to walk deeper than the render allows. A value can nest without end, and every one of those levels costs a stack frame here, so the cap is
@@ -362,14 +417,16 @@ const renderElement = Effect.fnUntraced(function* (
  *
  * @param depth - The depth about to be written.
  * @param options - Resolved render options.
+ *
+ * @throws {XmlRenderError} When the depth is past the cap.
  */
-const assertWithinDepth = Effect.fnUntraced(function* (depth: number, options: ResolvedOptions): Effect.fn.Return<void, XmlRenderError> {
+const assertWithinDepth = (depth: number, options: ResolvedOptions): void => {
   if (depth > options.maxDepth) {
-    return yield* new XmlRenderError({
+    throw new XmlRenderError({
       message: `XML nesting exceeded maxDepth (${options.maxDepth}). Raise the limit if the document is legitimately this deep.`,
     });
   }
-});
+};
 
 /**
  * @description Renders a repeated run of children under one name: `tags: ['a', 'b']` renders `<tags>a</tags><tags>b</tags>`, not one element wrapping both. The
@@ -383,24 +440,18 @@ const assertWithinDepth = Effect.fnUntraced(function* (depth: number, options: R
  * @param depth - The depth the run sits at.
  * @param options - Resolved render options.
  */
-const renderRepeated = Effect.fnUntraced(function* (
-  out: Array<string>,
-  name: string,
-  members: ReadonlyArray<XmlValue>,
-  depth: number,
-  options: ResolvedOptions
-): Effect.fn.Return<void, XmlRenderError> {
+const renderRepeated = (out: Array<string>, name: string, members: ReadonlyArray<XmlValue>, depth: number, options: ResolvedOptions): void => {
   // An empty array still gets an element. Writing nothing would make a field
   // that was present and empty indistinguishable from one that was never
   // there, and a document that came from a schema is easier to trust when the
   // element it describes is actually in the output.
   if (members.length === 0) {
     if (options.format && depth > 0) openLine(out, depth, options);
-    writeEmpty(out, yield* options.namer(name), options);
+    writeEmpty(out, options.namer(name), options);
     return;
   }
-  for (const member of members) yield* renderElement(out, name, member, depth, options);
-});
+  for (const member of members) renderElement(out, name, member, depth, options);
+};
 
 /**
  * @description Renders an element whose value is character data, or nothing. An empty string is character data that happens to be empty, and an element holding
@@ -431,14 +482,8 @@ const renderLeaf = (out: Array<string>, tag: string, value: string | undefined, 
  * @param depth - The depth the element sits at.
  * @param options - Resolved render options.
  */
-const renderRecord = Effect.fnUntraced(function* (
-  out: Array<string>,
-  tag: string,
-  record: XmlRecord,
-  depth: number,
-  options: ResolvedOptions
-): Effect.fn.Return<void, XmlRenderError> {
-  const fields = yield* collectFields(record, options);
+const renderRecord = (out: Array<string>, tag: string, record: XmlRecord, depth: number, options: ResolvedOptions): void => {
+  const fields = collectFields(record, options);
   const text = textOf(record);
   const children = fields.children;
 
@@ -462,12 +507,12 @@ const renderRecord = Effect.fnUntraced(function* (
   }
 
   if (children !== undefined) {
-    yield* writeChildren(out, record, children, depth, options);
+    writeChildren(out, record, children, depth, options);
     if (options.format) openLine(out, depth, options);
   }
 
   out.push('</', tag, '>');
-});
+};
 
 /**
  * @description An element's keys resolved into the roles they play.
@@ -496,9 +541,9 @@ interface Fields {
  * @param record - The element's value.
  * @param options - Resolved render options.
  *
- * @returns An effect producing the element's rendered attributes and its child names.
+ * @returns The element's rendered attributes and its child names.
  */
-const collectFields = Effect.fnUntraced(function* (record: XmlRecord, options: ResolvedOptions): Effect.fn.Return<Fields, XmlRenderError> {
+const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
   const keys = Object.keys(record);
   let attributes = '';
   let children: Array<string> | undefined;
@@ -517,7 +562,7 @@ const collectFields = Effect.fnUntraced(function* (record: XmlRecord, options: R
     if (isAttributeKey(key)) {
       // Only keys with a value are collected, so every name in `sortAttributes`
       // has one to read back out of.
-      if (sortAttributes === undefined) attributes += yield* renderAttribute(key, child, options);
+      if (sortAttributes === undefined) attributes += renderAttribute(key, child, options);
       else sortAttributes.push(key);
       continue;
     }
@@ -527,12 +572,12 @@ const collectFields = Effect.fnUntraced(function* (record: XmlRecord, options: R
 
   if (sortAttributes !== undefined) {
     sortAttributes.sort();
-    attributes += yield* sortedAttributes(sortAttributes, record, options);
+    attributes += sortedAttributes(sortAttributes, record, options);
     children?.sort();
   }
 
   return { attributes, children };
-});
+};
 
 /**
  * @description The attributes named by `keys`, rendered in the order given. Only reached when the render was asked to sort keys, where the names are collected
@@ -542,17 +587,13 @@ const collectFields = Effect.fnUntraced(function* (record: XmlRecord, options: R
  * @param record - The element's value, to read the attribute values out of.
  * @param options - Resolved render options.
  *
- * @returns An effect producing the rendered attributes, each with its leading space.
+ * @returns The rendered attributes, each with its leading space.
  */
-const sortedAttributes = Effect.fnUntraced(function* (
-  keys: ReadonlyArray<string>,
-  record: XmlRecord,
-  options: ResolvedOptions
-): Effect.fn.Return<string, XmlRenderError> {
+const sortedAttributes = (keys: ReadonlyArray<string>, record: XmlRecord, options: ResolvedOptions): string => {
   let attributes = '';
-  for (const key of keys) attributes += yield* renderAttribute(key, record[key], options);
+  for (const key of keys) attributes += renderAttribute(key, record[key], options);
   return attributes;
-});
+};
 
 /**
  * @description One attribute, written whole. The leading space is part of it so the caller can concatenate attributes and the opening tag without a separator of
@@ -562,16 +603,12 @@ const sortedAttributes = Effect.fnUntraced(function* (
  * @param value - The attribute's value.
  * @param options - Resolved render options.
  *
- * @returns An effect producing the attribute, ready to write inside the opening tag.
+ * @returns The attribute, ready to write inside the opening tag.
  */
-const renderAttribute = Effect.fnUntraced(function* (
-  key: string,
-  value: XmlValue,
-  options: ResolvedOptions
-): Effect.fn.Return<string, XmlRenderError> {
-  const name = yield* options.namer(attributeName(key));
+const renderAttribute = (key: string, value: XmlValue, options: ResolvedOptions): string => {
+  const name = options.namer(attributeName(key));
   return ' ' + name + '="' + escapeAttribute(attributeText(value)) + '"';
-});
+};
 
 /**
  * @description Writes an element's children, by name and in the order their keys were found. The names are what the key pass kept; the values are read back out of
@@ -583,20 +620,14 @@ const renderAttribute = Effect.fnUntraced(function* (
  * @param depth - The depth the parent sits at; its children are one deeper.
  * @param options - Resolved render options.
  */
-const writeChildren = Effect.fnUntraced(function* (
-  out: Array<string>,
-  record: XmlRecord,
-  children: ReadonlyArray<string>,
-  depth: number,
-  options: ResolvedOptions
-): Effect.fn.Return<void, XmlRenderError> {
+const writeChildren = (out: Array<string>, record: XmlRecord, children: ReadonlyArray<string>, depth: number, options: ResolvedOptions): void => {
   for (let i = 0; i < children.length; i++) {
     const key = children[i] as string;
     const child = record[key];
     if (child === undefined) continue;
-    yield* renderElement(out, key, child, depth + 1, options);
+    renderElement(out, key, child, depth + 1, options);
   }
-});
+};
 
 /**
  * @description Starts a new line at the given depth, when pretty-printing.
