@@ -1,26 +1,24 @@
 /**
- * @description Every way this package can fail, as one typed error. The package used to throw plain `Error` and `TypeError` from ten places spread across three
- * areas. A caller had to match on message text, and there was nothing to narrow on. All of it is now a single {@link XmlError} in the `E` channel of
- * the effects that can fail, with the specific cause in a `reason` field rather than parsed back out of a string.
+ * @description Every way the entity decoder and the name validators can fail, as one typed error. The package used to throw plain `Error` and `TypeError` from
+ * places spread across the entity and naming areas. A caller had to match on message text, and there was nothing to narrow on. All of it is now a
+ * single {@link XmlError} in the `E` channel of the effects that can fail, with the specific cause in a `reason` field rather than parsed back out of
+ * a string.
  *
  * ## Why one error with a `reason`, and not one error per cause
  *
- * Eight distinct causes would mean eight classes, and a caller handling "any of these" would need `catchTags` with all eight. The causes are not
- * independent decisions a caller usually wants to make separately — they are all "this XML input was not acceptable", and the useful split is coarse:
- * a bad _configuration_ versus a bad _document_. So there is one error, and `reason` narrows to the specific cause. Recovery is a `catchReason`
- * away:
+ * The causes would mean a class each, and a caller handling "any of these" would need `catchTags` with all of them. The causes are not independent
+ * decisions a caller usually wants to make separately — they are all "this XML input was not acceptable", and the useful split is coarse: a bad
+ * _configuration_ versus a bad _document_. So there is one error, and `reason` narrows to the specific cause. Recovery is a `catchReason` away:
  *
  * @example
  *   ```typescript
  *   import { Effect } from 'effect';
- *   import { Expression, XmlError } from '@endevops/common-xml';
+ *   import { EntityDecoder, XmlError } from '@endevops/effect-xml-codec';
  *
- *   // A typo in a configured pattern is a programmer error and should not be swallowed.
- *   const strict = Expression.make('root..user::').pipe(
- *   Effect.catchReason('XmlError', 'InvalidPattern', () => Effect.succeed(null)),
- *   Effect.orElseSucceed(() => null),
+ *   const limited = new EntityDecoder({ limit: { maxTotalExpansions: 2 } }).decode('&amp;&amp;&amp;').pipe(
+ *   Effect.catchReason('XmlError', 'ExpansionLimitExceeded', reason => Effect.succeed(`gave up after ${reason.actual}`)),
  *   );
- *   ```
+ *   ```;
  *
  *   The message is kept alongside `reason` and is part of the schema, because the text is load-bearing: the
  *   `[EntityReplacer]` prefix in particular is documented as something callers match on, so it is reproduced exactly
@@ -31,12 +29,12 @@ import { Schema } from 'effect';
 
 /**
  * @description The specific cause of an {@link XmlError}, as a tagged union. The `_tag` on each member is the discriminant `Effect.catchReason` matches on, and
- * the payload is what a handler needs in order to decide or to report. Every member is a case the package actually raises — there is no catch-all
- * member, so an exhaustive `match` stays exhaustive as causes are added.
+ * the payload is what a handler needs in order to decide or to report. Every member is a case the decoder or the name validators actually raise —
+ * there is no catch-all member, so an exhaustive `match` stays exhaustive as causes are added.
  */
 export const XmlErrorReason = Schema.TaggedUnion({
   /**
-   * @description A required argument was `null` or another non-value where the package requires a real one. Raised by the factories that compile caller-supplied
+   * @description A required argument was `null` or another non-value where the package requires a real one. Raised by the factories that take caller-supplied
    * input — {@link EntityDecoder.make} among them — when they are handed `null` for an options object that has no meaningful default. It is a
    * distinct case from the rest because the argument is not _wrong_, it is _absent_, and a caller who wrote `make(null)` meant something the type
    * system does not allow: a decoder with every default is `make({})`, and saying so here is more useful than silently producing one.
@@ -58,36 +56,6 @@ export const XmlErrorReason = Schema.TaggedUnion({
      * @description The productions that would have been accepted, comma-separated, as they appear in the message.
      */
     expected: Schema.String,
-  },
-
-  /**
-   * @description A path expression could not be parsed.
-   */
-  InvalidPattern: {
-    /**
-     * @description The whole pattern the failure came from, so a log can show the input the caller actually wrote.
-     */
-    pattern: Schema.String,
-    /**
-     * @description The individual segment within that pattern that failed to parse.
-     */
-    segment: Schema.String,
-    /**
-     * @description Which shape of pattern error it was. Distinguishes the two cases the parser raises, which read differently and mean different things to fix.
-     */
-    detail: Schema.Literals(['EmptyNamespace', 'MissingTag']),
-  },
-
-  /**
-   * @description An expression was added to a set that has already been sealed. A sealed set is the compiled-pattern snapshot a parser consults per tag, so it is
-   * frozen once configuration is done. Adding to it after sealing would mean mutating the thing the hot path reads.
-   */
-  SealedExpressionSet: {
-    /**
-     * @description How many expressions the set held when the add was refused. Carried so a caller can tell an almost-empty set from a full one, which are very
-     * different mistakes.
-     */
-    size: Schema.Number,
   },
 
   /**
@@ -178,11 +146,11 @@ export type XmlErrorReason = typeof XmlErrorReason.Type;
  * @example
  *   ```typescript
  *   import { Effect } from 'effect';
- *   import { Expression, XmlError } from '@endevops/common-xml';
+ *   import { EntityDecoder } from '@endevops/effect-xml-codec';
  *
  *   const program = Effect.gen(function*() {
- *     const expression = yield* Expression.make('root.users.user');
- *     return expression.toString();
+ *     const decoder = yield* EntityDecoder.make({});
+ *     return yield* decoder.decode('a &amp; b');
  *   });
  *   ```;
  */

@@ -13,9 +13,9 @@
  * - One test for input shape, one benchmark per input with the fast path off and on — where the length and unicode costs actually show up.
  */
 
-import type { Production, ValidationOptions } from '@endevops/common-xml';
+import type { Production, ValidationOptions } from '@endevops/effect-xml-codec';
 
-import { isName, isNcName, isNmToken, isNmTokens, isQName } from '@endevops/common-xml';
+import { isName, isNcName, isNmToken, isNmTokens, isQName } from '@endevops/effect-xml-codec';
 import { test } from 'vite-plus/test';
 
 /**

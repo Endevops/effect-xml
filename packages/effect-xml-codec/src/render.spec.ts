@@ -3,7 +3,6 @@
  * output that can be read back.
  */
 
-import { EntityEncoder } from '@endevops/common-xml';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
@@ -236,70 +235,5 @@ describe('the escaping helpers', () => {
     expect(escapeText(clean)).toBe(clean);
     expect(escapeAttribute(clean)).toBe(clean);
     expect(escapeText('')).toBe('');
-  });
-});
-
-describe('the escaping helpers agree with @endevops/common-xml', () => {
-  // The renderer escapes in one pass rather than delegating, because
-  // `EntityEncoder` applies five sequential replacements and a document with one
-  // `&` in twenty thousand characters would be scanned five times to change one
-  // byte. That makes this package's escape the thing to check and the library the
-  // specification, so the two are compared directly here rather than the fast path
-  // being trusted.
-  const reference = new EntityEncoder({ encodeAllNamed: false });
-
-  /**
-   * @description Run the reference encoder. `EntityEncoder.encode` is a plain synchronous function, so this is a direct call.
-   *
-   * @param input - The string to encode.
-   *
-   * @returns The encoded string.
-   */
-  const encodeWith = (input: string): string => reference.encode(input);
-
-  /**
-   * @description Every ASCII character on its own, in every position the fast path scans, so a character the two tables disagree about cannot hide at an index the
-   * corpus happens not to reach.
-   */
-  const ASCII = Array.from({ length: 128 }, (_, code) => String.fromCharCode(code));
-
-  const CORPUS = [
-    ...ASCII,
-    ...ASCII.map(character => `a${character}b`),
-    ...ASCII.map(character => `${character}${character}`),
-    'café',
-    'ship it 🚀',
-    '日本語のテキスト',
-    'مرحبا',
-    'a'.repeat(1000),
-    `${'&'.repeat(500)}`,
-    `&<>"'${'x'.repeat(1000)}&<>"'`,
-    '',
-    'plain',
-    '&amp;',
-    'line\nbreak\ttab',
-  ];
-
-  it('escapes character data exactly as the library does', () => {
-    for (const input of CORPUS) {
-      expect(escapeText(input), `input ${JSON.stringify(input.slice(0, 40))}`).toBe(encodeWith(input));
-    }
-  });
-
-  it('escapes attribute values exactly as the library does, plus the whitespace XML normalizes', () => {
-    for (const input of CORPUS) {
-      const expected = encodeWith(input).replace(/[\n\r\t]/g, (character: string) => `&#${character.charCodeAt(0)};`);
-      expect(escapeAttribute(input), `input ${JSON.stringify(input.slice(0, 40))}`).toBe(expected);
-    }
-  });
-
-  it('escapes nothing the library would leave alone', () => {
-    // The named-entity tables belong to HTML, and an HTML name in an XML document
-    // is one no parser will resolve, so the two must agree that none of these
-    // need replacing.
-    for (const input of ['café', 'ship it 🚀', '日本語', 'naïve']) {
-      expect(escapeText(input)).toBe(input);
-      expect(encodeWith(input)).toBe(input);
-    }
   });
 });

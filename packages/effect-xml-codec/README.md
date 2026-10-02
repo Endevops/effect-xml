@@ -145,17 +145,22 @@ Two limits:
 
 ## API
 
-| Export                           | What it does                                                    |
-| -------------------------------- | --------------------------------------------------------------- |
-| `toCodecXml(schema, options?)`   | The codec. A `Schema` whose `Encoded` is XML text.              |
-| `renderXml(value, options?)`     | An XML value tree to XML text. Returns an `Effect`.             |
-| `parseXml(text, options?)`       | XML text to an XML value tree. Returns an `Effect`.             |
-| `escapeText` / `escapeAttribute` | The escaping the renderer applies.                              |
-| `resolveName`                    | Name repair for a render or parse, from `@endevops/common-xml`. |
-| `isXmlValue`                     | A runtime guard for the value model.                            |
-| `XmlValueSchema`                 | A `Schema` for an `XmlValue`, for a value from outside.         |
-| `XmlParseError`                  | The failure a malformed document reports.                       |
-| `XmlRenderError`                 | The failure a value that cannot be written reports.             |
+| Export                                                         | What it does                                                       |
+| -------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `toCodecXml(schema, options?)`                                 | The codec. A `Schema` whose `Encoded` is XML text.                 |
+| `renderXml(value, options?)`                                   | An XML value tree to XML text. Returns an `Effect`.                |
+| `parseXml(text, options?)`                                     | XML text to an XML value tree. Returns an `Effect`.                |
+| `escapeText` / `escapeAttribute`                               | The escaping the renderer applies.                                 |
+| `resolveName`                                                  | Name repair for a render or parse.                                 |
+| `isXmlValue`                                                   | A runtime guard for the value model.                               |
+| `XmlValueSchema`                                               | A `Schema` for an `XmlValue`, for a value from outside.            |
+| `XmlParseError`                                                | The failure a malformed document reports.                          |
+| `XmlRenderError`                                               | The failure a value that cannot be written reports.                |
+| `EntityDecoder`                                                | The entity-reference decoder `parseXml` reads character data with. |
+| `isName` / `isNcName` / `isQName` / `isNmToken` / `isNmTokens` | The XML name validators, as plain synchronous predicates.          |
+| `sanitize`                                                     | Rewrites an illegal name into the nearest legal one.               |
+| `validate`                                                     | Validates a name and reports why it failed, as an `Effect`.        |
+| `XmlError`                                                     | The failure `EntityDecoder` and `validate` report.                 |
 
 `toCodecXml` returns a `Schema`, so encoding and decoding are `Schema.encodeSync`
 and `Schema.decodeSync` (or the `Effect` forms), and every other Schema operation
@@ -165,6 +170,38 @@ document that will not parse or a value that will not write is reported with its
 underlying XML message, alongside the schema mismatches Effect already reports.
 The root element is named from the `rootName` option, then the schema's
 `identifier` or `title` annotation, then `'root'`.
+
+## Entity decoder and name validators
+
+This package absorbed `@endevops/common-xml`, so the two primitives the text
+layer reads documents with ship here rather than as a sibling dependency.
+
+`EntityDecoder` expands the reference syntax XML inherits from HTML — `&name;`,
+`&#NNN;`, `&#xHH;` — with expansion limits, registration hooks, and a
+numeric-reference policy. `parseXml` uses it for character data and falls back
+to the raw text for a bare `&`. It reports failures as `XmlError`, a tagged
+error whose `reason` union is what `Effect.catchReason` narrows on.
+
+The name validators are plain synchronous predicates — `isName`, `isNcName`,
+`isQName`, `isNmToken`, `isNmTokens` — because a regex test cannot fail and the
+renderer and parser call them per name in their hot loops. `sanitize` rewrites
+an illegal name into the nearest legal one, and `validate` reports why a name
+failed through an `Effect`.
+
+```typescript
+import { Effect } from 'effect';
+import { EntityDecoder, isQName, sanitize, validate } from '@endevops/effect-xml-codec';
+
+isQName('svg:circle'); // true
+sanitize('not a name', 'ncName'); // 'not_a_name'
+Effect.runSync(validate('1bad', 'qName')); // { valid: false, … }
+
+const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 100 } });
+Effect.runSync(decoder.decode('caf&eacute; &#233;'));
+```
+
+The path matcher and the entity encoder that were part of `@endevops/common-xml`
+did not come across: nothing in this package reaches them.
 
 ## Design notes
 
@@ -186,11 +223,11 @@ with an `Effect`, so a value that will not write and a document that will not
 read are typed failures, which the codec folds into the `SchemaIssue.Issue` a
 schema is expected to report.
 
-**Escaping is XML's, not HTML's.** `EntityEncoder` from `@endevops/common-xml`
-is used with `encodeAllNamed: false`. Its named tables are HTML's, and an HTML
-name such as `&eacute;` is well-formed XML that no parser will resolve, so the
-only names this package writes are the five XML predefines. A character reference
-in an attribute value is still spelled as one where XML's whitespace
+**Escaping is XML's, not HTML's.** The renderer writes the five XML predefined
+entities and nothing else. The entity decoder's named tables are HTML's, so an
+HTML name such as `&eacute;` is well-formed XML that no parser will resolve, and
+the only names this package writes are the five XML predefines. A character
+reference in an attribute value is still spelled as one where XML's whitespace
 normalization would otherwise eat it: a literal newline in an attribute comes
 back as a space unless it is written `&#10;`.
 
@@ -202,8 +239,8 @@ since that is what it is.
 
 `bench/codec.bench.ts` measures this package alone, split by layer so the cost
 of Effect's derivation and the cost of this package's renderer are told apart.
-`bench/comparison.bench.ts` measures it against `@endevops/builder` and the
-two parsers. Run both with `vp test bench packages/effect-xml-codec`.
+`bench/comparison.bench.ts` measures it against `fast-xml-builder` and the two
+parsers. Run both with `vp test bench packages/effect-xml-codec`.
 
 | Benchmark                   | Throughput |
 | --------------------------- | ---------- |
@@ -215,29 +252,28 @@ two parsers. Run both with `vp test bench packages/effect-xml-codec`.
 
 Three findings shaped the code, and all are measured rather than assumed:
 
-- **Escaping was the whole cost of a large document.**
-  `EntityEncoder` escapes by applying five sequential global replacements,
-  one per character, so a document with a single `&` in twenty thousand
-  characters was scanned five times over to change one byte — 58µs for that one
-  document. Escaping is now a single pattern scan to find the first character
-  that needs replacing, then one pass to build the result, which is 7.6x faster
-  for clean text and 28x faster for text with a character in it.
-  `src/render.spec.ts` compares the two implementations across every ASCII
-  character so the fast path is checked against the library rather than trusted.
-- **Resolving a name is a regex test, not an `Effect`.** The naming package's
-  validators and the path matcher used to return `Effect`s for pure questions,
-  which left the renderer and the parser running an effect per distinct element
-  and attribute name in every document. Running a runtime to read a boolean cost
-  roughly 1µs per name, and a small document has about a dozen names, so name
-  resolution was most of what a serialize and a parse did. `@endevops/common-xml`
-  now exposes plain synchronous predicates (`isQName` and the rest, `sanitize`)
-  with no `Effect` wrapper, and the renderer's namer and the parser's name cache
-  call them directly. `resolveName` is the one exception: it is effectful because
-  `'error'` mode rejects an illegal name, and a rejection is a failure rather than
-  a value, so it reports through the error channel like every other fallible step
-  of a parse or a render. That is the bulk of the gain on a small
-  document; the 500-row document improves by a few percent because it asks the
-  same handful of names, and the per-row work is what dominates there.
+- **Escaping was the whole cost of a large document.** The entity encoder that
+  used to live here escaped by applying five sequential global replacements, one
+  per character, so a document with a single `&` in twenty thousand characters
+  was scanned five times over to change one byte — 58µs for that one document.
+  Escaping is now a single pattern scan to find the first character that needs
+  replacing, then one pass to build the result, which is 7.6x faster for clean
+  text and 28x faster for text with a character in it. `src/render.spec.ts` pins
+  the fast path with explicit expectations.
+- **Resolving a name is a regex test, not an `Effect`.** The validators used to
+  return `Effect`s for pure questions, which left the renderer and the parser
+  running an effect per distinct element and attribute name in every document.
+  Running a runtime to read a boolean cost roughly 1µs per name, and a small
+  document has about a dozen names, so name resolution was most of what a
+  serialize and a parse did. The merged package now exposes plain synchronous
+  predicates (`isQName` and the rest, `sanitize`) with no `Effect` wrapper, and
+  the renderer's namer and the parser's name cache call them directly.
+  `resolveName` is the one exception: it is effectful because `'error'` mode
+  rejects an illegal name, and a rejection is a failure rather than a value, so
+  it reports through the error channel like every other fallible step of a parse
+  or a render. That is the bulk of the gain on a small document; the 500-row
+  document improves by a few percent because it asks the same handful of names,
+  and the per-row work is what dominates there.
 - **The codec adds no layer of its own.** `toCodecXml` derives
   `Schema.toCodecStringTree` and runs the tree through `renderXml`, so a value is
   encoded by Effect's parser and then rendered, with nothing wrapped around
@@ -270,50 +306,46 @@ in, so the span is opened for a schema decode too. A failed parse is a typed
 `XmlParseError` in the error channel, not a defect, so `catchTag`, `retry` and a
 fallback all see it.
 
-### Against the libraries in this workspace and on npm
+### Against the libraries on npm
 
 `bench/comparison.bench.ts` measures the same object through this codec and
-through four libraries — the two builders and the two parsers, fork and upstream
-alike. The equivalence is established rather than assumed: with
-`attributeNamePrefix: '@'`, **both builders produce byte-identical output to this
-codec**, and the benchmark asserts it in `beforeAll`, so a change that breaks it
-fails the suite instead of quietly comparing different work.
+through three npm libraries — `fast-xml-builder`, `fast-xml-parser`, and
+`@nodable/flexible-xml-parser`. The equivalence is established rather than
+assumed: with `attributeNamePrefix: '@'`, **`fast-xml-builder` produces
+byte-identical output to this codec**, and the benchmark asserts it, so a change
+that breaks it fails the suite instead of quietly comparing different work.
 
 **Encoding** — one object to the same bytes:
 
-| Document            | This codec | `@endevops/builder` | `fast-xml-builder` |
-| ------------------- | ---------- | ------------------- | ------------------ |
-| a small order       | 166,919/s  | 15,170/s (0.09x)    | 216,148/s (1.29x)  |
-| 500 rows            | 1,698/s    | 114/s (0.07x)       | 1,269/s (0.75x)    |
-| one large text node | 584,358/s  | 72,922/s (0.12x)    | 254,355/s (0.44x)  |
+| Document            | This codec | `fast-xml-builder` |
+| ------------------- | ---------- | ------------------ |
+| a small order       | 166,919/s  | 216,148/s (1.29x)  |
+| 500 rows            | 1,698/s    | 1,269/s (0.75x)    |
+| one large text node | 584,358/s  | 254,355/s (0.44x)  |
 
 **Decoding** — one document to the same value:
 
-| Document            | This codec | `@endevops/flexible-xml-parser` | `fast-xml-parser` |
-| ------------------- | ---------- | ------------------------------- | ----------------- |
-| a small order       | 177,143/s  | 8,874/s (0.05x)                 | 64,492/s (0.36x)  |
-| 500 rows            | 1,975/s    | 70/s (0.04x)                    | 486/s (0.25x)     |
-| one large text node | 20,715/s   | 5,694/s (0.27x)                 | 8,209/s (0.40x)   |
+| Document            | This codec | `@nodable/flexible-xml-parser` | `fast-xml-parser` |
+| ------------------- | ---------- | ------------------------------ | ----------------- |
+| a small order       | 177,143/s  | 8,874/s (0.05x)                | 64,492/s (0.36x)  |
+| 500 rows            | 1,975/s    | 70/s (0.04x)                   | 486/s (0.25x)     |
+| one large text node | 20,715/s   | 5,694/s (0.27x)                | 8,209/s (0.40x)   |
 
 **A full round trip**, which is the number an application actually pays. Neither
 a builder nor a parser can do both halves, so the last two rows are each
 ecosystem doing the same work with two libraries and hand-joining them:
 
-| Path                                               | Throughput       |
-| -------------------------------------------------- | ---------------- |
-| this codec                                         | 81,335/s         |
-| `@endevops` builder, then its parser               | 5,514/s (0.07x)  |
-| npm `fast-xml-builder`, then npm `fast-xml-parser` | 47,562/s (0.58x) |
+| Path                                                        | Throughput       |
+| ----------------------------------------------------------- | ---------------- |
+| this codec                                                  | 81,335/s         |
+| npm `fast-xml-builder`, then npm `fast-xml-parser`          | 47,562/s (0.58x) |
+| npm `fast-xml-builder`, then `@nodable/flexible-xml-parser` | 5,514/s (0.07x)  |
 
-**The two forks are slower for one reason: they run an `Effect` per call.**
-`@endevops/builder` and `@endevops/flexible-xml-parser` were refactored into
-Effect services, so every `build` and `parse` allocates and runs a runtime
-before it reaches the XML work. That is the whole gap — the fork trails upstream
-by 14x to 29x on encoding and 7x to 28x on decoding, which is far more than the
-module-runner overhead the benchmark's own notes allow for. It is a property of
-those packages' architecture, not of maintaining the fork, and it is why this
-codec, which reaches Effect's parser directly through `Schema.encodeSync` and
-`Schema.decodeSync`, is the fastest row on both sides.
+**This codec reaches the parser and renderer directly.** It encodes and decodes
+through `Schema.encodeSync` and `Schema.decodeSync`, with no runtime per call,
+which is why it is the fastest row on both sides. The npm parsers do less work —
+they do not validate the result against a schema — so the comparison is
+directional rather than like-for-like.
 
 Four things to be straight about when reading those tables:
 

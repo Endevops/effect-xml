@@ -3,20 +3,16 @@
 A pnpm workspace for the Endevops XML packages, built on
 [Vite+](https://viteplus.dev/guide/) for the toolchain.
 
-| Package                                                     | Description                                               |
-| ----------------------------------------------------------- | --------------------------------------------------------- |
-| [`@endevops/parser`](./packages/parser)                     | XML parser with pluggable output builders                 |
-| [`@endevops/builder`](./packages/builder)                   | XML builders, the output-builder base and the compact one |
-| [`@endevops/common-xml`](./packages/common-xml)             | Entity coding, path matching, XML name validation         |
-| [`@endevops/effect-xml-codec`](./packages/effect-xml-codec) | Round-trip Effect Schema codec for XML                    |
-| [`@endevops/benchmarks`](./packages/benchmarks)             | Private project that runs the benchmarks, never published |
+| Package                                                     | Description                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [`@endevops/effect-xml-codec`](./packages/effect-xml-codec) | Round-trip Effect Schema codec for XML, entity decoder and XML name validation |
+| [`@endevops/benchmarks`](./packages/benchmarks)             | Private project that runs the benchmarks, never published                      |
 
-Four publishable packages, in a strict chain: `common-xml` has no workspace
-dependencies, `builder` depends on `common-xml`, `parser` depends on both, and
-`effect-xml-codec` depends on `common-xml` with the other two for tests and
-benchmarks. There is no cycle in that graph. `packages/benchmarks` is a fifth,
-private project that depends on all four and ships nothing; it exists only to
-run the benchmarks.
+One publishable package and one private project. `effect-xml-codec` is
+standalone: it has no sibling workspace dependency, and the entity decoder and
+name validators it reads documents with live inside it (merged in from the
+former `@endevops/common-xml`). `packages/benchmarks` depends on it, ships
+nothing, and exists only to run the benchmarks.
 
 ## Layout
 
@@ -29,12 +25,12 @@ pnpm-workspace.yaml  package globs, version catalog, overrides
 ```
 
 A package that absorbed several of the earlier ones keeps a subdirectory per
-absorbed package, each with its own barrel, and re-exports all of them flat from
-`src/index.ts`. `common-xml` is `src/entities/`, `src/naming/` and
-`src/path-matcher/`; `builder` is `src/xml-builder/`, `src/output-builder/` and
-`src/compact-builder/`. Specs sit under the matching `test/` subdirectory and
-import from `#/index.ts` like any other module in the package. Nothing is exposed
-per-area at the package boundary — one package, one entry point.
+absorbed area, and re-exports all of them flat from `src/index.ts`.
+`effect-xml-codec` keeps the codec at the top of `src/`, and the absorbed
+primitives under `src/entities/` and `src/naming/`. Specs sit under the matching
+`test/` subdirectory and import from `#/index.ts` like any other module in the
+package. Nothing is exposed per-area at the package boundary — one package, one
+entry point.
 
 `vp lint`, `vp fmt`, and `vp check` read the `lint` and `fmt` blocks in the root
 `vite.config.ts` even when you run them from inside a package, and Oxlint and
@@ -62,9 +58,9 @@ pnpm build           # vp run -r build — pack every package
 For one package, target it with `-C`, which behaves exactly like `cd`-ing there:
 
 ```bash
-vp -C packages/parser check
-vp -C packages/parser test
-vp -C packages/parser pack
+vp -C packages/effect-xml-codec check
+vp -C packages/effect-xml-codec test
+vp -C packages/effect-xml-codec pack
 ```
 
 ### Benchmarks
@@ -77,18 +73,15 @@ noisy, and nothing about the suite should depend on a number that moves with the
 Benchmarks that drive a package's public entry point live in `packages/benchmarks`. It is
 `private`, so `pnpm -r publish` skips it and it has no build step. It resolves each workspace
 dependency to its built `dist/`, so run `pnpm build` before it, and the numbers describe what
-consumers install. `packages/parser/bench/scan.bench.ts` measures parser internals that are not
-exported, so it stays with the parser and runs from source.
+consumers install.
 
-`vp run bench` runs each package's `bench` script in its own project, so the two resolve
-differently on purpose.
+`vp run bench` runs each package's `bench` script in its own project.
 
 ```bash
 pnpm build                                    # the benchmark project reads dist/
 vp run bench                                  # every benchmark
 vp -C packages/benchmarks test bench          # the built-output benchmarks
-vp -C packages/parser test bench              # the internal parser benchmarks
-vp -C packages/parser test bench -t asciiOnly # one test name
+vp -C packages/benchmarks test bench -t "a small document" # one test name
 ```
 
 A bare `vp pack` at the root refuses to guess between the root and the packages
@@ -125,4 +118,4 @@ private package never appears in a release commit.
 
 ## License
 
-MIT. See [`packages/parser/LICENSE`](./packages/parser/LICENSE).
+MIT. See [`packages/effect-xml-codec/LICENSE`](./packages/effect-xml-codec/LICENSE).

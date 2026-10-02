@@ -57,3 +57,23 @@ export type { XmlRenderOptions } from './render.ts';
 
 export { XmlValue as XmlValueSchema, isXmlValue } from './xml-value.ts';
 export type { XmlRecord, XmlValue } from './xml-value.ts';
+
+// The primitives that were `@endevops/common-xml`. The entity decoder and the
+// name validators moved in with the codec; the path matcher, the entity encoder
+// and the HTML tables did not, because nothing in this package reaches them.
+export { EntityDecoder, ENTITY_ACTION } from './entities/entity-decoder.ts';
+export type {
+  ApplyLimitsTo,
+  EntityDecoderLimitOptions,
+  EntityDecoderNCROptions,
+  EntityDecoderOptions,
+  EntityHookAction,
+  EntityRegistrationHook,
+  EntityValFn,
+} from './entities/entity-decoder.ts';
+
+export { isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate } from './naming/index.ts';
+export type { Production, SanitizeOptions, ValidationOptions, ValidationResult, XmlVersion } from './naming/index.ts';
+
+export { XmlError, XmlErrorReason } from './xml-error.ts';
+export type { XmlErrorReason as XmlErrorReasonType } from './xml-error.ts';

@@ -18,7 +18,7 @@
 
 import { Effect, Match, Predicate } from 'effect';
 
-import { XmlError } from '#/errors.ts';
+import { XmlError } from '#/xml-error.ts';
 
 import { XML as DEFAULT_XML_ENTITIES } from './entity-tables.ts';
 
@@ -911,7 +911,7 @@ export class EntityDecoder {
    * @example
    *   ```typescript
    *   import { Effect } from 'effect';
-   *   import { EntityDecoder } from '@endevops/common-xml';
+   *   import { EntityDecoder } from '@endevops/effect-xml-codec';
    *
    *   const decoder = new EntityDecoder({ namedEntities: { copy: '©' } });
    *   Effect.runSync(Effect.orElseSucceed(decoder.addExternalEntity('brand', 'Acme'), () => undefined));

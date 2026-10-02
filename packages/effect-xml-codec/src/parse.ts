@@ -1,12 +1,11 @@
-import type { XmlVersion } from '@endevops/common-xml';
-
-import { EntityDecoder } from '@endevops/common-xml';
 import { Effect, Predicate, Result } from 'effect';
 
 import type { NameMode } from './conventions.ts';
+import type { XmlVersion } from './naming/index.ts';
 import type { XmlValue } from './xml-value.ts';
 
 import { ATTRIBUTE_PREFIX, resolveNameSync, TEXT_KEY } from './conventions.ts';
+import { EntityDecoder } from './entities/entity-decoder.ts';
 import { XmlParseError } from './errors.ts';
 
 const decoder = EntityDecoder.make().pipe(Effect.runSync);
@@ -523,7 +522,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
 
     if (!hasAttributes && !hasChildren) {
       // A leaf is character data on its own. Returning the string rather than a `{ '#text': … }` record is what lets
-      // `Schema.Struct({ name: Schema.String })` round-trip, and it is the shape `@endevops/builder` produces for a text-only element too.
+      // `Schema.Struct({ name: Schema.String })` round-trip.
       return content;
     }
 

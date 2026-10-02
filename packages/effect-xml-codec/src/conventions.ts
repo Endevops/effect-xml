@@ -1,9 +1,9 @@
-import type { XmlVersion } from '@endevops/common-xml';
-
-import { isQName, sanitize, validate } from '@endevops/common-xml';
 import { Effect, Predicate, Result } from 'effect';
 
+import type { XmlVersion } from './naming/index.ts';
+
 import { XmlParseError } from './errors.ts';
+import { isQName, sanitize, validate } from './naming/index.ts';
 
 /**
  * @description The key prefix that marks a field as an XML attribute. `@xmlns` is written as `xmlns="…"`.

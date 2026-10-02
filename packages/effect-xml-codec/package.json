@@ -1,13 +1,20 @@
 {
   "name": "@endevops/effect-xml-codec",
   "version": "1.0.0-effect.2",
-  "description": "A round-trip Effect Schema codec for XML. Derives an XML representation from any Effect Schema and reads it back, with attributes as `@`-prefixed fields.",
+  "description": "A round-trip Effect Schema codec for XML, with the entity decoder and XML name validators it reads documents with. Derives an XML representation from any Effect Schema and reads it back, with attributes as `@`-prefixed fields.",
   "keywords": [
     "codec",
+    "decode",
     "effect",
     "effect-schema",
+    "entities",
+    "entity-decoder",
+    "ncname",
+    "nmtoken",
+    "qname",
     "xml",
     "xml-codec",
+    "xml-naming",
     "xml-parser",
     "xml-serialization"
   ],
@@ -52,9 +59,6 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "prepublishOnly": "vp pack"
-  },
-  "dependencies": {
-    "@endevops/common-xml": "workspace:^"
   },
   "devDependencies": {
     "@arethetypeswrong/core": "catalog:",

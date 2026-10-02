@@ -17,28 +17,26 @@
 //
 // Escaping is the part that scales with the size of the document rather than
 // with its structure, and it is written out here rather than delegated, for a
-// measured reason. `@endevops/common-xml` escapes by applying five sequential
-// global replacements, one per character, so a document with a single `&` in
-// twenty thousand characters is scanned five times over to change one byte --
-// which is what the `render 20k` rows in `bench/codec.bench.ts` measure. The
-// table below covers the same five characters `EntityEncoder` escapes with
-// `encodeAllNamed: false`, and `test/render.spec.ts` asserts the two agree
-// character for character, so the fast path is checked against the library
-// rather than trusted.
-
-import type { XmlVersion } from '@endevops/common-xml';
+// measured reason. The entity encoder that used to live beside this package
+// escaped by applying five sequential global replacements, one per character,
+// so a document with a single `&` in twenty thousand characters was scanned
+// five times over to change one byte -- which is what the `render 20k` rows in
+// `bench/codec.bench.ts` measure. The table below covers the same five
+// characters that encoder escaped, and the explicit expectations in
+// `test/render.spec.ts` pin the fast path.
 
 import { Effect, Predicate, Result } from 'effect';
 
 import type { NameMode } from './conventions.ts';
+import type { XmlVersion } from './naming/index.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
 import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveNameSync, TEXT_KEY } from './conventions.ts';
 import { XmlRenderError } from './errors.ts';
 
 /**
- * @description The five characters XML predefines an entity for, and the names to write for them. Written out rather than referenced from `@endevops/common-xml`
- * because the table is indexed by character code below; the spec asserts the two produce identical output.
+ * @description The five characters XML predefines an entity for, and the names to write for them. Written out rather than referenced from the entity decoder
+ * because the table is indexed by character code below.
  */
 const XML_PREDEFINED = { 34: '&quot;', 38: '&amp;', 39: '&apos;', 60: '&lt;', 62: '&gt;' } as const;
 

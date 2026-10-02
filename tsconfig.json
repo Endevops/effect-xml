@@ -9,7 +9,8 @@
   // noUncheckedIndexedAccess; the test suite relaxes both, because a parsed XML
   // tree's keys are only known at runtime.
   //
-  // See packages/parser/tsconfig.json and packages/parser/test/tsconfig.json.
+  // See packages/effect-xml-codec/tsconfig.json and
+  // packages/effect-xml-codec/tsconfig.test.json.
   "extends": "./tsconfig.shared.json",
   "include": ["*.ts"]
 }

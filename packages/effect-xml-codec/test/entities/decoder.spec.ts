@@ -1,4 +1,3 @@
-// oxlint-disable vitest/expect-expect
 /**
  * @description Specs for the entity decoder — the half of this package that is a parser rather than a table lookup, and therefore the half whose behaviour a
  * caller can actually depend on getting exactly right. The specs are in two layers, and the split is the point. Everything that works is asserted as
@@ -17,8 +16,8 @@
 import { assert, describe, expect, it } from '@effect/vitest';
 import { Effect, Result } from 'effect';
 
-import type { XmlError } from '#/errors.ts';
 import type { ApplyLimitsTo, EntityDecoderOptions } from '#/index.ts';
+import type { XmlError } from '#/xml-error.ts';
 
 import { EntityDecoder, ENTITY_ACTION } from '#/index.ts';
 

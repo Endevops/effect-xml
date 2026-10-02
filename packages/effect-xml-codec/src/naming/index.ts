@@ -8,16 +8,16 @@
 //
 // The five predicates and `sanitize` are plain synchronous functions: a regex
 // test cannot fail and a character substitution has nothing to fail about, so
-// there is no effect to model. `validate`/`validateAll`/`createValidator` do
-// have one failure to report — an unknown production, unreachable from
-// TypeScript where `Production` is a closed union but reachable for an untyped
-// JavaScript caller, or a value that crossed a boundary as `unknown` — so they
-// answer with an `Effect` whose error channel is that {@link XmlError}. The
-// value they produce is still a plain result (or a memoized predicate).
+// there is no effect to model. `validate` does have one failure to report — an
+// unknown production, unreachable from TypeScript where `Production` is a
+// closed union but reachable for an untyped JavaScript caller, or a value that
+// crossed a boundary as `unknown` — so it answers with an `Effect` whose error
+// channel is that {@link XmlError}. The value it produces is still a plain
+// result.
 
 import { Effect } from 'effect';
 
-import { XmlError } from '#/errors.ts';
+import { XmlError } from '#/xml-error.ts';
 
 /**
  * @description The XML specification version a production is validated against. The two differ only in their non-ASCII character ranges — see {@link getRegexes}.
@@ -64,31 +64,6 @@ export interface SanitizeOptions {
    * is part of the published signature, so dropping it would break callers that pass it through a shared options object.
    */
   xmlVersion?: XmlVersion;
-}
-
-/**
- * @description Options for {@link createValidator}.
- */
-export interface CreateValidatorOptions extends ValidationOptions {
-  /**
-   * @description Max number of distinct strings to cache. Once reached, new strings are still validated correctly but are no longer cached; existing cached
-   * entries keep being served. Defaults to 2048.
-   */
-  maxCacheSize?: number;
-}
-
-/**
- * @description A validator with a private string cache attached. Call `reset` to drop the cache; the function stays correct afterwards. It answers with a plain
- * boolean, the same shape {@link isQName} and the other predicates use.
- */
-export interface MemoizedValidator {
-  (str: string): boolean;
-  /**
-   * @description Clears the internal cache, so the next call re-tests every string.
-   *
-   * @returns Nothing.
-   */
-  reset: () => void;
 }
 
 /**
@@ -332,9 +307,9 @@ export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false 
   getRegexes(xmlVersion, asciiOnly).nmTokens.test(str);
 
 /**
- * @description The failure to report when a production is not one of the five this module knows, so `createValidator`, `validate` and `validateAll` report it the
- * same way. The single place the unknown-production guard lives. It is unreachable from TypeScript, where `Production` is a closed union; this is the
- * guard for untyped JavaScript callers.
+ * @description The failure to report when a production is not one of the five this module knows, so `validate` reports it the same way. The single place the
+ * unknown-production guard lives. It is unreachable from TypeScript, where `Production` is a closed union; this is the guard for untyped JavaScript
+ * callers.
  *
  * @param production - The production to check.
  *
@@ -347,54 +322,6 @@ const productionError = (production: Production): XmlError | null => {
     message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
   });
 };
-
-/**
- * @description Returns a memoized boolean validator for a single production, with options fixed at creation time. Repeated calls with the same string after the
- * first are served from a private cache instead of re-running the regex.
- *
- * @example
- *   ```typescript
- *   import { Effect } from 'effect';
- *   import { createValidator } from '@endevops/common-xml';
- *
- *   const isNCName = Effect.runSync(createValidator('ncName'));
- *   isNCName('svg:circle'); // false — a colon is not an NCName
- *   ```;
- *
- * @param production - The production to validate against.
- * @param opts - `maxCacheSize` bounds the cache (default 2048). Once reached, new strings are validated but not cached; existing entries keep being
- *   served.
- *
- * @returns An effect producing the validator function, which carries a `reset` method that clears its cache. Fails with an {@link XmlError} and the
- *   `InvalidProduction` reason when `production` is not one of the five known productions — unreachable from TypeScript, kept as the guard for
- *   untyped JavaScript callers.
- */
-export const createValidator = Effect.fnUntraced(function* (
-  production: Production,
-  { xmlVersion = '1.0', asciiOnly = false, maxCacheSize = 2048 }: CreateValidatorOptions = {}
-): Effect.fn.Return<MemoizedValidator, XmlError> {
-  const invalid = productionError(production);
-  if (invalid) return yield* invalid;
-
-  const regex = getRegexes(xmlVersion, asciiOnly)[production];
-  let cache = new Map<string, boolean>();
-
-  return Object.assign(
-    (str: string): boolean => {
-      const cached = cache.get(str);
-      if (cached !== undefined) return cached;
-
-      const result = regex.test(str);
-      if (cache.size < maxCacheSize) cache.set(str, result);
-      return result;
-    },
-    {
-      reset: (): void => {
-        cache = new Map();
-      },
-    }
-  );
-});
 
 const validators: Record<Production, (str: string, opts?: ValidationOptions) => boolean> = {
   name: isName,
@@ -528,7 +455,7 @@ const diagnoseWith = (str: string, production: Production, isValid: boolean, asc
  * @example
  *   ```typescript
  *   import { Effect } from 'effect';
- *   import { validate } from '@endevops/common-xml';
+ *   import { validate } from '@endevops/effect-xml-codec';
  *
  *   Effect.runSync(validate('not a name', 'ncName'));
  *   // { valid: false, production: 'ncName', input: 'not a name', reason: 'First character " " is not a valid NameStartChar', position: 0 }
@@ -551,40 +478,6 @@ export const validate = Effect.fnUntraced(function* (
   const invalid = productionError(production);
   if (invalid) return yield* invalid;
   return diagnose(str, production, xmlVersion, asciiOnly);
-});
-
-// ---------------------------------------------------------------------------
-// Batch validator
-// ---------------------------------------------------------------------------
-
-/**
- * @description Validates an array of strings against a named production.
- *
- * @example
- *   ```typescript
- *   import { Effect } from 'effect';
- *   import { validateAll } from '@endevops/common-xml';
- *
- *   const results = Effect.runSync(validateAll(['a', '1b'], 'ncName'));
- *   results.filter(r => !r.valid).length; // 1 — '1b' cannot start with a digit
- *   ```;
- *
- * @param strings - The candidate names, in input order.
- * @param production - The production to validate against.
- * @param opts - Version and ASCII-only selection, as for the boolean validators.
- *
- * @returns An effect producing one result per input, in the same order. Fails with an {@link XmlError} and the `InvalidProduction` reason, checked
- *   once up front rather than once per string — an unknown production would otherwise fail on the first element, and an empty input would silently
- *   succeed.
- */
-export const validateAll = Effect.fnUntraced(function* (
-  strings: Array<string>,
-  production: Production,
-  { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
-): Effect.fn.Return<Array<ValidationResult>, XmlError> {
-  const invalid = productionError(production);
-  if (invalid) return yield* invalid;
-  return strings.map(str => diagnose(str, production, xmlVersion, asciiOnly));
 });
 
 // ---------------------------------------------------------------------------

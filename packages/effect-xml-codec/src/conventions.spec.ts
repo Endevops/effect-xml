@@ -3,13 +3,12 @@
  * not a legal XML name.
  */
 
-import { isQName } from '@endevops/common-xml';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { ResolveNameOptions } from '#/index.ts';
 
-import { attributeName, isAttributeKey, isReservedKey, isTextKey, resolveName, ATTRIBUTE_PREFIX, TEXT_KEY } from '#/index.ts';
+import { attributeName, isAttributeKey, isQName, isReservedKey, isTextKey, resolveName, ATTRIBUTE_PREFIX, TEXT_KEY } from '#/index.ts';
 
 /**
  * @description Resolves a name the way a caller not already in an `Effect` would: `resolveName` answers with an `Effect` whose failure is an `XmlParseError`, and

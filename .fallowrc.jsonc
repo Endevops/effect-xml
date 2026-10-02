@@ -17,110 +17,34 @@
     //   "**/generated/**"     // OpenAPI, Protobuf codegen
     // ]
   },
-  // Exempt an export that is referenced only inside its own file. This is the
-  // pattern of a class that exists to be returned: `TagExp`
-  // (xml-part-reader.ts) is the return type of the exported `readTagExp()` /
-  // `readPiExp()`, and `RecordingXMLParser` (recording-builder.ts) is the
-  // return type of the exported `makeRecordingParser()`. Neither is imported
-  // by name anywhere, so plain unused-export detection cannot see that they
-  // are already public through the function that hands them back — and
-  // de-exporting them instead turns each one into a private-type-leak on that
-  // function, which is a worse trade. The same applies to `Identifier`
-  // (decode-identifier.ts), `OpaqueSchema` (opaque.ts), and the Schema classes
-  // a sibling public class in the same file references without exporting.
-  //
-  // This only ever hides an export nothing outside its own file can reach, so
-  // the dead-code signal it gives up is narrow; the entry-point and boundary
-  // checks below still see the real public surface.
+  // Exempt an export that is referenced only inside its own file — a class that
+  // exists to be returned by an exported function, or a type a sibling public
+  // type names. The dead-code signal this gives up is narrow: the export is
+  // unreachable from outside its own module anyway, and the entry-point check
+  // still sees the real public surface.
   "ignoreExportsUsedInFile": true,
-  // `StringSource` and `FeedableSource` are both driven through the
-  // `InputSourceLike` interface: every reader function in the parser takes an
-  // `InputSourceLike` and calls these members through it, so no call site
-  // names the class. Detection is syntactic, so those calls are invisible and
-  // all 14 interface members read as unreferenced.
-  //
-  // The type-aware companion does not rescue them: it reports
-  // `retained-unresolved` / `unknown-symbol` for both classes (both are
-  // default exports, which its symbol resolution cannot pin), and a retained
-  // finding is never deletion proof. Removing them is not an option anyway —
-  // `InputSourceLike` requires them, so the compiler fails first.
-  //
-  // Scoped by `implements` rather than a bare name list so the exemption is
-  // stated as the reason it is true, and so a future class with an unrelated
-  // `readCh` is not exempted by accident. This is what lets the scope match
-  // `StringSource` too: it carried a `readFromBuffer(n, updateIndex?: number)`
-  // that no caller ever invoked and that did not match the interface's
-  // `(n, shouldUpdate?: boolean)`, so it could not honestly declare
-  // `implements InputSourceLike` and `Xml2JsParser` was casting past the
-  // mismatch. With that dead copy gone the clause is true, and the
-  // `as InputSourceLike` cast at the `parse()` call site went with it.
-  "usedClassMembers": [
-    {
-      "implements": "InputSourceLike",
-      "members": [
-        "clearMark",
-        "markTokenStart",
-        "matchAhead",
-        "readCh",
-        "readChAt",
-        "readFromBuffer",
-        "readStr",
-        "readUpto",
-        "readUptoChar",
-        "readUptoCloseTag",
-        "rewindToMark",
-        "scanTagExpEnd",
-        "scanTagExpEndFast",
-      ],
-    },
-    // Public `EntityDecoder` API. `setExternalEntities` installs the persistent
-    // external entities a consumer registers before decoding, and only this
-    // repo's own specs call it, so production reachability cannot see the use.
-    // The name is specific enough that a bare entry does not hide a different
-    // class's member.
-    "setExternalEntities",
-  ],
+  // A class's public API is not tracked by production reachability, so a method
+  // only a spec calls reads as unused. These four are EntityDecoder's
+  // entity-registration surface — a caller registers external or DOCTYPE
+  // entities and the decoder resolves references against them. The codec only
+  // ever decodes the five built-in XML entities, so the methods are exercised
+  // by `test/entities/decoder.spec.ts` and not by `src/`. Named in full so a
+  // bare `reset` on some future class is not exempted by accident.
+  "usedClassMembers": ["setExternalEntities", "addExternalEntity", "addInputEntities", "reset"],
   "ignoreDependencies": [
-    // tsdown `attw` build plugin (wired in tsdown.config.ts, never directly imported).
+    // `attw` and `publint` run inside `vp pack` (the package `pack` block), so
+    // they are configured rather than imported.
     "@arethetypeswrong/core",
-    // tsdown `publint` build plugin (wired in tsdown.config.ts, never directly imported).
     "publint",
-    // Build/generator tooling imported only from scripts/ (a configured `entry` root).
-    "picocolors",
-    "simple-git",
   ],
-  // The dependency graph is a strict layering, and this states it so the
-  // detector checks it rather than sitting unmeasured:
-  //
-  //   common-xml  entities, naming, path matching — no sibling dependency
-  //   builder     XML out and JS in; builds on common-xml
-  //   parser      XML in to JS out; builds on builder and common-xml
-  //   codec       Schema <-> XML, standalone on top of common-xml
-  //
-  // A rule listing only what a layer may import is the check: `common-xml`
-  // has none, so an import from it into a sibling is a violation rather than
-  // something a reader has to notice. `effect` and `node:*` are outside every
-  // zone and so unrestricted.
-  "boundaries": {
-    "zones": [
-      { "name": "common-xml", "patterns": ["packages/common-xml/src/**/*.ts"] },
-      { "name": "builder", "patterns": ["packages/builder/src/**/*.ts"] },
-      { "name": "parser", "patterns": ["packages/parser/src/**/*.ts"] },
-      { "name": "codec", "patterns": ["packages/effect-xml-codec/src/**/*.ts"] },
-    ],
-    "rules": [
-      // The base layer depends on nothing of ours. Its absence from every
-      // other `allow` list is what makes that a rule rather than a convention.
-      { "from": "common-xml", "allow": [] },
-      { "from": "builder", "allow": ["common-xml"] },
-      { "from": "parser", "allow": ["builder", "common-xml"] },
-      { "from": "codec", "allow": ["common-xml"] },
-    ],
-  },
   "rules": {
     "circular-dependencies": "error",
     "unused-dependencies": "error",
     "private-type-leaks": "error",
+    // One publishable package and a private benchmark project leaves no
+    // cross-package layering to enforce, so the boundary detector is off
+    // explicitly rather than reporting that it measured nothing.
+    "boundary-violation": "off",
     // There is no declarative rule pack in this repo, so the policy detector
     // has nothing to enforce. Turning it off is the honest statement; leaving
     // it unconfigured reports the absence every run instead.

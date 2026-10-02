@@ -1,25 +1,15 @@
 /**
- * @description Specs for `@endevops/common-xml`, covering all five productions, the XML 1.0 vs 1.1 differences, the `asciiOnly` fast path, and the diagnostic,
- * batch, sanitize and memoizing helpers. The two `as Production` casts are deliberate: they stand in for the untyped JavaScript caller the runtime
- * guard exists to catch, which is the only way to exercise that branch from a type-checked suite.
+ * @description Specs for the name validators, covering all five productions, the XML 1.0 vs 1.1 differences, the `asciiOnly` fast path, and the diagnostic and
+ * sanitize helpers. The `as Production` casts are deliberate: they stand in for the untyped JavaScript caller the runtime guard exists to catch,
+ * which is the only way to exercise that branch from a type-checked suite.
  */
 
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { CreateValidatorOptions, MemoizedValidator, Production, ValidationOptions, ValidationResult } from '#/index.ts';
+import type { Production, ValidationOptions, ValidationResult } from '#/index.ts';
 
-import {
-  createValidator as createValidatorEffect,
-  isName,
-  isNcName,
-  isNmToken,
-  isNmTokens,
-  isQName,
-  sanitize,
-  validate as validateEffect,
-  validateAll as validateAllEffect,
-} from '#/index.ts';
+import { isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate as validateEffect } from '#/index.ts';
 
 /**
  * @description Runs an effectful validator the way a caller not already in an `Effect` would: `Effect.runSync` throws the failure, so a spec asserting on a thrown
@@ -27,10 +17,6 @@ import {
  */
 const validate = (str: string, production: Production, options?: ValidationOptions): ValidationResult =>
   Effect.runSync(validateEffect(str, production, options));
-const validateAll = (strings: Array<string>, production: Production, options?: ValidationOptions): Array<ValidationResult> =>
-  Effect.runSync(validateAllEffect(strings, production, options));
-const createValidator = (production: Production, options?: CreateValidatorOptions): MemoizedValidator =>
-  Effect.runSync(createValidatorEffect(production, options));
 
 /**
  * @description Narrows a validation result to its diagnostics. Throws if the result was valid, so a spec that expected a failure cannot pass on a success.
@@ -354,37 +340,6 @@ describe('validate()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// validateAll()
-// ---------------------------------------------------------------------------
-
-describe('validateAll()', () => {
-  it('returns a result per input string', () => {
-    const results = validateAll(['svg', 'circle', '123bad', 'xlink:href'], 'ncName');
-    expect(results.length).toBe(4);
-    expect(results[0].valid).toBe(true);
-    expect(results[1].valid).toBe(true);
-    expect(results[2].valid).toBe(false);
-    expect(results[3].valid).toBe(false);
-  });
-
-  it('returns all valid for clean input', () => {
-    const results = validateAll(['foo', 'bar', 'baz'], 'name');
-    expect(results.every(r => r.valid)).toBe(true);
-  });
-
-  it('returns all invalid for bad input', () => {
-    const results = validateAll(['1bad', '!bad', ''], 'qName');
-    expect(results.every(r => !r.valid)).toBe(true);
-  });
-
-  it('throws InvalidProduction for an unknown production', () => {
-    // Checked once up front rather than once per string, so an empty input
-    // cannot silently succeed on an unknown production.
-    expect(() => validateAll([], 'unknown' as Production)).toThrow();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // sanitize()
 // ---------------------------------------------------------------------------
 
@@ -504,111 +459,5 @@ describe('asciiOnly option', () => {
     expect(result.valid).toBe(false);
     expect(diagnosticsOf(result).reason).toContain('NameChar');
     expect(diagnosticsOf(result).position).toBe(3);
-  });
-
-  it('is respected by validateAll via opts passthrough', () => {
-    const results = validateAll(['foo', 'café'], 'name', { asciiOnly: true });
-    expect(results[0].valid).toBe(true);
-    expect(results[1].valid).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// createValidator()
-// ---------------------------------------------------------------------------
-
-describe('createValidator()', () => {
-  it('throws InvalidProduction for an unknown production', () => {
-    expect(() => createValidator('bogus' as Production)).toThrow();
-  });
-
-  it('returns a function that matches the uncached validator for the same production', () => {
-    const memo = createValidator('name');
-    const cases = ['foo', '1foo', 'a:b:c', '-bad', '', 'café', ':', 'a-b.c1'];
-    for (const str of cases) {
-      expect(memo(str)).toBe(isName(str));
-    }
-  });
-
-  it('matches the uncached validator for qName', () => {
-    const memo = createValidator('qName');
-    const cases = ['svg:circle', 'foo', 'a:b:c', ':foo', 'foo:'];
-    for (const str of cases) {
-      expect(memo(str)).toBe(isQName(str));
-    }
-  });
-
-  it('matches the uncached validator for ncName', () => {
-    const isNc = createValidator('ncName');
-    const cases = ['my-id', 'xlink:href', 'foo'];
-    for (const str of cases) {
-      expect(isNc(str)).toBe(isNcName(str));
-    }
-  });
-
-  it('matches the uncached validator for nmToken and nmTokens', () => {
-    const isTok = createValidator('nmToken');
-    const isToks = createValidator('nmTokens');
-    expect(isTok('123')).toBe(isNmToken('123'));
-    expect(isTok('foo bar')).toBe(isNmToken('foo bar'));
-    expect(isToks('tok1 tok2 -foo 123')).toBe(isNmTokens('tok1 tok2 -foo 123'));
-  });
-
-  it('respects xmlVersion fixed at creation time', () => {
-    const is10 = createValidator('name', { xmlVersion: '1.0' });
-    const is11 = createValidator('name', { xmlVersion: '1.1' });
-    // Supplementary-plane char is only valid as a NameStartChar in XML 1.1
-    const supplementaryChar = '\u{10000}';
-    expect(is10(supplementaryChar)).toBe(false);
-    expect(is11(supplementaryChar)).toBe(true);
-  });
-
-  it('respects asciiOnly fixed at creation time', () => {
-    const isAscii = createValidator('name', { asciiOnly: true });
-    const isUnicode = createValidator('name', { asciiOnly: false });
-    expect(isAscii('café')).toBe(false);
-    expect(isUnicode('café')).toBe(true);
-  });
-
-  it('returns the same boolean result on repeated calls (cache hit path)', () => {
-    const memo = createValidator('qName');
-    expect(memo('sku')).toBe(true);
-    expect(memo('sku')).toBe(true);
-    expect(memo('1bad')).toBe(false);
-    expect(memo('1bad')).toBe(false);
-  });
-
-  it('stops caching new entries once maxCacheSize is reached, but keeps validating correctly', () => {
-    const memo = createValidator('name', { maxCacheSize: 2 });
-    expect(memo('a')).toBe(true);
-    expect(memo('b')).toBe(true);
-    // cache is now full (size 2) — further distinct inputs are still validated
-    // correctly, just not cached
-    expect(memo('c')).toBe(true);
-    expect(memo('1bad')).toBe(false);
-    expect(memo('d')).toBe(true);
-    // previously cached entries still resolve correctly
-    expect(memo('a')).toBe(true);
-    expect(memo('b')).toBe(true);
-  });
-
-  it('exposes a reset() method that clears the cache without breaking correctness', () => {
-    const memo = createValidator('name', { maxCacheSize: 1 });
-    expect(memo('a')).toBe(true); // fills cache
-    expect(memo('b')).toBe(true); // not cached (cache full)
-    memo.reset();
-    expect(memo('b')).toBe(true); // now cacheable again post-reset
-    expect(memo('a')).toBe(true);
-  });
-
-  it('keeps caches independent across separate createValidator instances', () => {
-    const v1 = createValidator('name', { maxCacheSize: 1 });
-    const v2 = createValidator('name', { maxCacheSize: 1 });
-    v1('x');
-    v2('y');
-    // Filling v1's single-entry cache with 'x' must not affect v2's ability
-    // to validate/cache 'y', and vice versa — no shared state.
-    expect(v1('x')).toBe(true);
-    expect(v2('y')).toBe(true);
   });
 });
