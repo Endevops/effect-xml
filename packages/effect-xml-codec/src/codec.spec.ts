@@ -383,12 +383,16 @@ describe('toCodecXml() — xmlValue', () => {
   it('writes a value field for the same name nested differently', () => {
     const codec = toCodecXml(
       Schema.Struct({
-        item: Schema.Struct({ '@id': Schema.String, title: Schema.String.annotate({ xmlValue: true }) }),
-        group: Schema.Struct({ item: Schema.Struct({ '@id': Schema.String, note: Schema.String.annotate({ xmlValue: true }) }) }),
+        items: Schema.Array(Schema.Struct({ '@id': Schema.String, title: Schema.String.annotate({ xmlValue: true }) })).pipe(
+          Schema.annotate({ xmlName: 'item' })
+        ),
+        group: Schema.Struct({
+          item: Schema.Struct({ '@id': Schema.String, note: Schema.String.annotate({ xmlValue: true }) }).pipe(Schema.annotate({ xmlName: 'item' })),
+        }),
       }),
       { rootName: 'root' }
     );
-    const value = { item: { '@id': '1', title: 'a' }, group: { item: { '@id': '2', note: 'b' } } };
+    const value = { items: [{ '@id': '1', title: 'a' }], group: { item: { '@id': '2', note: 'b' } } };
     const text = Schema.encodeSync(codec)(value);
     expect(text).toBe('<root><item id="1">a</item><group><item id="2">b</item></group></root>');
     expect(Schema.decodeSync(codec)(text)).toEqual(value);

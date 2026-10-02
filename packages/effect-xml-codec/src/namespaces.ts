@@ -138,6 +138,11 @@ export interface NamespacePlan {
   readonly valueByElement: ReadonlyMap<string, string>;
 
   /**
+   * @description The paths of array fields that name their element with `xmlName`, so a single occurrence decodes as a one-member array.
+   */
+  readonly arrayKeys: ReadonlySet<string>;
+
+  /**
    * @description The root element's namespace, or `undefined` when the root is unannotated.
    */
   readonly root: XmlNamespace | undefined;
@@ -356,6 +361,29 @@ const resolvedKey = (isAttribute: boolean, uri: string | undefined, local: strin
   `${isAttribute ? ATTRIBUTE_PREFIX : ''}${uri ?? ''}|${local}`;
 
 /**
+ * @description The path of the parent element, one segment shorter than the field's own path.
+ *
+ * @param path - The field's element path.
+ *
+ * @returns The parent element's path, or the root sentinel.
+ */
+const parentPath = (path: string): string => {
+  const at = path.lastIndexOf(PATH_SEPARATOR);
+  return at === -1 ? ROOT_ELEMENT : path.slice(0, at);
+};
+
+/**
+ * @description The reverse-lookup key for a wire name under one parent element. The parent's path is part of it, so the same wire name under two parents resolves
+ * to each parent's own field.
+ *
+ * @param parent - The parent element's path.
+ * @param resolved - A name from {@link resolvedKey}.
+ *
+ * @returns The lookup key.
+ */
+const lookupKey = (parent: string, resolved: string): string => `${parent}\u0001${resolved}`;
+
+/**
  * @description The mutable state one namespace scan carries: the plan under construction, the local names that resolve to more than one namespace, and the AST
  * nodes already visited so a recursive schema terminates.
  */
@@ -364,6 +392,7 @@ interface Scan {
   readonly nameByKey: Map<string, string>;
   readonly attributeKeys: Set<string>;
   readonly valueByElement: Map<string, string>;
+  readonly arrayKeys: Set<string>;
   readonly problems: Array<string>;
   readonly seen: Set<SchemaAST.AST>;
 }
@@ -549,6 +578,20 @@ const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace 
 };
 
 /**
+ * @description Notes an array field that names its element with `xmlName`, so the decoder reads a single occurrence as a one-member array. An unnamed array keeps
+ * the ambiguity and does not wrap.
+ *
+ * @param scan - The scan state.
+ * @param ast - The AST being scanned.
+ * @param elementPath - The path of the field the AST describes.
+ */
+const noteArray = (scan: Scan, ast: SchemaAST.AST, elementPath: string): void => {
+  if (ast._tag === 'Arrays' && scan.nameByKey.has(elementPath)) {
+    scan.arrayKeys.add(elementPath);
+  }
+};
+
+/**
  * @description Records every name in one schema AST, carrying the namespace an element passes to its descendants and the element the names belong to.
  *
  * @param scan - The scan state.
@@ -559,6 +602,7 @@ const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace 
 const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | undefined, elementPath: string): void => {
   if (scan.seen.has(ast)) return;
   scan.seen.add(ast);
+  noteArray(scan, ast, elementPath);
   const namespace = namespaceOf(ast) ?? inherited;
   switch (ast._tag) {
     case 'Objects':
@@ -590,7 +634,15 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
  * @returns The plan, or the annotations that cannot be honored.
  */
 export const namespacePlan = (schema: Schema.Constraint): { readonly plan: NamespacePlan } | { readonly error: string } => {
-  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), attributeKeys: new Set(), valueByElement: new Map(), problems: [], seen: new Set() };
+  const scan: Scan = {
+    byKey: new Map(),
+    nameByKey: new Map(),
+    attributeKeys: new Set(),
+    valueByElement: new Map(),
+    arrayKeys: new Set(),
+    problems: [],
+    seen: new Set(),
+  };
   scanNode(scan, schema.ast, undefined, ROOT_ELEMENT);
 
   const byResolved = new Map<string, string>();
@@ -599,11 +651,11 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
     const namespace = scan.byKey.get(path);
     const isAttribute = isAttributeKey(key) || scan.attributeKeys.has(path);
     const local = scan.nameByKey.get(path) ?? localName(key);
-    const resolved = resolvedKey(isAttribute, namespace?.uri, local);
+    const resolved = lookupKey(parentPath(path), resolvedKey(isAttribute, namespace?.uri, local));
     const previous = byResolved.get(resolved);
 
     if (previous !== undefined && previous !== key) {
-      scan.problems.push(`"${previous}" and "${key}" both resolve to "${local}"`);
+      scan.problems.push(`"${previous}" and "${key}" both resolve to "${local}" under the same element`);
     } else {
       byResolved.set(resolved, key);
     }
@@ -619,6 +671,7 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
       nameByKey: scan.nameByKey,
       attributeKeys: scan.attributeKeys,
       valueByElement: scan.valueByElement,
+      arrayKeys: scan.arrayKeys,
       root: namespaceOf(schema.ast),
       rootName: nameOf(schema.ast),
       byResolved,
@@ -820,18 +873,20 @@ const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): R
 };
 
 /**
- * @description The schema key a wire key resolves to: the plan's key for its URI and local name, or the local name when the schema left it unannotated.
+ * @description The schema key a wire key resolves to under one parent element: the plan's key for its URI and local name, or the local name when the schema left
+ * it unannotated.
  *
  * @param plan - The namespace plan.
+ * @param parent - The parent element's path.
  * @param key - The wire key.
  * @param scope - The in-scope prefix bindings.
  *
  * @returns The schema key.
  */
-const schemaKey = (plan: NamespacePlan, key: string, scope: Record<string, string | undefined>): string => {
+const schemaKey = (plan: NamespacePlan, parent: string, key: string, scope: Record<string, string | undefined>): string => {
   const isAttribute = isAttributeKey(key);
   const { uri, local } = resolveName(localName(key), isAttribute, scope);
-  return plan.byResolved.get(resolvedKey(isAttribute, uri, local)) ?? (isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local);
+  return plan.byResolved.get(lookupKey(parent, resolvedKey(isAttribute, uri, local))) ?? (isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local);
 };
 
 /**
@@ -868,8 +923,10 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
       continue;
     }
 
-    const childKey = schemaKey(plan, key, inner);
-    out[childKey] = decodeNames(child, plan, inner, childPath(elementPath, childKey));
+    const childKey = schemaKey(plan, elementPath, key, inner);
+    const path = childPath(elementPath, childKey);
+    const decoded = decodeNames(child, plan, inner, path);
+    out[childKey] = plan.arrayKeys.has(path) && !Array.isArray(decoded) ? [decoded] : decoded;
   }
 
   const keys = Object.keys(out);
