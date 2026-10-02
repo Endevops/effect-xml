@@ -39,16 +39,6 @@ function isIllegalAttrCode(c: number): boolean {
 }
 
 /**
- * @description What scanning one attribute produced: the match and where the next one starts, a value that was not quoted, the illegal control character in a
- * value, or the end of the expression — only whitespace left.
- */
-type AttrReadResult =
-  | { readonly kind: 'read'; readonly match: RawAttributeMatch; readonly next: number }
-  | { readonly kind: 'unquoted'; readonly name: string }
-  | { readonly kind: 'illegal'; readonly charCode: number }
-  | { readonly kind: 'end' };
-
-/**
  * @description The fold of one quoted attribute value, or the illegal control character that stopped it. A result rather than an effect: the fold runs once per
  * attribute of every tag, and returning a value keeps it out of the effect channel while {@link parseAttributes} still reports the failure in the same
  * typed channel.
@@ -56,23 +46,11 @@ type AttrReadResult =
 type AttrValueFold = { readonly ok: true; readonly value: string } | { readonly ok: false; readonly charCode: number };
 
 /**
- * @description Mutable cursor over the quote-pair list recorded by `scanTagExpEnd()`, carried across the attributes of one tag so each value can reuse the close
- * position already found for it.
- */
-interface PairCursor {
-  /**
-   * @description Index of the next unread pair.
-   */
-  idx: number;
-}
-
-/**
  * @description Parse an attribute expression string into an array of match tuples. Each element is `{ name, value, startIndex }` — `value` is `undefined` for a
  * boolean attribute (no `=`). A single O(n) pass over char codes with no regex and no recursion, which is what makes it safe for arbitrarily long
- * attribute strings. The per-attribute step lives in {@link readOneAttribute} and the value fold in {@link foldAttributeValue}: both are plain
- * functions, not effects, because the old shape routed every attribute through two extra generators — an effect boundary is a generator, an iterator
- * pass and an exit allocation, and on a document of thousands of tags that was the bulk of the work. This generator keeps only the loop and the two
- * failures, so the error channel is unchanged.
+ * attribute strings. The per-attribute step and the fold are plain functions, not effects, because the old shape routed every attribute through two
+ * extra generators — an effect boundary is a generator, an iterator pass and an exit allocation, and on a document of thousands of tags that was the
+ * bulk of the work. The whole pass stays in one loop here, which also reads a value as a single slice when it has nothing that needs folding.
  *
  * @param attrStr - The raw attribute expression.
  * @param quotePairs - Flat `[openIdx, closeIdx, …]` list from `scanTagExpEnd()`, offsets relative to the _tag expression_ (not `attrStr`). When a
@@ -89,6 +67,7 @@ interface PairCursor {
  * @returns An effect producing the parsed match tuples. Fails with `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote,
  *   `ILLEGAL_CHARACTER` on an illegal control code.
  */
+// fallow-ignore-next-line complexity
 export const parseAttributes = Effect.fnUntracedEager(function* (
   attrStr: string,
   quotePairs: Int32Array | undefined,
@@ -104,103 +83,93 @@ export const parseAttributes = Effect.fnUntracedEager(function* (
   // a mis-wired call then fails to match instead of silently matching against
   // pair indices from the wrong origin.
   const pairBase = attrsOffset as number;
-  const cursor: PairCursor = { idx: 0 };
+  let pairIdx = 0;
 
   let i = 0;
   while (true) {
-    const read = readOneAttribute(attrStr, len, i, usePairs, quotePairs, quotePairsLen, pairBase, cursor);
-    if (read.kind === 'end') break;
+    // Skip whitespace between attributes
+    i = skipSpaces(attrStr, i, len);
+    if (i >= len) break;
 
-    if (read.kind === 'unquoted') {
+    const nameStart = i;
+    const nameEnd = endOfAttrName(attrStr, i, len);
+    const name = nameStart === nameEnd ? '' : attrStr.substring(nameStart, nameEnd);
+
+    // Skip whitespace before '='
+    i = skipSpaces(attrStr, nameEnd, len);
+
+    // No '=' — a boolean attribute. It ends at the whitespace that stopped the name scan.
+    if (i >= len || attrStr.charCodeAt(i) !== EQUALS) {
+      results.push({ name, value: undefined, startIndex: nameStart });
+      continue; // the whitespace at `i` is skipped at the top of the next pass
+    }
+
+    i = skipSpaces(attrStr, i + 1, len); // past '='
+
+    // The character right after '=' (mod whitespace) MUST be a quote — this is
+    // never relaxed, in any mode. Reject before consuming anything, so an
+    // unquoted value never partially reaches the output builder.
+    const quote = attrStr.charCodeAt(i); // NaN when i >= len — rejects below
+    if (quote !== DOUBLE_QUOTE && quote !== SINGLE_QUOTE) {
       return yield* new UnquotedAttributeValue({
-        name: read.name,
-        message: `Attribute '${read.name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
+        name,
+        message: `Attribute '${name}' has an unquoted value — attribute values must be wrapped in '"' or "'"`,
         index: parser ? errorPositionOf(parser.source).index : undefined,
       });
     }
 
-    if (read.kind === 'illegal') {
+    // Reuse a closing-quote position the tag-end scanner already recorded. When the pair recorded for
+    // this attribute's opening quote lines up, its close is already known and rescanning for it is
+    // wasted work. A mismatch falls through to the per-character scan, so correctness never depends
+    // on the fast path succeeding.
+    let closeLocal = -1;
+    if (usePairs && pairIdx + 1 < quotePairsLen && (quotePairs as Int32Array)[pairIdx] === i + pairBase) {
+      closeLocal = ((quotePairs as Int32Array)[pairIdx + 1] as number) - pairBase;
+      pairIdx += 2;
+    }
+
+    const valueStart = i + 1; // past the opening quote
+    const end = closeLocal >= 0 ? closeLocal : findClosingQuote(attrStr, valueStart, len, quote);
+
+    const readValue = readAttributeValue(attrStr, valueStart, end);
+    if (!readValue.ok) {
       return yield* new IllegalCharacter({
-        charCode: read.charCode,
+        charCode: readValue.charCode,
         in: 'attribute',
-        message: `Illegal control character 0x${read.charCode.toString(16).padStart(2, '0')} in attribute value`,
+        message: `Illegal control character 0x${readValue.charCode.toString(16).padStart(2, '0')} in attribute value`,
         index: parser ? errorPositionOf(parser.source).index : undefined,
       });
     }
 
-    results.push(read.match);
-    i = read.next;
+    results.push({ name, value: readValue.value, startIndex: nameStart });
+    i = end + 1; // skip closing quote
   }
 
   return results;
 });
 
 /**
- * @description Read the one attribute starting at `from`, through its value or up to the end of a boolean attribute. Plain and synchronous: it reports what it
- * read, or which failure {@link parseAttributes} should raise, rather than failing in the effect channel itself.
+ * @description Read one quoted attribute value out of the expression, between `start` and `end`. Synchronous and result-returning: the common shape is a value
+ * with nothing that needs folding — no newline, carriage return or tab, so no whitespace to collapse — and that value is taken as a single slice.
+ * Only a value that does have such a character is rebuilt through {@link foldAttributeValue}. Illegal control characters are reported back rather than
+ * raised, so the caller stays the one place that builds the failure.
  *
- * @param attrStr - The raw attribute expression.
- * @param len - `attrStr.length`.
- * @param from - Offset to start at, which may be whitespace.
- * @param usePairs - Whether the recorded quote pairs are usable for this expression.
- * @param pairs - The recorded quote pairs, or `undefined`.
- * @param pairsLen - How many entries in `pairs` are valid.
- * @param pairBase - Offset of `attrStr` within the coordinate system `pairs` is expressed in.
- * @param cursor - The pair cursor, advanced when a recorded pair is consumed.
+ * @param attrStr - The expression the value came from.
+ * @param start - Offset of the value's first character, past the opening quote.
+ * @param end - Offset of the closing quote.
  *
- * @returns What was read: a match and the next offset, an unquoted value, an illegal control character, or the end of the expression.
+ * @returns The value, or the illegal control character that stopped it.
  */
-// fallow-ignore-next-line complexity
-function readOneAttribute(
-  attrStr: string,
-  len: number,
-  from: number,
-  usePairs: boolean,
-  pairs: Int32Array | undefined,
-  pairsLen: number,
-  pairBase: number,
-  cursor: PairCursor
-): AttrReadResult {
-  // Skip whitespace between attributes
-  let i = skipSpaces(attrStr, from, len);
-  if (i >= len) return { kind: 'end' };
+function readAttributeValue(attrStr: string, start: number, end: number): AttrValueFold {
+  if (end <= start) return { ok: true, value: '' };
 
-  const nameStart = i;
-  const { name, next } = readAttrName(attrStr, i, len);
-
-  // Skip whitespace before '='
-  i = skipSpaces(attrStr, next, len);
-
-  // No '=' — a boolean attribute. It ends at the whitespace that stopped the name scan.
-  if (i >= len || attrStr.charCodeAt(i) !== EQUALS) {
-    return { kind: 'read', match: { name, value: undefined, startIndex: nameStart }, next: i };
+  for (let j = start; j < end; j++) {
+    const c = attrStr.charCodeAt(j);
+    if (c === 13 || c === 10 || c === 9) return foldAttributeValue(attrStr, start, end);
+    if (isIllegalAttrCode(c)) return { ok: false, charCode: c };
   }
 
-  i = skipSpaces(attrStr, i + 1, len); // past '='
-
-  // The character right after '=' (mod whitespace) MUST be a quote — this is
-  // never relaxed, in any mode. Reject before consuming anything, so an
-  // unquoted value never partially reaches the output builder.
-  const quote = attrStr.charCodeAt(i); // NaN when i >= len — rejects below
-  if (quote !== DOUBLE_QUOTE && quote !== SINGLE_QUOTE) return { kind: 'unquoted', name };
-
-  // Reuse a closing-quote position the tag-end scanner already recorded. When the pair recorded for
-  // this attribute's opening quote lines up, its close is already known and rescanning for it is
-  // wasted work. A mismatch falls through to the per-character scan, so correctness never depends
-  // on the fast path succeeding.
-  let closeLocal = -1;
-  if (usePairs && cursor.idx + 1 < pairsLen && (pairs as Int32Array)[cursor.idx] === i + pairBase) {
-    closeLocal = ((pairs as Int32Array)[cursor.idx + 1] as number) - pairBase;
-    cursor.idx += 2;
-  }
-
-  i++; // skip opening quote
-  const end = closeLocal >= 0 ? closeLocal : findClosingQuote(attrStr, i, len, quote);
-
-  const folded = foldAttributeValue(attrStr, i, end);
-  if (!folded.ok) return { kind: 'illegal', charCode: folded.charCode };
-
-  return { kind: 'read', match: { name, value: folded.value, startIndex: nameStart }, next: end + 1 }; // skip closing quote
+  return { ok: true, value: attrStr.substring(start, end) };
 }
 
 /**
@@ -248,6 +217,22 @@ const DOUBLE_QUOTE = 34;
 const SINGLE_QUOTE = 39;
 
 /**
+ * @description Read the attribute name starting at `from`, ending at the first `=`, whitespace or end of expression. Plain and synchronous so the hot pass reads a
+ * name without a wrapper object per attribute, and so the name is sliced only when the caller needs it.
+ *
+ * @param attrStr - The raw attribute expression.
+ * @param from - Offset the name starts at.
+ * @param len - `attrStr.length`.
+ *
+ * @returns The offset just past the name.
+ */
+function endOfAttrName(attrStr: string, from: number, len: number): number {
+  let i = from;
+  while (i < len && attrStr.charCodeAt(i) !== EQUALS && !isSpaceCode(attrStr.charCodeAt(i))) i++;
+  return i;
+}
+
+/**
  * @description Advance past XML whitespace, stopping at `len`. XML permits whitespace around `=` and between attributes, so this is needed in three places per
  * attribute and was the single largest source of duplicated scanning loops in `parseAttributes`.
  */
@@ -255,19 +240,6 @@ function skipSpaces(attrStr: string, from: number, len: number): number {
   let i = from;
   while (i < len && isSpaceCode(attrStr.charCodeAt(i))) i++;
   return i;
-}
-
-/**
- * @description Read the attribute name at `from`. A name runs to the first `=`, the first whitespace, or the end of the expression — any of which means either a
- * value follows or the attribute is boolean.
- *
- * @returns The name as written, and the offset just past it. The cursor is left
- * _before_ any whitespace, for the caller to skip.
- */
-function readAttrName(attrStr: string, from: number, len: number): { name: string; next: number } {
-  let i = from;
-  while (i < len && attrStr.charCodeAt(i) !== EQUALS && !isSpaceCode(attrStr.charCodeAt(i))) i++;
-  return { name: attrStr.substring(from, i), next: i };
 }
 
 /**
@@ -418,8 +390,12 @@ const keepAttributes = Effect.fnUntracedEager(function* (
   policy: AttrPolicy
 ): Effect.fn.Return<Array<ParsedAttribute>, ParseError> {
   const parsedAttrs: Array<ParsedAttribute> = [];
+  // Indexed rather than `for...of`: `matches` is a plain array, and `for...of` allocates an array
+  // iterator per tag on a path that runs for every tag in the document.
+  const count = matches.length;
 
-  for (const m of matches) {
+  for (let i = 0; i < count; i++) {
+    const m = matches[i] as RawAttributeMatch;
     const decision = decideOccurrence(policy, m);
     if (decision === 'drop') continue;
 

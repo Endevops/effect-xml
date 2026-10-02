@@ -76,6 +76,9 @@ test('scanTagExpEndFast — the same tags, no quote bookkeeping', async ({ bench
 
 test('parseAttributes — attribute expressions of several shapes', async ({ bench }) => {
   await bench(`${TAGS.length} expressions`, () => {
+    // One `runSync` per tag keeps the row a measure of the pass itself. Batching the whole loop into
+    // one `runSync` would instead measure mostly the `Effect.all` combinator, which reported a
+    // plausible-looking 0.03us for the whole loop before this was split.
     let sink = 0;
     for (let i = 0; i < TAGS.length; i++) {
       const tag = TAGS[i] as string;
