@@ -482,7 +482,7 @@ const flushAttributesEager = Effect.fnUntracedEager(function* (
 ): Effect.fn.Return<void, ParseError> {
   const len = parsedAttrs.length;
   for (let i = 0; i < len; i++) {
-    const a = parsedAttrs[i] as ParsedAttribute;
+    const a = parsedAttrs[i]!;
     const attrMeta: AttributeMeta | undefined = attrsExpStart !== undefined ? { index: attrsExpStart + a.index } : undefined;
     yield* runBuilder(parser.outputBuilder.addAttribute(a.name, a.value, parser.readonlyMatcher, attrMeta));
   }

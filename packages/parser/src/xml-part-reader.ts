@@ -1,5 +1,3 @@
-'use strict';
-
 import { Effect } from 'effect';
 
 import type { InputSourceLike } from './input-source/input-source.ts';
