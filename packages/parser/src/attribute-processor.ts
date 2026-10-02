@@ -89,7 +89,7 @@ interface PairCursor {
  * @returns An effect producing the parsed match tuples. Fails with `UNQUOTED_ATTRIBUTE_VALUE` when a value is not wrapped in a quote,
  *   `ILLEGAL_CHARACTER` on an illegal control code.
  */
-const parseAttributes = Effect.fnUntracedEager(function* (
+export const parseAttributes = Effect.fnUntracedEager(function* (
   attrStr: string,
   quotePairs: Int32Array | undefined,
   attrsOffset: number | undefined,
