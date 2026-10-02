@@ -7,7 +7,7 @@ import type { Context, SharedContext, ValueParser } from '#/output-builder/value
 
 import { BuilderError } from '#/errors.ts';
 import { isUnsafeXml } from '#/output-builder/security/xml-unsafe.ts';
-import { NEEDS_EFFECT } from '#/output-builder/value-parser.ts';
+import { finalValue, NEEDS_EFFECT } from '#/output-builder/value-parser.ts';
 
 /**
  * @description The options for the entities parser: everything `EntityDecoder` accepts, plus a hook for deciding what to do with an entity declared in the
@@ -31,6 +31,17 @@ const defaultOptions: EntitiesValueParserOptions = {
   numericAllowed: true,
   onInputEntity: (_name: string, value: string) => (isUnsafeXml(value) ? ENTITY_ACTION.BLOCK : ENTITY_ACTION.ALLOW),
 };
+
+/**
+ * @description The first characters that can begin a number, an exponent marker or a boolean word, and so the only ones a later parser in the default chain has to
+ * look at. Everything else — a letter outside this set, `_`, `:`, `#`, and the rest — cannot be claimed by the number parser or the boolean parser,
+ * so the entity parser marks such a value final and the rest of the chain never runs. `A` to `F`, `X` and `E` cover hex and exponents, `I`/`N` and
+ * `T`/`F` cover the boolean and infinity words, and the rest of the alphabet is left out on purpose: a label like `Product` or an identifier like
+ * `SKU-1` starts outside the set and skips three parsers. A digit, a sign, a decimal point or whitespace is not here because
+ * {@link ValueParser.parseSync} leaves those to the number parser, which trims first — the set is only consulted for a value that starts with a
+ * letter or punctuation before any trim.
+ */
+const MAYBE_NUMERIC_OR_BOOLEAN = /[\s+\-.0-9a-fA-FeEinNoOtTuUxXzZ]/;
 
 /**
  * @description Map a `common-xml` failure from the decoder into this package's error type. The decoder is `common-xml`'s, so its whole error surface is
@@ -145,15 +156,21 @@ export const makeEntitiesValueParser = (options?: EntitiesValueParserOptions, is
       return decodeWithEntities(val);
     },
     /**
-     * @description The synchronous spelling. A string with no `&` is answered here and the chain stays pure; one that has a reference hands the value back with
-     * {@link NEEDS_EFFECT}, because expanding it can fail and needs the decoder.
+     * @description The synchronous spelling. A string that starts with a letter, `_` or `:` cannot become a number later in the chain, so it is marked final and
+     * the number parser never runs for it. A string with an `&` hands the value back with {@link NEEDS_EFFECT}, because expanding it can fail.
+     * Anything else is answered as it stands and the chain stays pure.
      *
      * @param val - The value.
      *
-     * @returns The value untouched when there is nothing to expand, otherwise `NEEDS_EFFECT`.
+     * @returns The value, a finished value for text no number parser could claim, or `NEEDS_EFFECT`.
      */
     parseSync(val: unknown): unknown {
-      if (typeof val !== 'string' || val.indexOf('&') !== -1) return NEEDS_EFFECT;
+      if (typeof val !== 'string') return val;
+      if (val.indexOf('&') !== -1) return NEEDS_EFFECT;
+      // No `&` to expand. A value whose first character is not one a number or a boolean can begin
+      // stays text, so ending the chain here is the same result the rest of the chain would return —
+      // without the trim, the patterns and the round trip the number parser would run.
+      if (!MAYBE_NUMERIC_OR_BOOLEAN.test(val[0] as string)) return finalValue(val);
       return val;
     },
   };

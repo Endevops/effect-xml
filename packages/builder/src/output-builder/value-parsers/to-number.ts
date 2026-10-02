@@ -113,6 +113,43 @@ const DEFAULTS: ResolvedOptions = {
 };
 
 /**
+ * @description Whether a string could be a number under these options, decided from its shape alone. `false` is a promise that {@link toNumber} would return the
+ * string unchanged, so a caller on a hot path can skip it — the parser's value chain does exactly that, and this is where the promise is kept. A
+ * value is possible when it starts with a sign, a decimal point or a digit (the ASCII forms), when a leading zero may start a radix literal or when
+ * Unicode digits are accepted. This is deliberately a cheap first-character test rather than a validation: it never rejects something {@link toNumber}
+ * would have converted, which the `toNumber` tests pin down.
+ *
+ * @param value - The candidate string.
+ * @param options - The same options {@link toNumber} would be given.
+ *
+ * @returns `true` when the value is worth converting, `false` when it cannot be.
+ */
+export function mayBeNumeric(value: string, options: ToNumberOptions = {}): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false;
+
+  // The `infinity` option is applied to anything `Number()` cannot produce, not only to an overflow:
+  // `Number('abc')` is `NaN`, so under `'null'` or `'string'` text like `'abc'` becomes a value rather
+  // than staying a string. Only the default leaves non-numeric text alone, so only the default may be
+  // answered from the shape.
+  if (options.infinity !== undefined && options.infinity !== 'original') return true;
+
+  // Leading whitespace is allowed, because `toNumber` trims before it decides. Checking the trimmed
+  // first character is what keeps `'  42  '` and `'\t23'` from being reported as text.
+  const first = value.trimStart().charCodeAt(0);
+  // A sign, a decimal point, or a digit: `-0.5`, `.5`, `5`.
+  if (first === 43 /* + */ || first === 45 /* - */ || first === 46 /* . */ || (first >= 48 && first <= 57)) {
+    return true;
+  }
+  // A Unicode minus, only when the caller opted into Unicode.
+  if (options.unicode && (first === 0x2212 || first === 0xff0d || first === 0xfe63)) return true;
+  // Any Unicode decimal digit, only when the caller opted into Unicode. `\p{Nd}` is the same class
+  // `normalizeUnicode` maps, so a value it would convert is never reported as text here.
+  if (options.unicode && /\p{Nd}/u.test(String.fromCodePoint(first))) return true;
+
+  return false;
+}
+
+/**
  * @description Unicode minus and hyphen variants normalized to ASCII `-` when {@link ToNumberOptions.unicode} is on. U+2212 MINUS SIGN, U+FF0D FULLWIDTH
  * HYPHEN-MINUS and U+FE63 SMALL HYPHEN-MINUS are what a human or a locale formatter plausibly writes as a minus. The en dash, em dash and typographic
  * hyphen are deliberately excluded: those are punctuation, and rewriting them would mangle a string that was never a number.
@@ -565,33 +602,39 @@ function convertNumericForm(original: string, candidate: string, resolved: Resol
  *
  * @returns The number, or `value` unchanged when it is not numeric under `options`.
  */
-function toNumber(value: string, options: ToNumberOptions = {}): string | number | null {
-  const resolved: ResolvedOptions = { ...DEFAULTS, ...options };
-
+export function toNumber(value: string, options: ToNumberOptions = {}): string | number | null {
   if (!value || typeof value !== 'string') return value;
 
-  const original = value;
-  let candidate = value.trim();
+  // A value whose shape no option could accept comes back as itself without a trim, a slice or a
+  // pattern run. The value parser asks this too, so the common text case is already decided by the
+  // time it reaches here; this keeps the function honest on its own.
+  if (!mayBeNumeric(value, options)) return value;
+
+  const candidate = value.trim();
   if (candidate.length === 0) return value;
-  if (resolved.skipLike !== undefined && resolved.skipLike.test(candidate)) return value;
-  if (!resolved.unicode && resolved.infinity === 'original') {
-    // Every accepted form starts with a sign, a decimal point, or an ASCII digit, so any other first
-    // character is text and can come back untouched before the pattern work below. Most values in a
-    // document are text, and this is the difference between a trim and a scan per value and a
-    // trim plus four patterns. Skipped when `infinity` asks for a non-finite value to be
-    // represented, or Unicode digits are accepted — both change what a non-numeric first character
-    // means.
-    const first = candidate.charCodeAt(0);
-    if (!((first >= 48 && first <= 57) || first === 43 || first === 45 || first === 46)) return value;
-  }
+  if (options.skipLike !== undefined && options.skipLike.test(candidate)) return value;
   if (candidate === '0') return 0;
 
-  if (resolved.unicode) {
-    candidate = normalizeUnicode(candidate);
-    if (candidate === '0') return 0;
-  }
+  return finishNumeric(value, candidate, { ...DEFAULTS, ...options });
+}
 
-  return convertNumericForm(original, candidate, resolved);
+/**
+ * @description The rules behind the guards {@link toNumber} has already applied: the Unicode normalization, then the radix, overflow, exponent and decimal forms in
+ * that order. Split out so the entry point reads as its guards and this reads as the decision, and because the guards are the part the hot path
+ * spends its time on.
+ *
+ * @param original - The input as written, echoed back by every rule that refuses.
+ * @param candidate - The trimmed candidate.
+ * @param resolved - The options with their defaults applied.
+ *
+ * @returns The number, or `original` unchanged when the rules refuse it.
+ */
+function finishNumeric(original: string, candidate: string, resolved: ResolvedOptions): string | number | null {
+  if (!resolved.unicode) return convertNumericForm(original, candidate, resolved);
+
+  const normalized = normalizeUnicode(candidate);
+  if (normalized === '0') return 0;
+  return convertNumericForm(original, normalized, resolved);
 }
 
 export default toNumber;

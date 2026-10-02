@@ -7,7 +7,7 @@ import { finalValue } from '#/output-builder/value-parser.ts';
 
 import type { ToNumberOptions } from './to-number.ts';
 
-import toNumber from './to-number.ts';
+import toNumber, { mayBeNumeric } from './to-number.ts';
 
 /**
  * @description The options the number parser accepts. Everything {@link toNumber} takes, passed through untouched.
@@ -29,7 +29,7 @@ export const makeNumberValueParser = (options?: NumberParserOptions, isFinal = f
   const resolved = options ?? {};
 
   const convert = (val: unknown): unknown => {
-    if (typeof val === 'string') {
+    if (typeof val === 'string' && mayBeNumeric(val, resolved)) {
       const converted = toNumber(val, resolved);
       // Preserved from the original: `typeof converted !== val` compares a
       // type name against a value and is therefore always true, so with the
@@ -38,7 +38,8 @@ export const makeNumberValueParser = (options?: NumberParserOptions, isFinal = f
       // an accident.
       if (typeof converted !== val) return isFinal ? finalValue(converted) : converted;
     }
-    return val;
+    // A final number parser ends the chain whatever it decided, including when it left the value alone.
+    return isFinal ? finalValue(val) : val;
   };
 
   return {
