@@ -1,22 +1,25 @@
 // oxlint-disable effecttsgo/schema-number
 
-import XMLBuilder from '@endevops/builder';
-import { parseXml, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
+import { XMLBuilder } from '@endevops/builder';
+import { toCodecXml } from '@endevops/effect-xml-codec';
 import { XMLParser } from '@endevops/parser';
 import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
 import { describe, test } from 'vite-plus/test';
 
-const Order = Schema.Struct({
-  '@id': Schema.String,
-  '@currency': Schema.String,
-  total: Schema.Number,
-  placed: Schema.Boolean,
-  note: Schema.String,
-  customer: Schema.Struct({ '@id': Schema.String, name: Schema.String, email: Schema.String }),
-  line: Schema.Array(Schema.Struct({ '@sku': Schema.String, sku: Schema.String, qty: Schema.Number, price: Schema.Number })),
-}).pipe(toCodecXml);
+const Order = toCodecXml(
+  Schema.Struct({
+    '@id': Schema.String,
+    '@currency': Schema.String,
+    total: Schema.Number,
+    placed: Schema.Boolean,
+    note: Schema.String,
+    customer: Schema.Struct({ '@id': Schema.String, name: Schema.String, email: Schema.String }),
+    line: Schema.Array(Schema.Struct({ '@sku': Schema.String, sku: Schema.String, qty: Schema.Number, price: Schema.Number })),
+  }),
+  { rootName: 'order' }
+);
 
 const order = {
   '@id': 'A-1001',
@@ -33,7 +36,7 @@ const order = {
 const ROOT = 'order';
 const ROWS = 500;
 const Row = Schema.Struct({ '@id': Schema.String, '@qty': Schema.String, sku: Schema.String, name: Schema.String, price: Schema.Number });
-const Report = Schema.Struct({ row: Schema.Array(Row) }).pipe(toCodecXml);
+const Report = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }), { rootName: 'report' });
 const report = {
   row: Array.from({ length: ROWS }, (_, i) => ({
     '@id': `R-${i}`,
@@ -44,7 +47,7 @@ const report = {
   })),
 } satisfies Schema.Schema.Type<typeof Report>;
 const REPORT_ROOT = 'report';
-const Note = Schema.Struct({ body: Schema.String }).pipe(toCodecXml);
+const Note = toCodecXml(Schema.Struct({ body: Schema.String }), { rootName: 'note' });
 const NOTE = `${'lorem ipsum dolor sit amet '.repeat(700)}& <tag> "quoted"`;
 const note = { body: NOTE } satisfies Schema.Schema.Type<typeof Note>;
 const NOTE_ROOT = 'note';
@@ -65,23 +68,13 @@ const decodeReport = Schema.decodeEffect(Report);
 const decodeNote = Schema.decodeEffect(Note);
 
 /**
- * @description Encoding one value to a document, as one pipeline: the schema encodes it to the XML value tree, then the renderer writes that tree as text. The
- * encoding benchmarks run the whole effect per iteration — the encode is half of what the row measures, and leaving it out of the timed region would
- * compare this codec's renderer alone against a builder that does the whole object-to-XML job. The decoding benchmarks read the document it produces,
- * run once here so their bytes are identical on every iteration.
+ * @description Encoding one value to a document is a single effect now: the codec's encode writes the text. The encoding benchmarks run that effect per iteration,
+ * which is the whole object-to-XML job. The decoding benchmarks read the document it produces, encoded once here so their bytes are identical on
+ * every iteration.
  */
-const encodeOrderDocument = Effect.gen(function* () {
-  const xml = yield* encodeOrder(order);
-  return yield* renderXml(xml, { rootName: ROOT });
-});
-const encodeReportDocument = Effect.gen(function* () {
-  const xml = yield* encodeReport(report);
-  return yield* renderXml(xml, { rootName: REPORT_ROOT });
-});
-const encodeNoteDocument = Effect.gen(function* () {
-  const xml = yield* encodeNote(note);
-  return yield* renderXml(xml, { rootName: NOTE_ROOT });
-});
+const encodeOrderDocument = encodeOrder(order);
+const encodeReportDocument = encodeReport(report);
+const encodeNoteDocument = encodeNote(note);
 
 const orderDocument = Effect.runSync(encodeOrderDocument);
 const reportDocument = Effect.runSync(encodeReportDocument);
@@ -145,10 +138,7 @@ describe('encoding', () => {
 
 describe('decoding', () => {
   test('a small document', async ({ bench }) => {
-    const decode = Effect.gen(function* () {
-      const xml = yield* parseXml(orderDocument);
-      yield* decodeOrder(xml);
-    });
+    const decode = decodeOrder(orderDocument);
     const parseOrder = parser.parse(orderDocument);
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
@@ -165,10 +155,7 @@ describe('decoding', () => {
   });
 
   test('a 500-row document', async ({ bench }) => {
-    const decode = Effect.gen(function* () {
-      const xml = yield* parseXml(reportDocument);
-      yield* decodeReport(xml);
-    });
+    const decode = decodeReport(reportDocument);
     const parse = parser.parse(reportDocument);
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
@@ -185,10 +172,7 @@ describe('decoding', () => {
   });
 
   test('one large text node', async ({ bench }) => {
-    const decode = Effect.gen(function* () {
-      const xml = yield* parseXml(noteDocument);
-      yield* decodeNote(xml);
-    });
+    const decode = decodeNote(noteDocument);
     const parse = parser.parse(noteDocument);
 
     await bench.compare(
@@ -207,11 +191,7 @@ describe('decoding', () => {
 });
 
 test('a full round trip, both halves measured', async ({ bench }) => {
-  const decode = Effect.gen(function* () {
-    const document = yield* encodeOrderDocument;
-    const xmlValue = yield* parseXml(document);
-    yield* decodeOrder(xmlValue);
-  });
+  const decode = encodeOrderDocument.pipe(Effect.flatMap(decodeOrder));
   const parse = Effect.gen(function* () {
     const document = yield* builder.build({ [ROOT]: order });
     yield* parser.parse(document);

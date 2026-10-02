@@ -1,13 +1,13 @@
 /**
- * @description A round-trip Effect Schema codec for XML. `toCodecXml` is Effect's own `Schema.toCodecStringTree` under the name this package uses: a `Schema`
- * whose `Encoded` is the XML value tree, so it composes with `Schema.encode` and `Schema.decode` the way `Schema.toCodecJson` does. `renderXml`
- * writes the encoded tree as a document and `parseXml` reads one back. Attributes are the fields whose names start with `@`, so `@xmlns` is written
- * as `xmlns="…"`.
+ * @description A round-trip Effect Schema codec for XML. `toCodecXml(schema)` returns a `Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a
+ * document and `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for JSON. Attributes are the fields whose names start with `@`,
+ * so `@xmlns` is written as `xmlns="…"`, and `#text` holds an element's character data. `renderXml` and `parseXml` are the text layer the codec runs
+ * underneath, and remain available on their own.
  *
  * @example
  *   ```typescript
- *   import { Effect, Schema } from 'effect';
- *   import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
+ *   import { Schema } from 'effect';
+ *   import { toCodecXml } from '@endevops/effect-xml-codec';
  *
  *   const Book = Schema.Struct({
  *     '@id': Schema.String,
@@ -15,19 +15,20 @@
  *     tag: Schema.Array(Schema.String),
  *   });
  *
- *   const codec = toCodecXml(Book);
+ *   const codec = toCodecXml(Book, { rootName: 'book' });
  *   const value = { '@id': '1', title: 'Dune', tag: ['sci-fi'] };
  *
- *   const text = Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
+ *   const text = Schema.encodeSync(codec)(value);
  *   // => '<book id="1"><title>Dune</title><tag>sci-fi</tag></book>'
  *
- *   Schema.decodeSync(codec)(parseXmlDocument(text).value); // => value
+ *   Schema.decodeSync(codec)(text); // => value
  *   ```;
  *
  * @packageDocumentation
  */
 
 export { toCodecXml } from './codec.ts';
+export type { XmlCodecOptions } from './codec.ts';
 
 export {
   ATTRIBUTE_PREFIX,

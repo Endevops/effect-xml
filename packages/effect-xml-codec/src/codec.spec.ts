@@ -1,0 +1,165 @@
+/**
+ * @description Specs for `toCodecXml`: that it is a `Schema` whose `Encoded` is XML text, so one `Schema.encodeSync` writes a document and one `Schema.decodeSync`
+ * reads one back, and that every schema shape survives the trip.
+ */
+
+// oxlint-disable effecttsgo/schema-number
+
+import { Effect, Exit, Schema } from 'effect';
+import { describe, expect, it } from 'vite-plus/test';
+
+import { toCodecXml } from '#/codec.ts';
+
+/**
+ * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
+ * honest: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to be known.
+ */
+type AnyCodec = Schema.ConstraintCodec<unknown, unknown>;
+
+describe('toCodecXml() — the codec', () => {
+  it('returns a Schema whose encoded side is XML text', () => {
+    const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ a: 'x' })).toBe('<r><a>x</a></r>');
+    expect(Schema.decodeSync(codec)('<r><a>x</a></r>')).toEqual({ a: 'x' });
+    expect(Effect.runSync(Schema.encodeEffect(codec)({ a: 'x' }))).toBe('<r><a>x</a></r>');
+    expect(Effect.runSync(Schema.decodeEffect(codec)('<r><a>x</a></r>'))).toEqual({ a: 'x' });
+  });
+
+  it('lowers every scalar to its text form in the document', () => {
+    const codec = toCodecXml(Schema.Struct({ s: Schema.String, n: Schema.Number, b: Schema.Boolean, l: Schema.Literal('lit') }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ s: 'text', n: 1.5, b: false, l: 'lit' })).toBe('<r><s>text</s><n>1.5</n><b>false</b><l>lit</l></r>');
+  });
+
+  it('names the root from the schema identifier when no option is given', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ identifier: 'book' }));
+    expect(Schema.encodeSync(codec)({ title: 'Dune' })).toBe('<book><title>Dune</title></book>');
+  });
+
+  it('names the root from the title annotation when there is no identifier', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ title: 'Book' }));
+    expect(Schema.encodeSync(codec)({ title: 'Dune' })).toBe('<Book><title>Dune</title></Book>');
+  });
+
+  it('falls back to root when the schema carries no name', () => {
+    const codec = toCodecXml(Schema.Struct({ a: Schema.String }));
+    expect(Schema.encodeSync(codec)({ a: 'x' })).toBe('<root><a>x</a></root>');
+  });
+
+  it('keeps an @-prefixed key as an attribute and #text as character data', () => {
+    const codec = toCodecXml(Schema.Struct({ '@href': Schema.String, '#text': Schema.String }), { rootName: 'a' });
+    const value = { '@href': '/a', '#text': 'link' };
+    expect(Schema.encodeSync(codec)(value)).toBe('<a href="/a">link</a>');
+    expect(Schema.decodeSync(codec)('<a href="/a">link</a>')).toEqual(value);
+  });
+});
+
+describe('toCodecXml() — schema shapes through the document', () => {
+  const roundTrip = (schema: AnyCodec, value: unknown): unknown =>
+    Schema.decodeSync(toCodecXml(schema, { rootName: 'r' }))(Schema.encodeSync(toCodecXml(schema, { rootName: 'r' }))(value));
+
+  it('handles a number field, as decimal text', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Number }), { a: 1.5 })).toEqual({ a: 1.5 });
+  });
+
+  it('handles an integer field', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Int }), { a: 42 })).toEqual({ a: 42 });
+  });
+
+  it('handles a boolean field', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Boolean }), { a: false })).toEqual({ a: false });
+  });
+
+  it('handles a null field', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Null }), { a: null })).toEqual({ a: null });
+  });
+
+  it('handles a nullable field holding a value', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.NullOr(Schema.String) }), { a: 'x' })).toEqual({ a: 'x' });
+  });
+
+  it('handles a literal field', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Literal('fixed') }), { a: 'fixed' })).toEqual({ a: 'fixed' });
+  });
+
+  it('handles a transformed field, through the transformation', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.NumberFromString }), { a: 42 })).toEqual({ a: 42 });
+  });
+
+  it('handles an optional field that is present', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.optional(Schema.String) }), { a: 'x' })).toEqual({ a: 'x' });
+  });
+
+  it('handles a nested struct', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Struct({ b: Schema.String }) }), { a: { b: 'x' } })).toEqual({ a: { b: 'x' } });
+  });
+
+  it('handles an array field with two or more members', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Array(Schema.String) }), { a: ['x', 'y'] })).toEqual({ a: ['x', 'y'] });
+  });
+
+  it('handles an array of structs with two or more members', () => {
+    const schema = Schema.Struct({ a: Schema.Array(Schema.Struct({ b: Schema.String })) });
+    expect(roundTrip(schema, { a: [{ b: '1' }, { b: '2' }] })).toEqual({ a: [{ b: '1' }, { b: '2' }] });
+  });
+
+  it('handles a record field', () => {
+    expect(roundTrip(Schema.Struct({ a: Schema.Record(Schema.String, Schema.String) }), { a: { x: '1', y: '2' } })).toEqual({
+      a: { x: '1', y: '2' },
+    });
+  });
+
+  it('handles a union field', () => {
+    const schema = Schema.Struct({ a: Schema.Union([Schema.String, Schema.Number]) });
+    expect(roundTrip(schema, { a: 'text' })).toEqual({ a: 'text' });
+    expect(roundTrip(schema, { a: 5 })).toEqual({ a: 5 });
+  });
+
+  it('handles a recursive schema', () => {
+    interface Node {
+      readonly label: string;
+      readonly children?: ReadonlyArray<Node>;
+    }
+    // `children` is optional so a leaf can be written with no element of its own, and every node that does have one has
+    // two children — a node with exactly one is a one-member array of structs, which XML cannot tell from the struct.
+    const Node: Schema.Codec<Node> = Schema.suspend(() =>
+      Schema.Struct({ label: Schema.String, children: Schema.optional(Schema.Array(Node)) })
+    ) as Schema.Codec<Node>;
+    const value: Node = { label: 'a', children: [{ label: 'b' }, { label: 'c' }] };
+    expect(roundTrip(Node, value)).toEqual(value);
+  });
+});
+
+describe('toCodecXml() — options', () => {
+  it('pretty-prints when asked', () => {
+    const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r', format: true });
+    expect(Schema.encodeSync(codec)({ a: 'x' })).toBe('<r>\n  <a>x</a>\n</r>\n');
+  });
+
+  it('keeps leading and trailing whitespace when asked on the way back in', () => {
+    const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r', preserveWhitespace: true });
+    expect(Schema.decodeSync(codec)('<r><a>   </a></r>')).toEqual({ a: '   ' });
+  });
+});
+
+describe('toCodecXml() — failures', () => {
+  it('reports a malformed document as a schema failure with the parse message', () => {
+    const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
+    expect(() => Schema.decodeSync(codec)('<r><a>x</r>')).toThrow(/Closing tag/);
+  });
+
+  it('reports a schema mismatch as a failure, not as a render or parse error', () => {
+    const codec = toCodecXml(Schema.Struct({ a: Schema.Number }), { rootName: 'r' });
+    const exit = Effect.runSyncExit(Schema.decodeEffect(codec)('<r><a>not a number</a></r>'));
+    expect(Exit.isSuccess(exit)).toBe(false);
+  });
+
+  it('refuses a name it cannot spell when the render is in error mode', () => {
+    const codec = toCodecXml(Schema.Struct({ 'not a name': Schema.String }), { rootName: 'r', name: 'error' });
+    expect(() => Schema.encodeSync(codec)({ 'not a name': 'x' })).toThrow(/Invalid XML name/);
+  });
+
+  it('repairs a name it cannot spell by default', () => {
+    const codec = toCodecXml(Schema.Struct({ 'not a name': Schema.String }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ 'not a name': 'x' })).toBe('<r><not_a_name>x</not_a_name></r>');
+  });
+});

@@ -1,50 +1,102 @@
-// The codec: a schema, and the XML value that carries it.
+// The codec: a schema, and the XML text that carries it.
 //
-// `toCodecXml` is this package's name for Effect's own StringTree derivation,
-// `Schema.toCodecStringTree`. It is the same shape as `Schema.toCodecJson`: the
-// returned value is a `Schema` whose `Type` is the source schema's `Type` and
-// whose `Encoded` is the canonical value tree, so it composes with the rest of
-// Schema — `Schema.encodeSync`, `Schema.decodeSync`, `Schema.toFormatter` — the
-// same way the JSON codec does. The schema's service requirements are preserved
-// rather than narrowed, and the derivation is Effect's, not a walk this package
-// keeps in step with a release candidate.
+// `toCodecXml` is this package's counterpart to `Schema.toCodecJson`. It
+// returns a `Schema` whose `Type` is the source schema's `Type` and whose
+// `Encoded` is XML text, so a value is written with `Schema.encodeSync(codec)`
+// and read back with `Schema.decodeSync(codec)` — one call each, the way the
+// JSON codec works. There is no value tree at the call site and no second call
+// to a renderer or a parser.
 //
-// XML *text* is a separate step, the way `JSON.stringify` and `JSON.parse` are
-// separate from `Schema.toCodecJson`. `renderXml` writes the encoded tree as a
-// document and `parseXml` reads one back:
+// The derivation underneath is Effect's own `Schema.toCodecStringTree`, so
+// every schema feature Effect supports composes here without this package
+// re-implementing the walk over a schema AST. On the way out the codec runs the
+// value tree through `renderXml`; on the way back in it runs the document
+// through `parseXml`. Both are the same text layer this package exports on
+// their own, and both failures — an illegal name, a document that is not
+// well-formed — arrive as the `SchemaIssue.Issue` a schema is expected to
+// report, with the underlying message preserved.
 //
-//   const codec = toCodecXml(Book);
-//
-//   const document = Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
-//   const value = Schema.decodeSync(codec)(parseXmlDocument(document).value);
-//
-// The conventions are in the keys, not in a transformation: a key starting with
-// `@` is an attribute, `#text` is character data, and every other key is a child
-// element. `toCodecStringTree` preserves the schema's property names, so those
-// keys arrive at `renderXml` unchanged.
+// The conventions stay in the keys: a key starting with `@` is an attribute,
+// `#text` is character data, and every other key is a child element. The root
+// element is named from the schema's `identifier` or `title` annotation when it
+// has one, and from the `rootName` option otherwise; it defaults to `'root'`,
+// the same name Effect's own XML encoder uses.
 
-import { Schema } from 'effect';
+import { Effect, Schema, SchemaAST, SchemaIssue, SchemaTransformation } from 'effect';
+
+import type { XmlParseOptions } from './parse.ts';
+import type { XmlRenderOptions } from './render.ts';
+
+import { DEFAULT_ROOT_NAME } from './conventions.ts';
+import { parseXml } from './parse.ts';
+import { renderXml } from './render.ts';
 
 /**
- * @description The XML codec for a schema, as a `Schema`. `Type` is the schema's own `Type` and `Encoded` is Effect's `StringTree`, the value tree `renderXml`
- * writes and `parseXml` produces. It is `Schema.toCodecStringTree`, so the derivation and the encoder and decoder are Effect's; this package supplies
- * the text layer and the `@`/`#text` conventions on top.
+ * @description Options for {@link toCodecXml}. The render options name and shape the document; the parse options decide how strictly it is read back. `rootName` is
+ * the one the codec resolves for itself when the caller leaves it out, taking it from the schema's `identifier` or `title` annotation and falling
+ * back to `'root'`.
+ */
+export type XmlCodecOptions = XmlRenderOptions & XmlParseOptions;
+
+/**
+ * @description The XML codec for a schema, as a `Schema`. `Type` is the schema's own `Type` and `Encoded` is XML text, so it encodes a value to a document and
+ * decodes a document to a value in one step each. The service requirements of the source schema are preserved.
+ */
+export interface toCodecXml<S extends Schema.Constraint> extends Schema.decodeTo<Schema.toCodecStringTree<S>, Schema.String> {
+  readonly Rebuild: toCodecXml<S>;
+}
+
+/**
+ * @description Derives the XML codec for a schema: a `Schema` whose `Encoded` is an XML document, so `Schema.encodeSync(codec)` writes text and
+ * `Schema.decodeSync(codec)` reads it back. The derivation is Effect's `Schema.toCodecStringTree`; the text layer is this package's {@link renderXml}
+ * and {@link parseXml}.
  *
  * @example
  *   ```typescript
- *   import { Effect, Schema } from 'effect';
- *   import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
+ *   import { Schema } from 'effect';
+ *   import { toCodecXml } from '@endevops/effect-xml-codec';
  *
  *   const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: Schema.Number });
- *   const codec = toCodecXml(Book);
+ *   const codec = toCodecXml(Book, { rootName: 'book' });
  *
  *   const value = { '@id': '1', title: 'Dune', pages: 412 };
  *
- *   Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
+ *   Schema.encodeSync(codec)(value);
  *   // => '<book id="1"><title>Dune</title><pages>412</pages></book>'
  *
- *   Schema.decodeSync(codec)(parseXmlDocument('<book id="1"><title>Dune</title><pages>412</pages></book>').value);
+ *   Schema.decodeSync(codec)('<book id="1"><title>Dune</title><pages>412</pages></book>');
  *   // => { '@id': '1', title: 'Dune', pages: 412 }
  *   ```;
+ *
+ * @param schema - The schema describing the value.
+ * @param options - Render and parse options. `rootName` defaults to the schema's `identifier` or `title` annotation, then to `'root'`.
+ *
+ * @returns The codec, with the source schema's `Type` and the same service requirements.
  */
-export const toCodecXml = Schema.toCodecStringTree;
+export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlCodecOptions = {}): toCodecXml<S> => {
+  const tree = Schema.toCodecStringTree(schema);
+
+  const renderOptions: XmlRenderOptions = {
+    ...options,
+    rootName: options.rootName ?? SchemaAST.resolveIdentifier(schema.ast) ?? SchemaAST.resolveTitle(schema.ast) ?? DEFAULT_ROOT_NAME,
+  };
+
+  return Schema.String.pipe(
+    Schema.decodeTo(
+      tree,
+      SchemaTransformation.transformEffect<Schema.StringTree, string>({
+        // The transformation bridges the document and the value tree: on the
+        // way in the text becomes the tree `tree` decodes from, and on the way
+        // out the tree `tree` encoded becomes text. A failure from either text
+        // step becomes the `InvalidValue` a schema reports, carrying the XML
+        // error's own message rather than a generic one.
+        decode: (text, parseOptions) =>
+          parseXml(text, options).pipe(Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, text, parseOptions))),
+        encode: (value, parseOptions) =>
+          renderXml(value, renderOptions).pipe(
+            Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, value, parseOptions))
+          ),
+      })
+    )
+  );
+};

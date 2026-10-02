@@ -1,24 +1,25 @@
 # @endevops/effect-xml-codec
 
-A round-trip Effect Schema codec for XML. `toCodecXml` is Effect's
-`Schema.toCodecStringTree` under this package's name: a `Schema` whose `Encoded`
-is the XML value tree, so it composes with `Schema.encode` and `Schema.decode`
-the same way `Schema.toCodecJson` does. `renderXml` and `parseXml` are the text
-layer, the counterpart of `JSON.stringify` and `JSON.parse`.
+A round-trip Effect Schema codec for XML. `toCodecXml(schema)` returns a
+`Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a document
+and `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for
+JSON. There is no second call to a renderer or a parser at the call site.
+`renderXml` and `parseXml` are the text layer underneath, and remain available
+on their own.
 
 ```typescript
-import { Effect, Schema } from 'effect';
-import { parseXmlDocument, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
+import { Schema } from 'effect';
+import { toCodecXml } from '@endevops/effect-xml-codec';
 
 const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: Schema.Number, tag: Schema.Array(Schema.String) });
 
-const codec = toCodecXml(Book);
+const codec = toCodecXml(Book, { rootName: 'book' });
 const value = { '@id': '1', title: 'Dune', pages: 412, tag: ['sci-fi', 'classic'] };
 
-Effect.runSync(renderXml(Schema.encodeSync(codec)(value), { rootName: 'book' }));
+Schema.encodeSync(codec)(value);
 // => '<book id="1"><title>Dune</title><pages>412</pages><tag>sci-fi</tag><tag>classic</tag></book>'
 
-Schema.decodeSync(codec)(parseXmlDocument('<book id="1"><title>Dune</title><pages>412</pages><tag>sci-fi</tag><tag>classic</tag></book>').value);
+Schema.decodeSync(codec)('<book id="1"><title>Dune</title><pages>412</pages><tag>sci-fi</tag><tag>classic</tag></book>');
 // => { '@id': '1', title: 'Dune', pages: 412, tag: ['sci-fi', 'classic'] }
 ```
 
@@ -30,9 +31,9 @@ attribute — a field named `@id` becomes an element called `<@id>` with its nam
 rewritten.
 
 This package pairs Effect's own XML-value derivation, `Schema.toCodecStringTree`,
-with a renderer and a parser so a document can be read back into the value that
-produced it. The derivation is Effect's and stays Effect's; what this package
-adds is the text layer and the `@`/`#text` conventions.
+with a renderer and a parser, then wraps both in a codec whose encoded side is
+the document text. The derivation is Effect's and stays Effect's; the codec adds
+the text layer and the `@`/`#text` conventions.
 
 ## The mapping
 
@@ -63,46 +64,46 @@ decision rather than the parser's:
 
 ## API
 
-| Export                                    | What it does                                                      |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| `toCodecXml(schema)`                      | The codec. Effect's `Schema.toCodecStringTree`, as a `Schema`.    |
-| `renderXml(value, options?)`              | An XML value tree to XML text. Returns an `Effect`.               |
-| `parseXml(text, options?)`                | XML text to an XML value tree. Returns an `Effect`.               |
-| `parseXmlDocument(text, options?)`        | The same, synchronously, throwing; keeps the root element's name. |
-| `escapeText` / `escapeAttribute`          | The escaping the renderer applies.                                |
-| `resolveName`                             | Name repair for a render/parse, from `@endevops/common-xml`.      |
-| `isXmlValue`, `isXmlRecord`, `isXmlArray` | Runtime guards for the value model.                               |
-| `XmlValueSchema`                          | A `Schema` for an `XmlValue`, for a value from outside.           |
-| `XmlParseError`                           | The failure a malformed document reports.                         |
-| `XmlRenderError`                          | The failure a value that cannot be written reports.               |
+| Export                           | What it does                                                    |
+| -------------------------------- | --------------------------------------------------------------- |
+| `toCodecXml(schema, options?)`   | The codec. A `Schema` whose `Encoded` is XML text.              |
+| `renderXml(value, options?)`     | An XML value tree to XML text. Returns an `Effect`.             |
+| `parseXml(text, options?)`       | XML text to an XML value tree. Returns an `Effect`.             |
+| `escapeText` / `escapeAttribute` | The escaping the renderer applies.                              |
+| `resolveName`                    | Name repair for a render or parse, from `@endevops/common-xml`. |
+| `isXmlValue`                     | A runtime guard for the value model.                            |
+| `XmlValueSchema`                 | A `Schema` for an `XmlValue`, for a value from outside.         |
+| `XmlParseError`                  | The failure a malformed document reports.                       |
+| `XmlRenderError`                 | The failure a value that cannot be written reports.             |
 
 `toCodecXml` returns a `Schema`, so encoding and decoding are `Schema.encodeSync`
 and `Schema.decodeSync` (or the `Effect` forms), and every other Schema operation
 — `Schema.toFormatter`, `Schema.toJsonSchemaDocument`, the guards — applies to it
-unchanged. The text path is two calls either side of those:
-`Effect.runSync(renderXml(Schema.encodeSync(codec)(value), options))` writes a
-document and `Schema.decodeSync(codec)(parseXmlDocument(text).value)` reads one
-back.
+unchanged. A failure in either direction arrives as a `SchemaIssue.Issue`: a
+document that will not parse or a value that will not write is reported with its
+underlying XML message, alongside the schema mismatches Effect already reports.
+The root element is named from the `rootName` option, then the schema's
+`identifier` or `title` annotation, then `'root'`.
 
 ## Design notes
 
-**The derivation is Effect's.** `toCodecXml` is `Schema.toCodecStringTree`, the
-same derivation `Schema.toEncoderXml` uses. That is what makes every schema
-feature Effect supports — structs, arrays, unions, records, recursion,
-refinements, branded types, transformations — work here without this package
-re-implementing the walk over a schema AST, and it is what the round-trip specs
-are exercising.
+**The derivation is Effect's.** `toCodecXml` derives
+`Schema.toCodecStringTree`, the same derivation `Schema.toEncoderXml` uses, and
+runs it through this package's `renderXml` and `parseXml` on the two text
+directions. That is what makes every schema feature Effect supports — structs,
+arrays, unions, records, recursion, refinements, branded types, transformations —
+work here without this package re-implementing the walk over a schema AST, and it
+is what the round-trip specs are exercising.
 
-**The structure is `toCodecJson`'s.** The value `toCodecXml` returns is a
-`Schema`: `Type` is the source schema's `Type`, `Encoded` is the canonical XML
-value tree, the service requirements are preserved, and it composes with the
-rest of Schema. There is no wrapper object, no per-call `Effect` allocation, and
-no derivation pinned to a release candidate. The one thing a `Schema` cannot
-carry is XML text, so `renderXml` and `parseXml` are the two ends of the text
-path, the way `JSON.stringify` and `JSON.parse` are separate from
-`Schema.toCodecJson`. Both answer with an `Effect`, so a value that will not
-write and a document that will not read are typed failures in the error channel
-rather than exceptions.
+**The shape is `toCodecJson`'s.** The value `toCodecXml` returns is a `Schema`:
+`Type` is the source schema's `Type`, `Encoded` is XML text, the service
+requirements are preserved, and it composes with the rest of Schema. There is no
+wrapper object and no separate render or parse call at the call site. The two
+text steps are still there underneath, and are exported on their own so a caller
+that wants the value tree can take it: `renderXml` and `parseXml`. Both answer
+with an `Effect`, so a value that will not write and a document that will not
+read are typed failures, which the codec folds into the `SchemaIssue.Issue` a
+schema is expected to report.
 
 **Escaping is XML's, not HTML's.** `EntityEncoder` from `@endevops/common-xml`
 is used with `encodeAllNamed: false`. Its named tables are HTML's, and an HTML
@@ -140,7 +141,7 @@ Three findings shaped the code, and all are measured rather than assumed:
   document. Escaping is now a single pattern scan to find the first character
   that needs replacing, then one pass to build the result, which is 7.6x faster
   for clean text and 28x faster for text with a character in it.
-  `test/render.spec.ts` compares the two implementations across every ASCII
+  `src/render.spec.ts` compares the two implementations across every ASCII
   character so the fast path is checked against the library rather than trusted.
 - **Resolving a name is a regex test, not an `Effect`.** The naming package's
   validators and the path matcher used to return `Effect`s for pure questions,
@@ -156,13 +157,13 @@ Three findings shaped the code, and all are measured rather than assumed:
   of a parse or a render. That is the bulk of the gain on a small
   document; the 500-row document improves by a few percent because it asks the
   same handful of names, and the per-row work is what dominates there.
-- **The codec adds no layer of its own.** `toCodecXml` is
-  `Schema.toCodecStringTree`, so a value is encoded by Effect's parser and then
-  rendered, with nothing wrapped around either. Dropping the extra
-  `Schema.toCodecArrayFromSingle` layer the codec used to carry is part of why
-  the table above is higher than the numbers this README quoted before: the
-  single-element-array leniency is the caller's to compose now, and the plain
-  codec does not pay for it on every array.
+- **The codec adds no layer of its own.** `toCodecXml` derives
+  `Schema.toCodecStringTree` and runs the tree through `renderXml`, so a value is
+  encoded by Effect's parser and then rendered, with nothing wrapped around
+  either. Dropping the extra `Schema.toCodecArrayFromSingle` layer the codec used
+  to carry is part of why the table above is higher than the numbers this README
+  quoted before: the single-element-array leniency is the caller's to compose now,
+  and the plain codec does not pay for it on every array.
 - **A small document is dominated by something this package does not own.** Of
   the ~9µs it takes to serialize one, roughly 2.5µs is Effect's
   `toCodecStringTree` derivation, which walks the schema on every call, and the
@@ -183,7 +184,8 @@ as an attribute, so a slow parse in a trace can be attributed to the input that
 caused it. It is the package's traced entry point; `renderXml` is an `Effect`
 too but opens no span, and `toCodecXml` is a `Schema`, so tracing a schema
 encode or decode is Effect's concern. Provide a `Tracer` to a program to collect
-the span, as `test/tracing.spec.ts` does. A failed parse is a typed
+the span, as `src/tracing.spec.ts` does. The codec calls `parseXml` on the way
+in, so the span is opened for a schema decode too. A failed parse is a typed
 `XmlParseError` in the error channel, not a defect, so `catchTag`, `retry` and a
 fallback all see it.
 
@@ -254,7 +256,7 @@ Four things to be straight about when reading those tables:
 
 Each of these is a property of the format or of the underlying derivation rather
 than something the codec can decide. Each has a spec in
-`test/round-trip.spec.ts` that pins the behaviour, so none of them can change
+`src/round-trip.spec.ts` that pins the behaviour, so none of them can change
 quietly.
 
 - **An empty element is ambiguous.** `<a/>` is empty character data, and there is

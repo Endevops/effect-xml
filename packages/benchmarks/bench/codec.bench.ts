@@ -8,15 +8,18 @@ import { describe, test } from 'vite-plus/test';
  * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document like this is
  * what a single API response turns into, so it is the row that matters most.
  */
-const Order = Schema.Struct({
-  '@id': Schema.String,
-  '@currency': Schema.String,
-  total: Schema.Finite,
-  placed: Schema.Boolean,
-  note: Schema.String,
-  customer: Schema.Struct({ '@id': Schema.String, name: Schema.String, email: Schema.String }),
-  line: Schema.Array(Schema.Struct({ sku: Schema.String, qty: Schema.Finite, price: Schema.Finite })),
-}).pipe(toCodecXml);
+const Order = toCodecXml(
+  Schema.Struct({
+    '@id': Schema.String,
+    '@currency': Schema.String,
+    total: Schema.Finite,
+    placed: Schema.Boolean,
+    note: Schema.String,
+    customer: Schema.Struct({ '@id': Schema.String, name: Schema.String, email: Schema.String }),
+    line: Schema.Array(Schema.Struct({ sku: Schema.String, qty: Schema.Finite, price: Schema.Finite })),
+  }),
+  { rootName: 'order' }
+);
 
 /**
  * @description One order, as a plain object. Built once: the benchmarks measure serialization, not the cost of assembling the thing being serialized.
@@ -58,21 +61,15 @@ const rows: { row: Array<Schema.Schema.Type<typeof Row>> } = {
   })),
 };
 
-const Report = Schema.Struct({ row: Schema.Array(Row) }).pipe(toCodecXml);
+const Report = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }), { rootName: 'report' });
 
 /**
- * @description The decode rows' inputs: the documents this codec produces, rendered once here so every decode iteration reads byte-identical bytes and the row
- * measures the decoder rather than the renderer. Each is one piped effect run once, not a schema call and a render call joined by two separate runs.
+ * @description The decode rows' inputs: the documents this codec produces, encoded once here so every decode iteration reads byte-identical bytes and the row
+ * measures the decoder rather than the encoder.
  */
-const rowsDocument = Schema.encodeEffect(Report)(rows).pipe(
-  Effect.flatMap(value => renderXml(value, { rootName: 'report' })),
-  Effect.runSync
-);
+const rowsDocument = Schema.encodeSync(Report)(rows);
 
-const orderDocument = Schema.encodeEffect(Order)(order).pipe(
-  Effect.flatMap(value => renderXml(value, { rootName: 'order' })),
-  Effect.runSync
-);
+const orderDocument = Schema.encodeSync(Order)(order);
 
 /**
  * @description A record of plain character data, for isolating the renderer from the escaping it normally does.
@@ -92,20 +89,15 @@ const BUDGET = { time: 1000, warmupTime: 50 } as const;
 
 describe('codec', () => {
   test('a small document', async ({ bench }) => {
-    const rootName = 'order';
     const encode = Schema.encodeEffect(Order);
     const decode = Schema.decodeEffect(Order);
 
     // Each pipeline is built once and run per iteration: one `Effect.runSync` per
-    // iteration, over the whole chain. The decode parses first — `decode` reads the
-    // XML value tree, not the document text — and the round trip runs both halves.
-    const encodeDocument = encode(order).pipe(Effect.flatMap(value => renderXml(value, { rootName })));
-    const decodeDocument = parseXml(orderDocument).pipe(Effect.flatMap(xml => decode(xml)));
-    const roundTrip = encode(order).pipe(
-      Effect.flatMap(value => renderXml(value, { rootName })),
-      Effect.flatMap(document => parseXml(document)),
-      Effect.flatMap(xml => decode(xml))
-    );
+    // iteration, over the whole chain. The codec's encode writes the document and
+    // its decode reads one, so the round trip is just the two of them joined.
+    const encodeDocument = encode(order);
+    const decodeDocument = decode(orderDocument);
+    const roundTrip = encode(order).pipe(Effect.flatMap(decode));
 
     await bench.compare(
       bench('encode', () => {
@@ -122,13 +114,11 @@ describe('codec', () => {
   });
 
   test('a large document', async ({ bench }) => {
-    const schema = Schema.Struct({ row: Schema.Array(Row) }).pipe(toCodecXml);
-    const rootName = 'report';
-    const encode = Schema.encodeEffect(schema);
-    const decode = Schema.decodeEffect(schema);
+    const encode = Schema.encodeEffect(Report);
+    const decode = Schema.decodeEffect(Report);
 
-    const encodeDocument = encode(rows).pipe(Effect.flatMap(value => renderXml(value, { rootName })));
-    const decodeDocument = parseXml(rowsDocument).pipe(Effect.flatMap(xml => decode(xml)));
+    const encodeDocument = encode(rows);
+    const decodeDocument = decode(rowsDocument);
 
     await bench.compare(
       bench('encode', () => {
