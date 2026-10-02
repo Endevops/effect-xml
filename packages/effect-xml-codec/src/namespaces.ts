@@ -898,6 +898,18 @@ const schemaKey = (plan: NamespacePlan, parent: string, key: string, scope: Reco
 };
 
 /**
+ * @description The scope a child element resolves its own name against: the declarations it carries on itself, layered over the parent scope. An element may
+ * declare the prefix it uses on the element itself, so its own name is read with those bindings in scope.
+ *
+ * @param child - The child value.
+ * @param scope - The bindings in scope above the child.
+ *
+ * @returns The scope to resolve the child's own name with.
+ */
+const childScopeOf = (child: XmlValue, scope: Record<string, string | undefined>): Record<string, string | undefined> =>
+  Predicate.isObject(child) ? scopeOf(child as XmlRecord, scope) : scope;
+
+/**
  * @description Rewrites a wire value tree back to the schema's local names, resolving every name against the declarations the document carries and dropping those
  * declarations. Character data maps to the value field of the element it belongs to. A record left holding only character data collapses back to that
  * string, which is how a namespaced leaf stays a `Schema.String`.
@@ -910,9 +922,15 @@ const schemaKey = (plan: NamespacePlan, parent: string, key: string, scope: Reco
  * @returns The value tree, keyed by the schema's names.
  */
 export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>, elementPath: string): XmlValue => {
-  if (Array.isArray(value)) return value.map(member => decodeNames(member, plan, scope, elementPath));
-  if (Predicate.isString(value) || Predicate.isUndefined(value)) return value;
-  if (!Predicate.isObject(value)) return value;
+  if (Array.isArray(value)) {
+    return value.map(member => decodeNames(member, plan, scope, elementPath));
+  }
+  if (Predicate.isString(value) || Predicate.isUndefined(value)) {
+    return value;
+  }
+  if (!Predicate.isObject(value)) {
+    return value;
+  }
 
   // `Predicate.isObject` narrows to a generic index signature, so the value
   // tree's own record type is named here.
@@ -931,13 +949,15 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
       continue;
     }
 
-    const childKey = schemaKey(plan, elementPath, key, inner);
+    const childKey = schemaKey(plan, elementPath, key, childScopeOf(child, inner));
     const path = childPath(elementPath, childKey);
     const decoded = decodeNames(child, plan, inner, path);
     out[childKey] = plan.arrayKeys.has(path) && !Array.isArray(decoded) ? [decoded] : decoded;
   }
 
   const keys = Object.keys(out);
-  if (keys.length === 1 && keys[0] === TEXT_KEY) return out[TEXT_KEY];
+  if (keys.length === 1 && keys[0] === TEXT_KEY) {
+    return out[TEXT_KEY];
+  }
   return out;
 };
