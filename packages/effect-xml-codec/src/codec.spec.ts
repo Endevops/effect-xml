@@ -613,6 +613,61 @@ describe('toCodecXml() - xmlAttribute', () => {
   });
 });
 
+describe('toCodecXml() - elements with only attributes', () => {
+  it('writes a nested element with one attribute as self-closing and reads it back', () => {
+    const codec = toCodecXml(Schema.Struct({ item: Schema.Struct({ '@id': Schema.String }) }), { rootName: 'r' });
+    const value = { item: { '@id': '1' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<r><item id="1"/></r>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes a nested element with several attributes as self-closing and reads it back', () => {
+    const codec = toCodecXml(Schema.Struct({ item: Schema.Struct({ '@id': Schema.String, '@type': Schema.String, '@ref': Schema.String }) }), {
+      rootName: 'r',
+    });
+    const value = { item: { '@id': '1', '@type': 'x', '@ref': 'y' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<r><item id="1" type="x" ref="y"/></r>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes a root element with only attributes as self-closing and reads it back', () => {
+    const codec = toCodecXml(Schema.Struct({ '@id': Schema.String, '@type': Schema.String }), { rootName: 'r' });
+    const value = { '@id': '1', '@type': 'x' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<r id="1" type="x"/>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes an attribute-only element marked with xmlAttribute and reads it back', () => {
+    const codec = toCodecXml(Schema.Struct({ item: Schema.Struct({ id: Schema.String.annotate({ xmlAttribute: true }) }) }), { rootName: 'r' });
+    const value = { item: { id: '1' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<r><item id="1"/></r>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes a namespaced attribute-only element and reads it back', () => {
+    const codec = toCodecXml(
+      Schema.Struct({ item: Schema.Struct({ '@id': Schema.String }).annotate({ xmlNamespace: 'urn:items', xmlPrefix: 'i' }) }),
+      { rootName: 'r' }
+    );
+    const value = { item: { '@id': '1' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<r><i:item xmlns:i="urn:items" id="1"/></r>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes a repeated attribute-only element and reads it back', () => {
+    const codec = toCodecXml(Schema.Struct({ item: Schema.Array(Schema.Struct({ '@id': Schema.String })) }), { rootName: 'r' });
+    const value = { item: [{ '@id': '1' }, { '@id': '2' }] };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<r><item id="1"/><item id="2"/></r>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+});
+
 describe('toCodecXml() - xmlValue', () => {
   it('writes a field marked xmlValue as the element character data', () => {
     const codec = toCodecXml(Schema.Struct({ '@currency': Schema.String, amount: Schema.String.annotate({ xmlValue: true }) }), {
