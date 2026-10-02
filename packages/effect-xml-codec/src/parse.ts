@@ -105,13 +105,6 @@ interface ResolvedOptions {
   readonly xmlVersion: XmlVersion;
 }
 
-const resolveOptions = (options: XmlParseOptions): ResolvedOptions => ({
-  preserveWhitespace: options.preserveWhitespace ?? false,
-  maxDepth: options.maxDepth ?? 256,
-  name: options.name ?? 'repair',
-  xmlVersion: options.xmlVersion ?? '1.0',
-});
-
 /**
  * @description Whether a character is XML whitespace. XML defines exactly four, and they are the only ones a parser may treat as insignificant.
  *
@@ -196,7 +189,13 @@ type Construct = 'text' | 'close' | 'comment' | 'cdata' | 'instruction' | 'child
  * @throws {XmlParseError} When the document is not well-formed.
  */
 const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
-  const resolved = resolveOptions(options);
+  const resolved: ResolvedOptions = {
+    preserveWhitespace: options.preserveWhitespace ?? false,
+    maxDepth: options.maxDepth ?? 256,
+    name: options.name ?? 'repair',
+    xmlVersion: options.xmlVersion ?? '1.0',
+  };
+
   let at = 0;
 
   /**
