@@ -159,7 +159,7 @@ const localName = (key: string): string => (isAttributeKey(key) ? key.slice(ATTR
  */
 interface Scan {
   readonly byKey: Map<string, XmlNamespace>;
-  readonly conflict: Array<string>;
+  readonly problems: Array<string>;
   readonly seen: Set<SchemaAST.AST>;
 }
 
@@ -173,13 +173,15 @@ interface Scan {
 const record = (scan: Scan, key: string, namespace: XmlNamespace | undefined): void => {
   if (namespace === undefined) return;
   const previous = scan.byKey.get(key);
-  if (previous !== undefined && (previous.uri !== namespace.uri || previous.prefix !== namespace.prefix)) scan.conflict.push(key);
+  if (previous !== undefined && (previous.uri !== namespace.uri || previous.prefix !== namespace.prefix))
+    scan.problems.push(`the local name "${key}" belongs to more than one namespace`);
   else scan.byKey.set(key, namespace);
 };
 
 /**
  * @description Records one struct property. An attribute carries its namespace only when annotated; an element field falls back to the namespace it inherits. A
- * field whose name already carries a prefix cannot also carry a namespace annotation.
+ * field whose name already carries a prefix cannot also carry a namespace annotation, and an attribute namespace needs a prefix because a default
+ * namespace does not apply to attributes.
  *
  * @param scan - The scan state.
  * @param property - The property signature.
@@ -189,7 +191,10 @@ const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherit
   const key = typeof property.name === 'string' ? property.name : String(property.name);
   const isAttribute = isAttributeKey(key);
   const field = keyNamespaceOf(property.type) ?? namespaceOf(property.type);
-  if (field !== undefined && key.includes(':')) scan.conflict.push(key);
+  if (field !== undefined && key.includes(':'))
+    scan.problems.push(`"${key}" already carries a prefix, so it cannot also carry a namespace annotation`);
+  else if (isAttribute && field !== undefined && field.prefix === '')
+    scan.problems.push(`the attribute "${key}" needs xmlPrefix, because a default namespace does not apply to attributes`);
   else record(scan, key, isAttribute ? field : (field ?? inherited));
   scanNode(scan, property.type, isAttribute ? inherited : (field ?? inherited));
 };
@@ -255,12 +260,12 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
  *
  * @param schema - The schema to walk.
  *
- * @returns The plan, or the local names that resolve to conflicting namespaces.
+ * @returns The plan, or the annotations that cannot be honored.
  */
-export const namespacePlan = (schema: Schema.Constraint): { readonly plan: NamespacePlan } | { readonly conflict: string } => {
-  const scan: Scan = { byKey: new Map(), conflict: [], seen: new Set() };
+export const namespacePlan = (schema: Schema.Constraint): { readonly plan: NamespacePlan } | { readonly error: string } => {
+  const scan: Scan = { byKey: new Map(), problems: [], seen: new Set() };
   scanNode(scan, schema.ast, undefined);
-  if (scan.conflict.length > 0) return { conflict: [...new Set(scan.conflict)].join(', ') };
+  if (scan.problems.length > 0) return { error: [...new Set(scan.problems)].join('; ') };
 
   const byResolved = new Map<string, string>();
   for (const [key, namespace] of scan.byKey) byResolved.set(`${namespace.uri}|${localName(key)}`, key);
@@ -327,6 +332,28 @@ const wireKey = (key: string, namespace: XmlNamespace | undefined): string => {
 };
 
 /**
+ * @description Writes one record's fields under the element's scope: an attribute is a leaf and declares its prefix on this element, while a child element
+ * recurses with its own namespace.
+ *
+ * @param value - The element's record, keyed by the schema's local names.
+ * @param plan - The namespace plan.
+ * @param out - The wire record, written in place.
+ * @param scope - The prefix bindings in scope for this element.
+ */
+const encodeFields = (value: XmlRecord, plan: NamespacePlan, out: Record<string, XmlValue>, scope: Record<string, string | undefined>): void => {
+  for (const [key, child] of Object.entries(value)) {
+    if (isDeclarationKey(key)) continue;
+    const childNamespace = plan.byKey.get(key);
+    if (isAttributeKey(key)) {
+      if (childNamespace !== undefined) declare(out, scope, childNamespace);
+      out[wireKey(key, childNamespace)] = child;
+      continue;
+    }
+    out[wireKey(key, childNamespace)] = encodeNames(child, plan, childNamespace, scope);
+  }
+};
+
+/**
  * @description Rewrites a value tree into its namespaced wire form: every field with a plan entry gets its prefix, and every element declares the namespace its
  * subtree uses. A leaf that has to carry a declaration is wrapped as a `#text` record so the attribute has somewhere to live.
  *
@@ -353,11 +380,7 @@ export const encodeNames = (
   if (typeof value === 'string') return Object.keys(out).length > 0 ? { ...out, [TEXT_KEY]: value } : value;
   if (!isRecord(value)) return value;
 
-  for (const [key, child] of Object.entries(value)) {
-    if (isDeclarationKey(key)) continue;
-    const childNamespace = plan.byKey.get(key);
-    out[wireKey(key, childNamespace)] = encodeNames(child, plan, childNamespace, inner);
-  }
+  encodeFields(value, plan, out, inner);
   return out;
 };
 

@@ -67,6 +67,17 @@ describe('namespaces — default namespace and attributes', () => {
     expect(Schema.decodeSync(codec)(Schema.encodeSync(codec)(value))).toEqual(value);
   });
 
+  it('declares an attribute prefix on the element that carries it', () => {
+    const META = 'urn:meta';
+    const Note = Schema.Struct({ '@version': Schema.String.annotate({ xmlNamespace: META, xmlPrefix: 'meta' }), title: Schema.String }).annotate({
+      xmlNamespace: 'urn:notes',
+    });
+    const codec = toCodecXml(Note, { rootName: 'note' });
+    const value = { '@version': '1', title: 'Hi' };
+    expect(Schema.encodeSync(codec)(value)).toBe('<note xmlns="urn:notes" xmlns:meta="urn:meta" meta:version="1"><title>Hi</title></note>');
+    expect(Schema.decodeSync(codec)(Schema.encodeSync(codec)(value))).toEqual(value);
+  });
+
   it('inherits the element namespace through an unannotated child but not to an attribute', () => {
     const Element = Schema.Struct({ child: Schema.Struct({ grand: Schema.String }), '@id': Schema.String }).annotate({
       xmlNamespace: SOAP,
@@ -82,7 +93,7 @@ describe('namespaces — default namespace and attributes', () => {
 describe('namespaces — failures', () => {
   it('refuses a key that already carries a prefix and an annotation', () => {
     expect(() => toCodecXml(Schema.Struct({ 'a:b': Schema.String.annotate({ xmlNamespace: SOAP, xmlPrefix: 'soap' }) }))).toThrow(
-      /namespace conflict/
+      /already carries a prefix/
     );
   });
 
@@ -91,7 +102,11 @@ describe('namespaces — failures', () => {
       a: Schema.Struct({ title: Schema.String.annotate({ xmlNamespace: AUTH, xmlPrefix: 'auth' }) }),
       b: Schema.Struct({ title: Schema.String.annotate({ xmlNamespace: SHOP, xmlPrefix: 'shop' }) }),
     });
-    expect(() => toCodecXml(clash)).toThrow(/namespace conflict/);
+    expect(() => toCodecXml(clash)).toThrow(/belongs to more than one namespace/);
+  });
+
+  it('refuses an attribute namespace without a prefix', () => {
+    expect(() => toCodecXml(Schema.Struct({ '@id': Schema.String.annotate({ xmlNamespace: AUTH }) }))).toThrow(/needs xmlPrefix/);
   });
 
   it('leaves an unannotated schema byte-for-byte as before', () => {

@@ -85,8 +85,8 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
   // with any prefix for the same URI reads back. A schema with no annotation
   // takes the plain path, byte for byte as before.
   const planned = namespacePlan(schema);
-  if ('conflict' in planned) {
-    throw new Error(`XML namespace conflict for ${planned.conflict}: a local name can belong to only one namespace in one codec.`);
+  if ('error' in planned) {
+    throw new Error(`Invalid XML namespace annotation: ${planned.error}.`);
   }
   const plan = planned.plan;
   const namespaced = plan.byKey.size > 0 || plan.root !== undefined;
