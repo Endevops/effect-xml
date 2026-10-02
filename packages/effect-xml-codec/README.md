@@ -65,7 +65,7 @@ decision rather than the parser's:
 ## Namespaces
 
 A schema describes a value in local names, so a namespace is an annotation on
-the schema node that owns the element rather than part of the field name. Four
+the schema node that owns the element rather than part of the field name. Five
 annotations, all accepted by `Schema.annotate`:
 
 | Annotation     | Meaning                                                                                       |
@@ -74,6 +74,7 @@ annotations, all accepted by `Schema.annotate`:
 | `xmlPrefix`    | The wire prefix to write for it. Omit it to write the namespace as the default (`xmlns="…"`). |
 | `xmlName`      | The wire local name, when it differs from the schema key.                                     |
 | `xmlAttribute` | The field is an attribute, without the schema key carrying the `@` prefix.                    |
+| `xmlValue`     | The field holds the element's character data, the `#text` value.                              |
 
 `xmlName` renames one node, element or attribute, without touching the schema's
 own name. The prefix still comes from `xmlPrefix`, so the name is a local name
@@ -84,6 +85,17 @@ unless the `rootName` option is given.
 as an attribute instead of a child element, and read back to the same key. It
 composes with `xmlName` and with a namespace, but a namespaced attribute still
 needs a prefix, because a default namespace does not apply to attributes.
+
+`xmlValue` is for an element that carries both text and attributes or children:
+
+```typescript
+Schema.Struct({ '@currency': Schema.String, amount: Schema.String.annotate({ xmlValue: true }) });
+// <price currency="USD">19.99</price>
+```
+
+Character data has no name and no namespace, so `xmlValue` cannot be combined
+with `xmlAttribute`, `xmlName`, or `xmlNamespace`, and only one field in a codec
+may hold it.
 
 The annotation is attached with `Schema.annotate`:
 

@@ -299,6 +299,66 @@ describe('toCodecXml() — xmlAttribute', () => {
   });
 });
 
+describe('toCodecXml() — xmlValue', () => {
+  it('writes a field marked xmlValue as the element character data', () => {
+    const codec = toCodecXml(Schema.Struct({ '@currency': Schema.String, amount: Schema.String.annotate({ xmlValue: true }) }), {
+      rootName: 'price',
+    });
+    const value = { '@currency': 'USD', amount: '19.99' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<price currency="USD">19.99</price>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes xmlValue alongside child elements', () => {
+    const codec = toCodecXml(Schema.Struct({ content: Schema.String.annotate({ xmlValue: true }), em: Schema.String }), { rootName: 'p' });
+    const value = { content: 'hi', em: '' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<p>hi<em/></p>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes xmlValue inside a namespaced element', () => {
+    const codec = toCodecXml(
+      Schema.Struct({ '@id': Schema.String, amount: Schema.String.annotate({ xmlValue: true }) }).annotate({
+        xmlNamespace: 'urn:price',
+        xmlPrefix: 'p',
+      }),
+      { rootName: 'price' }
+    );
+    const value = { '@id': '1', amount: '19.99' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<p:price xmlns:p="urn:price" id="1">19.99</p:price>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('marks the value through annotateKey', () => {
+    const codec = toCodecXml(Schema.Struct({ '@id': Schema.String, amount: Schema.String.pipe(Schema.annotateKey({ xmlValue: true })) }), {
+      rootName: 'price',
+    });
+    const value = { '@id': '1', amount: '19.99' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<price id="1">19.99</price>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('refuses a field marked as both an attribute and the value', () => {
+    expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlValue: true, xmlAttribute: true }) }))).toThrow(
+      /both an attribute and the element's value/
+    );
+  });
+
+  it('refuses a value field with an xmlName', () => {
+    expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlValue: true, xmlName: 'x' }) }))).toThrow(/cannot have an xmlName/);
+  });
+
+  it('refuses more than one value field', () => {
+    expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlValue: true }), b: Schema.String.annotate({ xmlValue: true }) }))).toThrow(
+      /only one field can hold/
+    );
+  });
+});
+
 describe('toCodecXml() — failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });

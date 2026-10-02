@@ -88,7 +88,12 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
   }
   const plan = planned.plan;
   const active =
-    plan.byKey.size > 0 || plan.nameByKey.size > 0 || plan.attributeKeys.size > 0 || plan.root !== undefined || plan.rootName !== undefined;
+    plan.byKey.size > 0 ||
+    plan.nameByKey.size > 0 ||
+    plan.attributeKeys.size > 0 ||
+    plan.valueKey !== undefined ||
+    plan.root !== undefined ||
+    plan.rootName !== undefined;
 
   const rootName =
     options.rootName ?? plan.rootName ?? SchemaAST.resolveIdentifier(schema.ast) ?? SchemaAST.resolveTitle(schema.ast) ?? DEFAULT_ROOT_NAME;

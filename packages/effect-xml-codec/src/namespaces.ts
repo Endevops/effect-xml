@@ -16,6 +16,8 @@
 //   - `xmlAttribute` marks a field as an attribute without the schema key
 //     carrying the `@` prefix. A namespaced attribute still needs `xmlPrefix`,
 //     because a default namespace does not apply to attributes.
+//   - `xmlValue` marks one field as the element's character data, the `#text`
+//     value, for an element that also carries attributes or children.
 //
 // The namespace of an element is inherited by its descendants, the way an XML
 // default namespace is. An attribute never inherits: it is in a namespace only
@@ -65,6 +67,12 @@ declare module 'effect/Schema' {
        * prefix. A namespaced attribute still needs `xmlPrefix`, because a default namespace does not apply to attributes.
        */
       readonly xmlAttribute?: boolean | undefined;
+
+      /**
+       * @description Whether this field holds the element's character data, the `#text` value, rather than a child element. It has no name, so it cannot be
+       * combined with `xmlAttribute`, `xmlName`, or a namespace.
+       */
+      readonly xmlValue?: boolean | undefined;
     }
 
     interface Annotations extends XmlAnnotations {}
@@ -90,6 +98,11 @@ export const NAME_KEY = 'xmlName';
  * @description The annotation key marking a field as an XML attribute.
  */
 export const ATTRIBUTE_KEY = 'xmlAttribute';
+
+/**
+ * @description The annotation key marking a field as the element's character data.
+ */
+export const VALUE_KEY = 'xmlValue';
 
 /**
  * @description An element's namespace: the URI, and the prefix to write it with. An empty prefix is the default namespace.
@@ -118,6 +131,11 @@ export interface NamespacePlan {
    * @description The schema keys that `xmlAttribute` marks as attributes but whose names do not carry the `@` prefix.
    */
   readonly attributeKeys: ReadonlySet<string>;
+
+  /**
+   * @description The schema key that `xmlValue` marks as the element's character data, or `undefined`.
+   */
+  readonly valueKey: string | undefined;
 
   /**
    * @description The root element's namespace, or `undefined` when the root is unannotated.
@@ -236,6 +254,33 @@ const attributeOf = (ast: SchemaAST.AST): boolean => annotationAt(ast, ATTRIBUTE
 const keyAttributeOf = (ast: SchemaAST.AST): boolean => ast.context?.annotations?.[ATTRIBUTE_KEY] === true;
 
 /**
+ * @description Whether an AST's own annotations mark the field as the element's character data.
+ *
+ * @param ast - The AST to read.
+ *
+ * @returns Whether the annotation is set.
+ */
+const valueOf = (ast: SchemaAST.AST): boolean => annotationAt(ast, VALUE_KEY) === true;
+
+/**
+ * @description Whether a property's key annotations mark the field as the element's character data.
+ *
+ * @param ast - The property's value AST, whose context holds the key annotations.
+ *
+ * @returns Whether the annotation is set.
+ */
+const keyValueOf = (ast: SchemaAST.AST): boolean => ast.context?.annotations?.[VALUE_KEY] === true;
+
+/**
+ * @description Whether a struct property holds the element's character data, marked with `xmlValue` on its schema or its key.
+ *
+ * @param ast - The property's value AST.
+ *
+ * @returns Whether the property is the value.
+ */
+const isValueProperty = (ast: SchemaAST.AST): boolean => keyValueOf(ast) || valueOf(ast);
+
+/**
  * @description The local name a schema key names, with the attribute prefix removed. This is what a declaration resolves to.
  *
  * @param key - The schema key.
@@ -285,6 +330,7 @@ interface Scan {
   readonly byKey: Map<string, XmlNamespace>;
   readonly nameByKey: Map<string, string>;
   readonly attributeKeys: Set<string>;
+  readonly valueKeys: Set<string>;
   readonly problems: Array<string>;
   readonly seen: Set<SchemaAST.AST>;
 }
@@ -378,6 +424,32 @@ const noteAttribute = (scan: Scan, key: string, isAttribute: boolean): void => {
 };
 
 /**
+ * @description Records a field marked `xmlValue`, refusing the annotations it cannot combine with: a value is character data, so it cannot be an attribute, carry
+ * a name, or be in a namespace.
+ *
+ * @param scan - The scan state.
+ * @param key - The schema key.
+ * @param isValue - Whether the field is marked `xmlValue`.
+ * @param isAttribute - Whether the field is an attribute.
+ * @param name - The field's `xmlName` override, or `undefined`.
+ * @param field - The field's own namespace, or `undefined`.
+ */
+const recordValue = (
+  scan: Scan,
+  key: string,
+  isValue: boolean,
+  isAttribute: boolean,
+  name: string | undefined,
+  field: XmlNamespace | undefined
+): void => {
+  if (!isValue) return;
+  if (isAttribute) scan.problems.push(`the field "${key}" is marked as both an attribute and the element's value`);
+  else if (Predicate.isNotUndefined(name)) scan.problems.push(`the value field "${key}" cannot have an xmlName, because character data has no name`);
+  else if (Predicate.isNotUndefined(field)) scan.problems.push(`the value field "${key}" cannot have a namespace, because character data has none`);
+  else scan.valueKeys.add(key);
+};
+
+/**
  * @description Records one struct property: its `xmlName`, its namespace, and the namespace its descendants inherit. An attribute carries a namespace only when
  * annotated; an element field falls back to the namespace it inherits.
  *
@@ -388,9 +460,11 @@ const noteAttribute = (scan: Scan, key: string, isAttribute: boolean): void => {
 const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined): void => {
   const key = Predicate.isString(property.name) ? property.name : String(property.name);
   const isAttribute = isAttributeProperty(key, property.type);
-  noteAttribute(scan, key, isAttribute);
+  const name = keyNameOf(property.type) ?? nameOf(property.type);
   const field = keyNamespaceOf(property.type) ?? namespaceOf(property.type);
-  recordName(scan, key, keyNameOf(property.type) ?? nameOf(property.type));
+  noteAttribute(scan, key, isAttribute);
+  recordName(scan, key, name);
+  recordValue(scan, key, isValueProperty(property.type), isAttribute, name, field);
   recordFieldNamespace(scan, key, isAttribute, field, inherited);
   scanNode(scan, property.type, isAttribute ? inherited : (field ?? inherited));
 };
@@ -463,7 +537,7 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
  * @returns The plan, or the annotations that cannot be honored.
  */
 export const namespacePlan = (schema: Schema.Constraint): { readonly plan: NamespacePlan } | { readonly error: string } => {
-  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), attributeKeys: new Set(), problems: [], seen: new Set() };
+  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), attributeKeys: new Set(), valueKeys: new Set(), problems: [], seen: new Set() };
   scanNode(scan, schema.ast, undefined);
 
   const byResolved = new Map<string, string>();
@@ -481,6 +555,10 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
     }
   }
 
+  if (scan.valueKeys.size > 1) {
+    scan.problems.push(`only one field can hold an element's value, but ${[...scan.valueKeys].join(', ')} are marked xmlValue`);
+  }
+
   if (scan.problems.length > 0) {
     return { error: [...new Set(scan.problems)].join(';\n\t- ') };
   }
@@ -490,6 +568,7 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
       byKey: scan.byKey,
       nameByKey: scan.nameByKey,
       attributeKeys: scan.attributeKeys,
+      valueKey: scan.valueKeys.values().next().value,
       root: namespaceOf(schema.ast),
       rootName: nameOf(schema.ast),
       byResolved,
@@ -576,6 +655,11 @@ const wireKey = (plan: NamespacePlan, key: string, namespace: XmlNamespace | und
 const encodeFields = (value: XmlRecord, plan: NamespacePlan, out: Record<string, XmlValue>, scope: Record<string, string | undefined>): void => {
   for (const [key, child] of Object.entries(value)) {
     if (isDeclarationKey(key)) {
+      continue;
+    }
+
+    if (key === plan.valueKey) {
+      out[TEXT_KEY] = child;
       continue;
     }
 
@@ -683,6 +767,7 @@ const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): R
  * @returns The schema key.
  */
 const schemaKey = (plan: NamespacePlan, key: string, scope: Record<string, string | undefined>): string => {
+  if (key === TEXT_KEY) return plan.valueKey ?? key;
   const isAttribute = isAttributeKey(key);
   const { uri, local } = resolveName(localName(key), isAttribute, scope);
   return plan.byResolved.get(resolvedKey(isAttribute, uri, local)) ?? (isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local);
