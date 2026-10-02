@@ -93,6 +93,16 @@ describe('toCodecXml() — schema shapes through the document', () => {
     expect(roundTrip(Schema.Struct({ a: Schema.Struct({ b: Schema.String }) }), { a: { b: 'x' } })).toEqual({ a: { b: 'x' } });
   });
 
+  it('handles one sub-schema shared by two sibling elements', () => {
+    const Shared = Schema.Struct({ c: Schema.String });
+    const schema = Schema.Struct({ b: Shared, d: Shared });
+    const value = { b: { c: 'text' }, d: { c: 'other text' } };
+    const codec = toCodecXml(schema, { rootName: 'a' });
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<a><b><c>text</c></b><d><c>other text</c></d></a>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
   it('handles an array field with two or more members', () => {
     expect(roundTrip(Schema.Struct({ a: Schema.Array(Schema.String) }), { a: ['x', 'y'] })).toEqual({ a: ['x', 'y'] });
   });
