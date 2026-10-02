@@ -1,9 +1,9 @@
 /**
- * @description Specs for the entity decoder — the half of this package that is a parser rather than a table lookup, and therefore the half whose behaviour a
- * caller can actually depend on getting exactly right. The specs are in two layers, and the split is the point. Everything that works is asserted as
- * a contract, because those assertions are what would catch a regression in a change someone meant to make. Everything that does not work is asserted
- * too, and asserted as _preserved upstream behaviour_ — pinned rather than endorsed. This is a port of `@nodable/entities@2.2.0`, verified against
- * the original over 236,252 differential assertions with zero differences, and a surprising number of its quirks are load-bearing: a caller who
+ * @description Specs for the entity decoder, the half of this package that is a parser rather than a table lookup, and therefore the half whose behaviour a caller
+ * can actually depend on getting exactly right. The specs are in two layers, and the split is the point. Everything that works is asserted as a
+ * contract, because those assertions are what would catch a regression in a change someone meant to make. Everything that does not work is asserted
+ * too, and asserted as _preserved upstream behaviour_: pinned rather than endorsed. This is a port of `@nodable/entities@2.2.0`, verified against the
+ * original over 236,252 differential assertions with zero differences, and a surprising number of its quirks carry real weight: a caller who
  * registered `&amp;` as `a&b` already gets `a&b` back, a caller who relies on `postCheck` to sanitise already knows it never saw a string without an
  * ampersand, and a caller counting the `[EntityReplacer]` prefix in an error already matches on a class name this package does not have. So each
  * preserved quirk gets its own `describe` whose name says "preserved upstream quirk" and says what the quirk _is_, and each `it` inside names the
@@ -91,7 +91,7 @@ const setXmlVersionWith = (decoder: EntityDecoder, version: unknown): void => {
 
 /**
  * @description The codepoints of a string as four-digit uppercase hex, so an assertion about a character reads the way the XML specification writes it. The step
- * over a low surrogate is what makes a surrogate pair report as the one character it is rather than as two halves — the distinction the whole
+ * over a low surrogate makes a surrogate pair report as the one character it is rather than as two halves. That is the distinction the whole
  * numeric-reference pipeline turns on, and the reason `&#55348;&#56456;` produces nothing at all.
  *
  * @param value - The string to read.
@@ -125,8 +125,8 @@ const decoderWithBothTiers = (options: EntityDecoderOptions = {}): Effect.Effect
   });
 
 /**
- * @description Build a decoder whose caller table holds entries its type forbids — a bare `val`, a number, a `null`, an `undefined` — which is the only way a
- * caller reaching past the signature reaches the merge's flattening branch and the drops it performs.
+ * @description Build a decoder whose caller table holds entries its type forbids: a bare `val`, a number, a `null`, an `undefined`. That is the only way a caller
+ * reaching past the signature reaches the merge's flattening branch and the drops it performs.
  *
  * @param entries - The table, untyped.
  *
@@ -164,7 +164,7 @@ const tripsExpansionLimit = (applyLimitsTo: ApplyLimitsTo, input: string): Effec
 
 /**
  * @description The message an effect failed with, computed inside the fiber. For the specs that collect error messages once and then assert on several properties
- * of them — that a message carries a given prefix, names a given character — where reaching the message is not the thing under test.
+ * of them, for example that a message carries a given prefix or names a given character, where reaching the message is not the thing under test.
  *
  * @param effect - The effect to run.
  *
@@ -238,7 +238,7 @@ describe('the five predefined XML entities', () => {
 
   it.effect('unwraps a `{ regx, val }` envelope for the input entities, which is the only path whose type admits that spelling', () =>
     Effect.gen(function* () {
-      // The two setters disagree about which key the envelope carries — `regex` on the caller table, `regx` on the input map — and the merge reads
+      // The two setters disagree about which key the envelope carries. `regex` is on the caller table and `regx` is on the input map, and the merge reads
       // either. A caller who gets it wrong has the entry dropped rather than an error.
       const decoder = yield* EntityDecoder.make();
       yield* decoder.addInputEntities({ b: { regx: /x/, val: 'BV' } });
@@ -287,7 +287,7 @@ describe('numeric character references', () => {
 
   it.effect('expands a codepoint above the BMP to the one character it names', () =>
     Effect.gen(function* () {
-      // U+1D504 MATHEMATICAL FRAKTUR CAPITAL A — a surrogate pair in UTF-16, one character to a reader.
+      // U+1D504 MATHEMATICAL FRAKTUR CAPITAL A, a surrogate pair in UTF-16, one character to a reader.
       expect(yield* (yield* EntityDecoder.make()).decode('&#x1D504;')).toBe('𝔄');
     })
   );
@@ -360,7 +360,7 @@ describe('numericAllowed off', () => {
   it.effect('still removes a codepoint that carries a minimum action, because classification runs first', () =>
     Effect.gen(function* () {
       // The option is a switch on the pipeline, not a way past it. Null, surrogates and the XML 1.0 C0 controls are all `remove` at the classification
-      // stage, so `numericAllowed: false` never gets a say about them — which is exactly what makes the option safe to rely on.
+      // stage, so `numericAllowed: false` never gets a say about them. That is exactly what makes the option safe to rely on.
       const decoder = yield* EntityDecoder.make({ numericAllowed: false });
       expect(yield* decoder.decode('a&#0;b')).toBe('ab');
       expect(yield* decoder.decode('a&#xD800;b')).toBe('ab');
@@ -491,7 +491,7 @@ describe('postCheck sees the resolved string and the original', () => {
 describe('preserved upstream quirk: postCheck never sees input that never reached the scan', () => {
   // The hook's own documentation says it is not called for a non-string, an empty string, or a string with no `&`. That is upstream's behaviour and it
   // is kept: a caller relying on `postCheck` as a sanitiser has never had it run over an already-safe string, and a caller relying on it to count work
-  // has never seen a count that includes those. Not endorsed — it is a gap in the contract, pinned so that closing it is a visible decision.
+  // has never seen a count that includes those. Not endorsed: it is a gap in the contract, pinned so that closing it is a visible decision.
 
   it.effect('runs exactly once for a string containing only an XML entity', () =>
     Effect.gen(function* () {
@@ -580,7 +580,7 @@ describe('expansion limits', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { x: 'abcdefghijkl' }, limit: { maxExpandedLength: 9, applyLimitsTo: 'all' } });
       expect(yield* decoder.decode('&x;')).toBe('abcdefghijkl');
-      // A second `&x;` adds another nine, and the message reports the total — which is only eighteen if the
+      // A second `&x;` adds another nine, and the message reports the total. That total is only eighteen if the
       // first call left exactly nine on the counter.
       const result = yield* decoder.decode('&x;').pipe(Effect.result);
       assert(Result.isFailure(result));
@@ -670,7 +670,7 @@ describe('which tiers count against the limits', () => {
   it.effect('takes an array naming one tier as a filter over that tier alone', () =>
     Effect.gen(function* () {
       // `&externalName;` is charged to `external` and does not count, so the limit of one is not reached by
-      // the two references together — which it would be if the array named both tiers.
+      // the two references together, which it would be if the array named both tiers.
       const decoder = yield* decoderWithBothTiers({ limit: { maxTotalExpansions: 1, applyLimitsTo: ['base'] } });
       expect(yield* decoder.decode('&externalName;&amp;')).toBe('EXTERNAL&');
     })
@@ -693,8 +693,8 @@ describe('which tiers count against the limits', () => {
 
   it.effect('falls back to the external tier for a filter it does not recognise, so a typo cannot switch the limits off', () =>
     Effect.gen(function* () {
-      // An unrecognised string is not "no filtering" — it is the default. An empty *array*, by contrast, is honoured as written. The distinction is
-      // deliberate and is what keeps a misspelt option from silently disabling a limit.
+      // An unrecognised string is not "no filtering": it is the default. An empty *array*, by contrast, is honoured as written. The distinction is
+      // deliberate, and it is what keeps a misspelt option from silently disabling a limit.
       const decoder = yield* EntityDecoder.make({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'nonsense' as never } });
       yield* decoder.setExternalEntities({ externalName: 'EXTERNAL' });
       const result = yield* decoder.decode('&externalName;&externalName;').pipe(Effect.result);
@@ -726,7 +726,7 @@ describe('which tiers count against the limits', () => {
 
 describe('preserved upstream quirk: the limit check is greater-than, not greater-or-equal', () => {
   // A limit of `n` allows exactly `n` expansions and throws on the `n + 1`th. The option's own documentation states this, so it is a contract rather
-  // than a bug — pinned here because the off-by-one is the kind of thing a tidy-up changes by accident.
+  // than a bug, pinned here because the off-by-one is the kind of thing a tidy-up changes by accident.
 
   it.effect('allows exactly the configured number of expansions', () =>
     Effect.gen(function* () {
@@ -749,7 +749,7 @@ describe('preserved upstream quirk: the limit check is greater-than, not greater
 describe('preserved upstream quirk: a removed reference is charged to the external tier whatever it is', () => {
   // `&lt;` is a base entity. Deleting it still charges the external tier, so a document full of removed built-ins can trip an `external` limit that
   // nothing it wrote could otherwise reach. The in-code comment claims the charge is there for unknown references, which is not what distinguishes
-  // them — nothing in the branch looks at whether the name resolves. Not endorsed; pinned so that a "fix" is a visible decision about which tier a
+  // them: nothing in the branch looks at whether the name resolves. Not endorsed; pinned so that a "fix" is a visible decision about which tier a
   // deletion belongs to.
 
   it.effect('charges the external tier for a removed built-in, and an external limit trips on it', () =>
@@ -873,9 +873,9 @@ describe('registration hooks', () => {
 
 describe('preserved upstream quirk: a throwing hook and a throwing input registration leave different things behind', () => {
   // Two registration paths, two different failure states. The external setter assigns its replacement only after every entry has passed the hook, so
-  // a throw leaves the previous map intact — a useful property. The input setter zeroes its counters first and unconditionally, so a throw there
+  // a throw leaves the previous map intact, a useful property. The input setter zeroes its counters first and unconditionally, so a throw there
   // starts a new document's budget without installing any of its entities. Neither is wrong on its own terms; the pair is what a caller has to know.
-  // Not endorsed — pinned so that changing either half is a visible decision.
+  // Not endorsed: pinned so that changing either half is a visible decision.
 
   it.effect('leaves the previous external map in place when the hook throws', () =>
     Effect.gen(function* () {
@@ -965,7 +965,7 @@ describe('reset', () => {
 describe('preserved upstream quirk: decode returns a non-string argument unchanged', () => {
   // `decode` is typed `string → string` and the return type does not describe this. Untyped caller code depends on it: a `null` reaching a decoder
   // from a document field comes back as `null` rather than as `'null'`, and an object reaches the caller as the object it was rather than as a string
-  // of it. Not endorsed — the honest fix is a union return type, which is a breaking change for anyone who typed against the current signature, so
+  // of it. Not endorsed: a union return type is the right fix, and it is a breaking change for anyone who typed against the current signature, so
   // it is pinned here rather than made.
 
   it.effect('returns null for null, rather than the string "null"', () =>
@@ -1017,7 +1017,7 @@ describe('preserved upstream quirk: decode returns a non-string argument unchang
 // ─── Preserved upstream quirk: the error messages name a class this package does not have ────────────────
 
 describe('preserved upstream quirk: four error messages say EntityReplacer and three say EntityDecoder', () => {
-  // The original's name-validation and limit errors are prefixed with the name of a different class — `EntityReplacer` — which this package does not
+  // The original's name-validation and limit errors are prefixed with the name of a different class, `EntityReplacer`, which this package does not
   // export and never did. A caller matching on that prefix, or on the `EntityReplacer` substring, already depends on it. The three remaining messages
   // are correctly prefixed. Making either side consistent would be a behaviour change for whoever is matching on it, so the split is pinned here in
   // one place rather than scattered across whichever spec happens to trigger each message.
@@ -1137,9 +1137,9 @@ describe('preserved upstream quirk: four error messages say EntityReplacer and t
 describe('preserved upstream quirk: only a # and the eighteen special characters are refused in a name', () => {
   // The validation reads like a name-format check and is not one. Of the eleven shapes below, exactly two are refused: a leading `#`, which would
   // collide with the numeric pipeline, and a character from the special-character set. A space, a semicolon, an `=`, a newline, a leading digit and
-  // the empty string are all accepted, and the empty one is a genuine trap — it registers successfully and then makes `&;` unregistrable, because a
+  // the empty string are all accepted, and the empty one is a genuine trap. It registers successfully and then makes `&;` unregistrable, because a
   // token of length zero is skipped by the scanner before any lookup happens. Not endorsed: these are the cases a reader of the method name would
-  // least expect, which is why each shape is named rather than swept.
+  // least expect, so each shape is named rather than swept.
   const SPECIAL: Record<string, string> = {
     'a<b': '<',
     'a&b': '&',
@@ -1228,7 +1228,7 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
 
 describe('preserved upstream quirk: a name of exactly 32 characters resolves and 33 does not', () => {
   // The scan for the closing `;` gives up once more than 32 characters have passed since the `&`, so a 32-character name is the longest one a
-  // document can reference and a 33-character one is not — even when it is registered and even when the whole point of the name is its length.
+  // document can reference and a 33-character one is not, even when it is registered and even when its length is the name's entire point.
   // Not endorsed: a caller has no way to learn the bound from the API, and a 33-character name registering without complaint is the misleading half.
   const THIRTY_TWO = 'a'.repeat(32);
   const THIRTY_THREE = 'a'.repeat(33);
@@ -1343,7 +1343,7 @@ describe('preserved upstream quirk: &#999999; is not out of range', () => {
 
 describe('preserved upstream quirk: only the exact number 1.1 selects XML 1.1', () => {
   // The comparison is `=== 1.1`, so a version read out of a document as text, a version someone rounded, and a version in an array all normalise to
-  // 1.0 — the stricter classification. Defaulting to the stricter side is the right default; reading a `<?xml version?>` declaration that has not
+  // 1.0, the stricter classification. Defaulting to the stricter side is the right default; reading a `<?xml version?>` declaration that has not
   // been converted to a number first silently gives the other one. Not endorsed.
   it.effect('selects XML 1.1 for the number 1.1, and keeps the C0 controls', () =>
     Effect.gen(function* () {
@@ -1427,8 +1427,8 @@ describe('preserved upstream quirk: a nullNCR weaker than remove is raised to re
 
 describe('preserved upstream quirk: the C1 controls and the U+FFFE/U+FFFF noncharacters decode', () => {
   // XML 1.0 §2.2 prohibits U+007F–U+009F and the two noncharacters outright, and the `xmlVersion` option's own documentation claims the C1 range is
-  // permitted only under 1.1. Neither is checked: the classifier looks at null, at the surrogates, and at the C0 controls, and stops. Not endorsed —
-  // this is the widest gap in the port, and it is in the safe direction only if a downstream consumer does its own validation.
+  // permitted only under 1.1. Neither is checked: the classifier looks at null, at the surrogates, and at the C0 controls, and stops. Not endorsed.
+  // This is the widest gap in the port, and it is in the safe direction only if a downstream consumer does its own validation.
   it.effect('decodes U+009F, the top of the C1 range', () =>
     Effect.gen(function* () {
       expect(codePointsOf(yield* (yield* EntityDecoder.make()).decode('&#x9F;'))).toEqual(['009F']);
@@ -1470,8 +1470,8 @@ describe('preserved upstream quirk: the C1 controls and the U+FFFE/U+FFFF noncha
 // ─── Preserved upstream quirk: prototype names stay literal ───────────────────────────────────────────
 
 describe('preserved upstream quirk: &constructor;, &toString; and &__proto__; are never entities', () => {
-  // The maps are null-prototype objects, so nothing from `Object.prototype` is reachable through a lookup. That closes a real hole — a document
-  // naming `&constructor;` cannot read a function and stringify it into its own output — and it is why registration of those names is the only way to
+  // The maps are null-prototype objects, so nothing from `Object.prototype` is reachable through a lookup. That closes a real hole: a document
+  // naming `&constructor;` cannot read a function and stringify it into its own output. It is also why registration of those names is the only way to
   // make them resolve. `__proto__` is the exception: an object literal with a `__proto__` key sets a prototype rather than creating an own property,
   // so it never becomes an entry at all. All three are safe, none is documented, and all three are pinned here.
   for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
@@ -1503,7 +1503,7 @@ describe('preserved upstream quirk: &constructor;, &toString; and &__proto__; ar
   it.effect('does let a caller register &__proto__; under a computed key, as a plain own entry', () =>
     Effect.gen(function* () {
       // Resolving at all is the discriminator. A null-prototype map has no inherited `__proto__` accessor to
-      // intercept the key, so the entry is stored where the lookup — which asks `Object.hasOwn` — finds it. A
+      // intercept the key, so the entry is stored where the lookup, which asks `Object.hasOwn`, finds it. A
       // map that treated the key as a prototype assignment would have lost it, and the reference would come
       // back as text, which is what the object-literal test above gets.
       const decoder = yield* EntityDecoder.make();
@@ -1519,7 +1519,7 @@ describe('preserved upstream quirk: a value containing & is stored by two of the
   // The documentation says a value containing `&` is skipped on the way in, to stop a registered value from expanding further. It is not: the two map
   // setters store it unchanged and it expands to the literal `&` text, which then reaches the caller unexpanded because the pass is over. The single
   // entity setter does check, and silently drops. So the same name registered either way can resolve or fail to, with no error to explain the
-  // difference. Not endorsed — the inconsistency is the whole hazard, and it is pinned so that making the two paths agree is a visible decision about
+  // difference. Not endorsed: the inconsistency is the whole hazard, and it is pinned so that making the two paths agree is a visible decision about
   // which way round to go.
   it.effect('stores and expands a value containing & from the constructor table', () =>
     Effect.gen(function* () {
@@ -1546,7 +1546,7 @@ describe('preserved upstream quirk: a value containing & is stored by two of the
 
   it.effect('leaves the ampersand in the stored value as text rather than expanding it, because the pass is over by then', () =>
     Effect.gen(function* () {
-      // The hazard the documentation describes is still not reachable — the value does not expand — but it happens because the output is not re-scanned,
+      // The hazard the documentation describes is still not reachable, because the value does not expand, but it happens because the output is not re-scanned,
       // not because the value was filtered.
       const decoder = yield* EntityDecoder.make({ namedEntities: { x: '&#38;', amp: '&' } });
       expect(yield* decoder.decode('&x;')).toBe('&#38;');
@@ -1557,7 +1557,7 @@ describe('preserved upstream quirk: a value containing & is stored by two of the
 // ─── Preserved upstream quirk: the input entities are not validated at all ─────────────────────────────
 
 describe('preserved upstream quirk: addInputEntities validates no entity name', () => {
-  // The per-document path — the one that handles a DOCTYPE, and therefore the one that handles the part of the input nobody vouched for — is the one
+  // The per-document path, the one that handles a DOCTYPE and therefore the one that handles the part of the input nobody vouched for, is the one
   // that skips validation entirely. A `#`-prefixed name registers, where both external setters throw. It is then unreachable, because `decode` routes
   // every `#`-prefixed token to the numeric pipeline first and never consults the input map. Not endorsed: the asymmetry means a document can declare
   // an entity that silently never fires, while the same declaration on the other path is a hard error.
@@ -1585,7 +1585,7 @@ describe('preserved upstream quirk: addInputEntities validates no entity name', 
     Effect.gen(function* () {
       // Only reachability is observable from outside, and reachability is exactly what is denied here: the
       // token never becomes a name, so `&#a;` is left as written whether or not an entry was kept. The pair
-      // of assertions is the whole contract — registration is silent, and the reference never fires.
+      // of assertions is the whole contract: registration is silent, and the reference never fires.
       const decoder = yield* EntityDecoder.make();
       yield* decoder.addInputEntities({ '#a': 'W' });
       expect(yield* decoder.decode('&#a;')).toBe('&#a;');
@@ -1629,10 +1629,10 @@ describe('construction', () => {
 
   it.effect('refuses a null options object rather than reading it as no options', () =>
     Effect.gen(function* () {
-      // Every field is optional, so `null` is not "a decoder with the defaults" — a caller who wrote it
+      // Every field is optional, so `null` is not "a decoder with the defaults". A caller who wrote it
       // meant something the signature does not allow, and a decoder built from it would be
       // indistinguishable from one built from `{}` while hiding the mistake. `make({})` is the decoder
-      // with every default, and saying so is the whole point of the factory existing.
+      // with every default, and saying so is the entire reason the factory exists.
       const result = yield* EntityDecoder.make(null as never).pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.reason._tag).toBe('MissingOptions');

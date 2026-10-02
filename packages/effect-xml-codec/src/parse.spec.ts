@@ -102,8 +102,8 @@ describe('parseXml() — attributes', () => {
   });
 
   it('repairs an illegal attribute name, the same way the renderer does', () => {
-    // A name that starts with a digit is syntactically a name to the scanner —
-    // no whitespace, no `=` — so it reaches the resolver, which rewrites it.
+    // A name that starts with a digit is syntactically a name to the scanner:
+    // no whitespace, no `=`. So it reaches the resolver, which rewrites it.
     expect(parseXmlDocument('<r 1a="x"/>').value).toEqual({ '@_1a': 'x' });
   });
 
@@ -322,7 +322,7 @@ describe('parseXml() — documents it refuses', () => {
   it.effect('refuses a document nested past the depth limit', () =>
     Effect.gen(function* () {
       // Built rather than written out: a document deep enough to matter is absurd
-      // to spell out, and the point is the limit rather than the contents.
+      // to spell out, and the limit is the thing being tested, not the contents.
       const deep = `${'<a>'.repeat(40)}x${'</a>'.repeat(40)}`;
       expect((yield* parseError(deep, { maxDepth: 10 })).message).toMatch(/maxDepth/);
     })

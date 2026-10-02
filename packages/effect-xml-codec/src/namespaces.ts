@@ -19,21 +19,21 @@
 //   - `xmlValue` marks one field as the element's character data, the `#text`
 //     value, for an element that also carries attributes or children.
 //
-// The namespace of an element is inherited by its descendants, the way an XML
-// default namespace is. An attribute never inherits: it is in a namespace only
-// when it is annotated with one explicitly, because a default namespace does
-// not apply to attributes.
+// An element's namespace is inherited by its descendants, as an XML default
+// namespace is. An attribute never inherits: it is in a namespace only when it
+// is annotated with one explicitly, because a default namespace does not apply
+// to attributes.
 //
-// On the way out, each element writes its own declaration when the prefix or
-// default is not already in scope. On the way in, the parser's own declarations
-// are read into scope and every name is resolved to its URI, so a document that
-// binds the same URI to a different prefix still decodes to the same value. The
-// declaration attributes are dropped from the decoded value; they are the
-// codec's to manage, not the schema's.
+// On encode, each element writes its own declaration when the prefix or default
+// is not already in scope. On decode, the parser's own declarations are read
+// into scope and every name is resolved to its URI, so a document that binds the
+// same URI to a different prefix still decodes to the same value. The
+// declaration attributes are dropped from the decoded value; the codec manages
+// them, not the schema.
 //
-// The plan is built per local name, which is what a schema field is. One local
-// name cannot belong to two namespaces in one codec; that is reported when the
-// codec is built rather than guessed at.
+// The plan is built per local name, and a schema field is one local name. One
+// local name cannot belong to two namespaces in one codec; the plan reports that
+// when the codec is built rather than guessing.
 
 import type { Schema } from 'effect';
 
@@ -396,7 +396,7 @@ interface Scan {
   readonly problems: Array<string>;
   /**
    * @description The AST nodes on the current scan path. A recursive schema terminates because the `Suspend` node is still on the path when its thunk is reached,
-   * and a schema reused under two sibling paths is scanned once per path because each node is removed again on the way out.
+   * and a schema reused under two sibling paths is scanned once per path because each node is removed again on the way back out.
    */
   readonly seen: Set<SchemaAST.AST>;
 }
@@ -634,7 +634,7 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
 };
 
 /**
- * @description Collects the namespace and name of every field in a schema. A namespace is inherited by descendant elements, the way a default namespace is, and an
+ * @description Collects the namespace and name of every field in a schema. Descendant elements inherit a namespace, as they inherit a default namespace, and an
  * element field records its own namespace, so encode and decode can find it by the local name alone.
  *
  * @param schema - The schema to walk.
@@ -900,7 +900,7 @@ const schemaKey = (plan: NamespacePlan, parent: string, key: string, scope: Reco
 /**
  * @description The scope a child element resolves its own name against: the declarations it carries on itself, layered over the parent scope. An element may
  * declare the prefix it uses on the element itself, so its own name is read with those bindings in scope. A repeated element arrives as an array, so
- * the first member stands in for the run — every member describes the same element and carries the same declaration.
+ * the first member stands in for the run; every member describes the same element and carries the same declaration.
  *
  * @param child - The child value.
  * @param scope - The bindings in scope above the child.

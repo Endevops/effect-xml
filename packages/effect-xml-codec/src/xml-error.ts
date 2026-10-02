@@ -6,9 +6,9 @@
  *
  * ## Why one error with a `reason`, and not one error per cause
  *
- * The causes would mean a class each, and a caller handling "any of these" would need `catchTags` with all of them. The causes are not independent
- * decisions a caller usually wants to make separately — they are all "this XML input was not acceptable", and the useful split is coarse: a bad
- * _configuration_ versus a bad _document_. So there is one error, and `reason` narrows to the specific cause. Recovery is a `catchReason` away:
+ * The causes would mean a class each, and a caller handling "any of these" would need `catchTags` with all of them. A caller does not usually want to
+ * decide between the causes separately. They are all "this XML input was not acceptable", and the useful split is coarse: a bad _configuration_
+ * versus a bad _document_. So there is one error, and `reason` narrows to the specific cause. Recovery is a `catchReason` away:
  *
  * @example
  *   ```typescript
@@ -20,24 +20,24 @@
  *   );
  *   ```;
  *
- *   The message is kept alongside `reason` and is part of the schema, because the text is load-bearing: the
- *   `[EntityReplacer]` prefix in particular is documented as something callers match on, so it is reproduced exactly
- *   rather than reworded.
+ *   The message is kept alongside `reason` and is part of the schema, because callers depend on the text. The
+ *   `[EntityReplacer]` prefix in particular is documented as something callers match on, so the codec reproduces it exactly
+ *   rather than rewording it.
  */
 
 import { Schema } from 'effect';
 
 /**
  * @description The specific cause of an {@link XmlError}, as a tagged union. The `_tag` on each member is the discriminant `Effect.catchReason` matches on, and
- * the payload is what a handler needs in order to decide or to report. Every member is a case the decoder or the name validators actually raise —
- * there is no catch-all member, so an exhaustive `match` stays exhaustive as causes are added.
+ * the payload is what a handler needs in order to decide or to report. Every member is a case the decoder or the name validators actually raise.
+ * There is no catch-all member, so an exhaustive `match` stays exhaustive as causes are added.
  */
 export const XmlErrorReason = Schema.TaggedUnion({
   /**
    * @description A required argument was `null` or another non-value where the package requires a real one. Raised by the factories that take caller-supplied
-   * input — {@link EntityDecoder.make} among them — when they are handed `null` for an options object that has no meaningful default. It is a
-   * distinct case from the rest because the argument is not _wrong_, it is _absent_, and a caller who wrote `make(null)` meant something the type
-   * system does not allow: a decoder with every default is `make({})`, and saying so here is more useful than silently producing one.
+   * input, {@link EntityDecoder.make} among them, when they are handed `null` for an options object that has no meaningful default. It is a distinct
+   * case from the rest because the argument is not _wrong_, it is _absent_, and a caller who wrote `make(null)` meant something the type system does
+   * not allow. A decoder with every default is `make({})`, and saying so here is more useful than silently producing one.
    */
   MissingOptions: {
     /**
@@ -48,7 +48,7 @@ export const XmlErrorReason = Schema.TaggedUnion({
 
   /**
    * @description A name was checked against one of the five XML name productions and given a different one. Unreachable from TypeScript, where `Production` is a
-   * closed union — it is the guard for untyped JavaScript callers and for values that crossed a boundary as `unknown`.
+   * closed union. It is the guard for untyped JavaScript callers and for values that crossed a boundary as `unknown`.
    */
   InvalidProduction: {
     production: Schema.String,
@@ -78,7 +78,7 @@ export const XmlErrorReason = Schema.TaggedUnion({
    */
   EntityRejected: {
     /**
-     * @description Which registration was in progress. Both are runtime-injected, which is why they share a tier for limit accounting.
+     * @description Which registration was in progress. The runtime injects both, so they share a tier for limit accounting.
      */
     context: Schema.Literals(['external', 'input']),
     /**
@@ -93,7 +93,7 @@ export const XmlErrorReason = Schema.TaggedUnion({
    */
   ExpansionLimitExceeded: {
     /**
-     * @description The count that tripped the limit. Deliberately not reset on failure, so this is the real over-limit total rather than the ceiling.
+     * @description The count that tripped the limit. The counter is not reset on failure, so this is the real over-limit total rather than the ceiling.
      */
     actual: Schema.Number,
     /**
@@ -139,7 +139,7 @@ export const XmlErrorReason = Schema.TaggedUnion({
 export type XmlErrorReason = typeof XmlErrorReason.Type;
 
 /**
- * @description Every failure this package can report, in the `E` channel of the effects that can fail. Carries both a `reason` — the typed, matchable cause — and
+ * @description Every failure this package can report, in the `E` channel of the effects that can fail. Carries both a `reason`, the typed and matchable cause, and
  * a `message`, which is the human-readable form the package has always produced. Both are part of the schema, so an error survives a round-trip
  * through a serialised boundary without losing either.
  *
@@ -162,7 +162,7 @@ export class XmlError extends Schema.TaggedError<XmlError>()('XmlError', {
 
   /**
    * @description Human-readable description. The `[EntityReplacer]` and `[EntityDecoder]` prefixes are reproduced verbatim from the original throw sites, because
-   * they are documented as load-bearing for anything matching on them.
+   * anything matching on them depends on them.
    */
   message: Schema.String,
 }) {}

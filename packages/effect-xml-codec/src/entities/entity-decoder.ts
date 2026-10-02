@@ -5,13 +5,13 @@
 // `@nodable/entities@2.2.0` (`src/EntityDecoder.js`) as native TypeScript.
 //
 // Three entity tiers exist and the distinction is the security model, not a performance detail. `input` and
-// `external` entities are injected at runtime — DOCTYPE declarations, and whatever a caller hands the
-// decoder — so they are the untrusted surface and are what the expansion limits count by default. `base` is
+// `external` entities are injected at runtime (DOCTYPE declarations, and whatever a caller hands the
+// decoder), so they are the untrusted surface and are what the expansion limits count by default. `base` is
 // the five XML predefined entities plus the caller's own `namedEntities`. Numeric references are always
 // `base`: they cannot recurse.
 //
-// Behaviour is transcribed, not corrected. Several upstream quirks are load-bearing for the output a caller
-// already sees — a `&` inside a registered value is not filtered the way the docs claim, `postCheck` is
+// Behaviour is transcribed, not corrected. Several upstream quirks are relied on by the output a caller
+// already sees. A `&` inside a registered value is not filtered the way the docs claim, `postCheck` is
 // skipped on the two fast paths, C1 codepoints and the FFFE/FFFF noncharacters are not classified at all.
 // Each is called out where it appears, and none of them is repaired, because this class sits in front of XXE
 // and entity-expansion handling where a silent fix is a change to every consumer's output.
@@ -26,7 +26,7 @@ import { XML as DEFAULT_XML_ENTITIES } from './entity-tables.ts';
 // Character codes
 //
 // The scan is a hand-rolled `charCodeAt` loop, so the three codes it tests against are named here rather than
-// written as literals. `&` opens a reference, `;` closes one, `#` is what makes a reference numeric.
+// written as literals. `&` opens a reference, `;` closes one, `#` marks a reference as numeric.
 // ---------------------------------------------------------------------------
 
 const CODE_AMPERSAND = 38;
@@ -37,8 +37,8 @@ const CODE_UPPER_X = 88;
 
 /**
  * @description The widest entity name {@link EntityDecoder.decode} will look for, in characters. The forward scan for `;` stops once more than this many characters
- * have passed since the `&`, so a longer run is not treated as one entity — it is copied through as literal text. The bound is what keeps a document
- * with a megabyte of non-entity text between two ampersands from being sliced.
+ * have passed since the `&`, so a longer run is not treated as one entity. It is copied through as literal text. The bound keeps a document with a
+ * megabyte of non-entity text between two ampersands from being sliced.
  */
 const MAX_TOKEN_LENGTH = 32;
 
@@ -49,8 +49,8 @@ const MAX_TOKEN_LENGTH = 32;
 const MAX_CODE_POINT = 0x10ffff;
 
 /**
- * @description Returned by `#classifyNCR` for a codepoint that carries no minimum action level, which is what distinguishes "no restriction" from
- * `NCR_LEVEL.allow` — both end up expanding, but only the first lets `numericAllowed: false` short-circuit the whole pipeline.
+ * @description Returned by `#classifyNCR` for a codepoint that carries no minimum action level. This value distinguishes "no restriction" from `NCR_LEVEL.allow`:
+ * both end up expanding, but only the first lets `numericAllowed: false` short-circuit the whole pipeline.
  */
 const NO_MINIMUM_LEVEL = -1;
 
@@ -61,7 +61,7 @@ const NO_MINIMUM_LEVEL = -1;
 /**
  * @description Characters that may not appear in an entity name registered through {@link EntityDecoder.setExternalEntities} or
  * {@link EntityDecoder.addExternalEntity}. A name carrying one of these cannot be written as `&name;` at all, so registration refuses it rather than
- * storing a name no document could ever reference. The set is the upstream string verbatim, including its duplicated backslash — a `Set` discards the
+ * storing a name no document could ever reference. The set is the upstream string verbatim, including its duplicated backslash. A `Set` discards the
  * duplicate, so the effective set is the eighteen characters below.
  */
 const SPECIAL_CHARS: ReadonlySet<string> = new Set('!?\\/[]$%{}^&*()<>|+');
@@ -94,7 +94,7 @@ type LimitTier = typeof LIMIT_TIER_ALL | typeof LIMIT_TIER_BASE | typeof LIMIT_T
 
 /**
  * @description The NCR action levels, in severity order. A higher number is a stricter action, and the resolver takes the maximum of the configured level and the
- * minimum a codepoint range imposes, so a range can only ever make an entity stricter than the caller asked for — never more lenient.
+ * minimum a codepoint range imposes. A range can therefore only make an entity stricter than the caller asked for, never more lenient.
  */
 const NCR_LEVEL = Object.freeze({ allow: 0, leave: 1, remove: 2, throw: 3 });
 
@@ -111,7 +111,7 @@ type NcrLevelName = keyof typeof NCR_LEVEL;
 type XmlVersion = 1 | 1.1;
 
 /**
- * @description The C0 control codes XML 1.0 §2.2 permits as literal characters. Every other code in U+0001–U+001F is prohibited.
+ * @description The C0 control codes XML 1.0 §2.2 permits as literal characters. Every other code in U+0001 to U+001F is prohibited.
  */
 const XML10_ALLOWED_C0: ReadonlySet<number> = new Set([0x09, 0x0a, 0x0d]);
 
@@ -126,8 +126,8 @@ const XML10_ALLOWED_C0: ReadonlySet<number> = new Set([0x09, 0x0a, 0x0d]);
 export type EntityHookAction = 'allow' | 'block' | 'throw';
 
 /**
- * @description A function-valued entity replacement: the `val` of the legacy `{ regex, val }` form when it is not a string. This decoder cannot use one — a
- * function has no meaning without the regex it was meant to be matched against — so such an entry is dropped at registration rather than expanded.
+ * @description A function-valued entity replacement: the `val` of the legacy `{ regex, val }` form when it is not a string. This decoder cannot use one. A
+ * function has no meaning without the regex it was meant to be matched against, so such an entry is dropped at registration rather than expanded.
  */
 export type EntityValFn = (match: string, captured: string, ...rest: Array<unknown>) => string;
 
@@ -167,16 +167,16 @@ export const ENTITY_ACTION: Readonly<{ ALLOW: 'allow'; BLOCK: 'block'; THROW: 't
 /**
  * @description Which entity categories count toward the expansion limits.
  *
- * - `'external'` — only input/runtime + persistent external entities. The default, and the only one that ignores the built-in XML entities.
- * - `'base'` — only the built-in XML entities, the caller's `namedEntities`, and numeric references.
- * - `'all'` — every entity regardless of tier.
- * - `Array<'external' | 'base'>` — an explicit combination. An empty array is honoured literally: nothing counts, so the limits can never trip.
+ * - `'external'`: only input/runtime + persistent external entities. The default, and the only one that ignores the built-in XML entities.
+ * - `'base'`: only the built-in XML entities, the caller's `namedEntities`, and numeric references.
+ * - `'all'`: every entity regardless of tier.
+ * - `Array<'external' | 'base'>`: an explicit combination. An empty array is honoured literally: nothing counts, so the limits can never trip.
  */
 export type ApplyLimitsTo = 'external' | 'base' | 'all' | Array<'external' | 'base'>;
 
 /**
  * @description Ceilings on what a single document's entity references may cost. Both are cumulative across {@link EntityDecoder.decode} calls until
- * {@link EntityDecoder.reset}, and both default to `0`, meaning unlimited. `0` — and any negative or non-numeric value — is unlimited, because the
+ * {@link EntityDecoder.reset}, and both default to `0`, meaning unlimited. `0`, and any negative or non-numeric value, is unlimited, because the
  * runtime tests `> 0` rather than truthiness of the configured number.
  */
 export interface EntityDecoderLimitOptions {
@@ -197,8 +197,8 @@ export interface EntityDecoderLimitOptions {
   maxExpandedLength?: number;
 
   /**
-   * @description Which tiers count against both limits. Defaults to `'external'`, which is what keeps the built-in entities — including every numeric reference —
-   * from being able to trip a limit on a document the caller already trusts.
+   * @description Which tiers count against both limits. Defaults to `'external'`, which keeps the built-in entities, including every numeric reference, from being
+   * able to trip a limit on a document the caller already trusts.
    *
    * @default 'external'
    */
@@ -211,7 +211,7 @@ export interface EntityDecoderLimitOptions {
  */
 export interface EntityDecoderNCROptions {
   /**
-   * @description The XML version whose codepoint restrictions apply. `1.0` prohibits the C0 controls U+0001–U+001F other than tab, newline and carriage return;
+   * @description The XML version whose codepoint restrictions apply. `1.0` prohibits the C0 controls U+0001 to U+001F other than tab, newline and carriage return;
    * `1.1` does not, since it permits them when written as references. Any value other than `1.1` is read as `1.0`.
    *
    * @default 1.0
@@ -219,8 +219,8 @@ export interface EntityDecoderNCROptions {
   xmlVersion?: 1.0 | 1.1;
 
   /**
-   * @description The base action for every numeric reference. Codepoint ranges that carry a minimum — surrogates always, the XML 1.0 C0 controls under `1.0`, and
-   * null under `nullNCR` — take the stricter of the two, so this is a floor and not an override.
+   * @description The base action for every numeric reference. Codepoint ranges that carry a minimum (surrogates always, the XML 1.0 C0 controls under `1.0`, and
+   * null under `nullNCR`) take the stricter of the two, so this is a floor and not an override.
    *
    * @default 'allow'
    */
@@ -240,10 +240,10 @@ export interface EntityDecoderNCROptions {
 export interface EntityDecoderOptions {
   /**
    * @description Extra named entities merged into the `base` map alongside the five XML predefined ones. A string value is used directly; a `{ regex, val }` or `{
-   * regx, val }` envelope is unwrapped to its `val`. Anything else — a number, `null`, a function, an envelope whose `val` is a function — is
-   * dropped, leaving the name unresolvable rather than failing the construction. Upstream's documentation says a value containing `&` is skipped
-   * here, to prevent recursive expansion. It is not: the code stores the value unchanged, and only {@link EntityDecoder.addExternalEntity} checks for
-   * `&`. Preserved as-is; see the note on the class.
+   * regx, val }` envelope is unwrapped to its `val`. Anything else (a number, `null`, a function, an envelope whose `val` is a function) is dropped,
+   * leaving the name unresolvable rather than failing the construction. Upstream's documentation says a value containing `&` is skipped here, to
+   * prevent recursive expansion. It is not: the code stores the value unchanged, and only {@link EntityDecoder.addExternalEntity} checks for `&`.
+   * Preserved as-is; see the note on the class.
    *
    * @default null
    */
@@ -251,7 +251,7 @@ export interface EntityDecoderOptions {
 
   /**
    * @description Called once on the finished string. Receives `(resolved, original)` and must return a string; return `original` to reject the expansion outright,
-   * or a sanitised form of `resolved` to clean it. It is _not_ called for a string that never reaches the scanning loop — an empty string, a
+   * or a sanitised form of `resolved` to clean it. It is _not_ called for a string that never reaches the scanning loop: an empty string, a
    * non-string, or any string with no `&` in it. A caller relying on `postCheck` to sanitise therefore has to know that a string with no ampersand is
    * never inspected.
    *
@@ -260,8 +260,8 @@ export interface EntityDecoderOptions {
   postCheck?: ((resolved: string, original: string) => string) | null;
 
   /**
-   * @description Whether numeric references expand at all. Turning it off leaves every one of them in the output verbatim — _except_ the codepoints that carry a
-   * minimum action of `remove` or stricter, which are still handled, because that classification runs first and is what makes the option safe to rely
+   * @description Whether numeric references expand at all. Turning it off leaves every one of them in the output verbatim, _except_ the codepoints that carry a
+   * minimum action of `remove` or stricter, which are still handled, because that classification runs first. This is why the option is safe to rely
    * on.
    *
    * @default true
@@ -278,7 +278,7 @@ export interface EntityDecoderOptions {
   /**
    * @description Names to delete outright, matched the same way as {@link EntityDecoderOptions.leave}. A removed reference is charged to the `external` tier even
    * when the name is a built-in one, so a document full of removed built-ins can trip an `applyLimitsTo: 'external'` limit it would not otherwise be
-   * subject to. Preserved as-is; the only in-code comment claims the charge is for unknown references, which is not what distinguishes them.
+   * subject to. Preserved as-is; the only in-code comment claims the charge is for unknown references, which does not distinguish them.
    *
    * @default [ ]
    */
@@ -305,7 +305,7 @@ export interface EntityDecoderOptions {
 
   /**
    * @description Called once per entity as it is registered through {@link EntityDecoder.addInputEntities}. Same contract as
-   * {@link EntityDecoderOptions.onExternalEntity}, and unlike it the hook is not the only filter — see the class note on name validation.
+   * {@link EntityDecoderOptions.onExternalEntity}, and unlike it the hook is not the only filter. See the class note on name validation.
    *
    * @default null
    */
@@ -336,7 +336,7 @@ type EntityInputMap = Readonly<Record<string, EntityInputValue>> | null | undefi
 
 /**
  * @description What one reference expanded to, tagged with the tier its limit accounting charges. The field is the replacement text itself for a named entity, the
- * character for a numeric reference, and `''` for a removed one — the three shapes the walk pushes into its output.
+ * character for a numeric reference, and `''` for a removed one. Those are the three shapes the walk pushes into its output.
  */
 type ResolvedEntity = { value: string; tier: LimitTier };
 
@@ -357,7 +357,7 @@ type HookContext = 'external' | 'input';
  *
  * @returns An effect producing the name, unchanged, so the call can be inlined. Fails with {@link XmlError} and the `InvalidEntityName` reason,
  *   carrying the offending character. The `[EntityReplacer]` prefix in the message is preserved verbatim from the original throw, despite naming a
- *   class this decoder does not have — it is load-bearing for anything matching on it.
+ *   class this decoder does not have. It is relied on by anything matching the message text.
  */
 const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
   if (name.charCodeAt(0) === CODE_HASH) {
@@ -383,11 +383,11 @@ const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
 
 /**
  * @description Flatten registration maps into one name to string map, later maps winning over earlier ones for the same name. The result is a null-prototype
- * object, not a `Map`. That is not incidental: a `Map` iterates in pure insertion order, while `Object.keys` lifts array-index-like names to the
- * front in numeric order, and the registration hooks observe that order. A name of `"2"` registered after `"brand"` reaches the hook first here and
- * second in a `Map`.
+ * object, not a `Map`. That is intentional. A `Map` iterates in pure insertion order, while `Object.keys` lifts array-index-like names to the front
+ * in numeric order, and the registration hooks observe that order. A name of `"2"` registered after `"brand"` reaches the hook first here and second
+ * in a `Map`.
  *
- * @param maps - The maps to merge. A falsy entry — `null`, `undefined`, `''`, `0` — contributes nothing rather than throwing.
+ * @param maps - The maps to merge. A falsy entry (`null`, `undefined`, `''`, `0`) contributes nothing rather than throwing.
  *
  * @returns A null-prototype object of own string-valued entries. Nothing from `Object.prototype` can be read out of it, so a document naming
  *   `constructor` or `toString` finds nothing. Each entry is read through {@link flattenEntityValue}, so an entry that cannot be reduced to a string
@@ -407,15 +407,15 @@ function mergeEntityMaps(...maps: ReadonlyArray<EntityInputMap>): Record<string,
 
 /**
  * @description Reduce one registration entry to the string a reference to it expands to, or to nothing when the entry is a form the scanner has no use for. Three
- * shapes survive: the string itself, and a `{ regex | regx, val }` envelope whose `val` is a string. Everything else — a number, `null`, `undefined`,
- * a bare function, an envelope whose `val` is a function — has no string to substitute, so the name is dropped and a reference to it comes back out
- * as the text it was written as. Dropping is silent on purpose: the runtime inspects whatever it is handed, and failing the construction over one
+ * shapes survive: the string itself, and a `{ regex | regx, val }` envelope whose `val` is a string. Everything else (a number, `null`, `undefined`,
+ * a bare function, an envelope whose `val` is a function) has no string to substitute, so the name is dropped and a reference to it comes back out as
+ * the text it was written as. Dropping is silent on purpose: the runtime inspects whatever it is handed, and failing the construction over one
  * unreadable entry would take every other entity in the table down with it.
  *
- * @param raw - The entry as it arrived, in whatever shape the caller supplied it — including no entry at all, which a table with a hole in it
+ * @param raw - The entry as it arrived, in whatever shape the caller supplied it, including no entry at all, which a table with a hole in it
  *   produces.
  *
- * @returns The replacement string, or `undefined` when the entry cannot be read. A name registered to the empty string yields `''`, which is why
+ * @returns The replacement string, or `undefined` when the entry cannot be read. A name registered to the empty string yields `''`. That is why
  *   callers compare against `undefined` rather than testing for emptiness.
  */
 function flattenEntityValue(raw: EntityInputValue | undefined): string | undefined {
@@ -436,12 +436,12 @@ function flattenEntityValue(raw: EntityInputValue | undefined): string | undefin
  * @param map - The map to read.
  * @param key - The entity name.
  *
- * @returns The registered string, or `undefined` when the name is not an own key. A name registered to the empty string returns `''`, which is why
+ * @returns The registered string, or `undefined` when the name is not an own key. A name registered to the empty string returns `''`. That is why
  *   callers must compare against `undefined` rather than test for emptiness.
  */
 function ownEntity(map: Readonly<Record<string, string>>, key: string): string | undefined {
   // Upstream tests `name in map`, which reads as "is this name present at all". `Object.hasOwn` is
-  // the same question asked explicitly, and it is the honest shape for the answer: an absent key
+  // the same question asked explicitly, and it is the right shape for the answer: an absent key
   // yields `undefined` and a present one yields the stored string, so the `string | undefined` this
   // returns is the real type rather than something an assertion has to paper over. The two maps are
   // null-prototype objects, so `in` and `hasOwn` cannot disagree here.
@@ -455,8 +455,7 @@ function ownEntity(map: Readonly<Record<string, string>>, key: string): string |
  * @param raw - The configured value.
  *
  * @returns The tier set. An unrecognised string falls back to `external` rather than to no filtering at all, so a typo cannot silently disable the
- *   limits. An array is taken as given, which is why an empty array disables limit accounting entirely while an empty string falls back to
- *   `external`.
+ *   limits. An array is taken as given. An empty array therefore disables limit accounting entirely, while an empty string falls back to `external`.
  */
 function parseLimitTiers(raw: ApplyLimitsTo | undefined): ReadonlySet<LimitTier> {
   if (!raw || raw === LIMIT_TIER_EXTERNAL) return new Set([LIMIT_TIER_EXTERNAL]);
@@ -518,7 +517,7 @@ function readPostCheck(raw: EntityDecoderOptions['postCheck']): (resolved: strin
  *
  * @param raw - The configured hook, or nothing.
  *
- * @returns The hook itself, or `null` for an absent option and for a value that is not a function. `null` is what lets every registration path ask
+ * @returns The hook itself, or `null` for an absent option and for a value that is not a function. `null` lets every registration path ask
  *   unconditionally: a hook that is not there accepts.
  */
 function readHook(raw: EntityRegistrationHook | null | undefined): EntityRegistrationHook | null {
@@ -528,9 +527,9 @@ function readHook(raw: EntityRegistrationHook | null | undefined): EntityRegistr
 
 /**
  * @description Read one of the two entity-name lists as a set, under the same missing-value rule as the other options: absent is empty, not an error. The
- * `Array.isArray` test rather than a truthiness one is what keeps a mistyped list from reaching `new Set` and throwing there, so a caller's typo
- * disables the list instead of taking the decoder down. Matching against a set is also why a name in both lists is decided by the order
- * {@link EntityDecoder.decode} consults them in, not by the order the caller wrote them in.
+ * `Array.isArray` test rather than a truthiness one keeps a mistyped list from reaching `new Set` and throwing there, so a caller's typo disables the
+ * list instead of taking the decoder down. Matching against a set also means a name in both lists is decided by the order {@link EntityDecoder.decode}
+ * consults them in, not by the order the caller wrote them in.
  *
  * @param raw - The configured list, or nothing.
  *
@@ -564,25 +563,25 @@ function scanTokenEnd(str: string, ampersand: number): number {
  *
  * ### Entity lookup priority
  *
- * 1. **input / runtime** — injected per document through {@link EntityDecoder.addInputEntities}
- * 2. **persistent external** — set through {@link EntityDecoder.setExternalEntities} and {@link EntityDecoder.addExternalEntity}, surviving
+ * 1. **input / runtime**: injected per document through {@link EntityDecoder.addInputEntities}
+ * 2. **persistent external**: set through {@link EntityDecoder.setExternalEntities} and {@link EntityDecoder.addExternalEntity}, surviving
  *    {@link EntityDecoder.reset}
- * 3. **base** — the five XML predefined entities plus the constructor's `namedEntities` Both input and external resolve as the `external` tier for limit
+ * 3. **base**: the five XML predefined entities plus the constructor's `namedEntities` Both input and external resolve as the `external` tier for limit
  *    purposes, because both are injected at runtime. Numeric references (`&#NNN;`, `&#xHH;`) resolve directly through `String.fromCodePoint` and are
  *    always `base` tier: they cannot recurse, so a limit that counted them would only punish a document that spells its characters out.
  *
  * ### Upstream behaviour preserved
  *
- * Several quirks of the original are kept deliberately, because a consumer's output already depends on them:
+ * Several quirks of the original are kept intentionally, because a consumer's output already depends on them:
  *
  * - A value containing `&` is **not** filtered from `namedEntities` or `setExternalEntities`, contrary to the documentation. Only
  *   {@link EntityDecoder.addExternalEntity} checks, and it drops the entry rather than storing it, so the same name registered either way can resolve
  *   to nothing.
- * - {@link EntityDecoderOptions.postCheck} is skipped entirely for input that never reaches the scan — an empty string, a non-string, or a string with
+ * - {@link EntityDecoderOptions.postCheck} is skipped entirely for input that never reaches the scan: an empty string, a non-string, or a string with
  *   no `&`.
  * - {@link EntityDecoder.decode} returns a non-string argument unchanged, despite being typed `string`.
  * - The expansion-limit errors are prefixed `EntityReplacer`, not `EntityDecoder`.
- * - Nothing in XML 1.0 §2.2 is enforced for U+007F–U+009F or for the U+FFFE/U+FFFF noncharacters, and the sweep for `&` leaves a name of
+ * - Nothing in XML 1.0 §2.2 is enforced for U+007F to U+009F or for the U+FFFE/U+FFFF noncharacters, and the sweep for `&` leaves a name of
  *   {@link MAX_TOKEN_LENGTH} + 1 characters unresolvable.
  * - Numeric references are parsed with `parseInt`, so a leading space, sign, or trailing garbage is accepted: `&# 41;`, `&#x+41;` and `&#41zz;` all
  *   decode, and `&#0x41;` parses as a null reference rather than `A`.
@@ -596,7 +595,7 @@ function scanTokenEnd(str: string, ampersand: number): number {
  *   decoder.addInputEntities({ version: '1.0' });
  *
  *   decoder.decode('&brand; v&version; &copy;'); // 'Acme v1.0 ©'
- *   decoder.decode('&#x26;#38;');               // '&&' — one pass, the output is never re-scanned
+ *   decoder.decode('&#x26;#38;');               // '&&', one pass, the output is never re-scanned
  *
  *   decoder.reset(); // drops the input entities and the counters, keeps the external ones
  *   ```;
@@ -614,7 +613,7 @@ export class EntityDecoder {
   readonly #maxExpandedLength: number;
 
   /**
-   * @description {@link EntityDecoderOptions.postCheck}, or the identity function — so the decode loop can call it unconditionally on the path that actually
+   * @description {@link EntityDecoderOptions.postCheck}, or the identity function. That lets the decode loop call it unconditionally on the path that actually
    * scanned, and never on the two fast paths that return early.
    */
   readonly #postCheck: (resolved: string, original: string) => string;
@@ -637,7 +636,7 @@ export class EntityDecoder {
 
   /**
    * @description Persistent external entities, as a null-prototype object. Replaced wholesale by {@link EntityDecoder.setExternalEntities} and added to by
-   * {@link EntityDecoder.addExternalEntity}, and never touched by {@link EntityDecoder.reset} — that is the whole distinction from the input map.
+   * {@link EntityDecoder.addExternalEntity}, and never touched by {@link EntityDecoder.reset}. That is the whole distinction from the input map.
    */
   #externalMap: Record<string, string>;
 
@@ -648,8 +647,8 @@ export class EntityDecoder {
   #inputMap: Record<string, string>;
 
   /**
-   * @description Tracked expansions since the last reset. Cumulative across {@link EntityDecoder.decode} calls, which is what makes a limit a per-document budget
-   * rather than a per-call one. Deliberately not reset by a thrown limit error, so the over-limit count is what the error message reports.
+   * @description Tracked expansions since the last reset. Cumulative across {@link EntityDecoder.decode} calls, which makes a limit a per-document budget rather
+   * than a per-call one. Intentionally not reset by a thrown limit error, so the error message reports the over-limit count.
    */
   #totalExpansions: number;
 
@@ -700,7 +699,7 @@ export class EntityDecoder {
 
   /**
    * @description Create a decoder. A factory rather than a constructor, because it refuses a `null` options object. Every field is optional, so `null` is not "a
-   * decoder with the defaults" — a caller who wrote it meant something the signature does not allow, and a decoder built from it would be
+   * decoder with the defaults". A caller who wrote it meant something the signature does not allow, and a decoder built from it would be
    * indistinguishable from one built from `{}` while hiding the mistake. Saying so is worth a factory; `EntityDecoderOptions` is a plain object and
    * nothing else about construction can fail.
    *
@@ -726,15 +725,15 @@ export class EntityDecoder {
 
   /**
    * @description Create a decoder. Every option is resolved here into the flat fields the decode loop reads, so nothing per-reference has to re-derive it. The
-   * options whose wrong type disables them rather than failing the construction — the two hooks, the two name lists — are read through
-   * {@link readHook} and {@link readNameList}, so that rule is written once instead of four times.
+   * options whose wrong type disables them rather than failing the construction (the two hooks, the two name lists) are read through {@link readHook}
+   * and {@link readNameList}, so that rule is written once instead of four times.
    *
    * @param resolved - Configuration, already checked. See {@link EntityDecoderOptions}.
    */
   private constructor(resolved: EntityDecoderOptions) {
-    // `options.limit` is read first, deliberately: it is the first property the original touched, so
+    // `options.limit` is read first, intentionally: it is the first property the original touched, so
     // the property a `null` would have faulted on, and keeping that order means the reason still
-    // names it. The option stays a local — every value the decode loop needs is flattened out of it
+    // names it. The option stays a local. Every value the decode loop needs is flattened out of it
     // below, so retaining it on the instance would only be a way to observe the option back.
     const limit = resolved.limit ?? {};
     this.#maxTotalExpansions = limit.maxTotalExpansions || 0;
@@ -764,7 +763,7 @@ export class EntityDecoder {
   /**
    * @description Ask a registration hook about one name and value.
    *
-   * @param hook - The hook, or `null`. A `null` hook accepts, which is what lets {@link EntityDecoder.addExternalEntity} call this unconditionally.
+   * @param hook - The hook, or `null`. A `null` hook accepts, so {@link EntityDecoder.addExternalEntity} can call this unconditionally.
    * @param name - The entity name, without `&` or `;`.
    * @param value - The resolved value, after any `{ regex, val }` envelope was unwrapped.
    * @param context - Which registration is in progress, for the error message.
@@ -773,7 +772,7 @@ export class EntityDecoder {
    *   hook returns `throw`. The message quotes the entity, so it is the only record left that a document was rejected.
    */
   #applyRegistrationHook(hook: EntityRegistrationHook | null, name: string, value: string, context: HookContext): Effect.Effect<boolean, XmlError> {
-    if (!hook) return Effect.succeed(true); // no hook to ask
+    if (!hook) return Effect.succeed(true); // nothing to ask
     const action = hook(name, value);
     if (action === ENTITY_ACTION.BLOCK) return Effect.succeed(false);
     if (action === ENTITY_ACTION.THROW) {
@@ -835,7 +834,7 @@ export class EntityDecoder {
    */
   addExternalEntity = Effect.fnUntraced(function* (this: EntityDecoder, key: string, value: string): Effect.fn.Return<void, XmlError> {
     yield* checkEntityName(key);
-    // The two guards are unreachable from typed code — `value` is a `string` — and are kept for
+    // The two guards are unreachable from typed code (`value` is a `string`) and are kept for
     // untyped callers, which is the only way to reach them.
     if (Predicate.isString(value) && value.indexOf('&') === -1) {
       if (yield* this.#applyRegistrationHook(this.#onExternalEntity, key, value, 'external')) {
@@ -859,7 +858,7 @@ export class EntityDecoder {
     map: Record<string, string | { regx: RegExp; val: string | EntityValFn } | { regex: RegExp; val: string | EntityValFn }>
   ): Effect.fn.Return<void, XmlError> {
     // Cleared first and unconditionally, so registering entities is itself the start of a new
-    // document's budget — including when the call goes on to fail.
+    // document's budget, including when the call goes on to fail.
     this.#totalExpansions = 0;
     this.#expandedLength = 0;
     if (!this.#onInputEntity) {
@@ -904,7 +903,7 @@ export class EntityDecoder {
   /**
    * @description Expand every entity reference in a string, in one pass. The output is never re-scanned, so no expansion can produce a _second_ one: a registered
    * value that itself contains reference text reaches the caller as that literal text, unexpanded. What the limits bound is the growth of this single
-   * pass — how much one round of expansion can add. Three inputs return before the scan and therefore never reach
+   * pass, meaning how much one round of expansion can add. Three inputs return before the scan and therefore never reach
    * {@link EntityDecoderOptions.postCheck}: a non-string, the empty string, and any string with no `&` in it. The scan itself is `#expandAll`; what
    * this method adds is the three inputs that skip it and the single join of what it collected.
    *
@@ -941,15 +940,15 @@ export class EntityDecoder {
   /**
    * @description Walk the string once and collect the pieces of every reference that resolved. Two advance rules make the walk terminate and keep it correct: an
    * `&` that turns out to open nothing moves the cursor by one character rather than to the end of its run, so a second `&` in the same text is still
-   * found; and a reference that did resolve moves it to just past the `;`, so the text that was substituted for it is never looked at again — that is
-   * what makes the pass single, and a registered value containing `&` cannot expand a second level. What a reference becomes is `#resolveToken`'s to
-   * decide and what it costs is `#chargeExpansion`'s to apply, which leaves the scanning here as the only thing with a rule of its own.
+   * found; and a reference that did resolve moves it to just past the `;`, so the text that was substituted for it is never looked at again. The pass
+   * stays single because of that, and a registered value containing `&` cannot expand a second level. What a reference becomes is `#resolveToken`'s
+   * to decide and what it costs is `#chargeExpansion`'s to apply, which leaves the scanning here as the only thing with a rule of its own.
    *
    * @param str - The string to expand. It always holds at least one `&` and is never empty, or the caller would have returned before reaching the
    *   walk.
    *
    * @returns An effect producing the pieces in order. The array is empty exactly when nothing was replaced, which the caller reads as "the input is
-   *   its own result". Fails with {@link XmlError} and the reason the offending reference carries — `ProhibitedCharacterReference`,
+   *   its own result". Fails with {@link XmlError} and the reason the offending reference carries: `ProhibitedCharacterReference`,
    *   `ExpansionLimitExceeded` or `ExpandedLengthLimitExceeded`.
    */
   #expandAll = Effect.fnUntraced(function* (this: EntityDecoder, str: string): Effect.fn.Return<Array<string>, XmlError> {
@@ -996,25 +995,25 @@ export class EntityDecoder {
   /**
    * @description Decide what one reference expands to. The lists and maps are consulted in the one order the runtime uses, and the first that matches wins:
    *
-   * 1. `remove` — deleted outright, without the name ever being resolved, so the name need not exist.
-   * 2. `leave` — emitted as the original `&token;`, and charged to nothing.
-   * 3. A `#`-prefixed token — the numeric pipeline, which is the only one of the four that can fail. Classification runs before any decision about
+   * 1. `remove`: deleted outright, without the name ever being resolved, so the name need not exist.
+   * 2. `leave`: emitted as the original `&token;`, and charged to nothing.
+   * 3. A `#`-prefixed token: the numeric pipeline, which is the only one of the four that can fail. Classification runs before any decision about
    *    `numericAllowed`, because the ranges that carry a minimum have to be caught whichever way that option is set.
-   * 4. Anything else — resolved against the input map, then the external map, then the base map.
+   * 4. Anything else: resolved against the input map, then the external map, then the base map.
    *
    * @param token - The reference's token, e.g. `brand` or `#38`, with the `&` and the `;` already stripped. Never empty: the scanner drops `&;`
    *   before calling.
    *
    * @returns An effect producing what the reference expands to and the tier to charge it to, or `undefined` to leave it as written and charge it
-   *   nothing. `undefined` covers all three ways of leaving a reference alone — a listed `leave` name, a numeric reference that is out of range, and
-   *   a name registered nowhere — and none of them is distinguishable from outside. Fails with {@link XmlError} and the
-   *   `ProhibitedCharacterReference` reason when the numeric policy throws on the codepoint.
+   *   nothing. `undefined` covers all three ways of leaving a reference alone (a listed `leave` name, a numeric reference that is out of range, and a
+   *   name registered nowhere), and none of them is distinguishable from outside. Fails with {@link XmlError} and the `ProhibitedCharacterReference`
+   *   reason when the numeric policy throws on the codepoint.
    */
   #resolveToken = Effect.fnUntraced(function* (this: EntityDecoder, token: string): Effect.fn.Return<ResolvedEntity | undefined, XmlError> {
     if (this.#removeSet.has(token)) {
       // Deleted without being resolved, so the name need not exist. Upstream guards this charge with
       // `if (tier === undefined)`, and its `tier` is declared without an initialiser, so the branch is
-      // unconditionally taken and the charge always lands on `external` — whatever tier the name would
+      // unconditionally taken and the charge always lands on `external`, whatever tier the name would
       // have resolved in. That is why a document full of removed built-ins can trip an `external` limit
       // nothing it wrote could otherwise reach. Kept as written, since that is a behaviour a caller may
       // already be relying on.
@@ -1022,7 +1021,7 @@ export class EntityDecoder {
     }
 
     // Emitted as the original `&token;`. The walk advances only past the `&` and leaves the `;` to be
-    // copied by the next literal run, which is what makes the text come back unchanged.
+    // copied by the next literal run, which keeps the text coming back unchanged.
     if (this.#leaveSet.has(token)) return undefined;
 
     if (token.charCodeAt(0) === CODE_HASH) {
@@ -1066,9 +1065,9 @@ export class EntityDecoder {
 
   /**
    * @description Add one expansion to the running total and compare it against {@link EntityDecoderLimitOptions.maxTotalExpansions}. The comparison is `>` rather
-   * than `>=`, so a limit of `n` allows exactly `n` expansions and throws on the `n + 1`th. That is a contract — the option's own documentation
-   * states it — and the kind of off-by-one a tidy-up changes by accident. The counter is deliberately not reset before failing: the over-limit total
-   * is what the error message reports, and {@link EntityDecoder.reset} is the caller's way to start a new document.
+   * than `>=`, so a limit of `n` allows exactly `n` expansions and throws on the `n + 1`th. That is a contract, and the option's own documentation
+   * states it. It is also the kind of off-by-one a tidy-up changes by accident. The counter is intentionally not reset before failing: the over-limit
+   * total reports the over-limit total, and {@link EntityDecoder.reset} is the caller's way to start a new document.
    *
    * @returns An effect that fails with {@link XmlError} and the `ExpansionLimitExceeded` reason once the count is past the ceiling, and succeeds
    *   otherwise. The `EntityReplacer` prefix in the message is preserved verbatim from the original throw, despite naming a class this decoder does
@@ -1090,7 +1089,7 @@ export class EntityDecoder {
   /**
    * @description Add one expansion's surplus to the running total and compare it against {@link EntityDecoderLimitOptions.maxExpandedLength}. Only the surplus
    * counts, and only upward: a reference whose replacement is no longer than the `&token;` it replaces contributes zero, and a shrinking one
-   * contributes nothing and cannot trip the limit at all. That is what makes the ceiling a bound on growth rather than on document size.
+   * contributes nothing and cannot trip the limit at all. That keeps the ceiling a bound on growth rather than on document size.
    *
    * @param token - The reference's token, with the `&` and `;` stripped. The two delimiters count towards what the expansion displaced.
    * @param replacement - What the reference expanded to, including `''` for a removal.
@@ -1118,8 +1117,8 @@ export class EntityDecoder {
   /**
    * @description Decide whether an entity of a given tier is charged against the limits.
    *
-   * @param tier - The tier the replacement is charged to. Every expansion that reaches here carries one — a name deleted before it was ever resolved
-   *   still carries the `external` tier — so there is no absent case to answer.
+   * @param tier - The tier the replacement is charged to. Every expansion that reaches here carries one (a name deleted before it was ever resolved
+   *   still carries the `external` tier), so there is no absent case to answer.
    *
    * @returns `true` when it counts. `'all'` short-circuits, so a filter naming every tier charges everything regardless of which map it came from.
    */
@@ -1154,9 +1153,9 @@ export class EntityDecoder {
   /**
    * @description Find the strictest action a codepoint's range requires. Checked in this order:
    *
-   * 1. U+0000 — governed by `nullNCR`, already clamped to `remove` or stricter
-   * 2. U+D800–U+DFFF — surrogates, always `remove`, under every policy and both XML versions
-   * 3. U+0001–U+001F other than tab, newline, carriage return — XML 1.0 only, `remove` Nothing else is classified. U+007F–U+009F (C1) and the
+   * 1. U+0000: governed by `nullNCR`, already clamped to `remove` or stricter
+   * 2. U+D800 to U+DFFF: surrogates, always `remove`, under every policy and both XML versions
+   * 3. U+0001 to U+001F other than tab, newline, carriage return: XML 1.0 only, `remove` Nothing else is classified. U+007F to U+009F (C1) and the
    *    U+FFFE/U+FFFF noncharacters are not checked, even though XML 1.0 §2.2 prohibits them and the `xmlVersion` option's own documentation claims C1
    *    is only permitted under 1.1. Both gaps are upstream's and are kept.
    *
@@ -1180,11 +1179,11 @@ export class EntityDecoder {
    * @description Turn a resolved action level into a replacement.
    *
    * @param action - A level from {@link NCR_LEVEL}. A level outside the four known ones falls through to the allow behaviour, so a bad level cannot
-   *   produce a wrong string — it can only fail open.
+   *   produce a wrong string. It can only fail open.
    * @param token - The raw token, e.g. `#38`, for the error message.
    * @param cp - The codepoint, for the error message.
    *
-   * @returns An effect producing the character for `allow`, `''` for `remove`, and `undefined` for `leave` — which the caller reads as "emit the
+   * @returns An effect producing the character for `allow`, `''` for `remove`, and `undefined` for `leave`, which the caller reads as "emit the
    *   original `&token;`". Fails with {@link XmlError} and the `ProhibitedCharacterReference` reason for `throw`, naming both the token and the
    *   codepoint.
    */
@@ -1221,7 +1220,7 @@ export class EntityDecoder {
    *
    * @param token - The raw token without `&` and `;`, e.g. `#38`, `#x26`, `#X26`.
    *
-   * @returns An effect producing the replacement — the empty string meaning "delete" — or `undefined` to leave the reference as written. Fails with
+   * @returns An effect producing the replacement (the empty string meaning "delete") or `undefined` to leave the reference as written. Fails with
    *   {@link XmlError} and the `ProhibitedCharacterReference` reason when the effective action is `throw`.
    */
   #resolveNCR(token: string): Effect.Effect<string | undefined, XmlError> {

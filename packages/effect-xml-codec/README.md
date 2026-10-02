@@ -2,8 +2,8 @@
 
 A round-trip Effect Schema codec for XML. `toCodecXml(schema)` returns a
 `Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a document
-and `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for
-JSON. There is no second call to a renderer or a parser at the call site.
+and `Schema.decodeSync` reads one back, in the same way `Schema.toCodecJson` does
+for JSON. There is no second call to a renderer or a parser at the call site.
 `renderXml` and `parseXml` are the text layer underneath, and remain available
 on their own.
 
@@ -27,7 +27,7 @@ Schema.decodeSync(codec)('<book id="1"><title>Dune</title><pages>412</pages><tag
 
 Effect 4 ships `Schema.toEncoderXml`, and it is one-way: a value goes in, an XML
 string comes out, and there is no way back. It also has no notion of an
-attribute — a field named `@id` becomes an element called `<@id>` with its name
+attribute. A field named `@id` becomes an element called `<@id>` with its name
 rewritten.
 
 This package pairs Effect's own XML-value derivation, `Schema.toCodecStringTree`,
@@ -37,8 +37,8 @@ the text layer and the `@`/`#text` conventions.
 
 ## The mapping
 
-An `XmlValue` is the plainest value that can hold a document — strings, arrays
-and records. What gives it XML meaning is two key conventions:
+An `XmlValue` is the plainest value that can hold a document: strings, arrays
+and records. Two key conventions give it XML meaning:
 
 | In the value            | In the document                       |
 | ----------------------- | ------------------------------------- |
@@ -163,9 +163,9 @@ Two limits:
 | `XmlError`                                                     | The failure `EntityDecoder` and `validate` report.                 |
 
 `toCodecXml` returns a `Schema`, so encoding and decoding are `Schema.encodeSync`
-and `Schema.decodeSync` (or the `Effect` forms), and every other Schema operation
-— `Schema.toFormatter`, `Schema.toJsonSchemaDocument`, the guards — applies to it
-unchanged. A failure in either direction arrives as a `SchemaIssue.Issue`: a
+and `Schema.decodeSync` (or the `Effect` forms). Every other Schema operation,
+including `Schema.toFormatter`, `Schema.toJsonSchemaDocument` and the guards,
+applies to it unchanged. A failure in either direction arrives as a
 document that will not parse or a value that will not write is reported with its
 underlying XML message, alongside the schema mismatches Effect already reports.
 The root element is named from the `rootName` option, then the schema's
@@ -176,14 +176,14 @@ The root element is named from the `rootName` option, then the schema's
 This package absorbed `@endevops/common-xml`, so the two primitives the text
 layer reads documents with ship here rather than as a sibling dependency.
 
-`EntityDecoder` expands the reference syntax XML inherits from HTML — `&name;`,
-`&#NNN;`, `&#xHH;` — with expansion limits, registration hooks, and a
+`EntityDecoder` expands the reference syntax XML inherits from HTML: `&name;`,
+`&#NNN;`, `&#xHH;`. It applies expansion limits, registration hooks, and a
 numeric-reference policy. `parseXml` uses it for character data and falls back
 to the raw text for a bare `&`. It reports failures as `XmlError`, a tagged
-error whose `reason` union is what `Effect.catchReason` narrows on.
+error whose `reason` union is the one `Effect.catchReason` narrows on.
 
-The name validators are plain synchronous predicates — `isName`, `isNcName`,
-`isQName`, `isNmToken`, `isNmTokens` — because a regex test cannot fail and the
+The name validators are plain synchronous predicates (`isName`, `isNcName`,
+`isQName`, `isNmToken`, `isNmTokens`), because a regex test cannot fail and the
 renderer and parser call them per name in their hot loops. `sanitize` rewrites
 an illegal name into the nearest legal one, and `validate` reports why a name
 failed through an `Effect`.
@@ -208,10 +208,10 @@ did not come across: nothing in this package reaches them.
 **The derivation is Effect's.** `toCodecXml` derives
 `Schema.toCodecStringTree`, the same derivation `Schema.toEncoderXml` uses, and
 runs it through this package's `renderXml` and `parseXml` on the two text
-directions. That is what makes every schema feature Effect supports — structs,
-arrays, unions, records, recursion, refinements, branded types, transformations —
-work here without this package re-implementing the walk over a schema AST, and it
-is what the round-trip specs are exercising.
+directions. Every schema feature Effect supports then works here without this
+package re-implementing the walk over a schema AST: structs,
+arrays, unions, records, recursion, refinements, branded types, transformations.
+The round-trip specs exercise that.
 
 **The shape is `toCodecJson`'s.** The value `toCodecXml` returns is a `Schema`:
 `Type` is the source schema's `Type`, `Encoded` is XML text, the service
@@ -232,8 +232,8 @@ normalization would otherwise eat it: a literal newline in an attribute comes
 back as a space unless it is written `&#10;`.
 
 **Comments and processing instructions are markup, not data.** The parser skips
-them, which is what `XMLBuilder` does by default. CDATA becomes character data,
-since that is what it is.
+them, which is the default `XMLBuilder` behaviour. CDATA becomes character data,
+because that is what it is.
 
 ## Performance
 
@@ -256,40 +256,41 @@ Four findings shaped the code, and all are measured rather than assumed:
 
 - **Escaping was the whole cost of a large document.** The entity encoder that
   used to live here escaped by applying five sequential global replacements, one
-  per character, so a document with a single `&` in twenty thousand characters
-  was scanned five times over to change one byte — 58µs for that one document.
-  Escaping is now a single pattern scan to find the first character that needs
-  replacing, then one pass to build the result, which is 7.6x faster for clean
-  text and 28x faster for text with a character in it. `src/render.spec.ts` pins
-  the fast path with explicit expectations.
+  per character. A document with a single `&` in twenty thousand characters was
+  therefore scanned five times over to change one byte, at 58µs for that one
+  document. Escaping is now a single pattern scan to find the first character
+  that needs replacing, then one pass to build the result. That is 7.6x faster
+  for clean text and 28x faster for text with a character in it.
+  `src/render.spec.ts` pins the fast path with explicit expectations.
 - **Resolving a name is a regex test, not an `Effect`.** The validators used to
   return `Effect`s for pure questions, which left the renderer and the parser
   running an effect per distinct element and attribute name in every document.
   Running a runtime to read a boolean cost roughly 1µs per name, and a small
-  document has about a dozen names, so name resolution was most of what a
+  document has about a dozen names. Name resolution was therefore most of what a
   serialize and a parse did. The merged package now exposes plain synchronous
   predicates (`isQName` and the rest, `sanitize`) with no `Effect` wrapper, and
   the renderer's namer and the parser's name cache call them directly.
   `resolveName` is the one exception: it is effectful because `'error'` mode
-  rejects an illegal name, and a rejection is a failure rather than a value, so
-  it reports through the error channel like every other fallible step of a parse
-  or a render. That is the bulk of the gain on a small document; the 500-row
-  document improves by a few percent because it asks the same handful of names,
-  and the per-row work is what dominates there.
+  rejects an illegal name, and a rejection is a failure rather than a value. It
+  reports through the error channel like every other fallible step of a parse
+  or a render. That accounts for most of the gain on a small document. The
+  500-row document improves by a few percent because it asks the same handful of
+  names, and the per-row work dominates there.
 - **The codec adds no layer of its own.** `toCodecXml` derives
   `Schema.toCodecStringTree` and runs the tree through `renderXml`, so a value is
   encoded by Effect's parser and then rendered, with nothing wrapped around
-  either. Dropping the extra `Schema.toCodecArrayFromSingle` layer the codec used
-  to carry is part of why the table above is higher than the numbers this README
-  quoted before: the single-element-array leniency is the caller's to compose now,
-  and the plain codec does not pay for it on every array.
+  either. The codec also no longer carries an extra
+  `Schema.toCodecArrayFromSingle` layer. Dropping it is part of why the table
+  above is higher than the numbers this README quoted before: the
+  single-element-array leniency is the caller's to compose now, and the plain
+  codec does not pay for it on every array.
 - **A small document is dominated by something this package does not own.** Of
   the ~9µs it takes to serialize one, roughly 2.5µs is Effect's
   `toCodecStringTree` derivation, which walks the schema on every call, and the
   rest is this package's renderer. The renderer and parser underneath run at
-  roughly 2.5µs and 2.5µs on a flat document. A caller serializing the same
-  shape on every request should build the codec once and reuse it, which is what
-  the API is shaped for.
+  roughly 2.5µs and 2.5µs on a flat document. A caller that serializes the same
+  shape on every request should build the codec once and reuse it, which is the
+  shape the API encourages.
 
 The other things the benchmarks changed: one pass over a record's keys instead of
 one per role a key can play, name resolution memoized per document rather than
@@ -311,14 +312,14 @@ fallback all see it.
 ### Against the libraries on npm
 
 `packages/benchmarks/bench/comparison.bench.ts` measures the same object through
-this codec and
-through three npm libraries — `fast-xml-builder`, `fast-xml-parser`, and
-`@nodable/flexible-xml-parser`. The equivalence is established rather than
-assumed: with `attributeNamePrefix: '@'`, **`fast-xml-builder` produces
-byte-identical output to this codec**, and the benchmark asserts it, so a change
-that breaks it fails the suite instead of quietly comparing different work.
+this codec and through three npm libraries: `fast-xml-builder`, `fast-xml-parser`,
+and `@nodable/flexible-xml-parser`. The benchmark establishes the equivalence
+rather than assuming it. With `attributeNamePrefix: '@'`,
+**`fast-xml-builder` produces byte-identical output to this codec**, and the
+benchmark asserts it, so a change that breaks it fails the suite instead of
+quietly comparing different work.
 
-**Encoding** — one object to the same bytes:
+**Encoding**: one object to the same bytes:
 
 | Document            | This codec | `fast-xml-builder` |
 | ------------------- | ---------- | ------------------ |
@@ -326,7 +327,7 @@ that breaks it fails the suite instead of quietly comparing different work.
 | 500 rows            | 1,698/s    | 1,269/s (0.75x)    |
 | one large text node | 584,358/s  | 254,355/s (0.44x)  |
 
-**Decoding** — one document to the same value:
+**Decoding**: one document to the same value:
 
 | Document            | This codec | `@nodable/flexible-xml-parser` | `fast-xml-parser` |
 | ------------------- | ---------- | ------------------------------ | ----------------- |
@@ -334,9 +335,9 @@ that breaks it fails the suite instead of quietly comparing different work.
 | 500 rows            | 1,975/s    | 70/s (0.04x)                   | 486/s (0.25x)     |
 | one large text node | 20,715/s   | 5,694/s (0.27x)                | 8,209/s (0.40x)   |
 
-**A full round trip**, which is the number an application actually pays. Neither
-a builder nor a parser can do both halves, so the last two rows are each
-ecosystem doing the same work with two libraries and hand-joining them:
+**A full round trip**, the number an application actually pays. Neither a
+builder nor a parser can do both halves, so the last two rows are each ecosystem
+doing the same work with two libraries and hand-joining them:
 
 | Path                                                        | Throughput       |
 | ----------------------------------------------------------- | ---------------- |
@@ -346,14 +347,14 @@ ecosystem doing the same work with two libraries and hand-joining them:
 
 **This codec reaches the parser and renderer directly.** It encodes and decodes
 through `Schema.encodeSync` and `Schema.decodeSync`, with no runtime per call,
-which is why it is the fastest row on both sides. The npm parsers do less work —
-they do not validate the result against a schema — so the comparison is
+so it is the fastest row on both sides. The npm parsers do less work, because
+they do not validate the result against a schema, so the comparison is
 directional rather than like-for-like.
 
-Four things to be straight about when reading those tables:
+Four caveats apply when reading those tables:
 
 - **These are one machine's numbers, from one run.** The relative error is under
-  2% on every row, but the machine's load moved between runs, so treat the
+  2% on every row, but the machine's load moved between runs. Treat the
   ratios as the durable part and the absolute figures as a range.
 - **This codec's decode does strictly more work.** It parses _and_ validates the
   result against the schema, coercing `"30"` to `30` and failing on a mismatch.
@@ -361,11 +362,11 @@ Four things to be straight about when reading those tables:
   2,984/s and the schema pass brings it to 1,975/s, so roughly a third of the
   decode time is validation the comparison rows do not pay.
 - **The parsers do work this codec does not.** They coerce tag values through a
-  value-parser pipeline — entity decoding, whitespace normalizing, boolean and
-  number parsing — where a schema already decided the type. Both sides have work
-  the other lacks, and neither is idle.
+  value-parser pipeline: entity decoding, whitespace normalizing, boolean and
+  number parsing, where a schema already decided the type. Both sides have work
+  the other lacks, and both are busy.
 - **Neither ecosystem is doing the whole job on its own.** A builder has no
-  reader and a parser has no writer, so the round-trip table is the honest
+  reader and a parser has no writer, so the round-trip table is the fair
   comparison and the single-direction tables are the diagnostic ones.
 
 ## Limitations
@@ -396,7 +397,7 @@ quietly.
   children and read back as a single run, so `<p>a<b/>c</p>` reads as
   `{ b: '', '#text': 'ac' }`. Reading and re-rendering is stable from there on.
 - **Whitespace at the edges of text is trimmed** unless `preserveWhitespace` is
-  set. That is what makes a pretty-printed document read as the same value as an
+  set. That lets a pretty-printed document read as the same value as an
   unindented one. Whitespace _inside_ a run is never touched.
 - **`Schema.BigInt` is write-only.** Effect's `StringTree` derivation lowers one
   to its decimal text and has no way to raise it again.

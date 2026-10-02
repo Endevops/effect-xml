@@ -1,6 +1,6 @@
 // The one way XML serialization can fail that a `SchemaIssue.Issue` does not already describe.
 //
-// A schema mismatch — a `number` where the document says `text` — is a
+// A schema mismatch, such as a `number` where the document says `text`, is a
 // `SchemaIssue.Issue` and comes from Effect's own parser. What is left is the
 // part Effect knows nothing about: a document that is not well-formed XML, and a
 // field name that cannot be written as one.

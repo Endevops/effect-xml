@@ -34,7 +34,7 @@ export interface XmlParseOptions {
    * @description Keep the whitespace at the edges of every text run.
    *
    * @default false\
-   * which trims it — and trimming is what makes a pretty-printed document
+   * which trims it. Trimming makes a pretty-printed document
    * read as the same value as an unindented one, because the indentation around a child element and around a closing tag lands at the edges of its
    * parent's text. Whitespace _inside_ a run is content and is never touched either way, so `'one two'` and a paragraph with a newline in the middle
    * of it survive. Set it to `true` to keep leading and trailing spaces in text exactly as written, at the cost of a document that was laid out on
@@ -68,13 +68,13 @@ export interface XmlParseOptions {
 /**
  * @description Parses an XML document into its root element's content.\
  * The walk itself is synchronous, but it reports a malformed document by failing with an {@link XmlParseError} rather than by throwing, so the failure lands in the effect's error channel where `catchTag`, `retry` and a fallback can all
- * see it. A failed parse is an expected outcome of reading untrusted text — it is what those combinators key off — and only a defect would hide it.
+ * see it. A failed parse is an expected outcome of reading untrusted text, and those combinators key off it, so only a defect would hide it.
  * The span is the boundary a performance trace hangs off: it carries the document's length, which is the size that drives the parser's cost, so a
  * slow parse in a profile can be attributed to the input that produced it. A caller that wants the value outside an `Effect` uses
  * {@link parseXmlDocument}, which runs the same walk synchronously and throws instead. The walk is plain recursive descent rather than a chain of
- * `yield*`es. Publicly `parseXml` is still an `Effect` — it suspends the walk so it runs lazily under the span, and folds the failure the walk throws
- * into the typed error channel — but inside a document there is no effect boundary per tag, attribute or text run. A 500-row report is thousands of
- * those, and a fiber step for each of them was most of what the `parse 500 rows` row measured. The typed failure survives: the walk throws an
+ * `yield*`es. Publicly `parseXml` is still an `Effect`: it suspends the walk so it runs lazily under the span, and folds the failure the walk throws
+ * into the typed error channel, but inside a document there is no effect boundary per tag, attribute or text run. A 500-row report is thousands of
+ * those, and one fiber step per construct dominated the `parse 500 rows` benchmark. The typed failure survives: the walk throws an
  * {@link XmlParseError} and `parseXml` catches it into `Effect.fail`.
  *
  * @param text - The document to read.
@@ -140,8 +140,8 @@ const SLASH = 47;
 const EQUALS = 61;
 
 /**
- * @description One element as the parser saw it: the name it was written under, and the value it holds. Carrying the name alongside the value is what lets the
- * parent file it correctly — the value alone cannot say, because a text-only element reduces to a bare string.
+ * @description One element as the parser saw it: the name it was written under, and the value it holds. Carrying the name alongside the value lets the parent file
+ * it correctly, because the value alone cannot say: a text-only element reduces to a bare string.
  */
 interface Element {
   readonly name: string;
@@ -179,9 +179,9 @@ interface Content {
 }
 
 /**
- * @description What sits at the cursor inside an element's body. Naming what is there before deciding what to do with it is what lets the content loop stay a
- * dispatch: each construct is recognised in one place, against the ones that cannot be confused with it, rather than by a chain of `startsWith`
- * guesses where each had to remember what the last had already ruled out.
+ * @description What sits at the cursor inside an element's body. Naming what is there before deciding what to do with it lets the content loop stay a dispatch:
+ * each construct is recognised in one place, against the ones that cannot be confused with it, rather than by a chain of `startsWith` guesses where
+ * each had to remember what the last had already ruled out.
  */
 type Construct = 'text' | 'close' | 'comment' | 'cdata' | 'instruction' | 'child';
 
@@ -213,7 +213,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   const nameOptions = { mode: resolved.name, xmlVersion: resolved.xmlVersion };
 
   /**
-   * @description Names already resolved by this parse. A document repeats names — every one of five hundred rows has a `sku` — and a validator that ran per
+   * @description Names already resolved by this parse. A document repeats names (every one of five hundred rows has a `sku`), and a validator that ran per
    * occurrence would pay for the same answer five hundred times.
    */
   const nameCache = new Map<string, string>();
@@ -258,7 +258,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Consumes whitespace, comments, processing instructions and a DOCTYPE, leaving the cursor on the first character that is none of them — or at the
+   * @description Consumes whitespace, comments, processing instructions and a DOCTYPE, leaving the cursor on the first character that is none of them, or at the
    * end of the document.
    */
   const skipMisc = (): void => {
@@ -294,7 +294,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     const start = at;
     while (at < text.length) {
       const char = text.charCodeAt(at);
-      // Whitespace, `/`, `=` and `>` all end a name. Stopping on `/` and `>` is what lets `<a/>` and `<a>` share one loop.
+      // Whitespace, `/`, `=` and `>` all end a name. Stopping on `/` and `>` lets `<a/>` and `<a>` share one loop.
       if (isWhitespace(char) || char === SLASH || char === EQUALS || char === GT) {
         break;
       }
@@ -322,7 +322,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     at++;
 
     const end = text.indexOf(quote ?? '', at);
-    // A raw quote cannot appear inside a quoted value — it would have to be written `&quot;` — so the next quote of the same kind always closes it.
+    // A raw quote cannot appear inside a quoted value (it would have to be written `&quot;`), so the next quote of the same kind always closes it.
     if (end === -1) {
       throw new XmlParseError({ message: `Unterminated value for attribute "${name}"`, position: at, input: text });
     }
@@ -425,8 +425,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   /**
    * @description What the cursor is sitting on inside an element's body. The two things the loop cannot read are refused here rather than in it: running out of
    * document and a declaration, which is markup the parser does not accept inside an element. Recognising the constructs that _are_ read is the rest,
-   * and the order is the one that rules out the shorter prefixes first — `</` before `<?` before any other `<!`, and `<![CDATA[` before the `<!` that
-   * would otherwise match it.
+   * and the order rules out the shorter prefixes first: `</` before `<?` before any other `<!`, and `<![CDATA[` before the `<!` that would otherwise
+   * match it.
    *
    * @param name - The name the enclosing element's start tag gave it, for the unterminated-body message.
    *
@@ -458,7 +458,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Consumes a `</name>`, checking on the way that it is the tag that closes this element and that it is well-formed.
+   * @description Consumes a `</name>`, checking as it goes that it is the tag that closes this element and that it is well-formed.
    *
    * @param name - The name the start tag gave the element, which the closing tag has to match.
    */
@@ -490,7 +490,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Reads a `<![CDATA[…]]>` section. CDATA is character data, and character data is what it holds, so it joins the element's text as it stands — the
+   * @description Reads a `<![CDATA[…]]>` section. CDATA is character data, and character data is what it holds, so it joins the element's text as it stands. The
    * entities in it are literal text and must not be expanded.
    *
    * @returns The section's contents.
@@ -522,15 +522,15 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    */
   const finishElement = (record: Record<string, XmlValue>, hasAttributes: boolean, text: string, hasChildren: boolean): XmlValue => {
     // Whitespace at the edges of a text run is dropped unless the caller asked to
-    // keep it. This is what makes a pretty-printed document round trip: the
+    // keep it. Trimming here makes a pretty-printed document round trip: the
     // indentation a renderer puts around a child element and around a closing tag
     // lands at the edges of its parent's text, and trimming removes exactly that
-    // and nothing else. Whitespace *inside* the run — between two words, or a
-    // newline in the middle of a paragraph — is content and stays.
+    // and nothing else. Whitespace *inside* the run (between two words, or a
+    // newline in the middle of a paragraph) is content and stays.
     const content = resolved.preserveWhitespace ? text : text.trim();
 
     if (!hasAttributes && !hasChildren) {
-      // A leaf is character data on its own. Returning the string rather than a `{ '#text': … }` record is what lets
+      // A leaf is character data on its own. Returning the string rather than a `{ '#text': … }` record lets
       // `Schema.Struct({ name: Schema.String })` round-trip.
       return content;
     }
@@ -577,10 +577,10 @@ const parseDocumentResult = (text: string, options: XmlParseOptions): Result.Res
 };
 
 /**
- * @description Decodes character references, falling back to the raw text when the reference is not one the decoder recognises. The fallback is what makes a bare
- * `&` survivable: the decoder treats it as a malformed reference and fails, and a document containing one is far more likely to be worth reading than
- * to be rejected. The `&` is escaped on the way out, so the value still round-trips. The decoder answers with an `Effect`, and this is the one place
- * a parse still runs one. It is only reached when the raw text holds an `&` — the common case returns before it — and the effect is synchronous, so
+ * @description Decodes character references, falling back to the raw text when the reference is not one the decoder recognises. The fallback keeps a bare `&`
+ * survivable: the decoder treats it as a malformed reference and fails, and a document containing one is far more likely to be worth reading than to
+ * be rejected. The `&` is escaped on the way out, so the value still round-trips. The decoder answers with an `Effect`, and this is the one place a
+ * parse still runs one. It is only reached when the raw text holds an `&`, since the common case returns before it, and the effect is synchronous, so
  * the run is cheap next to the decoder's own work.
  *
  * @param raw - Text read straight from the source, with references unexpanded.

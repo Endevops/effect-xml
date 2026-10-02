@@ -7,23 +7,23 @@
 // string.
 //
 // The walk itself is plain synchronous functions rather than a chain of
-// `yield*`es. Publicly `renderXml` is still an `Effect` — it suspends the walk so
+// `yield*`es. Publicly `renderXml` is still an `Effect`: it suspends the walk so
 // it runs lazily, and folds the one failure the walk can report into the typed
-// error channel — but inside a document there is no effect boundary per element
-// or per attribute. A 500-row report is thousands of elements, and a fiber step
-// for each of them was most of what the `render 500 rows` row measured. The
-// typed failure survives: the walk throws an {@link XmlRenderError} and
-// `renderXml` catches it into `Effect.fail`.
+// error channel, but inside a document there is no effect boundary per element
+// or per attribute. A 500-row report is thousands of elements, and one fiber
+// step per element dominated the `render 500 rows` benchmark. The typed failure
+// survives: the walk throws an {@link XmlRenderError} and `renderXml` catches
+// it into `Effect.fail`.
 //
 // Escaping is the part that scales with the size of the document rather than
 // with its structure, and it is written out here rather than delegated, for a
 // measured reason. The entity encoder that used to live beside this package
 // escaped by applying five sequential global replacements, one per character,
 // so a document with a single `&` in twenty thousand characters was scanned
-// five times over to change one byte -- which is what the `render 20k` rows in
-// `bench/codec.bench.ts` measure. The table below covers the same five
-// characters that encoder escaped, and the explicit expectations in
-// `test/render.spec.ts` pin the fast path.
+// five times over to change one byte. The `render 20k` rows in
+// `bench/codec.bench.ts` measure that five-pass cost. The table below covers
+// the same five characters that encoder escaped, and the explicit expectations
+// in `test/render.spec.ts` pin the fast path.
 
 import { Effect, Predicate, Result } from 'effect';
 
@@ -65,11 +65,12 @@ const TEXT_TABLE = buildTable({});
 const ATTRIBUTE_TABLE = buildTable(ATTRIBUTE_WHITESPACE);
 
 /**
- * @description The characters each table escapes, as a pattern rather than as a set of replacement passes. Finding the first one with a pattern is what makes
- * clean text cheap: V8 compiles a single character class into a scan that is several times faster than a JavaScript loop reading the same string a
- * code unit at a time, and clean text is most text. `render 20k of clean text` in `bench/codec.bench.ts` is the row that says so — a hand-written
- * loop over the same twenty thousand characters is roughly two and a half times slower. Neither pattern is global, so `exec` ignores `lastIndex` and
- * always starts at the beginning. One module-level instance of each is therefore safe to reuse, and nothing has to be reset between calls.
+ * @description The characters each table escapes, as a pattern rather than as a set of replacement passes. A single pattern finds the first character that needs
+ * replacing, which keeps clean text cheap: V8 compiles a single character class into a scan that is several times faster than a JavaScript loop
+ * reading the same string a code unit at a time, and clean text is most text. The `render 20k of clean text` benchmark in `bench/codec.bench.ts`
+ * measures that difference: a hand-written loop over the same twenty thousand characters is roughly two and a half times slower. Neither pattern is
+ * global, so `exec` ignores `lastIndex` and always starts at the beginning. One module-level instance of each is therefore safe to reuse, and nothing
+ * has to be reset between calls.
  */
 const TEXT_UNSAFE = /[<>&"']/;
 const ATTRIBUTE_UNSAFE = /[<>&"'\n\r\t]/;
@@ -171,9 +172,9 @@ interface ResolvedOptions {
 /**
  * @description Builds the name resolver for one render. Every element and every attribute name goes through here, and a document repeats names: a thousand
  * `<item>` elements, or the same `id` on every row. A validator that runs a regex per occurrence pays that cost a thousand times for one answer, so
- * the first result is remembered and the rest are lookups. It also keeps the mode and version in one place, which is what stops a caller from
- * resolving a name with different settings than the render it is part of. A cache miss calls {@link resolveNameSync}, which throws an
- * {@link XmlParseError} in `'error'` mode; {@link renderXml} catches it and reports it as an {@link XmlRenderError}.
+ * the first result is remembered and the rest are lookups. Keeping the mode and version in one place also stops a caller from resolving a name with
+ * different settings than the render it is part of. A cache miss calls {@link resolveNameSync}, which throws an {@link XmlParseError} in `'error'`
+ * mode; {@link renderXml} catches it and reports it as an {@link XmlRenderError}.
  *
  * @param options - Resolved render options.
  *
@@ -193,8 +194,7 @@ const makeNamer = (options: Omit<ResolvedOptions, 'namer' | 'lineAt'>): ((name: 
 /**
  * @description A boolean option's value, with an absent one read as the default. The three boolean options are spelled through here rather than through a `??` of
  * their own, so the table below reads as a list of what each option _is_ instead of a list of nine separate decisions about what an omitted option
- * means — and so a reader looking for "which options are on by default" finds three words rather than three mixes of `?? true` and `?? false` to
- * read.
+ * means, and a reader looking for "which options are on by default" finds three words rather than three mixes of `?? true` and `?? false` to read.
  *
  * @param value - The option as the caller wrote it, or `undefined` when the caller left it out.
  * @param fallback - The value to use when the caller left it out.
@@ -265,10 +265,10 @@ export const escapeAttribute = (value: string): string => escape(value, ATTRIBUT
 
 /**
  * @description Replaces every character the table has an entry for, in one pass over the string. The pattern finds the first character that needs replacing, and a
- * string with none is handed straight back — which is the common case, and the one the pattern is there to make fast. From there the rest of the
- * string is copied in runs between the replacements rather than a character at a time, so the cost is one pattern scan, one copy, and one
- * concatenation per replacement, rather than a whole pass per character class. Only ASCII is looked up. XML carries every other character natively,
- * and a code unit above 127 has no entity an XML parser is required to know.
+ * string with none is handed straight back. That is the common case, and the pattern exists to keep it fast. From there the rest of the string is
+ * copied in runs between the replacements rather than a character at a time, so the cost is one pattern scan, one copy, and one concatenation per
+ * replacement, rather than a whole pass per character class. Only ASCII is looked up. XML carries every other character natively, and a code unit
+ * above 127 has no entity an XML parser is required to know.
  *
  * @param value - The text to escape.
  * @param pattern - Matches the first character that needs replacing.
@@ -302,7 +302,7 @@ const escape = (value: string, pattern: RegExp, table: ReadonlyArray<string | un
  * A record becomes an element:
  *
  * - `@`-prefixed keys become attributes, the reserved `#text` key becomes character data, and every other key becomes a child element.
- * - An array repeats its name — a document whose root value is an array wraps it in the root element and names each member `itemName`.
+ * - An array repeats its name. A document whose root value is an array wraps it in the root element and names each member `itemName`.
  * - A string is character data. The walk is synchronous, and what can go wrong is reported by throwing an {@link XmlRenderError}; {@link renderXml}
  *   folds that into the effect's typed error channel. A caller not already in an `Effect` runs it with `Effect.runSync`, which throws the failure it
  *   produced.
@@ -379,9 +379,9 @@ const render = (value: XmlValue, options: XmlRenderOptions): string => {
 };
 
 /**
- * @description Renders one named element and its subtree. The value an {@link XmlValue} holds decides which of the four shapes below it takes — a repeated run of
- * children, character data, an absent field, or a record — and each of those is written by a function of its own, so this one is the dispatch rather
- * than the document.
+ * @description Renders one named element and its subtree. The value an {@link XmlValue} holds decides which of the four shapes below it takes: a repeated run of
+ * children, character data, an absent field, or a record. Each of those is written by a function of its own, so this one is the dispatch rather than
+ * the document.
  *
  * @param out - The chunk buffer to append to.
  * @param name - The element name, not yet resolved.
@@ -397,8 +397,8 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
     return;
   }
 
-  // An element opens its own line rather than having its caller do it, which is
-  // what keeps a repeated run of children on separate lines. The root is the
+  // An element opens its own line rather than having its caller do it, so a
+  // repeated run of children stays on separate lines. The root is the
   // one element that has nothing in front of it.
   if (options.format && depth > 0) openLine(out, depth, options);
 
@@ -417,7 +417,7 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
 
 /**
  * @description Refuses to walk deeper than the render allows. A value can nest without end, and every one of those levels costs a stack frame here, so the cap is
- * checked on the way down rather than trusted to the caller.
+ * checked as the walk descends rather than trusted to the caller.
  *
  * @param depth - The depth about to be written.
  * @param options - Resolved render options.
@@ -459,8 +459,8 @@ const renderRepeated = (out: Array<string>, name: string, members: ReadonlyArray
 
 /**
  * @description Renders an element whose value is character data, or nothing. An empty string is character data that happens to be empty, and an element holding
- * none of it is the same element as one holding nothing at all — as is an `undefined` element, which is an absent one. The renderer is handed values
- * that never went through the schema — a caller building a document by hand — so the absent case is reachable, and an empty element is the honest
+ * none of it is the same element as one holding nothing at all, as is an `undefined` element, which is an absent one. The renderer is handed values
+ * that never went through the schema (a caller building a document by hand), so the absent case is reachable, and an empty element is the correct
  * rendering of both.
  *
  * @param out - The chunk buffer to append to.
@@ -538,9 +538,9 @@ interface Fields {
  * @description One pass over a record's keys, collecting all three roles at once: the attributes are rendered as they are found, the child names are set aside for
  * the pass that writes them, and the text key is left to {@link textOf}. A pass for the attributes, a pass for the children and an index for the text
  * instead walks the keys three times and allocates the key array twice, which on a document of a few thousand elements is thousands of allocations
- * for nothing. Sorting is off by default, and the default path is the one that matters, so the attributes are built as they are found and there is
+ * for nothing. Sorting is off by default, and the default path is the important one, so the attributes are built as they are found and there is
  * nothing to sort. When it is on, the attribute keys are collected instead and rendered afterwards in sorted order, which costs an array per element
- * and buys output that does not depend on the order the fields happened to be declared in.
+ * and gives output independent of the order the fields happened to be declared in.
  *
  * @param record - The element's value.
  * @param options - Resolved render options.
@@ -557,10 +557,10 @@ const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
     const key = keys[i] as string;
     const child = record[key];
 
-    // An absent field is not written at all, which is what keeps an unset
-    // optional attribute out of the document rather than in it as `a=""`, and
-    // an absent child out of it rather than in it as `<a/>`. The text key is
-    // read by `textOf` either way, so skipping it here costs nothing.
+    // An absent field is not written at all, so an unset optional attribute
+    // stays out of the document rather than appearing as `a=""`, and an absent
+    // child stays out rather than appearing as `<a/>`. The text key is read by
+    // `textOf` either way, so skipping it here costs nothing.
     if (child === undefined) continue;
 
     if (isAttributeKey(key)) {
@@ -647,9 +647,9 @@ const openLine = (out: Array<string>, depth: number, options: ResolvedOptions): 
 
 /**
  * @description Writes an element with no content, in whichever of the two forms the options ask for. Every path that produces an element with nothing in it goes
- * through here, so the self-closing decision is made in exactly one place. That matters because "nothing in it" arrives four different ways — an
- * empty string, an absent value, an empty array, and a record whose fields are all absent — and four separate decisions are four chances for one of
- * them to write the long form by accident.
+ * through here, so the self-closing decision is made in exactly one place. That is important because "nothing in it" arrives four different ways: an
+ * empty string, an absent value, an empty array, and a record whose fields are all absent. Four separate decisions are four chances for one of them
+ * to write the long form by accident.
  *
  * @param out - The chunk buffer to append to.
  * @param tag - The element's name, already resolved.
@@ -690,8 +690,8 @@ const attributeText = (value: XmlValue): string => {
 };
 
 /**
- * @description Renders a leaf that is not a string as the character data an XML document can hold. A schema-derived value never reaches here —
- * `Schema.toCodecStringTree` has already turned every scalar into a string — so this is for values a caller built by hand. A value with no sensible
+ * @description Renders a leaf that is not a string as the character data an XML document can hold. A schema-derived value never reaches here, because
+ * `Schema.toCodecStringTree` has already turned every scalar into a string, so this is for values a caller built by hand. A value with no sensible
  * text form is rendered as nothing rather than as `[object Object]`, which would silently write a document that parses back to something else.
  *
  * @param value - The leaf to render.

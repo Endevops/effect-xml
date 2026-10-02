@@ -2,9 +2,10 @@
 // oxlint-disable vitest/valid-title
 /**
  * @description Round-trip specs: every value here goes out as XML and comes back as the value it was. This is the spec that answers "does serialization fail". The
- * codec is a single step — `toCodecXml` returns a `Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a document and
- * `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for JSON. Each document is additionally asserted to reach a fixed point —
- * parse, render, parse again must be stable — which is what stops an encoder from quietly drifting the document on every hop through the system.
+ * codec is a single step. `toCodecXml` returns a `Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a document and
+ * `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for JSON. Each document is additionally asserted to reach a fixed point,
+ * where parse, render and parse again must be stable. That check stops an encoder from quietly drifting the document on every hop through the
+ * system.
  */
 
 import { Effect, Schema } from 'effect';
@@ -49,7 +50,7 @@ const roundTrip = (schema: AnyCodec, value: unknown, rootName = 'r'): unknown =>
 
 /**
  * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
- * honest: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to be known.
+ * accurate: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to be known.
  */
 type AnyCodec = Schema.ConstraintCodec<unknown, unknown>;
 
@@ -182,7 +183,7 @@ describe('round trip — encoding never throws for a value the schema accepts', 
   it('holds for every case above', () => {
     for (const testCase of cases) {
       // The failure this guards against is the one the encode step could raise on
-      // its own — an unrepairable name, or a nesting limit — as opposed to the
+      // its own, such as an unrepairable name or a nesting limit, as opposed to the
       // decode step, which the round trip above already exercises.
       expect(() => encode(testCase.schema, testCase.value, testCase.rootName ?? 'r')).not.toThrow();
     }
@@ -323,7 +324,7 @@ describe('round trip — what XML cannot spell, and the caller settles', () => {
   it('writes a bigint as its decimal text', () => {
     // Effect's StringTree derivation lowers a bigint to text on the way out. What
     // it does on the way back in is left to Effect, and the answer has been seen
-    // to depend on what else has been derived in the process — so the encoded form
+    // to depend on what else has been derived in the process, so the encoded form
     // is asserted here and the decoded form is left alone rather than pinned to a
     // behaviour that is not this package's to promise.
     const schema = Schema.Struct({ a: Schema.BigInt });

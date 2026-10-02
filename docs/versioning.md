@@ -8,8 +8,8 @@ in CI. There is no manual version bumping.
 
 - **One version for the whole workspace.** The root is the only release unit;
   every publishable package under `packages/` is stamped with the same version
-  and published together. A change in any package releases all of them. This is
-  deliberate: the workspace publishes one package, `effect-xml-codec`, and
+  and published together. A change in any package releases all of them. The
+  workspace publishes one package, `effect-xml-codec`, and
   consumes it as a single unit; `packages/benchmarks` is private and never
   released.
 - **Version numbers** follow [SemVer 2.0.0](https://semver.org/):

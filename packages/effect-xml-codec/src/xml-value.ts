@@ -11,10 +11,10 @@ export interface XmlRecord {
 
 /**
  * @description One value in an XML document: nothing at all, character data, a repeated run of children, or a record of attributes, text and child elements.
- * `undefined` is a value of its own rather than an omission, because that is how an absent optional field survives a round trip: a field with no
- * value stays distinguishable from a field whose value is the empty string, and the renderer writes neither of them. The shape is deliberately the
- * same one `Schema.toCodecStringTree` derives, which is what lets every schema feature Effect supports round-trip through this package without
- * re-implementing the derivation.
+ * `undefined` is a value of its own rather than an omission, because that is how an absent optional field survives a round trip. A field with no
+ * value stays distinguishable from a field whose value is the empty string, and the renderer writes neither of them. The shape is the same one
+ * `Schema.toCodecStringTree` derives, and sharing that shape is what lets every schema feature Effect supports round-trip through this package
+ * without re-implementing the derivation.
  */
 export type XmlValue = string | undefined | ReadonlyArray<XmlValue> | XmlRecord;
 
@@ -34,10 +34,9 @@ const MAX_GUARD_DEPTH = 512;
 export const isXmlValue = (input: unknown): input is XmlValue => check(input, 0);
 
 /**
- * @description One level of {@link isXmlValue}, with the depth it was reached at. The depth is the whole defence against a value built to be hostile: a
- * self-referential object would otherwise recurse until the stack gave out, and a value nested thousands deep would take it with it. Both are
- * rejected here instead, which is why this is a real recursion with a bound rather than a loop — the model is a tree, and a tree is walked by walking
- * it.
+ * @description One level of {@link isXmlValue}, with the depth it was reached at. The depth is the whole defence against a value built to be hostile. A
+ * self-referential object would otherwise recurse until the stack gave out, and a value nested thousands deep would take it with it. This rejects
+ * both, so it is a bounded recursion rather than a loop. The model is a tree, and walking a tree means walking it.
  *
  * @param input - The candidate value.
  * @param depth - How many levels down this value sits.
@@ -90,8 +89,8 @@ const everyFieldIs = (input: object, depth: number): boolean => {
 };
 
 /**
- * @description A schema for {@link XmlValue}, so a value can be validated on its own — when it arrives from a store or a queue rather than from {@link parseXml},
- * and the schema it belongs to is not in hand.
+ * @description A schema for {@link XmlValue}, so a value can be validated on its own. This helps when it arrives from a store or a queue rather than from
+ * {@link parseXml}, and the schema it belongs to is not in hand.
  *
  * @example
  *   ```typescript

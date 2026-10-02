@@ -1,7 +1,7 @@
 /**
  * @description A round-trip Effect Schema codec for XML. `toCodecXml(schema)` returns a `Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a
- * document and `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for JSON. Attributes are the fields whose names start with `@`,
- * so `@xmlns` is written as `xmlns="…"`, and `#text` holds an element's character data. A schema node annotated with `xmlNamespace` is placed in that
+ * document and `Schema.decodeSync` reads one back, as `Schema.toCodecJson` does for JSON. Attributes are the fields whose names start with `@`, so
+ * `@xmlns` is written as `xmlns="…"`, and `#text` holds an element's character data. A schema node annotated with `xmlNamespace` is placed in that
  * namespace, and the codec resolves the document's own prefixes back to it. `renderXml` and `parseXml` are the text layer the codec runs underneath,
  * and remain available on their own.
  *

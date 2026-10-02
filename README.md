@@ -29,17 +29,17 @@ absorbed area, and re-exports all of them flat from `src/index.ts`.
 `effect-xml-codec` keeps the codec at the top of `src/`, and the absorbed
 primitives under `src/entities/` and `src/naming/`. Specs sit under the matching
 `test/` subdirectory and import from `#/index.ts` like any other module in the
-package. Nothing is exposed per-area at the package boundary — one package, one
+package. Nothing is exposed per-area at the package boundary: one package, one
 entry point.
 
 `vp lint`, `vp fmt`, and `vp check` read the `lint` and `fmt` blocks in the root
 `vite.config.ts` even when you run them from inside a package, and Oxlint and
-Oxfmt ignore nested configs in Vite+ mode. That is deliberate: a package cannot
-quietly opt out of the shared lint and format rules. When one package needs
+Oxfmt ignore nested configs in Vite+ mode. The shared root config keeps a
+package from quietly opting out of the shared lint and format rules. When one package needs
 different settings, add a `lint.overrides` or `fmt.overrides` entry keyed on
 `packages/<name>/**` rather than a config file in the package.
 
-A package's own `vite.config.ts` holds only what is specific to that package —
+A package's own `vite.config.ts` holds only what is specific to that package,
 here, the tsdown `pack` options. The root config has no `pack` block, because
 `vp pack` at the root needs a target and would otherwise be ambiguous.
 
@@ -67,8 +67,8 @@ vp -C packages/effect-xml-codec pack
 
 Benchmarks are [Vitest benchmarks](https://vitest.dev/guide/benchmarking.html), not scripts. A
 file named `*.bench.ts` is collected by the benchmark project, which `vp test` skips entirely and
-`vp test bench` runs on its own. Keeping them out of `vp test` is the point: they are slow and
-noisy, and nothing about the suite should depend on a number that moves with the weather.
+`vp test bench` runs on its own. Keeping them out of `vp test` avoids the slow, noisy runs: nothing
+about the suite should depend on a number that moves with the weather.
 
 Benchmarks that drive a package's public entry point live in `packages/benchmarks`. It is
 `private`, so `pnpm -r publish` skips it and it has no build step. It resolves each workspace
@@ -93,7 +93,7 @@ more than one package exists.
 1. `mkdir -p packages/<name>` with its own `package.json`, and declare it in
    `pnpm-workspace.yaml` if the name does not match `packages/*`.
 2. Add a `tsconfig.json` that extends `../../tsconfig.shared.json`. Keep `paths`
-   and `include` there, not in the shared file — both resolve relative to the
+   and `include` there, not in the shared file. Both resolve relative to the
    file that declares them, so a `paths` entry in the shared file would anchor
    to the root.
 3. Take shared dependency versions from the `catalog` in `pnpm-workspace.yaml`

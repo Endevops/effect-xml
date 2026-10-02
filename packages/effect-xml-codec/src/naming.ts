@@ -8,10 +8,10 @@
 //
 // The five predicates and `sanitize` are plain synchronous functions: a regex
 // test cannot fail and a character substitution has nothing to fail about, so
-// there is no effect to model. `validate` does have one failure to report — an
+// there is no effect to model. `validate` does have one failure to report: an
 // unknown production, unreachable from TypeScript where `Production` is a
 // closed union but reachable for an untyped JavaScript caller, or a value that
-// crossed a boundary as `unknown` — so it answers with an `Effect` whose error
+// crossed a boundary as `unknown`. It answers with an `Effect` whose error
 // channel is that {@link XmlError}. The value it produces is still a plain
 // result.
 
@@ -20,7 +20,7 @@ import { Effect } from 'effect';
 import { XmlError } from '#/xml-error.ts';
 
 /**
- * @description The XML specification version a production is validated against. The two differ only in their non-ASCII character ranges — see {@link getRegexes}.
+ * @description The XML specification version a production is validated against. The two differ only in their non-ASCII character ranges. See {@link getRegexes}.
  */
 export type XmlVersion = '1.0' | '1.1';
 
@@ -42,7 +42,7 @@ export interface ValidationOptions {
   /**
    * @description Restrict matching to the ASCII subset of the NameStartChar/NameChar productions and skip unicode-aware regex matching entirely. Faster,
    * especially for XML 1.1 (which otherwise requires the `/u` regex flag), but rejects legitimate non-ASCII XML names. Off by default for backward
-   * compatibility — opt in only when inputs are known to be ASCII. Defaults to false.
+   * compatibility. Opt in only when inputs are known to be ASCII. Defaults to false.
    */
   asciiOnly?: boolean;
 }
@@ -60,7 +60,7 @@ export interface SanitizeOptions {
    */
   asciiOnly?: boolean;
   /**
-   * @description Accepted and ignored. Sanitizing is not version-dependent — the character set it considers illegal is the union of both versions — but the option
+   * @description Accepted and ignored. Sanitizing is not version-dependent: the character set it considers illegal is the union of both versions. But the option
    * is part of the published signature, so dropping it would break callers that pass it through a shared options object.
    */
   xmlVersion?: XmlVersion;
@@ -94,7 +94,7 @@ const PRODUCTIONS = ['name', 'ncName', 'qName', 'nmToken', 'nmTokens'] as const 
 type ProductionRegexes = Record<Production, RegExp>;
 
 // ---------------------------------------------------------------------------
-// Character class strings — XML 1.0
+// Character class strings: XML 1.0
 //
 // NameStartChar ::= ":" | [A-Z] | "_" | [a-z]
 //   | [#xC0-#xD6]   | [#xD8-#xF6]   | [#xF8-#x2FF]
@@ -127,7 +127,7 @@ const nameStartChar10 =
 const nameChar10 = nameStartChar10 + '\\-\\.\\d' + '\u00B7' + '\u0300-\u036F' + '\u203F-\u2040';
 
 // ---------------------------------------------------------------------------
-// Character class strings — XML 1.1
+// Character class strings: XML 1.1
 //
 // Differences from XML 1.0:
 //
@@ -138,7 +138,7 @@ const nameChar10 = nameStartChar10 + '\\-\\.\\d' + '\u00B7' + '\u0300-\u036F' + 
 //
 //   1.0 tops out at \uFFFD (BMP only)
 //   1.1 adds \u{10000}-\u{EFFFF} (supplementary planes)
-//   These require the /u flag on the RegExp — see buildRegexes below.
+//   These require the /u flag on the RegExp. See buildRegexes below.
 //
 // NameChar:
 //   1.1 adds \u0487 (Combining Cyrillic Millions Sign, added in Unicode 4.0)
@@ -146,7 +146,7 @@ const nameChar10 = nameStartChar10 + '\\-\\.\\d' + '\u00B7' + '\u0300-\u036F' + 
 
 const nameStartChar11 =
   ':A-Za-z_' +
-  '\u00C0-\u02FF' + // merged — 1.0 had three split ranges here
+  '\u00C0-\u02FF' + // merged: 1.0 had three split ranges here
   '\u0370-\u037D' +
   '\u037F-\u0486\u0488-\u1FFF' + // split to exclude \u0487 (combining mark, never a NameStartChar)
   '\u200C-\u200D' +
@@ -155,21 +155,21 @@ const nameStartChar11 =
   '\u3001-\uD7FF' +
   '\uF900-\uFDCF' +
   '\uFDF0-\uFFFD' +
-  '\u{10000}-\u{EFFFF}'; // supplementary planes — REQUIRES /u flag on RegExp
+  '\u{10000}-\u{EFFFF}'; // supplementary planes: REQUIRES /u flag on RegExp
 
 const nameChar11 =
   nameStartChar11 +
   '\\-\\.\\d' +
   '\u00B7' +
   '\u0300-\u036F' +
-  '\u0487' + // Combining Cyrillic Millions Sign — valid in 1.1, not 1.0
+  '\u0487' + // Combining Cyrillic Millions Sign: valid in 1.1, not 1.0
   '\u203F-\u2040';
 
 // ---------------------------------------------------------------------------
 // Regex builders
 //
-// XML 1.0 regexes: no flags — BMP only, standard JS regex behaviour.
-// XML 1.1 regexes: /u flag — required for \u{10000}-\u{EFFFF} to match actual
+// XML 1.0 regexes: no flags, BMP only, standard JS regex behaviour.
+// XML 1.1 regexes: /u flag, required for \u{10000}-\u{EFFFF} to match actual
 //   supplementary code points rather than lone surrogates (which are illegal XML).
 // ---------------------------------------------------------------------------
 
@@ -196,34 +196,33 @@ const buildRegexes = (startChar: string, char: string, flags = ''): ProductionRe
   };
 };
 
-const regexes10 = buildRegexes(nameStartChar10, nameChar10); // no /u — BMP only
-const regexes11 = buildRegexes(nameStartChar11, nameChar11, 'u'); // /u — enables \u{10000}-\u{EFFFF}
+const regexes10 = buildRegexes(nameStartChar10, nameChar10); // no /u, BMP only
+const regexes11 = buildRegexes(nameStartChar11, nameChar11, 'u'); // /u enables \u{10000}-\u{EFFFF}
 
 // ---------------------------------------------------------------------------
 // ASCII-only fast path (opt-in, off by default)
 //
-// The XML 1.0 vs 1.1 NameStartChar/NameChar productions differ *only* in
-// their non-ASCII ranges (merged vs split Latin-1 ranges, \u0487, and
-// supplementary planes). Restricted to ASCII, both versions collapse to the
-// same character classes, so a single regex pair covers both xmlVersion
-// values — no /u flag needed.
+// The XML 1.0 and 1.1 NameStartChar/NameChar productions differ only in their
+// non-ASCII ranges: merged vs split Latin-1 ranges, \u0487, and supplementary
+// planes. Restricted to ASCII, both versions collapse to the same character
+// classes, so one regex pair covers both xmlVersion values and no /u flag is
+// needed.
 //
-// Rationale: unicode-aware regexes (the /u flag, required for XML 1.1's
-// supplementary-plane range) are measurably slower in V8 than plain
-// non-unicode regexes on the same input, even when the input is pure ASCII.
-// For the common case — HTML/SVG ids, XML tags — names are ASCII, so callers
-// who know this can opt in to skip the unicode-aware matching path entirely.
-// This is a real but *conditional* win: mainly for XML 1.1 input (avoids /u),
-// or at scale where the larger unicode character classes add engine
-// overhead. It also changes behaviour (rejects legitimate non-ASCII XML
-// 1.0/1.1 names), so it must never be silently enabled — hence off by
-// default.
+// Unicode-aware regexes (the /u flag, required for XML 1.1's supplementary-
+// plane range) are measurably slower in V8 than plain non-unicode regexes on
+// the same input, even when the input is pure ASCII. For the common case
+// (HTML/SVG ids, XML tags) names are ASCII, so callers who know this can opt
+// in to skip the unicode-aware matching path entirely. The win is conditional:
+// it applies mainly to XML 1.1 input (avoids /u), or at scale where the larger
+// unicode character classes add engine overhead. The option also changes
+// behaviour (it rejects legitimate non-ASCII XML 1.0/1.1 names), so it must
+// never be enabled silently. That is why the default is off.
 // ---------------------------------------------------------------------------
 
 const nameStartCharAscii = ':A-Za-z_';
 const nameCharAscii = nameStartCharAscii + '\\-\\.\\d';
 
-const regexesAscii = buildRegexes(nameStartCharAscii, nameCharAscii); // no /u — ASCII only
+const regexesAscii = buildRegexes(nameStartCharAscii, nameCharAscii); // no /u, ASCII only
 
 /**
  * @description The compiled regex set for a version/ASCII combination. Only three sets are ever built, at module load; this is a lookup, not a compile.
@@ -242,7 +241,7 @@ const getRegexes = (xmlVersion: XmlVersion = '1.0', asciiOnly = false): Producti
 // Boolean validators
 //
 // One plain predicate per production. A regex test cannot fail, and every one of these is called per name
-// inside a parser's or codec's hot loop, so a boolean is the honest answer and there is no effect to
+// inside a parser's or codec's hot loop, so a boolean is the direct answer and there is no effect to
 // allocate or run.
 // ---------------------------------------------------------------------------
 
@@ -296,7 +295,7 @@ export const isNmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }
   getRegexes(xmlVersion, asciiOnly).nmToken.test(str);
 
 /**
- * @description Whether the string is a valid NMTokens value — a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values.
+ * @description Whether the string is a valid NMTokens value: a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values.
  *
  * @param str - The candidate list.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -466,7 +465,7 @@ const diagnoseWith = (str: string, production: Production, isValid: boolean, asc
  * @param opts - Version and ASCII-only selection, as for the boolean validators.
  *
  * @returns An effect producing a discriminated result: the plain triple when valid, or the offending `reason` and `position` when not. A name that
- *   fails to validate is a `valid: false` result, not a failure — an invalid name is the question being answered. The effect fails only with an
+ *   fails to validate is a `valid: false` result, not a failure: an invalid name is the question being answered. The effect fails only with an
  *   {@link XmlError} and the `InvalidProduction` reason for an unknown production, which is unreachable from TypeScript and is the guard for untyped
  *   JavaScript callers.
  */

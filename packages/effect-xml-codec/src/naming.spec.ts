@@ -1,7 +1,7 @@
 /**
  * @description Specs for the name validators, covering all five productions, the XML 1.0 vs 1.1 differences, the `asciiOnly` fast path, and the diagnostic and
- * sanitize helpers. The `as Production` casts are deliberate: they stand in for the untyped JavaScript caller the runtime guard exists to catch,
- * which is the only way to exercise that branch from a type-checked suite.
+ * sanitize helpers. The `as Production` casts are intentional. They stand in for the untyped JavaScript caller the runtime guard exists to catch, and
+ * that cast is the only way to exercise the branch from a type-checked suite.
  */
 
 import { assert, describe, expect, it } from '@effect/vitest';
@@ -81,11 +81,11 @@ describe('isName()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// isName() — XML 1.0 vs 1.1 version differences
+// isName(), XML 1.0 vs 1.1 version differences
 // ---------------------------------------------------------------------------
 
 describe('isName() — XML 1.0 vs 1.1 differences', () => {
-  // \u0487 — Combining Cyrillic Millions Sign
+  // \u0487, Combining Cyrillic Millions Sign
   // Added in Unicode 4.0, after XML 1.0 was written against Unicode 2.0.
   // Falls inside the \u037F-\u1FFF range, but explicitly excluded from XML 1.0
   // by splitting the range into \u037F-\u0486 and \u0488-\u1FFF.
@@ -99,13 +99,13 @@ describe('isName() — XML 1.0 vs 1.1 differences', () => {
   });
 
   it('rejects \\u0487 as NameStartChar in both versions', () => {
-    // \u0487 is a combining mark — never valid as first character
+    // \u0487 is a combining mark, so it is never valid as the first character
     expect(isName('\u0487foo', { xmlVersion: '1.0' })).toBe(false);
     expect(isName('\u0487foo', { xmlVersion: '1.1' })).toBe(false);
   });
 
   // Supplementary plane characters (\u{10000}-\u{EFFFF})
-  // XML 1.0: BMP only, tops out at \uFFFD — supplementary chars are invalid.
+  // XML 1.0: BMP only, tops out at \uFFFD, so supplementary chars are invalid.
   // XML 1.1: explicitly allows \u{10000}-\u{EFFFF} as NameStartChar.
   // Requires /u flag on RegExp to correctly match surrogate pairs.
   it('rejects supplementary plane char as NameStartChar in XML 1.0', () => {

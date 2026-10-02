@@ -3,18 +3,18 @@
 // `toCodecXml` is this package's counterpart to `Schema.toCodecJson`. It
 // returns a `Schema` whose `Type` is the source schema's `Type` and whose
 // `Encoded` is XML text, so a value is written with `Schema.encodeSync(codec)`
-// and read back with `Schema.decodeSync(codec)` — one call each, the way the
-// JSON codec works. There is no value tree at the call site and no second call
-// to a renderer or a parser.
+// and read back with `Schema.decodeSync(codec)`. That is one call each, as with
+// the JSON codec. There is no value tree at the call site and no second call to
+// a renderer or a parser.
 //
 // The derivation underneath is Effect's own `Schema.toCodecStringTree`, so
 // every schema feature Effect supports composes here without this package
-// re-implementing the walk over a schema AST. On the way out the codec runs the
-// value tree through `renderXml`; on the way back in it runs the document
-// through `parseXml`. Both are the same text layer this package exports on
-// their own, and both failures — an illegal name, a document that is not
-// well-formed — arrive as the `SchemaIssue.Issue` a schema is expected to
-// report, with the underlying message preserved.
+// re-implementing the walk over a schema AST. On encode the codec runs the value
+// tree through `renderXml`; on decode it runs the document through `parseXml`.
+// Both are the same text layer this package exports on its own, and both
+// failures arrive as the `SchemaIssue.Issue` a schema is expected to report,
+// with the underlying message preserved. Those failures are an illegal name and
+// a document that is not well-formed.
 //
 // The conventions stay in the keys: a key starting with `@` is an attribute,
 // `#text` is character data, and every other key is a child element. The root
@@ -36,8 +36,8 @@ import { renderXml } from './render.ts';
 /**
  * @description Options for {@link toCodecXml}.\
  * The render options name and shape the document; the parse options decide how strictly it is read back.\
- * `rootName` is the one the codec resolves for itself when the caller leaves it out, taking it from the schema's `identifier` or `title` annotation and falling
- * back to `'root'`.
+ * `rootName` is the one the codec resolves for itself when the caller leaves it out. The codec takes it from the schema's `identifier` or `title` annotation and
+ * falls back to `'root'`.
  */
 export type XmlCodecOptions = XmlRenderOptions & XmlParseOptions;
 

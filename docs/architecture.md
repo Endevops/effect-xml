@@ -29,13 +29,13 @@ sibling workspace dependency remains.
 ## Why the derivation is Effect's
 
 `toCodecXml` does not walk the schema AST. It derives
-`Schema.toCodecStringTree` — the same derivation `Schema.toEncoderXml` uses —
-and runs the resulting tree through this package's renderer and parser. That is
-what makes structs, arrays, unions, records, recursion, refinements, brands and
-transformations work without being re-implemented here, and why the round-trip
-specs are the broadest in the suite. The derivation itself reaches into
-`SchemaAST` internals and is not reusable from outside; see the note in
-[`AGENTS.md`](../AGENTS.md).
+`Schema.toCodecStringTree`, the same derivation `Schema.toEncoderXml` uses, and
+runs the resulting tree through this package's renderer and parser. That
+derivation makes structs, arrays, unions, records, recursion, refinements,
+brands and transformations work without being re-implemented here. The
+round-trip specs are the broadest in the suite for the same reason. The
+derivation itself reaches into `SchemaAST` internals and is not reusable from
+outside; see the note in [`AGENTS.md`](../AGENTS.md).
 
 ## The value model
 
@@ -89,7 +89,7 @@ report, so `catchTag`, `retry` and a fallback all see it.
 
 ## Related
 
-- [`README.md`](../README.md) — the workspace and its commands.
-- [`packages/effect-xml-codec/README.md`](../packages/effect-xml-codec/README.md)
-  — the package's API, mapping, performance and limitations.
-- [`docs/versioning.md`](./versioning.md) — the release flow.
+- [`README.md`](../README.md): the workspace and its commands.
+- [`packages/effect-xml-codec/README.md`](../packages/effect-xml-codec/README.md):
+  the package's API, mapping, performance and limitations.
+- [`docs/versioning.md`](./versioning.md): the release flow.
