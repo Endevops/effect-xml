@@ -6,7 +6,7 @@ import { XMLParser } from '@endevops/parser';
 import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
-import { describe, test } from 'vite-plus/test';
+import { describe, expect, test } from 'vite-plus/test';
 
 const Order = toCodecXml(
   Schema.Struct({
@@ -51,6 +51,40 @@ const Note = toCodecXml(Schema.Struct({ body: Schema.String }), { rootName: 'not
 const NOTE = `${'lorem ipsum dolor sit amet '.repeat(700)}& <tag> "quoted"`;
 const note = { body: NOTE } satisfies Schema.Schema.Type<typeof Note>;
 const NOTE_ROOT = 'note';
+const ATOM = 'http://www.w3.org/2005/Atom';
+const META = 'urn:meta';
+const Feed = toCodecXml(
+  Schema.Struct({
+    '@version': Schema.String.annotate({ xmlNamespace: META, xmlPrefix: 'meta' }),
+    title: Schema.String,
+    updated: Schema.String,
+    entry: Schema.Array(Schema.Struct({ title: Schema.String, link: Schema.Struct({ '@href': Schema.String }) })),
+  }).annotate({ xmlNamespace: ATOM }),
+  { rootName: 'feed' }
+);
+const feed = {
+  '@version': '1',
+  title: 'Example Feed',
+  updated: '2026-10-02T00:00:00Z',
+  entry: [
+    { title: 'First entry', link: { '@href': 'https://example.com/1' } },
+    { title: 'Second entry', link: { '@href': 'https://example.com/2' } },
+  ],
+} satisfies Schema.Schema.Type<typeof Feed>;
+const FEED_ROOT = 'feed';
+
+/**
+ * @description The same feed for the plain builders. They have no annotations to read, so the namespace declarations are spelled out by hand and the prefixed
+ * names are written where the codec writes them.
+ */
+const feedWire = {
+  '@xmlns': ATOM,
+  '@xmlns:meta': META,
+  '@meta:version': feed['@version'],
+  title: feed.title,
+  updated: feed.updated,
+  entry: feed.entry,
+};
 
 const BUILDER_OPTIONS = { attributeNamePrefix: '@', ignoreAttributes: false, suppressEmptyNode: true, format: false } as const;
 
@@ -63,9 +97,11 @@ const parser = XMLParser.make({ skip: { attributes: false }, attributes: { prefi
 const encodeOrder = Schema.encodeEffect(Order);
 const encodeReport = Schema.encodeEffect(Report);
 const encodeNote = Schema.encodeEffect(Note);
+const encodeFeed = Schema.encodeEffect(Feed);
 const decodeOrder = Schema.decodeEffect(Order);
 const decodeReport = Schema.decodeEffect(Report);
 const decodeNote = Schema.decodeEffect(Note);
+const decodeFeed = Schema.decodeEffect(Feed);
 
 /**
  * @description Encoding one value to a document is a single effect now: the codec's encode writes the text. The encoding benchmarks run that effect per iteration,
@@ -75,10 +111,12 @@ const decodeNote = Schema.decodeEffect(Note);
 const encodeOrderDocument = encodeOrder(order);
 const encodeReportDocument = encodeReport(report);
 const encodeNoteDocument = encodeNote(note);
+const encodeFeedDocument = encodeFeed(feed);
 
 const orderDocument = Effect.runSync(encodeOrderDocument);
 const reportDocument = Effect.runSync(encodeReportDocument);
 const noteDocument = Effect.runSync(encodeNoteDocument);
+const feedDocument = Effect.runSync(encodeFeedDocument);
 
 /**
  * @description How long to sample each benchmark in a group, and how long to warm it up first. A small document takes single-digit microseconds, so a shorter
@@ -134,6 +172,24 @@ describe('encoding', () => {
       BUDGET
     );
   });
+  test('a namespaced document', async ({ bench }) => {
+    const buildFeedDocument = builder.build({ [FEED_ROOT]: feedWire });
+    // A builder has no annotations, so the comparison only means anything if the
+    // declaration the codec writes and the one spelled out for the builder agree.
+    expect(Effect.runSync(buildFeedDocument)).toBe(Effect.runSync(encodeFeedDocument));
+    await bench.compare(
+      bench('@endevops/effect-xml-codec', () => {
+        encodeFeedDocument.pipe(Effect.runSync);
+      }),
+      bench('@endevops/builder', () => {
+        buildFeedDocument.pipe(Effect.runSync);
+      }),
+      bench('fast-xml-builder', () => {
+        upstreamBuilder.build({ [FEED_ROOT]: feedWire });
+      }),
+      BUDGET
+    );
+  });
 });
 
 describe('decoding', () => {
@@ -184,6 +240,24 @@ describe('decoding', () => {
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(noteDocument);
+      }),
+      BUDGET
+    );
+  });
+
+  test('a namespaced document', async ({ bench }) => {
+    const decode = decodeFeed(feedDocument);
+    const parse = parser.parse(feedDocument);
+    expect(Effect.runSync(decode)).toEqual(feed);
+    await bench.compare(
+      bench('@endevops/effect-xml-codec', () => {
+        decodeFeed(feedDocument).pipe(Effect.runSync);
+      }),
+      bench('@endevops/parser', () => {
+        parse.pipe(Effect.runSync);
+      }),
+      bench('fast-xml-parser', () => {
+        upstreamParser.parse(feedDocument);
       }),
       BUDGET
     );
