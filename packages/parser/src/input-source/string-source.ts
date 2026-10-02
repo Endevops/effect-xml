@@ -4,7 +4,7 @@ import { QUOTE_PAIRS_CAPACITY } from '#/util.ts';
 
 import type { InputSourceLike } from './input-source.ts';
 
-import { canRead, matchAhead, readCh, readChAt, readStr, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.ts';
+import { canRead, matchAhead, readCh, readChAt, readStr, readTextRun, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.ts';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 
 /**
@@ -150,6 +150,7 @@ export default class StringSource implements InputSourceLike {
   readCh = readCh;
   readChAt = readChAt;
   readStr = readStr;
+  readTextRun = readTextRun;
 
   /**
    * @description Check whether the upcoming characters equal `expected`, without consuming or allocating anything — no substring is built even for a full match.

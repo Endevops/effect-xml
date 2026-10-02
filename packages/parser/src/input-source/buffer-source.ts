@@ -83,6 +83,7 @@ export default class BufferSource implements InputSourceLike {
   declare readCh: () => string | undefined;
   declare readChAt: (index: number) => string | undefined;
   declare readStr: (n: number, from?: number) => string;
+  declare readTextRun: () => string;
   declare matchAhead: (expected: string, caseInsensitive?: boolean) => boolean | null;
   declare scanTagExpEnd: () => number;
   declare scanTagExpEndFast: () => number;

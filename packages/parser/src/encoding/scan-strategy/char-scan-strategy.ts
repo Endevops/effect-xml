@@ -7,6 +7,7 @@ import {
   readChAt,
   readFromBuffer,
   readStr,
+  readTextRun,
   readUpto,
   readUptoChar,
   readUptoCloseTag,
@@ -31,6 +32,7 @@ export function createCharScanStrategy(): ScanStrategy {
     readCh,
     readChAt,
     readStr,
+    readTextRun,
 
     /**
      * @description See `StringSource`'s copy of this method for the full doc — identical contract, same plain-string buffer shape.

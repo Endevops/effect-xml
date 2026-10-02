@@ -11,7 +11,7 @@ import { QUOTE_PAIRS_CAPACITY } from '#/util.ts';
 
 import type { InputSourceLike } from './input-source.ts';
 
-import { canRead, matchAhead, readCh, readChAt, readStr, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.ts';
+import { canRead, matchAhead, readCh, readChAt, readStr, readTextRun, readUpto, readUptoChar, readUptoCloseTag } from './char-scan-reads.ts';
 import { scanTagExpEnd, scanTagExpEndFast } from './scan-tag-exp-end.ts';
 
 // Matches EncodingDetector's own declaration-peek window — bounds how much
@@ -447,6 +447,12 @@ export default class FeedableSource implements InputSourceLike {
    * @param from - Start position. Defaults to the current position.
    */
   readStr = readStr;
+
+  /**
+   * @description See `StringSource`'s copy of this method for the full doc — identical contract, same plain-string buffer shape. The buffer here may be a V8 rope
+   * built by repeated `+=`, which `indexOf` flattens once rather than re-reading it through bracket access.
+   */
+  readTextRun = readTextRun;
 
   /**
    * @description See `StringSource`'s copy of this method for the full doc — identical contract here. `null` (not enough buffered data yet) is the routine case

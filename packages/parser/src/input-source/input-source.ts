@@ -70,6 +70,12 @@ export interface InputSourceLike {
    */
   readStr(n: number, from?: number): string;
   /**
+   * @description Read the run of characters from the cursor up to the next `<`, or to the end of the buffer when there is none, and advance past it.
+   *
+   * @returns The text before the next `<`, or `''` when the cursor is already on one (or at the end).
+   */
+  readTextRun(): string;
+  /**
    * @description Read up to and including `stopStr`, returning the text before it.
    *
    * @returns An effect producing the text before `stopStr`. Fails with `UNEXPECTED_END` when `stopStr` is not present.
@@ -154,6 +160,7 @@ export type ScanStrategy = Pick<
   | 'readCh'
   | 'readChAt'
   | 'readStr'
+  | 'readTextRun'
   | 'readUpto'
   | 'readUptoChar'
   | 'readUptoCloseTag'

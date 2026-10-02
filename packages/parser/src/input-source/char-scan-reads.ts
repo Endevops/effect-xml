@@ -31,6 +31,24 @@ export function readStr(this: CharScanReadContext, n: number, from?: number) {
   return this.buffer.substring(from, from + n);
 }
 
+/**
+ * @description Read the run of character data from the cursor up to the next `<`, or to the end of the buffer when there is none. The cursor advances past the
+ * run, and the run is returned. Every source holds its decoded document in a plain string, so `indexOf` finds the delimiter in native code instead of
+ * the caller reading one character at a time — which for a large text node is tens of thousands of interpreted loop iterations replaced by one scan.
+ * A run of zero characters is returned without moving the cursor, so the caller can treat it as the empty case.
+ *
+ * @returns The text before the next `<`, or `''` when the cursor is already on one (or at the end).
+ */
+export function readTextRun(this: CharScanReadContext): string {
+  const start = this.startIndex;
+  const next = this.buffer.indexOf('<', start);
+  const end = next === -1 ? this.buffer.length : next;
+  if (end === start) return '';
+  const run = this.buffer.substring(start, end);
+  this.updateBufferBoundary(end - start);
+  return run;
+}
+
 export function matchAhead(this: CharScanReadContext, expected: string, caseInsensitive: boolean = false): boolean | null {
   const len = expected.length;
   for (let i = 0; i < len; i++) {

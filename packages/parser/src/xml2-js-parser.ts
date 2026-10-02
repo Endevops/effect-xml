@@ -469,24 +469,12 @@ export default class Xml2JsParser implements TagExpressionParser {
   }
 
   /**
-   * @description Buffer character data up to the next `<`. `first` has already been consumed by the caller. The rest of the run is then taken in a single
-   * `readStr` rather than one character per trip through the main loop, which is the difference between one substring per character of text content
-   * and one per run.
+   * @description Buffer character data up to the next `<`. `first` has already been consumed by the caller. The rest of the run is taken in a single
+   * `readTextRun`, which finds the delimiter with one native `indexOf` scan rather than one `readChAt` per character — a large text node is tens of
+   * thousands of interpreted loop iterations replaced by one call, and the run is one substring either way.
    */
   _accumulateTextRun(first: string): void {
-    let runLen = 0;
-    while (true) {
-      const c = this.source.readChAt(runLen);
-      if (c === '<' || c === undefined || c === '') break;
-      runLen++;
-    }
-    if (runLen === 0) {
-      this.tagTextData += first;
-      return;
-    }
-
-    this.tagTextData += first + this.source.readStr(runLen, this.source.startIndex);
-    this.source.updateBufferBoundary(runLen);
+    this.tagTextData += first + this.source.readTextRun();
   }
 
   /**
