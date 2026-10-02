@@ -31,7 +31,10 @@ export interface XmlDocument {
  */
 export interface XmlParseOptions {
   /**
-   * @description Keep the whitespace at the edges of every text run. Defaults to `false`, which trims it — and trimming is what makes a pretty-printed document
+   * @description Keep the whitespace at the edges of every text run.
+   *
+   * @default false\
+   * which trims it — and trimming is what makes a pretty-printed document
    * read as the same value as an unindented one, because the indentation around a child element and around a closing tag lands at the edges of its
    * parent's text. Whitespace _inside_ a run is content and is never touched either way, so `'one two'` and a paragraph with a newline in the middle
    * of it survive. Set it to `true` to keep leading and trailing spaces in text exactly as written, at the cost of a document that was laid out on
@@ -40,25 +43,31 @@ export interface XmlParseOptions {
   readonly preserveWhitespace?: boolean | undefined;
 
   /**
-   * @description How deep to nest before giving up. Guards against a document crafted to exhaust the stack. Defaults to 256.
+   * @description How deep to nest before giving up. Guards against a document crafted to exhaust the stack.
+   *
+   * @default 256
    */
   readonly maxDepth?: number | undefined;
 
   /**
-   * @description What to do with an element or attribute name that is not a legal XML name. Defaults to `'repair'`, the same default {@link renderXml} uses, so a
-   * name that renders and a name that parses come out the same.
+   * @description What to do with an element or attribute name that is not a legal XML name.
+   *
+   * @default 'repair'\
+   * the same default {@link renderXml} uses, so a name that renders and a name that parses come out the same.
    */
   readonly name?: NameMode | undefined;
 
   /**
-   * @description XML version to validate names against. Defaults to `'1.0'`.
+   * @description XML version to validate names against.
+   *
+   * @default '1.0'
    */
   readonly xmlVersion?: XmlVersion | undefined;
 }
 
 /**
- * @description Parses an XML document into its root element's content. The walk itself is synchronous, but it reports a malformed document by failing with an
- * {@link XmlParseError} rather than by throwing, so the failure lands in the effect's error channel where `catchTag`, `retry` and a fallback can all
+ * @description Parses an XML document into its root element's content.\
+ * The walk itself is synchronous, but it reports a malformed document by failing with an {@link XmlParseError} rather than by throwing, so the failure lands in the effect's error channel where `catchTag`, `retry` and a fallback can all
  * see it. A failed parse is an expected outcome of reading untrusted text — it is what those combinators key off — and only a defect would hide it.
  * The span is the boundary a performance trace hangs off: it carries the document's length, which is the size that drives the parser's cost, so a
  * slow parse in a profile can be attributed to the input that produced it. A caller that wants the value outside an `Effect` uses

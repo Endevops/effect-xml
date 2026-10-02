@@ -34,8 +34,9 @@ import { parseXml } from './parse.ts';
 import { renderXml } from './render.ts';
 
 /**
- * @description Options for {@link toCodecXml}. The render options name and shape the document; the parse options decide how strictly it is read back. `rootName` is
- * the one the codec resolves for itself when the caller leaves it out, taking it from the schema's `identifier` or `title` annotation and falling
+ * @description Options for {@link toCodecXml}.\
+ * The render options name and shape the document; the parse options decide how strictly it is read back.\
+ * `rootName` is the one the codec resolves for itself when the caller leaves it out, taking it from the schema's `identifier` or `title` annotation and falling
  * back to `'root'`.
  */
 export type XmlCodecOptions = XmlRenderOptions & XmlParseOptions;

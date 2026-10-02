@@ -79,20 +79,24 @@ const ATTRIBUTE_UNSAFE = /[<>&"'\n\r\t]/;
  */
 export interface XmlRenderOptions {
   /**
-   * @description Name of the root element. Defaults to `'root'`. A codec passes the name it took from the schema's `identifier` annotation when the caller did not
-   * set one.
+   * @description Name of the root element.
+   *
+   * @default 'root'\
+   * A codec passes the name it took from the schema's `identifier` annotation when the caller did not set one.
    */
   readonly rootName?: string | undefined;
 
   /**
-   * @description Element name used for the members of a document whose root value is an array. Defaults to `'item'`.
+   * @description Element name used for the members of a document whose root value is an array.
+   *
+   * @default 'item'
    */
   readonly itemName?: string | undefined;
 
   /**
-   * @description Indent nested elements on their own lines. Defaults to `false`.
+   * @description Indent nested elements on their own lines.
    *
-   * @default `false`
+   * @default false
    */
   readonly format?: boolean | undefined;
 
@@ -102,28 +106,38 @@ export interface XmlRenderOptions {
   readonly indent?: string | undefined;
 
   /**
-   * @description Write an element with no attributes, text or children as `<a/>` rather than `<a></a>`. Defaults to `true`.
+   * @description Write an element with no attributes, text or children as `<a/>` rather than `<a></a>`.
+   *
+   * @default true
    */
   readonly suppressEmptyNode?: boolean | undefined;
 
   /**
-   * @description Sort an element's keys so the same value always renders to the same bytes. Defaults to `false`, which keeps declaration order. Worth turning on
-   * for snapshot tests, where key order is otherwise the only thing that can make two equal values differ.
+   * @description Sort an element's keys so the same value always renders to the same bytes.
+   *
+   * @default false\
+   * Which keeps declaration order.\ Worth turning on for snapshot tests, where key order is otherwise the only thing that can make two equal values differ.
    */
   readonly sortKeys?: boolean | undefined;
 
   /**
-   * @description What to do with a field name that is not a legal XML name. Defaults to `'repair'`.
+   * @description What to do with a field name that is not a legal XML name.
+   *
+   * @default 'repair'.
    */
   readonly name?: NameMode | undefined;
 
   /**
-   * @description XML version to validate names against. Defaults to `'1.0'`.
+   * @description XML version to validate names against.
+   *
+   * @default '1.0'
    */
   readonly xmlVersion?: XmlVersion | undefined;
 
   /**
-   * @description How deep to nest before giving up. Guards against a value that nests without end taking the stack with it. Defaults to 256.
+   * @description How deep to nest before giving up. Guards against a value that nests without end taking the stack with it.
+   *
+   * @default 256
    */
   readonly maxDepth?: number | undefined;
 }
