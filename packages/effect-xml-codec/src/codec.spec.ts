@@ -103,6 +103,61 @@ describe('toCodecXml() — schema shapes through the document', () => {
     expect(Schema.decodeSync(codec)(text)).toEqual(value);
   });
 
+  it('handles a shared sub-schema with an attribute', () => {
+    const Shared = Schema.Struct({ '@id': Schema.String, c: Schema.String });
+    const schema = Schema.Struct({ b: Shared, d: Shared });
+    const value = { b: { '@id': '1', c: 'text' }, d: { '@id': '2', c: 'other text' } };
+    const codec = toCodecXml(schema, { rootName: 'a' });
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<a><b id="1"><c>text</c></b><d id="2"><c>other text</c></d></a>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('handles a shared sub-schema in a prefixed namespace', () => {
+    const Shared = Schema.Struct({ c: Schema.String }).annotate({ xmlNamespace: 'urn:shared', xmlPrefix: 's' });
+    const schema = Schema.Struct({ b: Shared, d: Shared });
+    const value = { b: { c: 'text' }, d: { c: 'other text' } };
+    const codec = toCodecXml(schema, { rootName: 'a' });
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<a><s:b xmlns:s="urn:shared"><s:c>text</s:c></s:b><s:d xmlns:s="urn:shared"><s:c>other text</s:c></s:d></a>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('handles a shared sub-schema in the default namespace', () => {
+    const Shared = Schema.Struct({ c: Schema.String }).annotate({ xmlNamespace: 'urn:shared' });
+    const schema = Schema.Struct({ b: Shared, d: Shared });
+    const value = { b: { c: 'text' }, d: { c: 'other text' } };
+    const codec = toCodecXml(schema, { rootName: 'a' });
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<a><b xmlns="urn:shared"><c>text</c></b><d xmlns="urn:shared"><c>other text</c></d></a>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('handles a shared sub-schema renamed with xmlName', () => {
+    const Shared = Schema.Struct({ c: Schema.String.annotate({ xmlName: 'value' }) });
+    const schema = Schema.Struct({ b: Shared, d: Shared });
+    const value = { b: { c: 'text' }, d: { c: 'other text' } };
+    const codec = toCodecXml(schema, { rootName: 'a' });
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<a><b><value>text</value></b><d><value>other text</value></d></a>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('handles a shared sub-schema with an attribute, a namespace, and a rename', () => {
+    const Shared = Schema.Struct({ '@id': Schema.String.annotate({ xmlName: 'ID' }), c: Schema.String.annotate({ xmlName: 'value' }) }).annotate({
+      xmlNamespace: 'urn:shared',
+      xmlPrefix: 's',
+    });
+    const schema = Schema.Struct({ b: Shared, d: Shared });
+    const value = { b: { '@id': '1', c: 'text' }, d: { '@id': '2', c: 'other text' } };
+    const codec = toCodecXml(schema, { rootName: 'a' });
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe(
+      '<a><s:b xmlns:s="urn:shared" ID="1"><s:value>text</s:value></s:b><s:d xmlns:s="urn:shared" ID="2"><s:value>other text</s:value></s:d></a>'
+    );
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
   it('handles an array field with two or more members', () => {
     expect(roundTrip(Schema.Struct({ a: Schema.Array(Schema.String) }), { a: ['x', 'y'] })).toEqual({ a: ['x', 'y'] });
   });
