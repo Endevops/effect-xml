@@ -13,6 +13,9 @@
 //   - `xmlName` is the wire local name to write when it differs from the schema
 //     field's own name. It applies to an element or an attribute, and a colon
 //     is not allowed because the prefix comes from `xmlPrefix`.
+//   - `xmlAttribute` marks a field as an attribute without the schema key
+//     carrying the `@` prefix. A namespaced attribute still needs `xmlPrefix`,
+//     because a default namespace does not apply to attributes.
 //
 // The namespace of an element is inherited by its descendants, the way an XML
 // default namespace is. An attribute never inherits: it is in a namespace only
@@ -56,6 +59,12 @@ declare module 'effect/Schema' {
        * {@link xmlPrefix}.
        */
       readonly xmlName?: string | undefined;
+
+      /**
+       * @description Whether this field is an XML attribute rather than a child element. Use it to keep the schema key a plain name instead of carrying the `@`
+       * prefix. A namespaced attribute still needs `xmlPrefix`, because a default namespace does not apply to attributes.
+       */
+      readonly xmlAttribute?: boolean | undefined;
     }
 
     interface Annotations extends XmlAnnotations {}
@@ -76,6 +85,11 @@ export const PREFIX_KEY = 'xmlPrefix';
  * @description The annotation key holding the wire local name for an element or attribute.
  */
 export const NAME_KEY = 'xmlName';
+
+/**
+ * @description The annotation key marking a field as an XML attribute.
+ */
+export const ATTRIBUTE_KEY = 'xmlAttribute';
 
 /**
  * @description An element's namespace: the URI, and the prefix to write it with. An empty prefix is the default namespace.
@@ -101,6 +115,11 @@ export interface NamespacePlan {
   readonly nameByKey: ReadonlyMap<string, string>;
 
   /**
+   * @description The schema keys that `xmlAttribute` marks as attributes but whose names do not carry the `@` prefix.
+   */
+  readonly attributeKeys: ReadonlySet<string>;
+
+  /**
    * @description The root element's namespace, or `undefined` when the root is unannotated.
    */
   readonly root: XmlNamespace | undefined;
@@ -111,7 +130,8 @@ export interface NamespacePlan {
   readonly rootName: string | undefined;
 
   /**
-   * @description The schema key for a resolved `(uri, local)` name, keyed `uri|local`. Lets a document with any prefix resolve back to the schema.
+   * @description The schema key for a resolved name, keyed by kind, `uri`, and local name. Lets a document with any prefix, and an element beside an attribute of
+   * the same name, resolve back to the schema.
    */
   readonly byResolved: ReadonlyMap<string, string>;
 }
@@ -198,6 +218,24 @@ const keyNameOf = (ast: SchemaAST.AST): string | undefined => {
 };
 
 /**
+ * @description Whether an AST's own annotations mark the field as an XML attribute.
+ *
+ * @param ast - The AST to read.
+ *
+ * @returns Whether the annotation is set.
+ */
+const attributeOf = (ast: SchemaAST.AST): boolean => annotationAt(ast, ATTRIBUTE_KEY) === true;
+
+/**
+ * @description Whether a property's key annotations mark the field as an XML attribute.
+ *
+ * @param ast - The property's value AST, whose context holds the key annotations.
+ *
+ * @returns Whether the annotation is set.
+ */
+const keyAttributeOf = (ast: SchemaAST.AST): boolean => ast.context?.annotations?.[ATTRIBUTE_KEY] === true;
+
+/**
  * @description The local name a schema key names, with the attribute prefix removed. This is what a declaration resolves to.
  *
  * @param key - The schema key.
@@ -207,12 +245,46 @@ const keyNameOf = (ast: SchemaAST.AST): string | undefined => {
 const localName = (key: string): string => (isAttributeKey(key) ? key.slice(ATTRIBUTE_PREFIX.length) : key);
 
 /**
+ * @description Whether a schema key is an attribute: either it carries the `@` prefix, or `xmlAttribute` marks it.
+ *
+ * @param plan - The namespace plan.
+ * @param key - The schema key.
+ *
+ * @returns Whether the key is an attribute.
+ */
+const isAttributeOf = (plan: NamespacePlan, key: string): boolean => isAttributeKey(key) || plan.attributeKeys.has(key);
+
+/**
+ * @description The wire local name of a schema key: its `xmlName` override, or the key with the attribute prefix removed.
+ *
+ * @param plan - The namespace plan.
+ * @param key - The schema key.
+ *
+ * @returns The local name.
+ */
+const localOf = (plan: NamespacePlan, key: string): string => plan.nameByKey.get(key) ?? localName(key);
+
+/**
+ * @description The reverse-lookup key for a resolved wire name. The attribute flag is part of it, so an element and an attribute of the same local name in the
+ * same namespace stay distinct.
+ *
+ * @param isAttribute - Whether the name is an attribute.
+ * @param uri - The resolved namespace URI, or `undefined`.
+ * @param local - The resolved local name.
+ *
+ * @returns The lookup key.
+ */
+const resolvedKey = (isAttribute: boolean, uri: string | undefined, local: string): string =>
+  `${isAttribute ? ATTRIBUTE_PREFIX : ''}${uri ?? ''}|${local}`;
+
+/**
  * @description The mutable state one namespace scan carries: the plan under construction, the local names that resolve to more than one namespace, and the AST
  * nodes already visited so a recursive schema terminates.
  */
 interface Scan {
   readonly byKey: Map<string, XmlNamespace>;
   readonly nameByKey: Map<string, string>;
+  readonly attributeKeys: Set<string>;
   readonly problems: Array<string>;
   readonly seen: Set<SchemaAST.AST>;
 }
@@ -225,11 +297,18 @@ interface Scan {
  * @param namespace - The namespace, or `undefined` when the field has none.
  */
 const record = (scan: Scan, key: string, namespace: XmlNamespace | undefined): void => {
-  if (namespace === undefined) return;
+  if (Predicate.isUndefined(namespace)) {
+    return;
+  }
+
   const previous = scan.byKey.get(key);
-  if (previous !== undefined && (previous.uri !== namespace.uri || previous.prefix !== namespace.prefix))
-    scan.problems.push(`the local name "${key}" belongs to more than one namespace`);
-  else scan.byKey.set(key, namespace);
+  if (Predicate.isNotUndefined(previous) && (previous.uri !== namespace.uri || previous.prefix !== namespace.prefix)) {
+    scan.problems.push(
+      `the local name "${key}" belongs to more than one namespace (${previous.uri}:${previous.prefix} vs ${namespace.uri}:${namespace.prefix})`
+    );
+  } else {
+    scan.byKey.set(key, namespace);
+  }
 };
 
 /**
@@ -240,9 +319,13 @@ const record = (scan: Scan, key: string, namespace: XmlNamespace | undefined): v
  * @param name - The annotated local name, or `undefined`.
  */
 const recordName = (scan: Scan, key: string, name: string | undefined): void => {
-  if (name === undefined) return;
-  if (name.includes(':')) scan.problems.push(`xmlName "${name}" on "${key}" must be a local name; use xmlPrefix for the prefix`);
-  else scan.nameByKey.set(key, name);
+  if (Predicate.isUndefined(name)) return;
+
+  if (name.includes(':')) {
+    scan.problems.push(`xmlName "${name}" on "${key}" must be a local name; use xmlPrefix for the prefix`);
+  } else {
+    scan.nameByKey.set(key, name);
+  }
 };
 
 /**
@@ -262,11 +345,36 @@ const recordFieldNamespace = (
   field: XmlNamespace | undefined,
   inherited: XmlNamespace | undefined
 ): void => {
-  if (field !== undefined && key.includes(':'))
+  if (Predicate.isNotUndefined(field) && key.includes(':')) {
     scan.problems.push(`"${key}" already carries a prefix, so it cannot also carry a namespace annotation`);
-  else if (isAttribute && field !== undefined && field.prefix === '')
+  } else if (isAttribute && Predicate.isNotUndefined(field) && field.prefix === '') {
     scan.problems.push(`the attribute "${key}" needs xmlPrefix, because a default namespace does not apply to attributes`);
-  else record(scan, key, isAttribute ? field : (field ?? inherited));
+  } else {
+    record(scan, key, isAttribute ? field : (field ?? inherited));
+  }
+};
+
+/**
+ * @description Whether a struct property is an attribute: its key carries the `@` prefix, or its own or key annotation marks it.
+ *
+ * @param key - The schema key.
+ * @param ast - The property's value AST.
+ *
+ * @returns Whether the property is an attribute.
+ */
+const isAttributeProperty = (key: string, ast: SchemaAST.AST): boolean => isAttributeKey(key) || keyAttributeOf(ast) || attributeOf(ast);
+
+/**
+ * @description Notes a key that `xmlAttribute` marks as an attribute but that does not carry the `@` prefix.
+ *
+ * @param scan - The scan state.
+ * @param key - The schema key.
+ * @param isAttribute - Whether the property is an attribute.
+ */
+const noteAttribute = (scan: Scan, key: string, isAttribute: boolean): void => {
+  if (isAttribute && !isAttributeKey(key)) {
+    scan.attributeKeys.add(key);
+  }
 };
 
 /**
@@ -279,7 +387,8 @@ const recordFieldNamespace = (
  */
 const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined): void => {
   const key = Predicate.isString(property.name) ? property.name : String(property.name);
-  const isAttribute = isAttributeKey(key);
+  const isAttribute = isAttributeProperty(key, property.type);
+  noteAttribute(scan, key, isAttribute);
   const field = keyNamespaceOf(property.type) ?? namespaceOf(property.type);
   recordName(scan, key, keyNameOf(property.type) ?? nameOf(property.type));
   recordFieldNamespace(scan, key, isAttribute, field, inherited);
@@ -305,8 +414,12 @@ const scanAll = (scan: Scan, nodes: ReadonlyArray<SchemaAST.AST>, inherited: Xml
  * @param namespace - The namespace the object passes to its members.
  */
 const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace | undefined): void => {
-  for (const property of ast.propertySignatures) scanProperty(scan, property, namespace);
-  for (const index of ast.indexSignatures) scanNode(scan, index.type, namespace);
+  for (const property of ast.propertySignatures) {
+    scanProperty(scan, property, namespace);
+  }
+  for (const index of ast.indexSignatures) {
+    scanNode(scan, index.type, namespace);
+  }
 };
 
 /**
@@ -342,29 +455,46 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
 };
 
 /**
- * @description Collects the namespace of every name in a schema. A namespace is inherited by descendant elements, the way a default namespace is, and an element
- * field records its own namespace, so encode and decode can find it by the local name alone.
+ * @description Collects the namespace and name of every field in a schema. A namespace is inherited by descendant elements, the way a default namespace is, and an
+ * element field records its own namespace, so encode and decode can find it by the local name alone.
  *
  * @param schema - The schema to walk.
  *
  * @returns The plan, or the annotations that cannot be honored.
  */
 export const namespacePlan = (schema: Schema.Constraint): { readonly plan: NamespacePlan } | { readonly error: string } => {
-  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), problems: [], seen: new Set() };
+  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), attributeKeys: new Set(), problems: [], seen: new Set() };
   scanNode(scan, schema.ast, undefined);
 
   const byResolved = new Map<string, string>();
-  for (const key of new Set([...scan.byKey.keys(), ...scan.nameByKey.keys()])) {
+  for (const key of new Set([...scan.byKey.keys(), ...scan.nameByKey.keys(), ...scan.attributeKeys])) {
     const namespace = scan.byKey.get(key);
+    const isAttribute = isAttributeKey(key) || scan.attributeKeys.has(key);
     const local = scan.nameByKey.get(key) ?? localName(key);
-    const resolved = `${namespace?.uri ?? ''}|${local}`;
+    const resolved = resolvedKey(isAttribute, namespace?.uri, local);
     const previous = byResolved.get(resolved);
-    if (previous !== undefined && previous !== key) scan.problems.push(`"${previous}" and "${key}" both resolve to "${local}"`);
-    else byResolved.set(resolved, key);
+
+    if (previous !== undefined && previous !== key) {
+      scan.problems.push(`"${previous}" and "${key}" both resolve to "${local}"`);
+    } else {
+      byResolved.set(resolved, key);
+    }
   }
 
-  if (scan.problems.length > 0) return { error: [...new Set(scan.problems)].join('; ') };
-  return { plan: { byKey: scan.byKey, nameByKey: scan.nameByKey, root: namespaceOf(schema.ast), rootName: nameOf(schema.ast), byResolved } };
+  if (scan.problems.length > 0) {
+    return { error: [...new Set(scan.problems)].join(';\n\t- ') };
+  }
+
+  return {
+    plan: {
+      byKey: scan.byKey,
+      nameByKey: scan.nameByKey,
+      attributeKeys: scan.attributeKeys,
+      root: namespaceOf(schema.ast),
+      rootName: nameOf(schema.ast),
+      byResolved,
+    },
+  };
 };
 
 /**
@@ -395,19 +525,22 @@ const declarationPrefix = (key: string): string => (key === `${ATTRIBUTE_PREFIX}
  * @param namespace - The element's namespace, or `undefined`.
  */
 const declare = (out: Record<string, XmlValue>, scope: Record<string, string | undefined>, namespace: XmlNamespace | undefined): void => {
-  if (namespace !== undefined && namespace.prefix !== '') {
+  if (Predicate.isNotUndefined(namespace) && namespace.prefix !== '') {
     if (scope[namespace.prefix] === namespace.uri) return;
     out[`${ATTRIBUTE_PREFIX}xmlns:${namespace.prefix}`] = namespace.uri;
     scope[namespace.prefix] = namespace.uri;
     return;
   }
-  if (namespace !== undefined) {
+
+  if (!Predicate.isUndefined(namespace)) {
     if (scope[''] === namespace.uri) return;
     out[`${ATTRIBUTE_PREFIX}xmlns`] = namespace.uri;
     scope[''] = namespace.uri;
     return;
   }
-  if (scope[''] === undefined) return;
+
+  if (Predicate.isUndefined(scope[''])) return;
+
   out[`${ATTRIBUTE_PREFIX}xmlns`] = '';
   scope[''] = undefined;
 };
@@ -421,9 +554,13 @@ const declare = (out: Record<string, XmlValue>, scope: Record<string, string | u
  * @returns The key to write.
  */
 const wireKey = (plan: NamespacePlan, key: string, namespace: XmlNamespace | undefined): string => {
-  const isAttribute = isAttributeKey(key);
-  const local = plan.nameByKey.get(key) ?? localName(key);
-  if (namespace === undefined || namespace.prefix === '') return isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local;
+  const isAttribute = isAttributeOf(plan, key);
+  const local = localOf(plan, key);
+
+  if (Predicate.isUndefined(namespace) || namespace.prefix === '') {
+    return isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local;
+  }
+
   return `${isAttribute ? ATTRIBUTE_PREFIX : ''}${namespace.prefix}:${local}`;
 };
 
@@ -438,13 +575,19 @@ const wireKey = (plan: NamespacePlan, key: string, namespace: XmlNamespace | und
  */
 const encodeFields = (value: XmlRecord, plan: NamespacePlan, out: Record<string, XmlValue>, scope: Record<string, string | undefined>): void => {
   for (const [key, child] of Object.entries(value)) {
-    if (isDeclarationKey(key)) continue;
+    if (isDeclarationKey(key)) {
+      continue;
+    }
+
     const childNamespace = plan.byKey.get(key);
-    if (isAttributeKey(key)) {
-      if (childNamespace !== undefined) declare(out, scope, childNamespace);
+    if (isAttributeOf(plan, key)) {
+      if (Predicate.isNotUndefined(childNamespace)) {
+        declare(out, scope, childNamespace);
+      }
       out[wireKey(plan, key, childNamespace)] = child;
       continue;
     }
+
     out[wireKey(plan, key, childNamespace)] = encodeNames(child, plan, childNamespace, scope);
   }
 };
@@ -466,17 +609,25 @@ export const encodeNames = (
   namespace: XmlNamespace | undefined,
   scope: Record<string, string | undefined>
 ): XmlValue => {
-  if (Array.isArray(value)) return value.map(member => encodeNames(member, plan, namespace, scope));
+  if (Array.isArray(value)) {
+    return value.map(member => encodeNames(member, plan, namespace, scope));
+  }
 
   const out: Record<string, XmlValue> = {};
   const inner = { ...scope };
   declare(out, inner, namespace);
 
-  if (Predicate.isUndefined(value)) return undefined;
-  if (Predicate.isString(value)) return Object.keys(out).length > 0 ? { ...out, [TEXT_KEY]: value } : value;
+  if (Predicate.isUndefined(value)) {
+    return undefined;
+  }
+  if (Predicate.isString(value)) {
+    return Object.keys(out).length > 0 ? { ...out, [TEXT_KEY]: value } : value;
+  }
   // `Predicate.isObject` narrows to a generic index signature, so the value
   // tree's own record type is named here.
-  if (!Predicate.isObject(value)) return value;
+  if (!Predicate.isObject(value)) {
+    return value;
+  }
 
   encodeFields(value as XmlRecord, plan, out, inner);
   return out;
@@ -512,9 +663,13 @@ const resolveName = (
  */
 const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): Record<string, string | undefined> => {
   const inner = { ...scope };
+
   for (const [key, declaration] of Object.entries(value)) {
-    if (isDeclarationKey(key) && Predicate.isString(declaration)) inner[declarationPrefix(key)] = declaration;
+    if (isDeclarationKey(key) && Predicate.isString(declaration)) {
+      inner[declarationPrefix(key)] = declaration;
+    }
   }
+
   return inner;
 };
 
@@ -530,7 +685,7 @@ const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): R
 const schemaKey = (plan: NamespacePlan, key: string, scope: Record<string, string | undefined>): string => {
   const isAttribute = isAttributeKey(key);
   const { uri, local } = resolveName(localName(key), isAttribute, scope);
-  return plan.byResolved.get(`${uri ?? ''}|${local}`) ?? (isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local);
+  return plan.byResolved.get(resolvedKey(isAttribute, uri, local)) ?? (isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local);
 };
 
 /**
@@ -553,8 +708,12 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
   const record = value as XmlRecord;
   const inner = scopeOf(record, scope);
   const out: Record<string, XmlValue> = {};
+
   for (const [key, child] of Object.entries(record)) {
-    if (isDeclarationKey(key)) continue;
+    if (isDeclarationKey(key)) {
+      continue;
+    }
+
     out[schemaKey(plan, key, inner)] = decodeNames(child, plan, inner);
   }
 

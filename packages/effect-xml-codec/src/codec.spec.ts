@@ -248,6 +248,57 @@ describe('toCodecXml() — xmlName', () => {
   });
 });
 
+describe('toCodecXml() — xmlAttribute', () => {
+  it('marks a field as an attribute without the @ prefix', () => {
+    const codec = toCodecXml(Schema.Struct({ version: Schema.String.annotate({ xmlAttribute: true }) }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ version: '1' })).toBe('<r version="1"/>');
+    expect(Schema.decodeSync(codec)('<r version="1"/>')).toEqual({ version: '1' });
+  });
+
+  it('combines xmlAttribute with xmlName', () => {
+    const codec = toCodecXml(Schema.Struct({ format: Schema.String.annotate({ xmlAttribute: true, xmlName: 'mime-type' }) }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ format: 'text/plain' })).toBe('<r mime-type="text/plain"/>');
+    expect(Schema.decodeSync(codec)('<r mime-type="text/plain"/>')).toEqual({ format: 'text/plain' });
+  });
+
+  it('writes a namespaced attribute marked with xmlAttribute', () => {
+    const codec = toCodecXml(
+      Schema.Struct({ version: Schema.String.annotate({ xmlAttribute: true, xmlNamespace: 'urn:meta', xmlPrefix: 'meta' }) }),
+      { rootName: 'note' }
+    );
+    const value = { version: '1' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<note xmlns:meta="urn:meta" meta:version="1"/>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('keeps an element and an attribute of the same local name apart', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        '@id': Schema.String.annotate({ xmlNamespace: 'urn:meta', xmlPrefix: 'meta' }),
+        id: Schema.String.annotate({ xmlNamespace: 'urn:meta', xmlPrefix: 'meta' }),
+      }),
+      { rootName: 'r' }
+    );
+    const value = { '@id': 'a', id: 'e' };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<r xmlns:meta="urn:meta" meta:id="a"><meta:id>e</meta:id></r>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('marks an attribute through annotateKey', () => {
+    const codec = toCodecXml(Schema.Struct({ version: Schema.String.pipe(Schema.annotateKey({ xmlAttribute: true })) }), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)({ version: '1' })).toBe('<r version="1"/>');
+    expect(Schema.decodeSync(codec)('<r version="1"/>')).toEqual({ version: '1' });
+  });
+
+  it('refuses a namespaced attribute marked with xmlAttribute but no prefix', () => {
+    expect(() => toCodecXml(Schema.Struct({ version: Schema.String.annotate({ xmlAttribute: true, xmlNamespace: 'urn:meta' }) }))).toThrow(
+      /needs xmlPrefix/
+    );
+  });
+});
+
 describe('toCodecXml() — failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });

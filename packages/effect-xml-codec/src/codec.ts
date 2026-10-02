@@ -22,7 +22,7 @@
 // has one, and from the `rootName` option otherwise; it defaults to `'root'`,
 // the same name Effect's own XML encoder uses.
 
-import { Effect, Schema, SchemaAST, SchemaIssue, SchemaTransformation } from 'effect';
+import { Effect, Predicate, Schema, SchemaAST, SchemaIssue, SchemaTransformation } from 'effect';
 
 import type { XmlParseOptions } from './parse.ts';
 import type { XmlRenderOptions } from './render.ts';
@@ -83,11 +83,12 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
   // names, and a document written with any prefix for the same URI reads back.
   // A schema with no annotation takes the plain path, byte for byte as before.
   const planned = namespacePlan(schema);
-  if ('error' in planned) {
-    throw new Error(`Invalid XML namespace annotation: ${planned.error}.`);
+  if (Predicate.hasProperty(planned, 'error')) {
+    throw new Error(`Invalid XML namespace annotation:\n\t- ${planned.error}.`);
   }
   const plan = planned.plan;
-  const active = plan.byKey.size > 0 || plan.nameByKey.size > 0 || plan.root !== undefined || plan.rootName !== undefined;
+  const active =
+    plan.byKey.size > 0 || plan.nameByKey.size > 0 || plan.attributeKeys.size > 0 || plan.root !== undefined || plan.rootName !== undefined;
 
   const rootName =
     options.rootName ?? plan.rootName ?? SchemaAST.resolveIdentifier(schema.ast) ?? SchemaAST.resolveTitle(schema.ast) ?? DEFAULT_ROOT_NAME;
