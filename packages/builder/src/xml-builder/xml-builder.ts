@@ -18,8 +18,10 @@ import {
   checkStopNode as matchesStopNode,
   collectAttributeValues,
   compileStopNodes,
+  DEFAULT_ENTITIES,
   renderRawTag,
   renderStopNodeAttributes,
+  replaceEntities,
   resolveTagName,
   scalarVersion,
   stripAttributePrefix,
@@ -75,6 +77,17 @@ interface WalkContext {
  */
 export type AttributeValues = Record<string, string>;
 
+/**
+ * @description The identity value processors. Named rather than written inline so the walk can recognize them by reference: when a build keeps both defaults — the
+ * common case — there is no hook to run, and the per-value effect that would call one can be skipped entirely rather than allocated and inlined.
+ */
+const identityTagValueProcessor = function (_key: string, a: unknown) {
+  return Effect.succeed(a as string);
+};
+const identityAttributeValueProcessor = function (_attrName: string, a: unknown) {
+  return Effect.succeed(a as string);
+};
+
 const defaultOptions = {
   attributeNamePrefix: '@_',
   attributesGroupName: false,
@@ -86,22 +99,12 @@ const defaultOptions = {
   suppressEmptyNode: false,
   suppressUnpairedNode: true,
   suppressBooleanAttributes: true,
-  tagValueProcessor: function (_key: string, a: unknown) {
-    return Effect.succeed(a as string);
-  },
-  attributeValueProcessor: function (_attrName: string, a: unknown) {
-    return Effect.succeed(a as string);
-  },
+  tagValueProcessor: identityTagValueProcessor,
+  attributeValueProcessor: identityAttributeValueProcessor,
   preserveOrder: false,
   commentPropName: false,
   unpairedTags: [],
-  entities: [
-    { regex: new RegExp('&', 'g'), val: '&amp;' }, //it must be on top
-    { regex: new RegExp('>', 'g'), val: '&gt;' },
-    { regex: new RegExp('<', 'g'), val: '&lt;' },
-    { regex: new RegExp("'", 'g'), val: '&apos;' },
-    { regex: new RegExp('"', 'g'), val: '&quot;' },
-  ],
+  entities: DEFAULT_ENTITIES,
   processEntities: true,
   // transformTagName: false,
   // transformAttributeName: false,
@@ -183,6 +186,11 @@ interface XmlBuilderState {
    * @description Whether this builder is walking the plain-object form rather than the ordered form.
    */
   readonly processTextOrObjNode: boolean;
+  /**
+   * @description Whether both value processors are the identity defaults. When they are, the per-value processor effect is skipped rather than allocated and
+   * inlined — the common case, and one effect fewer per attribute and per text value.
+   */
+  readonly fastProcessors: boolean;
   /**
    * @description Indent for a given level. A no-op returning `''` unless `format` is on.
    */
@@ -313,6 +321,12 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
     const tagEndChar = resolved.format ? '>\n' : '>';
     const newLine = resolved.format ? '\n' : '';
 
+    // Both processors are the identity defaults when the caller left them out,
+    // or passed these exact functions through. Nothing to run then, so the walk
+    // can skip the effect that would call one on every value.
+    const fastProcessors =
+      resolved.tagValueProcessor === identityTagValueProcessor && resolved.attributeValueProcessor === identityAttributeValueProcessor;
+
     const state: XmlBuilderState = {
       options: resolved,
       stopNodeExpressions,
@@ -320,6 +334,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
       ignoreAttributesFn,
       attrPrefixLen,
       processTextOrObjNode: true,
+      fastProcessors,
       indentate,
       tagEndChar,
       newLine,
@@ -380,10 +395,16 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
         isStopNode: boolean
       ): Effect.fn.Return<string, BuilderError> {
         if (!isStopNode) {
-          const processed = yield* runValueProcessor('attributeValueProcessor', attrName, () =>
-            this.options.attributeValueProcessor(attrName, valToStr(val))
-          );
-          val = valToStr(this.replaceEntitiesValue(processed));
+          if (this.fastProcessors) {
+            // The identity processor returns the value unchanged, so its effect
+            // would only be allocated and inlined. Substitute directly.
+            val = this.replaceEntitiesValue(val);
+          } else {
+            const processed = yield* runValueProcessor('attributeValueProcessor', attrName, () =>
+              this.options.attributeValueProcessor(attrName, valToStr(val))
+            );
+            val = valToStr(this.replaceEntitiesValue(processed));
+          }
         }
         if (this.options.suppressBooleanAttributes && val === 'true') {
           return ' ' + attrName;
@@ -489,12 +510,17 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
           return this.indentate(level) + '<' + key + attrStr + '?' + this.tagEndChar;
         } else {
           // Normal processing: apply tagValueProcessor and entity replacement
-          const processed = yield* runValueProcessor('tagValueProcessor', key, () => this.options.tagValueProcessor(key, val));
-          let textValue = this.replaceEntitiesValue(processed);
-          // tagValueProcessor may return the raw value unchanged (default is identity), and
-          // replaceEntitiesValue no-ops on non-strings, so a plain number can still reach here;
-          // stringify it now, sign-preserving, before it's implicitly ToString'd below.
-          textValue = valToStr(textValue);
+          let textValue: string;
+          if (this.fastProcessors) {
+            textValue = this.replaceEntitiesValue(val);
+          } else {
+            const processed = yield* runValueProcessor('tagValueProcessor', key, () => this.options.tagValueProcessor(key, val));
+            textValue = this.replaceEntitiesValue(processed);
+            // tagValueProcessor may return the raw value unchanged (default is identity), and
+            // replaceEntitiesValue no-ops on non-strings, so a plain number can still reach here;
+            // stringify it now, sign-preserving, before it's implicitly ToString'd below.
+            textValue = valToStr(textValue);
+          }
 
           if (textValue === '') {
             return this.indentate(level) + '<' + key + attrStr + this.closeTag(key) + this.tagEndChar;
@@ -505,14 +531,7 @@ const makeXmlBuilderState = (options?: XmlBuilderOptions): Effect.Effect<XmlBuil
       }),
 
       replaceEntitiesValue: function (this: XmlBuilderState, textValue: unknown): string {
-        let result = valToStr(textValue);
-        if (result.length > 0 && this.options.processEntities) {
-          for (let i = 0; i < this.options.entities.length; i++) {
-            const entity = this.options.entities[i];
-            if (entity) result = result.replace(entity.regex, entity.val);
-          }
-        }
-        return result;
+        return replaceEntities(textValue, this.options);
       },
 
       processTextOrObjNodeFor: Effect.fnUntracedEager(function* (
@@ -664,9 +683,11 @@ function buildContentObjectNode(builder: XmlBuilderState, val: string, key: stri
 }
 
 /**
- * @description Render one key of a level. The dispatch is the walk's chain of `else if`s in its original order, and the order is load-bearing: a `Date` is an
- * object, so it has to be tested before the object shapes, and a primitive is neither. Which of the two strings a branch writes to is what it returns
- * — attributes for an attribute key, the body for everything else.
+ * @description Render one key of a level.\
+ * The dispatch is the walk's chain of `else if`s in its original order, and the order is load-bearing:
+ *
+ * - A `Date` is an object, so it has to be tested before the object shapes, and a primitive is neither. Which of the two strings a branch writes to is
+ *   what it returns attributes for an attribute key, the body for everything else.
  *
  * @param builder - The state walking the level.
  * @param key - The key, as written in the input object.
@@ -801,6 +822,7 @@ const renderPrimitiveTagValue = Effect.fnUntracedEager(function* (
   ctx: WalkContext
 ): Effect.fn.Return<string, BuilderError> {
   if (key === builder.options.textNodeName) {
+    if (builder.fastProcessors) return builder.replaceEntitiesValue(valToStr(value));
     const newval = yield* runValueProcessor('tagValueProcessor', key, () => builder.options.tagValueProcessor(key, valToStr(value)));
     return builder.replaceEntitiesValue(newval);
   }
@@ -923,6 +945,7 @@ const renderListPrimitiveItem = Effect.fnUntracedEager(function* (
   ctx: WalkContext
 ): Effect.fn.Return<string, BuilderError> {
   if (builder.options.oneListGroup) {
+    if (builder.fastProcessors) return builder.replaceEntitiesValue(item);
     let textValue = yield* runValueProcessor('tagValueProcessor', resolvedKey, () => builder.options.tagValueProcessor(resolvedKey, item));
     textValue = builder.replaceEntitiesValue(textValue);
     textValue = valToStr(textValue);

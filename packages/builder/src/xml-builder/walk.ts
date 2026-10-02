@@ -16,9 +16,90 @@ import type { BuilderError } from '#/errors.ts';
 
 import { compilePattern, fromPatternError, tryResolveName } from '#/errors.ts';
 
-import type { ResolvedXmlBuilderOptions } from './options.ts';
+import type { EntityReplacement, ResolvedXmlBuilderOptions } from './options.ts';
 
-import { escapeAttribute } from './util.ts';
+import { escapeAttribute, valToStr } from './util.ts';
+
+/**
+ * @description The five predefined XML entities, in the order the sequential replacer applies them. `&` is first because the later replacements introduce
+ * ampersands; overriding `entities` replaces the whole table, so a caller's own table keeps the sequential path. Comparing by reference against this
+ * array is what lets the default table take the single-pass path below without inspecting each entry.
+ */
+export const DEFAULT_ENTITIES: Array<EntityReplacement> = [
+  { regex: new RegExp('&', 'g'), val: '&amp;' },
+  { regex: new RegExp('>', 'g'), val: '&gt;' },
+  { regex: new RegExp('<', 'g'), val: '&lt;' },
+  { regex: new RegExp("'", 'g'), val: '&apos;' },
+  { regex: new RegExp('"', 'g'), val: '&quot;' },
+];
+
+/**
+ * @description The replacement for each ASCII character the default table escapes, indexed by character code. The five entries are exactly what
+ * {@link DEFAULT_ENTITIES} produces, so the single-pass walk below and the sequential path agree character for character.
+ */
+const ENTITY_TABLE: ReadonlyArray<string | undefined> = (() => {
+  const table = Array.from<string | undefined>({ length: 128 }).fill(undefined);
+  for (const { regex, val } of DEFAULT_ENTITIES) table[regex.source.charCodeAt(0)] = val;
+  return table;
+})();
+
+/**
+ * @description The characters any default entity covers. Finding the first one with a pattern makes clean text cheap: most values have nothing to escape, and a
+ * value that does pays one scan rather than five. The pattern is not global, so `exec` always starts at the beginning and the module-level instance
+ * is safe to reuse.
+ */
+const ENTITY_UNSAFE = /[&<>"']/;
+
+/**
+ * @description Applies the default entity table in one pass over the string, copying runs between the replacements rather than rescanning the whole string once
+ * per entity. A string with nothing to escape is handed straight back.
+ *
+ * @param value - The text to escape.
+ *
+ * @returns The escaped text.
+ */
+const escapeDefaultEntities = (value: string): string => {
+  const found = ENTITY_UNSAFE.exec(value);
+  if (found === null) return value;
+
+  const length = value.length;
+  const start = found.index;
+  let out = value.slice(0, start);
+  let copied = start;
+
+  for (let index = start; index < length; index++) {
+    const code = value.charCodeAt(index);
+    const entity = code < 128 ? ENTITY_TABLE[code] : undefined;
+    if (entity !== undefined) {
+      out += value.slice(copied, index) + entity;
+      copied = index + 1;
+    }
+  }
+
+  return copied === length ? out : out + value.slice(copied);
+};
+
+/**
+ * @description Apply the configured entity substitutions to a value as text. The default table takes a single-pass path; a caller's own table keeps the original
+ * sequential replacements, because an override can change what each pass sees and the order is load-bearing.
+ *
+ * @param textValue - The value to substitute.
+ * @param options - The resolved options.
+ *
+ * @returns The substituted text.
+ */
+export function replaceEntities(textValue: unknown, options: ResolvedXmlBuilderOptions): string {
+  const result = valToStr(textValue);
+  if (result.length === 0 || !options.processEntities) return result;
+  if (options.entities === DEFAULT_ENTITIES) return escapeDefaultEntities(result);
+
+  let out = result;
+  for (let i = 0; i < options.entities.length; i++) {
+    const entity = options.entities[i];
+    if (entity) out = out.replace(entity.regex, entity.val);
+  }
+  return out;
+}
 
 /**
  * @description A memoized QName validator. The walks test it before deciding a name needs repairing — so a name the validator rejects is the one that reaches
@@ -125,12 +206,7 @@ export function checkStopNode(matcher: Matcher, stopNodeExpressions: Array<Expre
  */
 export function substituteEntities(textValue: unknown, options: ResolvedXmlBuilderOptions): unknown {
   if (typeof textValue === 'string' && textValue.length > 0 && options.processEntities) {
-    let result = textValue;
-    for (let i = 0; i < options.entities.length; i++) {
-      const entity = options.entities[i];
-      if (entity) result = result.replace(entity.regex, entity.val);
-    }
-    return result;
+    return replaceEntities(textValue, options);
   }
   return textValue;
 }

@@ -41,4 +41,16 @@ export const safeCdata = (val: unknown): string => valToStr(val).replace(/\]\]>/
  *
  * @returns The value, safe to place between double quotes.
  */
-export const escapeAttribute = (val: unknown): string => valToStr(val).replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+export const escapeAttribute = (val: unknown): string => {
+  const str = valToStr(val);
+  // A single test is cheaper than two global replacements when there is nothing
+  // to escape, which is the common case once entity substitution has already run.
+  if (!QUOTE_UNSAFE.test(str)) return str;
+  return str.replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+};
+
+/**
+ * @description The two characters {@link escapeAttribute} replaces. Not global, so `test` always starts at the beginning and the module-level instance is safe to
+ * reuse.
+ */
+const QUOTE_UNSAFE = /["']/;
