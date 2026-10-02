@@ -73,6 +73,12 @@
         "scanTagExpEndFast",
       ],
     },
+    // Public `EntityDecoder` API. `setExternalEntities` installs the persistent
+    // external entities a consumer registers before decoding, and only this
+    // repo's own specs call it, so production reachability cannot see the use.
+    // The name is specific enough that a bare entry does not hide a different
+    // class's member.
+    "setExternalEntities",
   ],
   "ignoreDependencies": [
     // tsdown `attw` build plugin (wired in tsdown.config.ts, never directly imported).

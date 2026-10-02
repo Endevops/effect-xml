@@ -1,3 +1,4 @@
+// oxlint-disable effecttsgo/effect-succeed-with-void
 // entity-decoder.ts
 //
 // Single-pass, zero-regex decoder. Scan for `&`, read to `;`, resolve, push chunks, join once. Ported from
@@ -15,7 +16,7 @@
 // Each is called out where it appears, and none of them is repaired, because this class sits in front of XXE
 // and entity-expansion handling where a silent fix is a change to every consumer's output.
 
-import { Effect } from 'effect';
+import { Effect, Match } from 'effect';
 
 import { XmlError } from '#/errors.ts';
 
@@ -1188,24 +1189,21 @@ export class EntityDecoder {
    *   codepoint.
    */
   #applyNCRAction(action: number, token: string, cp: number): Effect.Effect<string | undefined, XmlError> {
-    switch (action) {
-      case NCR_LEVEL.allow:
-        return Effect.succeed(String.fromCodePoint(cp));
-      case NCR_LEVEL.remove:
-        return Effect.succeed('');
-      case NCR_LEVEL.leave:
-        // oxlint-disable-next-line effecttsgo/effect-succeed-with-void
-        return Effect.succeed(undefined);
-      case NCR_LEVEL.throw:
-        return Effect.fail(
+    return Match.value(action).pipe(
+      Match.when(NCR_LEVEL.allow, () => Effect.succeed(String.fromCodePoint(cp))),
+      Match.when(NCR_LEVEL.remove, () => Effect.succeed('')),
+      // oxlint-disable-next-line effecttsgo/effect-succeed-with-void
+      Match.when(NCR_LEVEL.leave, () => Effect.succeed(undefined)),
+      Match.when(NCR_LEVEL.throw, () =>
+        Effect.fail(
           new XmlError({
             reason: { _tag: 'ProhibitedCharacterReference', token, codepoint: cp },
             message: `[EntityDecoder] Prohibited numeric character reference &${token}; ` + `(U+${cp.toString(16).toUpperCase().padStart(4, '0')})`,
           })
-        );
-      default:
-        return Effect.succeed(String.fromCodePoint(cp));
-    }
+        )
+      ),
+      Match.orElse(() => Effect.succeed(String.fromCodePoint(cp)))
+    );
   }
 
   /**

@@ -331,30 +331,6 @@ export const isNmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }
 export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
   getRegexes(xmlVersion, asciiOnly).nmTokens.test(str);
 
-// ---------------------------------------------------------------------------
-// Memoized validator factory
-//
-// Real documents reuse a small vocabulary of tag/attribute names across many
-// siblings (e.g. `id`, `class`, `href` repeated across hundreds of elements).
-// The plain boolean validators above re-run the regex on every call
-// regardless of repeats. `createValidator` returns a closure with a private
-// string -> boolean cache, so repeated names after the first become O(1)
-// lookups instead of regex tests.
-//
-// - opts (xmlVersion, asciiOnly) are fixed at creation time, so the regex is
-//   resolved once, not on every call.
-// - The cache is private to the returned closure — no shared/global state,
-//   no cross-caller pollution.
-// - `maxCacheSize` bounds memory: once the cache reaches this many entries,
-//   it stops accepting new ones (existing entries keep serving hits; new
-//   misses just fall through to the regex, uncached). This avoids unbounded
-//   growth against adversarial/high-cardinality input (e.g. validating
-//   attacker-supplied names with no repeats) without the cost/complexity of
-//   a full LRU, and without the perf cliff of reset-and-refill thrashing.
-// - Call `.reset()` on the returned function to clear the cache manually
-//   (e.g. between unrelated parse calls).
-// ---------------------------------------------------------------------------
-
 /**
  * @description The failure to report when a production is not one of the five this module knows, so `createValidator`, `validate` and `validateAll` report it the
  * same way. The single place the unknown-production guard lives. It is unreachable from TypeScript, where `Production` is a closed union; this is the
@@ -420,9 +396,13 @@ export const createValidator = Effect.fnUntraced(function* (
   );
 });
 
-// ---------------------------------------------------------------------------
-// Diagnostic validator
-// ---------------------------------------------------------------------------
+const validators: Record<Production, (str: string, opts?: ValidationOptions) => boolean> = {
+  name: isName,
+  ncName: isNcName,
+  qName: isQName,
+  nmToken: isNmToken,
+  nmTokens: isNmTokens,
+};
 
 /**
  * @description The diagnostic body {@link validate} reports, with the production already known to be valid. Kept separate so the reason-finding logic carries no
@@ -435,16 +415,8 @@ export const createValidator = Effect.fnUntraced(function* (
  *
  * @returns The discriminated result.
  */
-const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, asciiOnly: boolean): ValidationResult => {
-  const validators: Record<Production, (str: string, opts?: ValidationOptions) => boolean> = {
-    name: isName,
-    ncName: isNcName,
-    qName: isQName,
-    nmToken: isNmToken,
-    nmTokens: isNmTokens,
-  };
-  return diagnoseWith(str, production, validators[production](str, { xmlVersion, asciiOnly }), asciiOnly);
-};
+const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, asciiOnly: boolean): ValidationResult =>
+  diagnoseWith(str, production, validators[production](str, { xmlVersion, asciiOnly }), asciiOnly);
 
 /**
  * @description The colon-specific reason a `qName` or `ncName` failed, or `undefined` when the failure is not about a colon. The three QName forms are checked in
@@ -461,7 +433,9 @@ const diagnoseColon = (str: string, production: Production): { reason: string; p
     return { reason: 'Colon is not allowed in NCName', position: str.indexOf(':') };
   }
 
-  if (production !== 'qName') return undefined;
+  if (production !== 'qName') {
+    return undefined;
+  }
   if (str.startsWith(':')) {
     return { reason: 'QName cannot start with a colon', position: 0 };
   }
