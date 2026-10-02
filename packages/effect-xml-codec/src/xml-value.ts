@@ -95,7 +95,7 @@ const everyFieldIs = (input: object, depth: number): boolean => {
  * @example
  *   ```typescript
  *   import { Schema } from 'effect';
- *   import { XmlValue } from '@endevops/effect-xml-codec';
+ *   import { XmlValue } from '@endevops/effect-codec-xml';
  *
  *   Schema.decodeUnknownSync(XmlValue)({ book: { '@id': '1', title: 'Dune' } }); // => { book: { '@id': '1', title: 'Dune' } }
  *   Schema.decodeUnknownSync(XmlValue)({ book: { title: 42 } }); // => throws XmlValue

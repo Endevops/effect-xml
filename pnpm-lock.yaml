@@ -238,7 +238,7 @@ importers:
 
   packages/benchmarks:
     devDependencies:
-      '@endevops/effect-xml-codec':
+      '@endevops/effect-codec-xml':
         specifier: workspace:^
         version: link:../effect-xml-codec
       '@nodable/flexible-xml-parser':

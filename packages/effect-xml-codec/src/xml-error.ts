@@ -13,7 +13,7 @@
  * @example
  *   ```typescript
  *   import { Effect } from 'effect';
- *   import { EntityDecoder, XmlError } from '@endevops/effect-xml-codec';
+ *   import { EntityDecoder, XmlError } from '@endevops/effect-codec-xml';
  *
  *   const limited = new EntityDecoder({ limit: { maxTotalExpansions: 2 } }).decode('&amp;&amp;&amp;').pipe(
  *   Effect.catchReason('XmlError', 'ExpansionLimitExceeded', reason => Effect.succeed(`gave up after ${reason.actual}`)),
@@ -146,7 +146,7 @@ export type XmlErrorReason = typeof XmlErrorReason.Type;
  * @example
  *   ```typescript
  *   import { Effect } from 'effect';
- *   import { EntityDecoder } from '@endevops/effect-xml-codec';
+ *   import { EntityDecoder } from '@endevops/effect-codec-xml';
  *
  *   const program = Effect.gen(function*() {
  *     const decoder = yield* EntityDecoder.make({});

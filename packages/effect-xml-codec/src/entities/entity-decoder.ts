@@ -910,7 +910,7 @@ export class EntityDecoder {
    * @example
    *   ```typescript
    *   import { Effect } from 'effect';
-   *   import { EntityDecoder } from '@endevops/effect-xml-codec';
+   *   import { EntityDecoder } from '@endevops/effect-codec-xml';
    *
    *   const decoder = new EntityDecoder({ namedEntities: { copy: '©' } });
    *   Effect.runSync(Effect.orElseSucceed(decoder.addExternalEntity('brand', 'Acme'), () => undefined));

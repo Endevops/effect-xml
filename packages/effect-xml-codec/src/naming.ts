@@ -454,7 +454,7 @@ const diagnoseWith = (str: string, production: Production, isValid: boolean, asc
  * @example
  *   ```typescript
  *   import { Effect } from 'effect';
- *   import { validate } from '@endevops/effect-xml-codec';
+ *   import { validate } from '@endevops/effect-codec-xml';
  *
  *   Effect.runSync(validate('not a name', 'ncName'));
  *   // { valid: false, production: 'ncName', input: 'not a name', reason: 'First character " " is not a valid NameStartChar', position: 0 }

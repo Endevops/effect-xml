@@ -57,7 +57,7 @@ export interface toCodecXml<S extends Schema.Constraint> extends Schema.decodeTo
  * @example
  *   ```typescript
  *   import { Schema } from 'effect';
- *   import { toCodecXml } from '@endevops/effect-xml-codec';
+ *   import { toCodecXml } from '@endevops/effect-codec-xml';
  *
  *   const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: Schema.Number });
  *   const codec = toCodecXml(Book, { rootName: 'book' });

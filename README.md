@@ -5,7 +5,7 @@ A pnpm workspace for the Endevops XML packages, built on
 
 | Package                                                     | Description                                                                    |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [`@endevops/effect-xml-codec`](./packages/effect-xml-codec) | Round-trip Effect Schema codec for XML, entity decoder and XML name validation |
+| [`@endevops/effect-codec-xml`](./packages/effect-xml-codec) | Round-trip Effect Schema codec for XML, entity decoder and XML name validation |
 | [`@endevops/benchmarks`](./packages/benchmarks)             | Private project that runs the benchmarks, never published                      |
 
 One publishable package and one private project. `effect-xml-codec` is

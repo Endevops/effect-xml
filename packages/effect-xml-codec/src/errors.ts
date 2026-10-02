@@ -12,7 +12,7 @@ import { Schema } from 'effect';
  *
  * @example
  *   ```typescript
- *   import { XmlParseError } from '@endevops/effect-xml-codec';
+ *   import { XmlParseError } from '@endevops/effect-codec-xml';
  *
  *   const error = new XmlParseError({ message: 'Unclosed element', position: 12, input: '<a><b>' });
  *   ```;
@@ -42,7 +42,7 @@ export class XmlParseError extends Schema.TaggedError<XmlParseError>()('XmlParse
  *
  * @example
  *   ```typescript
- *   import { XmlRenderError } from '@endevops/effect-xml-codec';
+ *   import { XmlRenderError } from '@endevops/effect-codec-xml';
  *
  *   const error = new XmlRenderError({ message: 'Invalid XML name "not a name"' });
  *   ```;

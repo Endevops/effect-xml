@@ -36,6 +36,7 @@
     // they are configured rather than imported.
     "@arethetypeswrong/core",
     "publint",
+    "@endevops/effect-codec-xml",
   ],
   "rules": {
     "circular-dependencies": "error",

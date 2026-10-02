@@ -1,6 +1,6 @@
-import type { XmlValue } from '@endevops/effect-xml-codec';
+import type { XmlValue } from '@endevops/effect-codec-xml';
 
-import { parseXml, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
+import { parseXml, renderXml, toCodecXml } from '@endevops/effect-codec-xml';
 import { Effect, Schema } from 'effect';
 import { describe, test } from 'vite-plus/test';
 

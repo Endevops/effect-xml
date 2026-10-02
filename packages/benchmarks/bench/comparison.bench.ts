@@ -1,6 +1,6 @@
 // oxlint-disable effecttsgo/schema-number
 
-import { toCodecXml } from '@endevops/effect-xml-codec';
+import { toCodecXml } from '@endevops/effect-codec-xml';
 import { XMLParser as NodableXMLParser } from '@nodable/flexible-xml-parser';
 import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
@@ -124,7 +124,7 @@ const BUDGET = { time: 1000, warmupTime: 50 } as const;
 describe('encoding', () => {
   test('a small document', async ({ bench }) => {
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         encodeOrderDocument.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
@@ -136,7 +136,7 @@ describe('encoding', () => {
 
   test('a 500-row document', async ({ bench }) => {
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         encodeReportDocument.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
@@ -148,7 +148,7 @@ describe('encoding', () => {
 
   test('one large text node', async ({ bench }) => {
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         encodeNoteDocument.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
@@ -159,7 +159,7 @@ describe('encoding', () => {
   });
   test('a namespaced document', async ({ bench }) => {
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         encodeFeedDocument.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
@@ -174,7 +174,7 @@ describe('decoding', () => {
   test('a small document', async ({ bench }) => {
     const decode = decodeOrder(orderDocument);
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         decode.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
@@ -190,7 +190,7 @@ describe('decoding', () => {
   test('a 500-row document', async ({ bench }) => {
     const decode = decodeReport(reportDocument);
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         decode.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
@@ -208,7 +208,7 @@ describe('decoding', () => {
     const decode = decodeNote(noteDocument);
 
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         decode.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
@@ -225,7 +225,7 @@ describe('decoding', () => {
     const decode = decodeFeed(feedDocument);
     expect(Effect.runSync(decode)).toEqual(feed);
     await bench.compare(
-      bench('@endevops/effect-xml-codec', () => {
+      bench('@endevops/effect-codec-xml', () => {
         decodeFeed(feedDocument).pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
@@ -242,7 +242,7 @@ describe('decoding', () => {
 test('a full round trip, both halves measured', async ({ bench }) => {
   const decode = encodeOrderDocument.pipe(Effect.flatMap(decodeOrder));
   await bench.compare(
-    bench('@endevops/effect-xml-codec', () => {
+    bench('@endevops/effect-codec-xml', () => {
       decode.pipe(Effect.runSync);
     }),
     bench('then parser, both from npm', () => {

@@ -8,7 +8,7 @@
  * @example
  *   ```typescript
  *   import { Schema } from 'effect';
- *   import { toCodecXml } from '@endevops/effect-xml-codec';
+ *   import { toCodecXml } from '@endevops/effect-codec-xml';
  *
  *   const Book = Schema.Struct({
  *     '@id': Schema.String,
