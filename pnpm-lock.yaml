@@ -235,18 +235,12 @@ importers:
 
   packages/benchmarks:
     devDependencies:
-      '@endevops/builder':
-        specifier: workspace:^
-        version: link:../builder
       '@endevops/common-xml':
         specifier: workspace:^
         version: link:../common-xml
       '@endevops/effect-xml-codec':
         specifier: workspace:^
         version: link:../effect-xml-codec
-      '@endevops/parser':
-        specifier: workspace:^
-        version: link:../parser
       '@nodable/flexible-xml-parser':
         specifier: ^1.11.3
         version: 1.11.3
@@ -259,34 +253,6 @@ importers:
       fast-xml-parser:
         specifier: ^5.11.1
         version: 5.11.1
-      vite:
-        specifier: 'catalog:'
-        version: '@voidzero-dev/vite-plus-core@1.0.0(@arethetypeswrong/core@0.18.5)(@types/node@26.6.3)(publint@0.3.24)(typescript@7.0.2)'
-      vite-plus:
-        specifier: 'catalog:'
-        version: 1.0.0(@arethetypeswrong/core@0.18.5)(@types/node@26.6.3)(@vitest/coverage-v8@5.0.1)(@vitest/ui@5.0.1)(publint@0.3.24)(typescript@7.0.2)
-
-  packages/builder:
-    dependencies:
-      '@endevops/common-xml':
-        specifier: workspace:^
-        version: link:../common-xml
-      effect:
-        specifier: 'catalog:'
-        version: 4.0.0
-    devDependencies:
-      '@arethetypeswrong/core':
-        specifier: 'catalog:'
-        version: 0.18.5
-      '@effect/vitest':
-        specifier: ^4.0.0
-        version: 4.0.0(effect@4.0.0)(vitest@5.0.1)
-      fast-xml-parser:
-        specifier: ^5.11.1
-        version: 5.11.1
-      publint:
-        specifier: 'catalog:'
-        version: 0.3.24
       vite:
         specifier: 'catalog:'
         version: '@voidzero-dev/vite-plus-core@1.0.0(@arethetypeswrong/core@0.18.5)(@types/node@26.6.3)(publint@0.3.24)(typescript@7.0.2)'
@@ -331,34 +297,6 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0
-      publint:
-        specifier: 'catalog:'
-        version: 0.3.24
-      vite:
-        specifier: 'catalog:'
-        version: '@voidzero-dev/vite-plus-core@1.0.0(@arethetypeswrong/core@0.18.5)(@types/node@26.6.3)(publint@0.3.24)(typescript@7.0.2)'
-      vite-plus:
-        specifier: 'catalog:'
-        version: 1.0.0(@arethetypeswrong/core@0.18.5)(@types/node@26.6.3)(@vitest/coverage-v8@5.0.1)(@vitest/ui@5.0.1)(publint@0.3.24)(typescript@7.0.2)
-
-  packages/parser:
-    dependencies:
-      '@endevops/builder':
-        specifier: workspace:^
-        version: link:../builder
-      '@endevops/common-xml':
-        specifier: workspace:^
-        version: link:../common-xml
-      effect:
-        specifier: 'catalog:'
-        version: 4.0.0
-    devDependencies:
-      '@arethetypeswrong/core':
-        specifier: 'catalog:'
-        version: 0.18.5
-      '@effect/vitest':
-        specifier: ^4.0.0
-        version: 4.0.0(effect@4.0.0)(vitest@5.0.1)
       publint:
         specifier: 'catalog:'
         version: 0.3.24

@@ -92,7 +92,9 @@ export interface XmlRenderOptions {
   readonly itemName?: string | undefined;
 
   /**
-   * @description Indent nested elements on their own lines. Defaults to `false`, matching `@endevops/builder`.
+   * @description Indent nested elements on their own lines. Defaults to `false`.
+   *
+   * @default `false`
    */
   readonly format?: boolean | undefined;
 

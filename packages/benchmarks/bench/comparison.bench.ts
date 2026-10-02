@@ -1,8 +1,6 @@
 // oxlint-disable effecttsgo/schema-number
 
-import { XMLBuilder } from '@endevops/builder';
 import { toCodecXml } from '@endevops/effect-xml-codec';
-import { XMLParser } from '@endevops/parser';
 import { XMLParser as NodableXMLParser } from '@nodable/flexible-xml-parser';
 import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
@@ -93,9 +91,6 @@ const upstreamBuilder = new UpstreamXMLBuilder({ ...BUILDER_OPTIONS });
 const upstreamParser = new UpstreamXMLParser({ ignoreAttributes: false, attributeNamePrefix: '@', parseAttributeValue: false });
 const nodableParser = new NodableXMLParser({ skip: { attributes: false } });
 
-const builder = XMLBuilder.make({ ...BUILDER_OPTIONS }).pipe(Effect.runSync);
-const parser = XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '@' } }).pipe(Effect.runSync);
-
 const encodeOrder = Schema.encodeEffect(Order);
 const encodeReport = Schema.encodeEffect(Report);
 const encodeNote = Schema.encodeEffect(Note);
@@ -128,13 +123,9 @@ const BUDGET = { time: 1000, warmupTime: 50 } as const;
 
 describe('encoding', () => {
   test('a small document', async ({ bench }) => {
-    const buildDocumentOrder = builder.build({ [ROOT]: order });
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         encodeOrderDocument.pipe(Effect.runSync);
-      }),
-      bench('@endevops/builder', () => {
-        buildDocumentOrder.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
         upstreamBuilder.build({ [ROOT]: order });
@@ -144,13 +135,9 @@ describe('encoding', () => {
   });
 
   test('a 500-row document', async ({ bench }) => {
-    const buildReportDocument = builder.build({ [REPORT_ROOT]: report });
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         encodeReportDocument.pipe(Effect.runSync);
-      }),
-      bench('@endevops/builder', () => {
-        buildReportDocument.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
         upstreamBuilder.build({ [REPORT_ROOT]: report });
@@ -160,13 +147,9 @@ describe('encoding', () => {
   });
 
   test('one large text node', async ({ bench }) => {
-    const buildNote = builder.build({ [NOTE_ROOT]: note });
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         encodeNoteDocument.pipe(Effect.runSync);
-      }),
-      bench('@endevops/builder', () => {
-        buildNote.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
         upstreamBuilder.build({ [NOTE_ROOT]: note });
@@ -175,16 +158,9 @@ describe('encoding', () => {
     );
   });
   test('a namespaced document', async ({ bench }) => {
-    const buildFeedDocument = builder.build({ [FEED_ROOT]: feedWire });
-    // A builder has no annotations, so the comparison only means anything if the
-    // declaration the codec writes and the one spelled out for the builder agree.
-    expect(Effect.runSync(buildFeedDocument)).toBe(Effect.runSync(encodeFeedDocument));
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         encodeFeedDocument.pipe(Effect.runSync);
-      }),
-      bench('@endevops/builder', () => {
-        buildFeedDocument.pipe(Effect.runSync);
       }),
       bench('fast-xml-builder', () => {
         upstreamBuilder.build({ [FEED_ROOT]: feedWire });
@@ -197,13 +173,9 @@ describe('encoding', () => {
 describe('decoding', () => {
   test('a small document', async ({ bench }) => {
     const decode = decodeOrder(orderDocument);
-    const parseOrder = parser.parse(orderDocument);
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         decode.pipe(Effect.runSync);
-      }),
-      bench('@endevops/parser', () => {
-        parseOrder.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(orderDocument);
@@ -217,13 +189,9 @@ describe('decoding', () => {
 
   test('a 500-row document', async ({ bench }) => {
     const decode = decodeReport(reportDocument);
-    const parse = parser.parse(reportDocument);
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         decode.pipe(Effect.runSync);
-      }),
-      bench('@endevops/parser', () => {
-        parse.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(reportDocument);
@@ -238,14 +206,10 @@ describe('decoding', () => {
 
   test('one large text node', async ({ bench }) => {
     const decode = decodeNote(noteDocument);
-    const parse = parser.parse(noteDocument);
 
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         decode.pipe(Effect.runSync);
-      }),
-      bench('@endevops/parser', () => {
-        parse.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(noteDocument);
@@ -259,14 +223,10 @@ describe('decoding', () => {
 
   test('a namespaced document', async ({ bench }) => {
     const decode = decodeFeed(feedDocument);
-    const parse = parser.parse(feedDocument);
     expect(Effect.runSync(decode)).toEqual(feed);
     await bench.compare(
       bench('@endevops/effect-xml-codec', () => {
         decodeFeed(feedDocument).pipe(Effect.runSync);
-      }),
-      bench('@endevops/parser', () => {
-        parse.pipe(Effect.runSync);
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(feedDocument);
@@ -281,16 +241,9 @@ describe('decoding', () => {
 
 test('a full round trip, both halves measured', async ({ bench }) => {
   const decode = encodeOrderDocument.pipe(Effect.flatMap(decodeOrder));
-  const parse = Effect.gen(function* () {
-    const document = yield* builder.build({ [ROOT]: order });
-    yield* parser.parse(document);
-  });
   await bench.compare(
     bench('@endevops/effect-xml-codec', () => {
       decode.pipe(Effect.runSync);
-    }),
-    bench('@endevops/builder-parser', () => {
-      parse.pipe(Effect.runSync);
     }),
     bench('then parser, both from npm', () => {
       const document = upstreamBuilder.build({ [ROOT]: order });

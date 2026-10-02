@@ -1,18 +1,3 @@
-// The naming conventions that give an `XmlValue` its XML meaning.
-//
-// An `XmlValue` is a plain JavaScript value — strings, arrays and records — so
-// nothing in the value itself says which key is an attribute and which is a
-// child element. These two rules carry that meaning, and they are deliberately
-// the same rules `@endevops/builder` and this repo's parser already use, so
-// an object that goes in comes back out unchanged:
-//
-//   - a key starting with `@` is an attribute; `@xmlns` becomes `xmlns="…"`.
-//   - the key `#text` holds the element's character data.
-//
-// `@` is a good discriminator because it is not a legal XML `Name` character,
-// so an `@`-prefixed key can never collide with a real element name, and a
-// field that *is* a valid element name never gets mistaken for an attribute.
-
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { isQName, sanitize, validate } from '@endevops/common-xml';

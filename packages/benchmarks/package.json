@@ -8,10 +8,8 @@
     "bench": "vp test bench"
   },
   "devDependencies": {
-    "@endevops/builder": "workspace:^",
     "@endevops/common-xml": "workspace:^",
     "@endevops/effect-xml-codec": "workspace:^",
-    "@endevops/parser": "workspace:^",
     "@nodable/flexible-xml-parser": "^1.11.3",
     "effect": "catalog:",
     "fast-xml-builder": "^1.3.1",
