@@ -3,6 +3,7 @@
 import { XMLBuilder } from '@endevops/builder';
 import { toCodecXml } from '@endevops/effect-xml-codec';
 import { XMLParser } from '@endevops/parser';
+import { XMLParser as NodableXMLParser } from '@nodable/flexible-xml-parser';
 import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
@@ -90,6 +91,7 @@ const BUILDER_OPTIONS = { attributeNamePrefix: '@', ignoreAttributes: false, sup
 
 const upstreamBuilder = new UpstreamXMLBuilder({ ...BUILDER_OPTIONS });
 const upstreamParser = new UpstreamXMLParser({ ignoreAttributes: false, attributeNamePrefix: '@', parseAttributeValue: false });
+const nodableParser = new NodableXMLParser({ skip: { attributes: false } });
 
 const builder = XMLBuilder.make({ ...BUILDER_OPTIONS }).pipe(Effect.runSync);
 const parser = XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '@' } }).pipe(Effect.runSync);
@@ -206,6 +208,9 @@ describe('decoding', () => {
       bench('fast-xml-parser', () => {
         upstreamParser.parse(orderDocument);
       }),
+      bench('@nodable/flexible-xml-parser', () => {
+        nodableParser.parse(orderDocument);
+      }),
       BUDGET
     );
   });
@@ -222,6 +227,10 @@ describe('decoding', () => {
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(reportDocument);
+      }),
+
+      bench('@nodable/flexible-xml-parser', () => {
+        nodableParser.parse(orderDocument);
       }),
       BUDGET
     );
@@ -241,6 +250,9 @@ describe('decoding', () => {
       bench('fast-xml-parser', () => {
         upstreamParser.parse(noteDocument);
       }),
+      bench('@nodable/flexible-xml-parser', () => {
+        nodableParser.parse(orderDocument);
+      }),
       BUDGET
     );
   });
@@ -258,6 +270,9 @@ describe('decoding', () => {
       }),
       bench('fast-xml-parser', () => {
         upstreamParser.parse(feedDocument);
+      }),
+      bench('@nodable/flexible-xml-parser', () => {
+        nodableParser.parse(orderDocument);
       }),
       BUDGET
     );
@@ -280,6 +295,10 @@ test('a full round trip, both halves measured', async ({ bench }) => {
     bench('then parser, both from npm', () => {
       const document = upstreamBuilder.build({ [ROOT]: order });
       upstreamParser.parse(document);
+    }),
+    bench('then @nodable/parser, both from npm', () => {
+      const document = upstreamBuilder.build({ [ROOT]: order });
+      nodableParser.parse(document);
     }),
     BUDGET
   );
