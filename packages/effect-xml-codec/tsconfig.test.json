@@ -12,7 +12,7 @@
 // Only the test tree opts out, and only because its input is arbitrary by
 // design.
 {
-  "extends": "../tsconfig.json",
+  "extends": "./tsconfig.json",
   "compilerOptions": { "noPropertyAccessFromIndexSignature": false, "noUncheckedIndexedAccess": false },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.spec.ts"]
 }
