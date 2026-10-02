@@ -1,30 +1,13 @@
-import { execFileSync } from 'node:child_process';
-
 // Sanitizes a `feature/*` branch name into a valid semver prerelease identifier
 // (and npm dist-tag). Evaluated by semantic-release as a lodash template with
 // the `name` variable bound to the full branch name (e.g. `feature/my-thing`).
 const featureIdentifier =
   '${name.replace(/^feature\\//, "").toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "alpha"}';
 
-const tryGit = (...args) => {
-  try {
-    execFileSync('git', args, { stdio: 'ignore' });
-  } catch {}
-};
-
-const removeGitTagOnFeature = {
-  async success(_pluginConfig, context) {
-    const branchName = context.branch.name;
-    if (!branchName.startsWith('feature/')) {
-      return;
-    }
-    const tag = `v${context.nextRelease.version}`;
-    tryGit('tag', '-d', tag);
-    tryGit('push', 'origin', `:refs/tags/${tag}`);
-    context.logger.log(`Deleted git tag ${tag} (feature branch releases are npm-only).`);
-  },
-};
-
+// In CI the release job runs on push, so GITHUB_REF_NAME holds the branch name.
+// Feature branches publish to npm only, with no GitHub Release. The git tag is
+// still created: semantic-release reads it on the next run to advance the
+// prerelease counter, so deleting it would republish the same version.
 const isFeatureBranch = (process.env.GITHUB_REF_NAME ?? '').startsWith('feature/');
 
 /**
@@ -52,8 +35,28 @@ export default {
       },
     ],
     '@semantic-release/release-notes-generator',
-    '@semantic-release/npm',
+    [
+      '@semantic-release/exec',
+      {
+        // Stamp the shared version into the root manifest and every publishable
+        // package before the release commit and the publish run. A helper
+        // script, not a plugin: it rewrites the `version` field in place and
+        // leaves the rest of each manifest untouched.
+        prepareCmd: 'node scripts/release/sync-versions.mjs ${nextRelease.version}',
+        // Publish every workspace package at the shared version. pnpm resolves
+        // `workspace:` and `catalog:` ranges, honors publishConfig (including
+        // the `exports` override), and publishes in dependency order.
+        publishCmd: 'pnpm -r publish --no-git-checks --access public --provenance --tag ${nextRelease.channel || "latest"}',
+      },
+    ],
+    [
+      '@semantic-release/git',
+      {
+        // Keep the committed manifests in lockstep with what npm receives.
+        assets: ['package.json', 'packages/*/package.json'],
+        message: 'chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}',
+      },
+    ],
     ...(isFeatureBranch ? [] : ['@semantic-release/github']),
-    removeGitTagOnFeature,
   ],
 };

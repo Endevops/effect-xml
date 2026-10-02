@@ -17,18 +17,17 @@ in CI. There is no manual version bumping.
 - **Version selection** is derived from commit messages. A commit that does not
   match a release rule triggers no release.
 - **Tags** are created automatically as `vMAJOR.MINOR.PATCH` (e.g. `v1.2.3`) and
-  are the only tags the repository uses, except on `feature/*` branches, which
-  are npm-only: the tag is deleted right after publishing and no GitHub Release
-  is created.
+  are the only tags the repository uses. They are also the version ledger
+  semantic-release reads on the next run, so they are never deleted.
 
 ## Branch -> channel mapping
 
-| Branch      | Version channel                                | Example              | npm dist-tag     |
-| ----------- | ---------------------------------------------- | -------------------- | ---------------- |
-| `master`    | Stable release                                 | `1.2.3`              | `latest`         |
-| `develop`   | Beta prerelease                                | `1.2.3-beta.1`       | `beta`           |
-| `feature/*` | Feature-name prerelease (npm-only, no git tag) | `1.2.3-my-feature.1` | `<feature-name>` |
-| `hotfix/*`  | Release-candidate prerelease                   | `1.2.3-rc.1`         | `rc`             |
+| Branch      | Version channel                                       | Example              | npm dist-tag     |
+| ----------- | ----------------------------------------------------- | -------------------- | ---------------- |
+| `master`    | Stable release                                        | `1.2.3`              | `latest`         |
+| `develop`   | Beta prerelease                                       | `1.2.3-beta.1`       | `beta`           |
+| `feature/*` | Feature-name prerelease (npm-only, no GitHub Release) | `1.2.3-my-feature.1` | `<feature-name>` |
+| `hotfix/*`  | Release-candidate prerelease                          | `1.2.3-rc.1`         | `rc`             |
 
 The prerelease identifier (and npm dist-tag) for a `feature/*` branch is the
 sanitized branch name after `feature/`: lowercased, with runs of characters
@@ -75,28 +74,28 @@ with a `BREAKING CHANGE:` trailer in the commit body.
    - analyzes commits since the last tag,
    - computes the next version per the rules above,
    - writes that version into the root `package.json` and every publishable
-     `packages/*/package.json` (`scripts/release/sync-versions.mjs`),
-     commits the bump, and tags it `vX.Y.Z`,
-   - publishes every package at that version with `pnpm -r publish`, which
-     resolves each `workspace:^` range to the published version and publishes in
-     dependency order,
+     `packages/*/package.json` (`scripts/release/sync-versions.mjs`), commits
+     the bump with `@semantic-release/git`, and tags it `vX.Y.Z`,
+   - publishes every public package at that version with `pnpm -r publish`,
+     which resolves `workspace:` and `catalog:` ranges and honors
+     `publishConfig`,
    - publishes with OIDC **trusted publishing** and **provenance** (no
      `NPM_TOKEN` secret; the job carries `id-token: write`),
    - opens a GitHub Release with the generated changelog, except on `feature/*`,
-     where the tag is deleted and the GitHub Release is skipped.
+     where only the npm dist-tag is updated.
 
 If no release-worthy commit exists, `semantic-release` exits without releasing.
 
 ## Manual operations
 
-| Goal                      | How                                                                                                                                         |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cut a patch release       | Commit `fix:` on `master` (or merge a PR with one) and push.                                                                                |
-| Cut a minor release       | Commit `feat:` on `master` and push.                                                                                                        |
-| Cut a major release       | Commit with `BREAKING CHANGE:` / `feat!:` on `master` and push.                                                                             |
-| Release a beta            | Push to `develop`.                                                                                                                          |
-| Release a feature preview | Push to a `feature/*` branch. Publishes `x.y.z-<feature-name>.n` to npm under the `<feature-name>` dist-tag; no git tag, no GitHub Release. |
-| Publish no version        | Use `chore:`, `ci:`, `test:`, etc.                                                                                                          |
+| Goal                      | How                                                                                                                                                                   |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cut a patch release       | Commit `fix:` on `master` (or merge a PR with one) and push.                                                                                                          |
+| Cut a minor release       | Commit `feat:` on `master` and push.                                                                                                                                  |
+| Cut a major release       | Commit with `BREAKING CHANGE:` / `feat!:` on `master` and push.                                                                                                       |
+| Release a beta            | Push to `develop`.                                                                                                                                                    |
+| Release a feature preview | Push to a `feature/*` branch. Publishes `x.y.z-<feature-name>.n` to npm under the `<feature-name>` dist-tag and tags the release commit, but opens no GitHub Release. |
+| Publish no version        | Use `chore:`, `ci:`, `test:`, etc.                                                                                                                                    |
 
 Do **not** tag releases by hand. `v*` tags created manually bypass the changelog
 and provenance flow and confuse the next analysis.
