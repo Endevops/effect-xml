@@ -72,8 +72,8 @@ export type {
   EntityValFn,
 } from './entities/entity-decoder.ts';
 
-export { isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate } from './naming/index.ts';
-export type { Production, SanitizeOptions, ValidationOptions, ValidationResult, XmlVersion } from './naming/index.ts';
+export { isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate } from './naming.ts';
+export type { Production, SanitizeOptions, ValidationOptions, ValidationResult, XmlVersion } from './naming.ts';
 
 export { XmlError, XmlErrorReason } from './xml-error.ts';
 export type { XmlErrorReason as XmlErrorReasonType } from './xml-error.ts';

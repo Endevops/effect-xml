@@ -28,7 +28,7 @@
 import { Effect, Predicate, Result } from 'effect';
 
 import type { NameMode } from './conventions.ts';
-import type { XmlVersion } from './naming/index.ts';
+import type { XmlVersion } from './naming.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
 import { attributeName, DEFAULT_ITEM_NAME, DEFAULT_ROOT_NAME, isAttributeKey, isTextKey, resolveNameSync, TEXT_KEY } from './conventions.ts';

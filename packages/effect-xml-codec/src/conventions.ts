@@ -1,9 +1,9 @@
 import { Effect, Predicate, Result } from 'effect';
 
-import type { XmlVersion } from './naming/index.ts';
+import type { XmlVersion } from './naming.ts';
 
 import { XmlParseError } from './errors.ts';
-import { isQName, sanitize, validate } from './naming/index.ts';
+import { isQName, sanitize, validate } from './naming.ts';
 
 /**
  * @description The key prefix that marks a field as an XML attribute. `@xmlns` is written as `xmlns="…"`.

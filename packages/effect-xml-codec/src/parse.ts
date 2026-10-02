@@ -1,7 +1,7 @@
 import { Effect, Predicate, Result } from 'effect';
 
 import type { NameMode } from './conventions.ts';
-import type { XmlVersion } from './naming/index.ts';
+import type { XmlVersion } from './naming.ts';
 import type { XmlValue } from './xml-value.ts';
 
 import { ATTRIBUTE_PREFIX, resolveNameSync, TEXT_KEY } from './conventions.ts';

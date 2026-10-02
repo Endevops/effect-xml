@@ -4,19 +4,12 @@
  * which is the only way to exercise that branch from a type-checked suite.
  */
 
-import { Effect } from 'effect';
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from '@effect/vitest';
+import { Effect, Result } from 'effect';
 
-import type { Production, ValidationOptions, ValidationResult } from '#/index.ts';
+import type { Production, ValidationResult } from '#/naming.ts';
 
-import { isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate as validateEffect } from '#/index.ts';
-
-/**
- * @description Runs an effectful validator the way a caller not already in an `Effect` would: `Effect.runSync` throws the failure, so a spec asserting on a thrown
- * `XmlError` keeps reading the same, and a spec asserting on the value does too.
- */
-const validate = (str: string, production: Production, options?: ValidationOptions): ValidationResult =>
-  Effect.runSync(validateEffect(str, production, options));
+import { isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate } from '#/naming.ts';
 
 /**
  * @description Narrows a validation result to its diagnostics. Throws if the result was valid, so a spec that expected a failure cannot pass on a success.
@@ -263,80 +256,99 @@ describe('isNmTokens()', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// validate()
-// ---------------------------------------------------------------------------
-
 describe('validate()', () => {
-  it('returns { valid: true } for valid input', () => {
-    expect(validate('foo', 'name')).toEqual({ valid: true, production: 'name', input: 'foo' });
-    expect(validate('svg:circle', 'qName')).toEqual({ valid: true, production: 'qName', input: 'svg:circle' });
-  });
+  it.effect('returns { valid: true } for valid input', () =>
+    Effect.gen(function* () {
+      expect(yield* validate('foo', 'name')).toEqual({ valid: true, production: 'name', input: 'foo' });
+      expect(yield* validate('svg:circle', 'qName')).toEqual({ valid: true, production: 'qName', input: 'svg:circle' });
+    })
+  );
 
-  it('returns valid: false with reason for invalid start char', () => {
-    const result = validate('1foo', 'ncName');
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).position).toBe(0);
-    expect(diagnosticsOf(result).reason).toMatch(/NameStartChar/i);
-  });
+  it.effect('returns valid: false with reason for invalid start char', () =>
+    Effect.gen(function* () {
+      const result = yield* validate('1foo', 'ncName');
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).position).toBe(0);
+      expect(diagnosticsOf(result).reason).toMatch(/NameStartChar/i);
+    })
+  );
 
-  it('reports colon in NCName', () => {
-    const result = validate('foo:bar', 'ncName');
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).reason).toMatch(/colon/i);
-    expect(diagnosticsOf(result).position).toBe(3);
-  });
+  it.effect('reports colon in NCName', () =>
+    Effect.gen(function* () {
+      const result = yield* validate('foo:bar', 'ncName');
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).reason).toMatch(/colon/i);
+      expect(diagnosticsOf(result).position).toBe(3);
+    })
+  );
 
-  it('reports leading colon in QName', () => {
-    const result = validate(':foo', 'qName');
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).reason).toMatch(/cannot start/i);
-    expect(diagnosticsOf(result).position).toBe(0);
-  });
+  it.effect('reports leading colon in QName', () =>
+    Effect.gen(function* () {
+      const result = yield* validate(':foo', 'qName');
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).reason).toMatch(/cannot start/i);
+      expect(diagnosticsOf(result).position).toBe(0);
+    })
+  );
 
-  it('reports trailing colon in QName', () => {
-    const result = validate('foo:', 'qName');
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).reason).toMatch(/cannot end/i);
-    expect(diagnosticsOf(result).position).toBe(3);
-  });
+  it.effect('reports trailing colon in QName', () =>
+    Effect.gen(function* () {
+      const result = yield* validate('foo:', 'qName');
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).reason).toMatch(/cannot end/i);
+      expect(diagnosticsOf(result).position).toBe(3);
+    })
+  );
 
-  it('reports multiple colons in QName', () => {
-    const result = validate('a:b:c', 'qName');
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).reason).toMatch(/at most one colon/i);
-  });
+  it.effect('reports multiple colons in QName', () =>
+    Effect.gen(function* () {
+      const result = yield* validate('a:b:c', 'qName');
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).reason).toMatch(/at most one colon/i);
+    })
+  );
 
-  it('reports empty string', () => {
-    const result = validate('', 'name');
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).reason).toMatch(/empty/i);
-  });
+  it.effect('reports empty string', () =>
+    Effect.gen(function* () {
+      const result = yield* validate('', 'name');
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).reason).toMatch(/empty/i);
+    })
+  );
 
-  it('narrows to reason and position on the invalid branch', () => {
-    // The discriminated return type is the point of the port: no cast and no
-    // optional chaining needed to read the diagnostics off a failed validation.
-    const diagnostics = diagnosticsOf(validate('foo!bar', 'name'));
-    expect(diagnostics.reason).toContain('NameChar');
-    expect(diagnostics.position).toBe(3);
-  });
+  it.effect('narrows to reason and position on the invalid branch', () =>
+    Effect.gen(function* () {
+      // The discriminated return type is the point of the port: no cast and no
+      // optional chaining needed to read the diagnostics off a failed validation.
+      const diagnostics = diagnosticsOf(yield* validate('foo!bar', 'name'));
+      expect(diagnostics.reason).toContain('NameChar');
+      expect(diagnostics.position).toBe(3);
+    })
+  );
 
-  it('throws InvalidProduction for an unknown production', () => {
-    // Unreachable from TypeScript, where `Production` is a closed union. It is
-    // the guard for an untyped caller, and it throws rather than reporting
-    // through an error channel.
-    expect(() => validate('foo', 'unknown' as Production)).toThrow();
-  });
+  it.effect('throws InvalidProduction for an unknown production', () =>
+    Effect.gen(function* () {
+      // Unreachable from TypeScript, where `Production` is a closed union. It is
+      // the guard for an untyped caller, and it throws rather than reporting
+      // through an error channel.
+      const result = yield* validate('foo', 'unknown' as Production).pipe(Effect.result);
+      assert(Result.isFailure(result));
+    })
+  );
 
-  it('respects xmlVersion — \\u0487 valid only in 1.1', () => {
-    expect(validate('foo\u0487', 'name', { xmlVersion: '1.0' }).valid).toBe(false);
-    expect(validate('foo\u0487', 'name', { xmlVersion: '1.1' }).valid).toBe(true);
-  });
+  it.effect('respects xmlVersion — \\u0487 valid only in 1.1', () =>
+    Effect.gen(function* () {
+      expect(yield* validate('foo\u0487', 'name', { xmlVersion: '1.0' }).pipe(Effect.map(result => result.valid))).toBe(false);
+      expect(yield* validate('foo\u0487', 'name', { xmlVersion: '1.1' }).pipe(Effect.map(result => result.valid))).toBe(true);
+    })
+  );
 
-  it('respects xmlVersion — supplementary plane valid only in 1.1', () => {
-    expect(validate('\u{10000}foo', 'name', { xmlVersion: '1.0' }).valid).toBe(false);
-    expect(validate('\u{10000}foo', 'name', { xmlVersion: '1.1' }).valid).toBe(true);
-  });
+  it.effect('respects xmlVersion — supplementary plane valid only in 1.1', () =>
+    Effect.gen(function* () {
+      expect(yield* validate('\u{10000}foo', 'name', { xmlVersion: '1.0' }).pipe(Effect.map(result => result.valid))).toBe(false);
+      expect(yield* validate('\u{10000}foo', 'name', { xmlVersion: '1.1' }).pipe(Effect.map(result => result.valid))).toBe(true);
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -447,17 +459,21 @@ describe('asciiOnly option', () => {
     expect(isName('\u{10000}foo', { xmlVersion: '1.1' })).toBe(true);
   });
 
-  it('keeps validate() reason/position consistent with the ASCII-only result', () => {
-    const result = validate('éfoo', 'name', { asciiOnly: true });
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).reason).toContain('NameStartChar');
-    expect(diagnosticsOf(result).position).toBe(0);
-  });
+  it.effect('keeps validate() reason/position consistent with the ASCII-only result', () =>
+    Effect.gen(function* () {
+      const result = yield* validate('éfoo', 'name', { asciiOnly: true });
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).reason).toContain('NameStartChar');
+      expect(diagnosticsOf(result).position).toBe(0);
+    })
+  );
 
-  it('flags a non-ASCII NameChar (not just NameStartChar) under asciiOnly', () => {
-    const result = validate('fooé', 'name', { asciiOnly: true });
-    expect(result.valid).toBe(false);
-    expect(diagnosticsOf(result).reason).toContain('NameChar');
-    expect(diagnosticsOf(result).position).toBe(3);
-  });
+  it.effect('flags a non-ASCII NameChar (not just NameStartChar) under asciiOnly', () =>
+    Effect.gen(function* () {
+      const result = yield* validate('fooé', 'name', { asciiOnly: true });
+      expect(result.valid).toBe(false);
+      expect(diagnosticsOf(result).reason).toContain('NameChar');
+      expect(diagnosticsOf(result).position).toBe(3);
+    })
+  );
 });

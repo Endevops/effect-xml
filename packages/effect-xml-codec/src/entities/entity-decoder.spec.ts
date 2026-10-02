@@ -19,7 +19,7 @@ import { Effect, Result } from 'effect';
 import type { ApplyLimitsTo, EntityDecoderOptions } from '#/index.ts';
 import type { XmlError } from '#/xml-error.ts';
 
-import { EntityDecoder, ENTITY_ACTION } from '#/index.ts';
+import { ENTITY_ACTION, EntityDecoder } from '#/entities/entity-decoder.ts';
 
 /**
  * @description A `postCheck` hook wrapped so a spec can see what it was called with and how often.
@@ -1040,7 +1040,7 @@ describe('preserved upstream quirk: four error messages say EntityReplacer and t
     readonly message: () => Effect.Effect<string>;
   }
 
-  const ERROR_CASES: Array<ErrorCase> = [
+  const ERROR_CASES = [
     {
       label: 'a # in an entity name',
       prefix: '[EntityReplacer]',
@@ -1090,7 +1090,7 @@ describe('preserved upstream quirk: four error messages say EntityReplacer and t
       prefix: '[EntityDecoder]',
       message: () => failureMessage(EntityDecoder.make({ ncr: { onNCR: 'throw' } }).pipe(Effect.flatMap(decoder => decoder.decode('&#1;')))),
     },
-  ];
+  ] as const satisfies ReadonlyArray<ErrorCase>;
 
   it.effect('reaches all seven of them, so the assertions below are a census rather than a selection', () =>
     Effect.gen(function* () {
