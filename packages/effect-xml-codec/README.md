@@ -62,6 +62,63 @@ decision rather than the parser's:
   `Schema.Struct({ '@id': Schema.String, '#text': Schema.String })` matches
   `<a id="1">hello</a>`.
 
+## Namespaces
+
+A schema describes a value in local names, so a namespace is an annotation on
+the schema node that owns the element rather than part of the field name. Two
+annotations, both accepted by `Schema.annotate`:
+
+| Annotation     | Meaning                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| `xmlNamespace` | The element's namespace URI.                                                                  |
+| `xmlPrefix`    | The wire prefix to write for it. Omit it to write the namespace as the default (`xmlns="…"`). |
+
+The annotation is attached with `Schema.annotate`:
+
+```typescript
+import { Schema } from 'effect';
+import { toCodecXml } from '@endevops/effect-xml-codec';
+
+const SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
+const AUTH = 'urn:auth';
+
+const Envelope = Schema.Struct({
+  Header: Schema.Struct({ Token: Schema.String.annotate({ xmlNamespace: AUTH, xmlPrefix: 'auth' }) }).annotate({
+    xmlNamespace: SOAP,
+    xmlPrefix: 'soap',
+  }),
+  Body: Schema.Struct({ GetPrice: Schema.Struct({ item: Schema.String }).annotate({ xmlNamespace: 'urn:shop' }) }).annotate({
+    xmlNamespace: SOAP,
+    xmlPrefix: 'soap',
+  }),
+}).annotate({ xmlNamespace: SOAP, xmlPrefix: 'soap' });
+
+const codec = toCodecXml(Envelope, { rootName: 'Envelope' });
+const value = { Header: { Token: 'abc' }, Body: { GetPrice: { item: 'widget' } } };
+
+Schema.encodeSync(codec)(value);
+// => '<soap:Envelope xmlns:soap="…"><soap:Header><auth:Token xmlns:auth="urn:auth">abc</auth:Token></soap:Header><soap:Body><GetPrice xmlns="urn:shop"><item>widget</item></GetPrice></soap:Body></soap:Envelope>'
+
+// A document that binds the same URI to another prefix decodes to the same value.
+Schema.decodeSync(codec)(text.replaceAll('soap:', 's:').replace('xmlns:soap=', 'xmlns:s=')); // => value
+```
+
+The namespace of an element is inherited by its descendant elements, and an
+attribute is in a namespace only when it is annotated itself, because a default
+namespace does not apply to attributes. On encode, an element writes its
+declaration where the prefix or default is not already in scope. On decode,
+every name is resolved to its URI against the declarations the document
+carries, so the document's choice of prefixes does not matter, and the
+declaration attributes are dropped from the value.
+
+Two limits:
+
+- One local name can belong to only one namespace in one codec. Two fields with
+  the same local name in different namespaces are rejected when the codec is
+  built. Give them distinct local names.
+- A root array cannot carry the root element's declaration, because `renderXml`
+  wraps it in an element the codec does not build. Give the root a struct.
+
 ## API
 
 | Export                           | What it does                                                    |
