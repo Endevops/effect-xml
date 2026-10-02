@@ -423,6 +423,69 @@ describe('toCodecXml() - xmlName', () => {
     // The wire local name `Body` is what resolves, and it is resolved by the URI even though the prefix differs.
     expect(Schema.decodeSync(codec)(`<q:feed xmlns:q="${ATOM}"><q:Body>x</q:Body></q:feed>`)).toEqual({ payload: 'x' });
   });
+
+  describe('with a namespace prefix mismatch', () => {
+    const META = 'urn:meta';
+
+    it('maps a renamed field and its renamed namespaced attribute under different prefixes', () => {
+      const codec = toCodecXml(
+        Schema.Struct({
+          node: Schema.Struct({
+            '@id': Schema.String.annotate({ xmlNamespace: META, xmlPrefix: 'meta', xmlName: 'ID' }),
+            c: Schema.String.annotate({ xmlName: 'value' }),
+          }).annotate({ xmlNamespace: 'urn:shared', xmlPrefix: 's', xmlName: 'node' }),
+        }),
+        { rootName: 'a' }
+      );
+      const value = { node: { '@id': '1', c: 'text' } };
+      expect(Schema.encodeSync(codec)(value)).toBe(
+        `<a><s:node xmlns:s="urn:shared" xmlns:meta="${META}" meta:ID="1"><s:value>text</s:value></s:node></a>`
+      );
+      // Both the renamed element (`b` vs `s`) and the renamed attribute (`m` vs `meta`) arrive under a different prefix.
+      expect(Schema.decodeSync(codec)(`<a><b:node xmlns:b="urn:shared" xmlns:m="${META}" m:ID="1"><b:value>text</b:value></b:node></a>`)).toEqual(
+        value
+      );
+    });
+
+    it('maps a shared renamed sub-schema when each node binds the URI to a different prefix', () => {
+      const Shared = Schema.Struct({
+        '@id': Schema.String.annotate({ xmlNamespace: META, xmlPrefix: 'meta', xmlName: 'ID' }),
+        c: Schema.String.annotate({ xmlName: 'value' }),
+      }).annotate({ xmlNamespace: 'urn:shared', xmlPrefix: 's' });
+      // The two nodes carry distinct wire names, because two siblings cannot share one local name under the same element.
+      const codec = toCodecXml(Schema.Struct({ b: Shared.annotate({ xmlName: 'nodeB' }), d: Shared.annotate({ xmlName: 'nodeD' }) }), {
+        rootName: 'a',
+      });
+      const value = { b: { '@id': '1', c: 'text' }, d: { '@id': '2', c: 'other text' } };
+      expect(Schema.encodeSync(codec)(value)).toBe(
+        `<a><s:nodeB xmlns:s="urn:shared" xmlns:meta="${META}" meta:ID="1"><s:value>text</s:value></s:nodeB>` +
+          `<s:nodeD xmlns:s="urn:shared" xmlns:meta="${META}" meta:ID="2"><s:value>other text</s:value></s:nodeD></a>`
+      );
+      // `b` binds `urn:shared` to `q` and `urn:meta` to `m`; `d` binds them to `r` and `n`. Each renamed name resolves by URI.
+      expect(
+        Schema.decodeSync(codec)(
+          `<a><q:nodeB xmlns:q="urn:shared" xmlns:m="${META}" m:ID="1"><q:value>text</q:value></q:nodeB>` +
+            `<r:nodeD xmlns:r="urn:shared" xmlns:n="${META}" n:ID="2"><r:value>other text</r:value></r:nodeD></a>`
+        )
+      ).toEqual(value);
+    });
+
+    it('maps a renamed element when the schema binds the default namespace and the document a prefix', () => {
+      const codec = toCodecXml(
+        Schema.Struct({ payload: Schema.String.annotate({ xmlNamespace: ATOM, xmlName: 'Body' }) }).annotate({ xmlNamespace: ATOM }),
+        { rootName: 'feed' }
+      );
+      expect(Schema.encodeSync(codec)({ payload: 'x' })).toBe(`<feed xmlns="${ATOM}"><Body>x</Body></feed>`);
+      // The schema has no prefix (a default namespace); the document renames the element and binds the URI to `q`.
+      expect(Schema.decodeSync(codec)(`<feed xmlns:q="${ATOM}"><q:Body>x</q:Body></feed>`)).toEqual({ payload: 'x' });
+    });
+
+    it('refuses two siblings renamed to the same xmlName', () => {
+      // A local name resolves to one field under one element, so two siblings cannot share a wire name.
+      const Shared = Schema.Struct({ c: Schema.String }).annotate({ xmlName: 'node' });
+      expect(() => toCodecXml(Schema.Struct({ b: Shared, d: Shared }))).toThrow(/both resolve to "node" under the same element/);
+    });
+  });
 });
 
 describe('toCodecXml() - xmlAttribute', () => {
