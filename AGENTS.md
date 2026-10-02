@@ -58,10 +58,10 @@ collected by the benchmark project, which `vp test` skips and `vp test bench`
 runs alone.
 
 - `vp run bench` — every benchmark in the workspace (`vp test bench` under the hood).
-- `vp test bench packages/<name>` — one package. `vp test bench -t <name>` narrows by test name.
-- `vp check` covers `bench/` like any other source: the package `tsconfig.json`
-  already lists `bench/**/*.ts` in `include`, so a benchmark that stops
-  type-checking fails the review checklist like anything else.
+- `vp -C packages/benchmarks test bench` — the benchmark project. `vp -C packages/benchmarks test bench -t <name>` narrows by test name.
+- `vp check` covers `bench/` like any other source: the benchmark package's
+  `tsconfig.json` already lists `bench/**/*.ts` in `include`, so a benchmark that
+  stops type-checking fails the review checklist like anything else.
 
 Two things the Vitest benchmarking guide warns about, both of which the existing
 files already handle and any new one needs to:
@@ -100,7 +100,9 @@ A third thing the guide does not warn about, and the one that actually bit:
   suite that cannot exceed 60. The fix is to pin `iterations` on any suite
   whose single iteration is not tens of microseconds — `iterations: 3` samples
   a slow task three times, and a longer `time` window still smooths the sample.
-  `parse.bench.ts` carries the full note.
+  The current suites finish well inside the timeout, so none of them pins it;
+  add the pin, and a comment saying why, the moment a workload gets slow enough
+  to need it.
 
 # Git
 

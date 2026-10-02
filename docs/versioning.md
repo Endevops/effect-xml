@@ -7,10 +7,11 @@ in CI. There is no manual version bumping.
 ## Model
 
 - **One version for the whole workspace.** The root is the only release unit;
-  every package under `packages/` is stamped with the same version and published
-  together. A change in any package releases all of them. This is deliberate:
-  the workspace publishes one package, `effect-xml-codec`, and consumes it as a
-  single unit; `packages/benchmarks` is private and never released.
+  every publishable package under `packages/` is stamped with the same version
+  and published together. A change in any package releases all of them. This is
+  deliberate: the workspace publishes one package, `effect-xml-codec`, and
+  consumes it as a single unit; `packages/benchmarks` is private and never
+  released.
 - **Version numbers** follow [SemVer 2.0.0](https://semver.org/):
   `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]`.
 - **Version selection** is derived from commit messages. A commit that does not
@@ -67,13 +68,13 @@ with a `BREAKING CHANGE:` trailer in the commit body.
 
 `.github/workflows/ci.yml`:
 
-1. **`build-test`** runs on every push and pull request: `pnpm install`,
-   `pnpm lint`, `pnpm test`, `pnpm build`.
+1. **`build-test`** runs on every push and pull request, in order:
+   `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm test`, `pnpm lint`.
 2. **`release`** runs after a successful `build-test`, on pushes only. It runs
    `semantic-release`, which:
    - analyzes commits since the last tag,
    - computes the next version per the rules above,
-   - writes that version into the root `package.json` and every
+   - writes that version into the root `package.json` and every publishable
      `packages/*/package.json` (`scripts/release/sync-versions.mjs`),
      commits the bump, and tags it `vX.Y.Z`,
    - publishes every package at that version with `pnpm -r publish`, which

@@ -196,7 +196,7 @@ isQName('svg:circle'); // true
 sanitize('not a name', 'ncName'); // 'not_a_name'
 Effect.runSync(validate('1bad', 'qName')); // { valid: false, … }
 
-const decoder = new EntityDecoder({ limit: { maxTotalExpansions: 100 } });
+const decoder = Effect.runSync(EntityDecoder.make({ limit: { maxTotalExpansions: 100 } }));
 Effect.runSync(decoder.decode('caf&eacute; &#233;'));
 ```
 
@@ -237,10 +237,12 @@ since that is what it is.
 
 ## Performance
 
-`bench/codec.bench.ts` measures this package alone, split by layer so the cost
-of Effect's derivation and the cost of this package's renderer are told apart.
-`bench/comparison.bench.ts` measures it against `fast-xml-builder` and the two
-parsers. Run both with `vp test bench packages/effect-xml-codec`.
+`packages/benchmarks/bench/codec.bench.ts` measures this package alone, split by
+layer so the cost of Effect's derivation and the cost of this package's renderer
+are told apart. `packages/benchmarks/bench/comparison.bench.ts` measures it
+against `fast-xml-builder` and the two parsers, and
+`packages/benchmarks/bench/naming.bench.ts` measures the five name validators.
+Run them from the workspace root after a build: `pnpm build && vp run bench`.
 
 | Benchmark                   | Throughput |
 | --------------------------- | ---------- |
@@ -250,7 +252,7 @@ parsers. Run both with `vp test bench packages/effect-xml-codec`.
 | a 500-row document, decode  | ~2,100/sec |
 | 20,000 characters of text   | ~627k/sec  |
 
-Three findings shaped the code, and all are measured rather than assumed:
+Four findings shaped the code, and all are measured rather than assumed:
 
 - **Escaping was the whole cost of a large document.** The entity encoder that
   used to live here escaped by applying five sequential global replacements, one
@@ -308,7 +310,8 @@ fallback all see it.
 
 ### Against the libraries on npm
 
-`bench/comparison.bench.ts` measures the same object through this codec and
+`packages/benchmarks/bench/comparison.bench.ts` measures the same object through
+this codec and
 through three npm libraries — `fast-xml-builder`, `fast-xml-parser`, and
 `@nodable/flexible-xml-parser`. The equivalence is established rather than
 assumed: with `attributeNamePrefix: '@'`, **`fast-xml-builder` produces
@@ -403,8 +406,8 @@ quietly.
 ```bash
 vp -C packages/effect-xml-codec check           # format, lint, type-check
 vp -C packages/effect-xml-codec test            # the suite
-vp -C packages/effect-xml-codec test bench      # the benchmarks
 vp -C packages/effect-xml-codec pack            # build
+pnpm build && vp run bench                      # the benchmarks, from the workspace root
 ```
 
 ## License

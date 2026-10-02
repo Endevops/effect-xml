@@ -17,7 +17,7 @@ nothing, and exists only to run the benchmarks.
 ## Layout
 
 ```
-packages/<name>/     publishable package: src/, test/, docs/, package.json
+packages/<name>/     publishable package: src/, test/, package.json
 packages/benchmarks/ private benchmark project: bench/, never built or published
 vite.config.ts       Oxlint, Oxfmt, staged checks — one config for the whole repo
 tsconfig.shared.json compilerOptions every package extends
