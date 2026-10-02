@@ -7,14 +7,14 @@
 // asserts on thrown messages, which those guards would turn into null-checks
 // at every site.
 //
-// bench/ is included here rather than left out: it drives the public API with
-// statically-typed options, so the same guards apply.
+// The benchmarks that drive the public API live in packages/benchmarks, a
+// private project that is never published; this project covers src/ only.
 //
 // `paths` is declared here and not in tsconfig.shared.json: paths are resolved
 // relative to the config that declares them, so the `#/*` subpath imports have
 // to anchor to this package's own directories.
 {
   "extends": "../../tsconfig.shared.json",
-  "include": ["src/**/*.ts", "bench/**/*.ts"],
-  "compilerOptions": { "paths": { "#/*": ["./src/*"], "#/test/*": ["./test/*"], "#/bench/*": ["./bench/*"] } }
+  "include": ["src/**/*.ts"],
+  "compilerOptions": { "paths": { "#/*": ["./src/*"], "#/test/*": ["./test/*"] } }
 }

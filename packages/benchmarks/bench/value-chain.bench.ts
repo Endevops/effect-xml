@@ -8,10 +8,9 @@
  * reject.
  */
 
+import { makeValueParserPipeline, makeValueParserRegistry } from '@endevops/builder';
 import { Effect } from 'effect';
 import { afterAll, expect, test } from 'vite-plus/test';
-
-import { makeValueParserPipeline, makeValueParserRegistry } from '#/output-builder/index.ts';
 
 /**
  * @description How to sample each suite. Each iteration is a whole pass over the value list, several microseconds of work, so a 1000ms window collects tens of
@@ -44,7 +43,7 @@ const attributePipeline = makeValueParserPipeline(['entity', 'boolean', 'number'
 const textRegistry = makeValueParserRegistry();
 const textPipeline = makeValueParserPipeline(['ws', 'entity', 'boolean', 'number'], textRegistry);
 
-const run = <A>(effect: Effect.Effect<A, unknown>): A => Effect.runSync(effect);
+const run = <A, E>(effect: Effect.Effect<A, E>): A => Effect.runSync(effect);
 
 test('value chain — attributes and text over a document token mix', async ({ bench }) => {
   await bench(`entity,boolean,number + ws [${TOKENS.length} values]`, () => {
@@ -60,7 +59,10 @@ test('value chain — attributes and text over a document token mix', async ({ b
 });
 
 test('number parser alone — over the same token mix', async ({ bench }) => {
-  const number = attributeRegistry.registered.number;
+  const number = attributeRegistry.registered['number'];
+  if (number === undefined) {
+    throw new Error('the number value parser is not registered');
+  }
   await bench(`${NUMBER_INPUTS.length} values`, () => {
     let sink = 0;
     for (let i = 0; i < NUMBER_INPUTS.length; i++) {

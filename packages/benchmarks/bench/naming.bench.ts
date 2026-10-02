@@ -13,11 +13,10 @@
  * - One test for input shape, one benchmark per input with the fast path off and on — where the length and unicode costs actually show up.
  */
 
+import type { Production, ValidationOptions } from '@endevops/common-xml';
+
+import { isName, isNcName, isNmToken, isNmTokens, isQName } from '@endevops/common-xml';
 import { test } from 'vite-plus/test';
-
-import type { Production, ValidationOptions } from '#/index.ts';
-
-import { isName, isNcName, isNmToken, isNmTokens, isQName } from '#/index.ts';
 
 /**
  * @description The five predicates, keyed by production so the grid below can iterate them. Each is a plain synchronous function — a regex test cannot fail — and

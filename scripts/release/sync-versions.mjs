@@ -21,9 +21,18 @@ for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
     continue;
   }
   const manifest = join(packagesDir, entry.name, 'package.json');
-  if (existsSync(manifest)) {
-    manifests.push(manifest);
+  if (!existsSync(manifest)) {
+    continue;
   }
+  // Private packages are never published, so they do not share the release
+  // version. Skipping them keeps the release commit from carrying a bump for a
+  // package that is not part of the release. The root manifest is handled
+  // separately above and is stamped even though it is private.
+  const { private: isPrivate } = JSON.parse(readFileSync(manifest, 'utf8'));
+  if (isPrivate === true) {
+    continue;
+  }
+  manifests.push(manifest);
 }
 
 // Replace only the first `"version": "..."` occurrence so the rest of the file,

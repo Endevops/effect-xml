@@ -10,9 +10,8 @@
  * it.
  */
 
+import { toNumber } from '@endevops/builder';
 import { afterAll, expect, test } from 'vite-plus/test';
-
-import { toNumber } from '#/output-builder/index.ts';
 
 /**
  * @description How to sample each suite. A conversion is sub-microsecond, so Tinybench's default 64 iterations is far too few to be meaningful and the default
@@ -74,7 +73,7 @@ const convertAll = (values: ReadonlyArray<string>): void => {
   let sink = 0;
   for (let i = 0; i < values.length; i++) {
     const result = toNumber(values[i] as string);
-    sink += typeof result === 'number' ? result : result.length;
+    sink += typeof result === 'number' ? result : (result?.length ?? 0);
   }
   observed += sink;
 };

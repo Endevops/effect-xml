@@ -11,12 +11,11 @@
  * every number reported here.
  */
 
+import type { X2jOptions } from '@endevops/parser';
+
+import { XMLParser } from '@endevops/parser';
 import { Effect } from 'effect';
 import { afterAll, expect, test } from 'vite-plus/test';
-
-import type { X2jOptions } from '#/options.ts';
-
-import XMLParser from '#/xml-parser.ts';
 
 /**
  * @description How to sample each suite, and how long to warm it up first. A 20k-item catalog is roughly a second of work per parse, and Tinybench runs a task
@@ -92,17 +91,6 @@ afterAll(() => {
   expect(observed).toBeGreaterThan(0);
 });
 
-// Both entry points answer with an `Effect` now, and the benchmark has to run the
-// pipeline it drives to get at the parsed tree. Every step of that pipeline is
-// composed into a single effect and run once per iteration: construction, the
-// parse, and — for the chunked path — every feed and the final end. Running the
-// steps separately would call `Effect.runSync` once per feed, which reports an
-// overhead the caller does not pay and makes the chunked row incomparable with the
-// whole-document one. The walk is synchronous underneath, so running the composed
-// effect is the honest cost: the runtime is a fixed per-iteration wrapper around
-// the work being measured, not a per-step one.
-const runSync = <A>(effect: Effect.Effect<A, unknown>): A => Effect.runSync(effect);
-
 /**
  * @description Parse the whole document in one shot: construct a parser, then parse. One effect, so the benchmark runs the same pipeline a caller writes.
  */
@@ -124,12 +112,12 @@ const chunkedDocument = Effect.gen(function* () {
 
 test('parse() — whole document', async ({ bench }) => {
   await bench('20k-item catalog', () => {
-    observed += rootKeyCount(runSync(wholeDocument));
+    observed += rootKeyCount(Effect.runSync(wholeDocument));
   }).run(BUDGET);
 });
 
 test('feed()/end() — chunked', async ({ bench }) => {
   await bench(`4KB chunks (${Math.ceil(doc.length / CHUNK_SIZE)} feed calls)`, () => {
-    observed += rootKeyCount(runSync(chunkedDocument));
+    observed += rootKeyCount(Effect.runSync(chunkedDocument));
   }).run(BUDGET);
 });

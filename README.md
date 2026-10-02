@@ -9,16 +9,20 @@ A pnpm workspace for the Endevops XML packages, built on
 | [`@endevops/builder`](./packages/builder)                   | XML builders, the output-builder base and the compact one |
 | [`@endevops/common-xml`](./packages/common-xml)             | Entity coding, path matching, XML name validation         |
 | [`@endevops/effect-xml-codec`](./packages/effect-xml-codec) | Round-trip Effect Schema codec for XML                    |
+| [`@endevops/benchmarks`](./packages/benchmarks)             | Private project that runs the benchmarks, never published |
 
-Four packages, in a strict chain: `common-xml` has no workspace dependencies,
-`builder` depends on `common-xml`, `parser` depends on both, and
+Four publishable packages, in a strict chain: `common-xml` has no workspace
+dependencies, `builder` depends on `common-xml`, `parser` depends on both, and
 `effect-xml-codec` depends on `common-xml` with the other two for tests and
-benchmarks. There is no cycle in that graph.
+benchmarks. There is no cycle in that graph. `packages/benchmarks` is a fifth,
+private project that depends on all four and ships nothing; it exists only to
+run the benchmarks.
 
 ## Layout
 
 ```
 packages/<name>/     publishable package: src/, test/, docs/, package.json
+packages/benchmarks/ private benchmark project: bench/, never built or published
 vite.config.ts       Oxlint, Oxfmt, staged checks — one config for the whole repo
 tsconfig.shared.json compilerOptions every package extends
 pnpm-workspace.yaml  package globs, version catalog, overrides
@@ -70,10 +74,15 @@ file named `*.bench.ts` is collected by the benchmark project, which `vp test` s
 `vp test bench` runs on its own. Keeping them out of `vp test` is the point: they are slow and
 noisy, and nothing about the suite should depend on a number that moves with the weather.
 
+Benchmarks that drive a package's public entry point live in `packages/benchmarks`. It is
+`private`, so `pnpm -r publish` skips it and it has no build step. `packages/parser/bench/scan.bench.ts`
+measures parser internals that are not exported, so it stays with the parser.
+
 ```bash
-vp run bench                     # every benchmark
-vp test bench packages/parser    # one package
-vp test bench -t asciiOnly       # one test name
+vp run bench                        # every benchmark
+vp test bench packages/benchmarks   # the private benchmark project
+vp test bench packages/parser       # the internal parser benchmarks
+vp test bench -t asciiOnly          # one test name
 ```
 
 A bare `vp pack` at the root refuses to guess between the root and the packages
@@ -104,7 +113,9 @@ bump rules and channels.
 
 `prepublishOnly` runs `vp pack` in each package, so `pnpm -r publish` builds
 each package before it goes out. The root manifest is `private` and is never
-published.
+published, and so is `packages/benchmarks`: `pnpm -r publish` skips both, and
+`scripts/release/sync-versions.mjs` stamps only the publishable manifests, so a
+private package never appears in a release commit.
 
 ## License
 

@@ -1,11 +1,8 @@
+import type { XmlValue } from '@endevops/effect-xml-codec';
+
+import { parseXml, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
 import { Effect, Schema } from 'effect';
 import { describe, test } from 'vite-plus/test';
-
-import type { XmlValue } from '#/xml-value.ts';
-
-import { toCodecXml } from '#/codec.ts';
-import { parseXml } from '#/parse.ts';
-import { renderXml } from '#/render.ts';
 
 /**
  * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document like this is

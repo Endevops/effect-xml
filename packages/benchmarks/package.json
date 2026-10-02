@@ -1,0 +1,24 @@
+{
+  "name": "@endevops/benchmarks",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Standalone benchmark project for the effect-xml packages. It holds the suites that drive a package's public entry point and is never built or published: its only job is to run the *.bench.ts files.",
+  "type": "module",
+  "scripts": {
+    "bench": "vp test bench"
+  },
+  "devDependencies": {
+    "@endevops/builder": "workspace:^",
+    "@endevops/common-xml": "workspace:^",
+    "@endevops/effect-xml-codec": "workspace:^",
+    "@endevops/parser": "workspace:^",
+    "effect": "catalog:",
+    "fast-xml-builder": "^1.3.1",
+    "fast-xml-parser": "^5.11.1",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

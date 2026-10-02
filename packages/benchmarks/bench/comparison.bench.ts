@@ -1,15 +1,12 @@
 // oxlint-disable effecttsgo/schema-number
 
 import XMLBuilder from '@endevops/builder';
+import { parseXml, renderXml, toCodecXml } from '@endevops/effect-xml-codec';
 import { XMLParser } from '@endevops/parser';
 import { Effect, Schema } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
 import { describe, test } from 'vite-plus/test';
-
-import { toCodecXml } from '#/codec.ts';
-import { parseXml } from '#/parse.ts';
-import { renderXml } from '#/render.ts';
 
 const Order = Schema.Struct({
   '@id': Schema.String,
@@ -51,11 +48,14 @@ const Note = Schema.Struct({ body: Schema.String }).pipe(toCodecXml);
 const NOTE = `${'lorem ipsum dolor sit amet '.repeat(700)}& <tag> "quoted"`;
 const note = { body: NOTE } satisfies Schema.Schema.Type<typeof Note>;
 const NOTE_ROOT = 'note';
+
 const BUILDER_OPTIONS = { attributeNamePrefix: '@', ignoreAttributes: false, suppressEmptyNode: true, format: false } as const;
-const builder = XMLBuilder.make({ ...BUILDER_OPTIONS }).pipe(Effect.runSync);
+
 const upstreamBuilder = new UpstreamXMLBuilder({ ...BUILDER_OPTIONS });
-const parser = XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '@' } }).pipe(Effect.runSync);
 const upstreamParser = new UpstreamXMLParser({ ignoreAttributes: false, attributeNamePrefix: '@', parseAttributeValue: false });
+
+const builder = XMLBuilder.make({ ...BUILDER_OPTIONS }).pipe(Effect.runSync);
+const parser = XMLParser.make({ skip: { attributes: false }, attributes: { prefix: '@' } }).pipe(Effect.runSync);
 
 const encodeOrder = Schema.encodeEffect(Order);
 const encodeReport = Schema.encodeEffect(Report);
@@ -97,7 +97,7 @@ describe('encoding', () => {
   test('a small document', async ({ bench }) => {
     const buildDocumentOrder = builder.build({ [ROOT]: order });
     await bench.compare(
-      bench('this codec', () => {
+      bench('@endevops/effect-xml-codec', () => {
         encodeOrderDocument.pipe(Effect.runSync);
       }),
       bench('@endevops/builder', () => {
@@ -113,7 +113,7 @@ describe('encoding', () => {
   test('a 500-row document', async ({ bench }) => {
     const buildReportDocument = builder.build({ [REPORT_ROOT]: report });
     await bench.compare(
-      bench('this codec', () => {
+      bench('@endevops/effect-xml-codec', () => {
         encodeReportDocument.pipe(Effect.runSync);
       }),
       bench('@endevops/builder', () => {
@@ -129,7 +129,7 @@ describe('encoding', () => {
   test('one large text node', async ({ bench }) => {
     const buildNote = builder.build({ [NOTE_ROOT]: note });
     await bench.compare(
-      bench('this codec', () => {
+      bench('@endevops/effect-xml-codec', () => {
         encodeNoteDocument.pipe(Effect.runSync);
       }),
       bench('@endevops/builder', () => {
@@ -151,7 +151,7 @@ describe('decoding', () => {
     });
     const parseOrder = parser.parse(orderDocument);
     await bench.compare(
-      bench('this codec', () => {
+      bench('@endevops/effect-xml-codec', () => {
         decode.pipe(Effect.runSync);
       }),
       bench('@endevops/parser', () => {
@@ -171,7 +171,7 @@ describe('decoding', () => {
     });
     const parse = parser.parse(reportDocument);
     await bench.compare(
-      bench('this codec', () => {
+      bench('@endevops/effect-xml-codec', () => {
         decode.pipe(Effect.runSync);
       }),
       bench('@endevops/parser', () => {
@@ -192,7 +192,7 @@ describe('decoding', () => {
     const parse = parser.parse(noteDocument);
 
     await bench.compare(
-      bench('this codec', () => {
+      bench('@endevops/effect-xml-codec', () => {
         decode.pipe(Effect.runSync);
       }),
       bench('@endevops/parser', () => {
@@ -217,10 +217,10 @@ test('a full round trip, both halves measured', async ({ bench }) => {
     yield* parser.parse(document);
   });
   await bench.compare(
-    bench('this codec', () => {
+    bench('@endevops/effect-xml-codec', () => {
       decode.pipe(Effect.runSync);
     }),
-    bench('then parser, both @endevops', () => {
+    bench('@endevops/builder-parser', () => {
       parse.pipe(Effect.runSync);
     }),
     bench('then parser, both from npm', () => {

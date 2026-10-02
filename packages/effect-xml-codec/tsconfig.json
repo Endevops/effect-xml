@@ -11,6 +11,6 @@
 // to anchor to this package's own directories.
 {
   "extends": "../../tsconfig.shared.json",
-  "include": ["src/**/*.ts", "bench/**/*.ts"],
-  "compilerOptions": { "paths": { "#/*": ["./src/*"], "#/test/*": ["./test/*"], "#/bench/*": ["./bench/*"] } }
+  "include": ["src/**/*.ts"],
+  "compilerOptions": { "paths": { "#/*": ["./src/*"], "#/test/*": ["./test/*"] } }
 }
