@@ -1,6 +1,6 @@
 {
   "name": "@endevops/parser",
-  "version": "1.0.0-effect.1",
+  "version": "1.0.0-effect.2",
   "description": "XML parser in pure JavaScript with pluggable output builders and composable value parsers. Fork of @nodable/flexible-xml-parser, with static types across the source tree and a fully typed test suite.",
   "keywords": [
     "buffer",
