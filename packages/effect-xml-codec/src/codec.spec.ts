@@ -246,13 +246,81 @@ describe('toCodecXml() — namespaces', () => {
     expect(Schema.decodeSync(codec)(text)).toEqual(value);
   });
 
+  it('encodes and decodes with name mapping', () => {
+    const codec = Schema.Struct({
+      title: Schema.String,
+      entry: Schema.Struct({
+        author: Schema.Struct({ name: Schema.String.pipe(Schema.annotate({ xmlName: 'Name' })) }).annotate({ xmlNamespace: AUTH, xmlPrefix: 'auth' }),
+      }),
+    }).pipe(Schema.annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom', xmlName: 'feed' }), toCodecXml);
+    const value = { title: 'Example', entry: { author: { name: 'Ada' } } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe(
+      `<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title><atom:entry><auth:author xmlns:auth="${AUTH}"><auth:Name>Ada</auth:Name></auth:author></atom:entry></atom:feed>`
+    );
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
   it('decodes a document whose prefix is not the one configured in the schema', () => {
     const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }), { rootName: 'feed' });
     expect(Schema.decodeSync(codec)(`<x:feed xmlns:x="${ATOM}"><x:title>Example</x:title></x:feed>`)).toEqual({ title: 'Example' });
   });
+
+  it('maps names to their fields when each element binds the same URI to a different prefix', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        title: Schema.String,
+        entry: Schema.Struct({ author: Schema.Struct({ name: Schema.String }).annotate({ xmlNamespace: AUTH, xmlPrefix: 'auth' }) }),
+      }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }),
+      { rootName: 'feed' }
+    );
+    const document = `<q:feed xmlns:q="${ATOM}"><q:title>Example</q:title><q:entry><z:author xmlns:z="${AUTH}"><z:name>Ada</z:name></z:author></q:entry></q:feed>`;
+    expect(Schema.decodeSync(codec)(document)).toEqual({ title: 'Example', entry: { author: { name: 'Ada' } } });
+  });
+
+  it('maps a differently-prefixed child when the URI is bound on the root alone', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }), { rootName: 'feed' });
+    // One prefix bound once, then used for both the root and its child, while the schema's own prefix is `atom`.
+    expect(Schema.decodeSync(codec)(`<q:feed xmlns:q="${ATOM}"><q:title>Example</q:title></q:feed>`)).toEqual({ title: 'Example' });
+  });
+
+  it('maps a shared sub-schema whose URI arrives under a different prefix', () => {
+    const Shared = Schema.Struct({ c: Schema.String }).annotate({ xmlNamespace: 'urn:shared', xmlPrefix: 's' });
+    const codec = toCodecXml(Schema.Struct({ b: Shared, d: Shared }), { rootName: 'a' });
+    const document = `<a><q:b xmlns:q="urn:shared"><q:c>text</q:c></q:b><r:d xmlns:r="urn:shared"><r:c>other text</r:c></r:d></a>`;
+    expect(Schema.decodeSync(codec)(document)).toEqual({ b: { c: 'text' }, d: { c: 'other text' } });
+  });
+
+  it('maps a differently-prefixed namespaced attribute', () => {
+    const codec = toCodecXml(Schema.Struct({ '@id': Schema.String.annotate({ xmlNamespace: 'urn:meta', xmlPrefix: 'meta' }), a: Schema.String }), {
+      rootName: 'r',
+    });
+    expect(Schema.decodeSync(codec)(`<r xmlns:q="urn:meta" q:id="7"><a>x</a></r>`)).toEqual({ '@id': '7', a: 'x' });
+  });
+
+  it('maps a prefixed document to a schema whose namespace is the default', () => {
+    const codec = toCodecXml(Schema.Struct({ c: Schema.String }).annotate({ xmlNamespace: 'urn:shared' }), { rootName: 'b' });
+    expect(Schema.decodeSync(codec)(`<b xmlns:q="urn:shared"><q:c>text</q:c></b>`)).toEqual({ c: 'text' });
+  });
+
+  it('maps a default-namespaced document to a schema whose namespace is prefixed', () => {
+    const codec = toCodecXml(Schema.Struct({ c: Schema.String }).annotate({ xmlNamespace: 'urn:shared', xmlPrefix: 's' }), { rootName: 'b' });
+    expect(Schema.decodeSync(codec)(`<b xmlns="urn:shared"><c>text</c></b>`)).toEqual({ c: 'text' });
+  });
+
+  it('falls back to the local name when the URI does not match the schema', () => {
+    // The plan keys a field by its local name, so an element whose URI differs from the annotated one still resolves by its
+    // local name. This documents that the URI is what a matching prefix is checked against, and that it is not a rejection.
+    const codec = toCodecXml(Schema.Struct({ author: Schema.Struct({ name: Schema.String }).annotate({ xmlNamespace: AUTH, xmlPrefix: 'auth' }) }), {
+      rootName: 'feed',
+    });
+    expect(Schema.decodeSync(codec)(`<feed><q:author xmlns:q="urn:other"><q:name>Ada</q:name></q:author></feed>`)).toEqual({
+      author: { name: 'Ada' },
+    });
+  });
 });
 
-describe('toCodecXml() — xmlName', () => {
+describe('toCodecXml() - xmlName', () => {
   const ATOM = 'http://www.w3.org/2005/Atom';
 
   it('writes an element name that differs from the schema field', () => {
