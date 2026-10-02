@@ -394,6 +394,10 @@ interface Scan {
   readonly valueByElement: Map<string, string>;
   readonly arrayKeys: Set<string>;
   readonly problems: Array<string>;
+  /**
+   * @description The AST nodes on the current scan path. A recursive schema terminates because the `Suspend` node is still on the path when its thunk is reached,
+   * and a schema reused under two sibling paths is scanned once per path because each node is removed again on the way out.
+   */
   readonly seen: Set<SchemaAST.AST>;
 }
 
@@ -602,26 +606,30 @@ const noteArray = (scan: Scan, ast: SchemaAST.AST, elementPath: string): void =>
 const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | undefined, elementPath: string): void => {
   if (scan.seen.has(ast)) return;
   scan.seen.add(ast);
-  noteArray(scan, ast, elementPath);
-  const namespace = namespaceOf(ast) ?? inherited;
-  switch (ast._tag) {
-    case 'Objects':
-      scanObject(scan, ast, namespace, elementPath);
-      return;
-    case 'Arrays':
-      scanAll(scan, [...ast.elements, ...ast.rest], namespace, elementPath);
-      return;
-    case 'Union':
-      scanAll(scan, ast.types, namespace, elementPath);
-      return;
-    case 'Suspend':
-      scanNode(scan, ast.thunk(), namespace, elementPath);
-      return;
-    case 'Declaration':
-      scanAll(scan, ast.typeParameters, namespace, elementPath);
-      return;
-    default:
-      return;
+  try {
+    noteArray(scan, ast, elementPath);
+    const namespace = namespaceOf(ast) ?? inherited;
+    switch (ast._tag) {
+      case 'Objects':
+        scanObject(scan, ast, namespace, elementPath);
+        return;
+      case 'Arrays':
+        scanAll(scan, [...ast.elements, ...ast.rest], namespace, elementPath);
+        return;
+      case 'Union':
+        scanAll(scan, ast.types, namespace, elementPath);
+        return;
+      case 'Suspend':
+        scanNode(scan, ast.thunk(), namespace, elementPath);
+        return;
+      case 'Declaration':
+        scanAll(scan, ast.typeParameters, namespace, elementPath);
+        return;
+      default:
+        return;
+    }
+  } finally {
+    scan.seen.delete(ast);
   }
 };
 
