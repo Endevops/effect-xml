@@ -12,7 +12,7 @@ import type { Expression, MatcherView } from '@endevops/common-xml';
  */
 import type { Effect } from 'effect';
 
-export type ValueProcessor = (name: string, value: unknown) => Effect.Effect<string | undefined, unknown>;
+export type ValueProcessor = (name: string, value: unknown) => Effect.Effect<string | undefined>;
 
 /**
  * @description Context handed to {@link XmlBuilderOptions.sanitizeName}.
