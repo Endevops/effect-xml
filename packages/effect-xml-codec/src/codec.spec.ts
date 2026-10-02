@@ -141,6 +141,52 @@ describe('toCodecXml() — options', () => {
   });
 });
 
+describe('toCodecXml() — namespaces', () => {
+  const ATOM = 'http://www.w3.org/2005/Atom';
+  const AUTH = 'urn:auth';
+
+  it('writes an element namespace as the default declaration', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM }), { rootName: 'feed' });
+    expect(Schema.encodeSync(codec)({ title: 'Example' })).toBe(`<feed xmlns="${ATOM}"><title>Example</title></feed>`);
+  });
+
+  it('writes a namespace with a custom prefix on the element', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }), { rootName: 'feed' });
+    expect(Schema.encodeSync(codec)({ title: 'Example' })).toBe(`<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title></atom:feed>`);
+  });
+
+  it('decodes a document whose namespace has no prefix', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM }), { rootName: 'feed' });
+    expect(Schema.decodeSync(codec)(`<feed xmlns="${ATOM}"><title>Example</title></feed>`)).toEqual({ title: 'Example' });
+  });
+
+  it('decodes a document whose namespace uses the schema prefix', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }), { rootName: 'feed' });
+    expect(Schema.decodeSync(codec)(`<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title></atom:feed>`)).toEqual({ title: 'Example' });
+  });
+
+  it('encodes and decodes nested namespaces', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        title: Schema.String,
+        entry: Schema.Struct({ author: Schema.Struct({ name: Schema.String }).annotate({ xmlNamespace: AUTH, xmlPrefix: 'auth' }) }),
+      }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }),
+      { rootName: 'feed' }
+    );
+    const value = { title: 'Example', entry: { author: { name: 'Ada' } } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe(
+      `<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title><atom:entry><auth:author xmlns:auth="${AUTH}"><auth:name>Ada</auth:name></auth:author></atom:entry></atom:feed>`
+    );
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('decodes a document whose prefix is not the one configured in the schema', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }), { rootName: 'feed' });
+    expect(Schema.decodeSync(codec)(`<x:feed xmlns:x="${ATOM}"><x:title>Example</x:title></x:feed>`)).toEqual({ title: 'Example' });
+  });
+});
+
 describe('toCodecXml() — failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
