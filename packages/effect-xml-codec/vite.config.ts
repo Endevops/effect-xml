@@ -6,9 +6,10 @@ export default defineConfig({
     deps: { onlyBundle: false, resolveDepSubpath: true },
     dts: { sourcemap: true },
     exports: { devExports: 'development', packageJson: true },
+    minify: 'dce-only',
     platform: 'neutral',
     publint: true,
     sourcemap: true,
-    unbundle: false,
+    unbundle: true,
   },
 });
