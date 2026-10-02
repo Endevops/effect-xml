@@ -352,9 +352,37 @@ describe('toCodecXml() — xmlValue', () => {
     expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlValue: true, xmlName: 'x' }) }))).toThrow(/cannot have an xmlName/);
   });
 
-  it('refuses more than one value field', () => {
+  it('writes a value field for each of two sibling elements', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        first: Schema.Struct({ '@id': Schema.String, title: Schema.String.annotate({ xmlValue: true }) }),
+        second: Schema.Struct({ '@id': Schema.String, body: Schema.String.annotate({ xmlValue: true }) }),
+      }),
+      { rootName: 'root' }
+    );
+    const value = { first: { '@id': '1', title: 'a' }, second: { '@id': '2', body: 'b' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<root><first id="1">a</first><second id="2">b</second></root>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('writes the same value field for two sibling elements', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        first: Schema.Struct({ '@id': Schema.String, text: Schema.String.annotate({ xmlValue: true }) }),
+        second: Schema.Struct({ '@id': Schema.String, text: Schema.String.annotate({ xmlValue: true }) }),
+      }),
+      { rootName: 'root' }
+    );
+    const value = { first: { '@id': '1', text: 'a' }, second: { '@id': '2', text: 'b' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<root><first id="1">a</first><second id="2">b</second></root>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
+  it('refuses two value fields on the same element', () => {
     expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlValue: true }), b: Schema.String.annotate({ xmlValue: true }) }))).toThrow(
-      /only one field can hold/
+      /more than one value field/
     );
   });
 });

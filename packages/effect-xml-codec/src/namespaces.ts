@@ -133,9 +133,10 @@ export interface NamespacePlan {
   readonly attributeKeys: ReadonlySet<string>;
 
   /**
-   * @description The schema key that `xmlValue` marks as the element's character data, or `undefined`.
+   * @description The schema key that `xmlValue` marks as the character data of an element, keyed by the element's own schema key. The empty string keys the root
+   * element.
    */
-  readonly valueKey: string | undefined;
+  readonly valueByElement: ReadonlyMap<string, string>;
 
   /**
    * @description The root element's namespace, or `undefined` when the root is unannotated.
@@ -323,6 +324,11 @@ const resolvedKey = (isAttribute: boolean, uri: string | undefined, local: strin
   `${isAttribute ? ATTRIBUTE_PREFIX : ''}${uri ?? ''}|${local}`;
 
 /**
+ * @description The element key of the root element. The value map is keyed by the element a field belongs to, and the root has no schema key of its own.
+ */
+export const ROOT_ELEMENT = '';
+
+/**
  * @description The mutable state one namespace scan carries: the plan under construction, the local names that resolve to more than one namespace, and the AST
  * nodes already visited so a recursive schema terminates.
  */
@@ -330,7 +336,7 @@ interface Scan {
   readonly byKey: Map<string, XmlNamespace>;
   readonly nameByKey: Map<string, string>;
   readonly attributeKeys: Set<string>;
-  readonly valueKeys: Set<string>;
+  readonly valueByElement: Map<string, string>;
   readonly problems: Array<string>;
   readonly seen: Set<SchemaAST.AST>;
 }
@@ -424,29 +430,39 @@ const noteAttribute = (scan: Scan, key: string, isAttribute: boolean): void => {
 };
 
 /**
- * @description Records a field marked `xmlValue`, refusing the annotations it cannot combine with: a value is character data, so it cannot be an attribute, carry
- * a name, or be in a namespace.
+ * @description Records a field marked `xmlValue` against the element that owns it, refusing the annotations a value cannot combine with: character data has no
+ * name and no namespace, and an element has room for only one value.
  *
  * @param scan - The scan state.
- * @param key - The schema key.
- * @param isValue - Whether the field is marked `xmlValue`.
+ * @param elementKey - The schema key of the element the field belongs to, or the root sentinel.
+ * @param valueKey - The schema key of the value field.
  * @param isAttribute - Whether the field is an attribute.
  * @param name - The field's `xmlName` override, or `undefined`.
  * @param field - The field's own namespace, or `undefined`.
  */
 const recordValue = (
   scan: Scan,
-  key: string,
-  isValue: boolean,
+  elementKey: string,
+  valueKey: string,
   isAttribute: boolean,
   name: string | undefined,
   field: XmlNamespace | undefined
 ): void => {
-  if (!isValue) return;
-  if (isAttribute) scan.problems.push(`the field "${key}" is marked as both an attribute and the element's value`);
-  else if (Predicate.isNotUndefined(name)) scan.problems.push(`the value field "${key}" cannot have an xmlName, because character data has no name`);
-  else if (Predicate.isNotUndefined(field)) scan.problems.push(`the value field "${key}" cannot have a namespace, because character data has none`);
-  else scan.valueKeys.add(key);
+  if (isAttribute) scan.problems.push(`the field "${valueKey}" is marked as both an attribute and the element's value`);
+  else if (Predicate.isNotUndefined(name))
+    scan.problems.push(`the value field "${valueKey}" cannot have an xmlName, because character data has no name`);
+  else if (Predicate.isNotUndefined(field))
+    scan.problems.push(`the value field "${valueKey}" cannot have a namespace, because character data has none`);
+  else {
+    const previous = scan.valueByElement.get(elementKey);
+    if (Predicate.isNotUndefined(previous) && previous !== valueKey) {
+      scan.problems.push(
+        `the element "${elementKey === ROOT_ELEMENT ? 'root' : elementKey}" has more than one value field, "${previous}" and "${valueKey}"`
+      );
+    } else {
+      scan.valueByElement.set(elementKey, valueKey);
+    }
+  }
 };
 
 /**
@@ -456,17 +472,18 @@ const recordValue = (
  * @param scan - The scan state.
  * @param property - The property signature.
  * @param inherited - The namespace the enclosing element passes down.
+ * @param elementKey - The schema key of the element the property belongs to, or the root sentinel.
  */
-const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined): void => {
+const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined, elementKey: string): void => {
   const key = Predicate.isString(property.name) ? property.name : String(property.name);
   const isAttribute = isAttributeProperty(key, property.type);
   const name = keyNameOf(property.type) ?? nameOf(property.type);
   const field = keyNamespaceOf(property.type) ?? namespaceOf(property.type);
   noteAttribute(scan, key, isAttribute);
   recordName(scan, key, name);
-  recordValue(scan, key, isValueProperty(property.type), isAttribute, name, field);
+  if (isValueProperty(property.type)) recordValue(scan, elementKey, key, isAttribute, name, field);
   recordFieldNamespace(scan, key, isAttribute, field, inherited);
-  scanNode(scan, property.type, isAttribute ? inherited : (field ?? inherited));
+  scanNode(scan, property.type, isAttribute ? inherited : (field ?? inherited), key);
 };
 
 /**
@@ -475,9 +492,10 @@ const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherit
  * @param scan - The scan state.
  * @param nodes - The child ASTs.
  * @param inherited - The namespace they inherit.
+ * @param elementKey - The schema key of the element they belong to, or the root sentinel.
  */
-const scanAll = (scan: Scan, nodes: ReadonlyArray<SchemaAST.AST>, inherited: XmlNamespace | undefined): void => {
-  for (const node of nodes) scanNode(scan, node, inherited);
+const scanAll = (scan: Scan, nodes: ReadonlyArray<SchemaAST.AST>, inherited: XmlNamespace | undefined, elementKey: string): void => {
+  for (const node of nodes) scanNode(scan, node, inherited, elementKey);
 };
 
 /**
@@ -486,42 +504,44 @@ const scanAll = (scan: Scan, nodes: ReadonlyArray<SchemaAST.AST>, inherited: Xml
  * @param scan - The scan state.
  * @param ast - The object AST.
  * @param namespace - The namespace the object passes to its members.
+ * @param elementKey - The schema key of the element the object describes, or the root sentinel.
  */
-const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace | undefined): void => {
+const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace | undefined, elementKey: string): void => {
   for (const property of ast.propertySignatures) {
-    scanProperty(scan, property, namespace);
+    scanProperty(scan, property, namespace, elementKey);
   }
   for (const index of ast.indexSignatures) {
-    scanNode(scan, index.type, namespace);
+    scanNode(scan, index.type, namespace, elementKey);
   }
 };
 
 /**
- * @description Records every name in one schema AST, carrying the namespace an element passes to its descendants.
+ * @description Records every name in one schema AST, carrying the namespace an element passes to its descendants and the element the names belong to.
  *
  * @param scan - The scan state.
  * @param ast - The AST to walk.
  * @param inherited - The namespace the enclosing element passes down.
+ * @param elementKey - The schema key of the element this AST describes, or the root sentinel.
  */
-const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | undefined): void => {
+const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | undefined, elementKey: string): void => {
   if (scan.seen.has(ast)) return;
   scan.seen.add(ast);
   const namespace = namespaceOf(ast) ?? inherited;
   switch (ast._tag) {
     case 'Objects':
-      scanObject(scan, ast, namespace);
+      scanObject(scan, ast, namespace, elementKey);
       return;
     case 'Arrays':
-      scanAll(scan, [...ast.elements, ...ast.rest], namespace);
+      scanAll(scan, [...ast.elements, ...ast.rest], namespace, elementKey);
       return;
     case 'Union':
-      scanAll(scan, ast.types, namespace);
+      scanAll(scan, ast.types, namespace, elementKey);
       return;
     case 'Suspend':
-      scanNode(scan, ast.thunk(), namespace);
+      scanNode(scan, ast.thunk(), namespace, elementKey);
       return;
     case 'Declaration':
-      scanAll(scan, ast.typeParameters, namespace);
+      scanAll(scan, ast.typeParameters, namespace, elementKey);
       return;
     default:
       return;
@@ -537,8 +557,8 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
  * @returns The plan, or the annotations that cannot be honored.
  */
 export const namespacePlan = (schema: Schema.Constraint): { readonly plan: NamespacePlan } | { readonly error: string } => {
-  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), attributeKeys: new Set(), valueKeys: new Set(), problems: [], seen: new Set() };
-  scanNode(scan, schema.ast, undefined);
+  const scan: Scan = { byKey: new Map(), nameByKey: new Map(), attributeKeys: new Set(), valueByElement: new Map(), problems: [], seen: new Set() };
+  scanNode(scan, schema.ast, undefined, ROOT_ELEMENT);
 
   const byResolved = new Map<string, string>();
   for (const key of new Set([...scan.byKey.keys(), ...scan.nameByKey.keys(), ...scan.attributeKeys])) {
@@ -555,10 +575,6 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
     }
   }
 
-  if (scan.valueKeys.size > 1) {
-    scan.problems.push(`only one field can hold an element's value, but ${[...scan.valueKeys].join(', ')} are marked xmlValue`);
-  }
-
   if (scan.problems.length > 0) {
     return { error: [...new Set(scan.problems)].join(';\n\t- ') };
   }
@@ -568,7 +584,7 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
       byKey: scan.byKey,
       nameByKey: scan.nameByKey,
       attributeKeys: scan.attributeKeys,
-      valueKey: scan.valueKeys.values().next().value,
+      valueByElement: scan.valueByElement,
       root: namespaceOf(schema.ast),
       rootName: nameOf(schema.ast),
       byResolved,
@@ -644,21 +660,29 @@ const wireKey = (plan: NamespacePlan, key: string, namespace: XmlNamespace | und
 };
 
 /**
- * @description Writes one record's fields under the element's scope: an attribute is a leaf and declares its prefix on this element, while a child element
- * recurses with its own namespace.
+ * @description Writes one record's fields under the element's scope: an attribute is a leaf and declares its prefix on this element, the value field becomes the
+ * element's character data, and a child element recurses with its own namespace.
  *
  * @param value - The element's record, keyed by the schema's local names.
  * @param plan - The namespace plan.
  * @param out - The wire record, written in place.
  * @param scope - The prefix bindings in scope for this element.
+ * @param elementKey - The schema key of this element, or the root sentinel.
  */
-const encodeFields = (value: XmlRecord, plan: NamespacePlan, out: Record<string, XmlValue>, scope: Record<string, string | undefined>): void => {
+const encodeFields = (
+  value: XmlRecord,
+  plan: NamespacePlan,
+  out: Record<string, XmlValue>,
+  scope: Record<string, string | undefined>,
+  elementKey: string
+): void => {
+  const valueKey = plan.valueByElement.get(elementKey);
   for (const [key, child] of Object.entries(value)) {
     if (isDeclarationKey(key)) {
       continue;
     }
 
-    if (key === plan.valueKey) {
+    if (key === valueKey) {
       out[TEXT_KEY] = child;
       continue;
     }
@@ -672,7 +696,7 @@ const encodeFields = (value: XmlRecord, plan: NamespacePlan, out: Record<string,
       continue;
     }
 
-    out[wireKey(plan, key, childNamespace)] = encodeNames(child, plan, childNamespace, scope);
+    out[wireKey(plan, key, childNamespace)] = encodeNames(child, plan, childNamespace, scope, key);
   }
 };
 
@@ -684,6 +708,7 @@ const encodeFields = (value: XmlRecord, plan: NamespacePlan, out: Record<string,
  * @param plan - The namespace plan.
  * @param namespace - This element's namespace.
  * @param scope - The prefix bindings in scope above this element.
+ * @param elementKey - The schema key of this element, or the root sentinel.
  *
  * @returns The wire tree.
  */
@@ -691,10 +716,11 @@ export const encodeNames = (
   value: XmlValue,
   plan: NamespacePlan,
   namespace: XmlNamespace | undefined,
-  scope: Record<string, string | undefined>
+  scope: Record<string, string | undefined>,
+  elementKey: string
 ): XmlValue => {
   if (Array.isArray(value)) {
-    return value.map(member => encodeNames(member, plan, namespace, scope));
+    return value.map(member => encodeNames(member, plan, namespace, scope, elementKey));
   }
 
   const out: Record<string, XmlValue> = {};
@@ -713,7 +739,7 @@ export const encodeNames = (
     return value;
   }
 
-  encodeFields(value as XmlRecord, plan, out, inner);
+  encodeFields(value as XmlRecord, plan, out, inner, elementKey);
   return out;
 };
 
@@ -767,7 +793,6 @@ const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): R
  * @returns The schema key.
  */
 const schemaKey = (plan: NamespacePlan, key: string, scope: Record<string, string | undefined>): string => {
-  if (key === TEXT_KEY) return plan.valueKey ?? key;
   const isAttribute = isAttributeKey(key);
   const { uri, local } = resolveName(localName(key), isAttribute, scope);
   return plan.byResolved.get(resolvedKey(isAttribute, uri, local)) ?? (isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local);
@@ -775,16 +800,18 @@ const schemaKey = (plan: NamespacePlan, key: string, scope: Record<string, strin
 
 /**
  * @description Rewrites a wire value tree back to the schema's local names, resolving every name against the declarations the document carries and dropping those
- * declarations. A record left holding only character data collapses back to that string, which is how a namespaced leaf stays a `Schema.String`.
+ * declarations. Character data maps to the value field of the element it belongs to. A record left holding only character data collapses back to that
+ * string, which is how a namespaced leaf stays a `Schema.String`.
  *
  * @param value - The parsed wire tree.
  * @param plan - The namespace plan.
  * @param scope - The prefix bindings in scope above this element.
+ * @param elementKey - The schema key of this element, or the root sentinel.
  *
  * @returns The value tree, keyed by the schema's names.
  */
-export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>): XmlValue => {
-  if (Array.isArray(value)) return value.map(member => decodeNames(member, plan, scope));
+export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>, elementKey: string): XmlValue => {
+  if (Array.isArray(value)) return value.map(member => decodeNames(member, plan, scope, elementKey));
   if (Predicate.isString(value) || Predicate.isUndefined(value)) return value;
   if (!Predicate.isObject(value)) return value;
 
@@ -792,6 +819,7 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
   // tree's own record type is named here.
   const record = value as XmlRecord;
   const inner = scopeOf(record, scope);
+  const valueKey = plan.valueByElement.get(elementKey);
   const out: Record<string, XmlValue> = {};
 
   for (const [key, child] of Object.entries(record)) {
@@ -799,7 +827,13 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
       continue;
     }
 
-    out[schemaKey(plan, key, inner)] = decodeNames(child, plan, inner);
+    if (key === TEXT_KEY) {
+      out[valueKey ?? TEXT_KEY] = decodeNames(child, plan, inner, elementKey);
+      continue;
+    }
+
+    const childKey = schemaKey(plan, key, inner);
+    out[childKey] = decodeNames(child, plan, inner, childKey);
   }
 
   const keys = Object.keys(out);

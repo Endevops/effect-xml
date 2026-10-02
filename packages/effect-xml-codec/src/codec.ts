@@ -29,7 +29,7 @@ import type { XmlRenderOptions } from './render.ts';
 import type { XmlValue } from './xml-value.ts';
 
 import { DEFAULT_ROOT_NAME } from './conventions.ts';
-import { decodeNames, encodeNames, namespacePlan } from './namespaces.ts';
+import { decodeNames, encodeNames, namespacePlan, ROOT_ELEMENT } from './namespaces.ts';
 import { parseXml } from './parse.ts';
 import { renderXml } from './render.ts';
 
@@ -91,7 +91,7 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
     plan.byKey.size > 0 ||
     plan.nameByKey.size > 0 ||
     plan.attributeKeys.size > 0 ||
-    plan.valueKey !== undefined ||
+    plan.valueByElement.size > 0 ||
     plan.root !== undefined ||
     plan.rootName !== undefined;
 
@@ -112,7 +112,7 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
         // error's own message rather than a generic one.
         decode: (text, parseOptions) =>
           parseXml(text, options).pipe(
-            Effect.map(value => (active ? decodeNames(value, plan, {}) : value)),
+            Effect.map(value => (active ? decodeNames(value, plan, {}, ROOT_ELEMENT) : value)),
             Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, text, parseOptions))
           ),
         encode: (value, parseOptions) => {
@@ -128,7 +128,7 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
               )
             );
           }
-          const wire = active ? encodeNames(value as XmlValue, plan, plan.root, {}) : (value as XmlValue);
+          const wire = active ? encodeNames(value as XmlValue, plan, plan.root, {}, ROOT_ELEMENT) : (value as XmlValue);
           return renderXml(wire, renderOptions).pipe(
             Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, value, parseOptions))
           );

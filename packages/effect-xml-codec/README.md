@@ -94,8 +94,8 @@ Schema.Struct({ '@currency': Schema.String, amount: Schema.String.annotate({ xml
 ```
 
 Character data has no name and no namespace, so `xmlValue` cannot be combined
-with `xmlAttribute`, `xmlName`, or `xmlNamespace`, and only one field in a codec
-may hold it.
+with `xmlAttribute`, `xmlName`, or `xmlNamespace`, and an element has room for
+only one value field. Two sibling elements may each have their own.
 
 The annotation is attached with `Schema.annotate`:
 
