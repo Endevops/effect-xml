@@ -138,7 +138,9 @@ const resolveNameResult = (name: string, options: ResolveNameOptions): Result.Re
   try {
     return Result.succeed(resolveNameSync(name, options));
   } catch (cause) {
-    if (cause instanceof XmlParseError) return Result.fail(cause);
+    if (cause instanceof XmlParseError) {
+      return Result.fail(cause);
+    }
     return Result.fail(new XmlParseError({ message: Predicate.isError(cause) ? cause.message : String(cause), position: -1, input: name }));
   }
 };

@@ -76,12 +76,6 @@ export interface toCodecXml<S extends Schema.Constraint> extends Schema.decodeTo
  * @returns The codec, with the source schema's `Type` and the same service requirements.
  */
 export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlCodecOptions = {}): toCodecXml<S> => {
-  const tree = Schema.toCodecStringTree(schema);
-
-  // A schema that annotates a namespace or a node name gets text-bound
-  // rewriting: its local names are written with the annotated prefixes and
-  // names, and a document written with any prefix for the same URI reads back.
-  // A schema with no annotation takes the plain path, byte for byte as before.
   const planned = namespacePlan(schema);
   if (Predicate.hasProperty(planned, 'error')) {
     throw new Error(`Invalid XML namespace annotation:\n\t- ${planned.error}.`);
@@ -103,23 +97,24 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
 
   return Schema.String.pipe(
     Schema.decodeTo(
-      tree,
-      SchemaTransformation.transformEffect<Schema.StringTree, string>({
-        // The transformation bridges the document and the value tree: on the
-        // way in the text becomes the tree `tree` decodes from, and on the way
-        // out the tree `tree` encoded becomes text. A failure from either text
-        // step becomes the `InvalidValue` a schema reports, carrying the XML
-        // error's own message rather than a generic one.
-        decode: (text, parseOptions) =>
-          parseXml(text, options).pipe(
+      Schema.toCodecStringTree(schema),
+      SchemaTransformation.transformEffect({
+        decode: (text, parseOptions) => {
+          if (!Predicate.isString(text)) {
+            return Effect.fail(new SchemaIssue.InvalidValue({ message: `Expected a string, but received ${typeof text}.` }, text, parseOptions));
+          }
+
+          return parseXml(text, options).pipe(
             Effect.map(value => (active ? decodeNames(value, plan, {}, ROOT_ELEMENT) : value)),
+            Effect.tapError(error =>
+              Effect.logError(`XML parse error: ${error.message}`).pipe(Effect.annotateLogs({ cause: error, message: 'XML parse error' }))
+            ),
             Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, text, parseOptions))
-          ),
+          );
+        },
+
         encode: (value, parseOptions) => {
           if (active && Array.isArray(value) && (plan.root !== undefined || plan.rootName !== undefined)) {
-            // A root array has no element of its own to carry the root's
-            // declaration or name; renderXml wraps it, so there is nowhere to
-            // put them.
             return Effect.fail(
               new SchemaIssue.InvalidValue(
                 { message: 'An array at the root of a namespaced schema cannot carry the root namespace or name.' },
@@ -128,6 +123,7 @@ export const toCodecXml = <S extends Schema.Constraint>(schema: S, options: XmlC
               )
             );
           }
+
           const wire = active ? encodeNames(value as XmlValue, plan, plan.root, {}, ROOT_ELEMENT) : (value as XmlValue);
           return renderXml(wire, renderOptions).pipe(
             Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, value, parseOptions))

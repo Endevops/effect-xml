@@ -16,7 +16,7 @@ import { toCodecXml } from '#/codec.ts';
  */
 type AnyCodec = Schema.ConstraintCodec<unknown, unknown>;
 
-describe('toCodecXml() — the codec', () => {
+describe('toCodecXml() - the codec', () => {
   it('returns a Schema whose encoded side is XML text', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
     expect(Schema.encodeSync(codec)({ a: 'x' })).toBe('<r><a>x</a></r>');
@@ -53,7 +53,7 @@ describe('toCodecXml() — the codec', () => {
   });
 });
 
-describe('toCodecXml() — schema shapes through the document', () => {
+describe('toCodecXml() - schema shapes through the document', () => {
   const roundTrip = (schema: AnyCodec, value: unknown): unknown =>
     Schema.decodeSync(toCodecXml(schema, { rootName: 'r' }))(Schema.encodeSync(toCodecXml(schema, { rootName: 'r' }))(value));
 
@@ -185,7 +185,7 @@ describe('toCodecXml() — schema shapes through the document', () => {
       readonly children?: ReadonlyArray<Node>;
     }
     // `children` is optional so a leaf can be written with no element of its own, and every node that does have one has
-    // two children — a node with exactly one is a one-member array of structs, which XML cannot tell from the struct.
+    // two children - a node with exactly one is a one-member array of structs, which XML cannot tell from the struct.
     const Node: Schema.Codec<Node> = Schema.suspend(() =>
       Schema.Struct({ label: Schema.String, children: Schema.optional(Schema.Array(Node)) })
     ) as Schema.Codec<Node>;
@@ -194,7 +194,7 @@ describe('toCodecXml() — schema shapes through the document', () => {
   });
 });
 
-describe('toCodecXml() — options', () => {
+describe('toCodecXml() - options', () => {
   it('pretty-prints when asked', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r', format: true });
     expect(Schema.encodeSync(codec)({ a: 'x' })).toBe('<r>\n  <a>x</a>\n</r>\n');
@@ -206,7 +206,19 @@ describe('toCodecXml() — options', () => {
   });
 });
 
-describe('toCodecXml() — namespaces', () => {
+class ClassSchema extends Schema.Struct({
+  title: Schema.String,
+  entry: Schema.Struct({ author: Schema.Struct({ name: Schema.String }).annotate({ xmlNamespace: 'urn:auth', xmlPrefix: 'auth' }) }),
+}).pipe(Schema.annotate({ xmlNamespace: 'http://www.w3.org/2005/Atom', xmlPrefix: 'atom', xmlName: 'feed' }), toCodecXml) {}
+
+class OpaqueClassSchema extends Schema.Opaque<OpaqueClassSchema>()(
+  Schema.Struct({
+    title: Schema.String,
+    entry: Schema.Struct({ author: Schema.Struct({ name: Schema.String }).annotate({ xmlNamespace: 'urn:auth', xmlPrefix: 'auth' }) }),
+  }).pipe(Schema.annotate({ xmlNamespace: 'http://www.w3.org/2005/Atom', xmlPrefix: 'atom', xmlName: 'feed' }), toCodecXml)
+) {}
+
+describe('toCodecXml() - namespaces', () => {
   const ATOM = 'http://www.w3.org/2005/Atom';
   const AUTH = 'urn:auth';
 
@@ -228,6 +240,42 @@ describe('toCodecXml() — namespaces', () => {
   it('decodes a document whose namespace uses the schema prefix', () => {
     const codec = toCodecXml(Schema.Struct({ title: Schema.String }).annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }), { rootName: 'feed' });
     expect(Schema.decodeSync(codec)(`<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title></atom:feed>`)).toEqual({ title: 'Example' });
+  });
+
+  it('encodes a document from a class schema', () => {
+    const codec = ClassSchema;
+    const value = { title: 'Example', entry: { author: { name: 'Ada' } } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe(
+      `<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title><atom:entry><auth:author xmlns:auth="${AUTH}"><auth:name>Ada</auth:name></auth:author></atom:entry></atom:feed>`
+    );
+  });
+
+  it('encodes a document from an opaque class schema', () => {
+    const codec = OpaqueClassSchema;
+    const value = { title: 'Example', entry: { author: { name: 'Ada' } } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe(
+      `<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title><atom:entry><auth:author xmlns:auth="${AUTH}"><auth:name>Ada</auth:name></auth:author></atom:entry></atom:feed>`
+    );
+  });
+
+  it('decodes a document from a class schema', () => {
+    const codec = ClassSchema;
+    const value = { title: 'Example', entry: { author: { name: 'Ada' } } };
+    const text = Schema.decodeSync(codec)(
+      `<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title><atom:entry><auth:author xmlns:auth="${AUTH}"><auth:name>Ada</auth:name></auth:author></atom:entry></atom:feed>`
+    );
+    expect(text).toEqual(value);
+  });
+
+  it('decodes a document from an opaque class schema', () => {
+    const codec = OpaqueClassSchema;
+    const value = { title: 'Example', entry: { author: { name: 'Ada' } } };
+    const text = Schema.decodeSync(codec)(
+      `<atom:feed xmlns:atom="${ATOM}"><atom:title>Example</atom:title><atom:entry><auth:author xmlns:auth="${AUTH}"><auth:name>Ada</auth:name></auth:author></atom:entry></atom:feed>`
+    );
+    expect(text).toEqual(value);
   });
 
   it('encodes and decodes nested namespaces', () => {
@@ -539,7 +587,7 @@ describe('toCodecXml() - xmlAttribute', () => {
   });
 });
 
-describe('toCodecXml() — xmlValue', () => {
+describe('toCodecXml() - xmlValue', () => {
   it('writes a field marked xmlValue as the element character data', () => {
     const codec = toCodecXml(Schema.Struct({ '@currency': Schema.String, amount: Schema.String.annotate({ xmlValue: true }) }), {
       rootName: 'price',
@@ -645,7 +693,7 @@ describe('toCodecXml() — xmlValue', () => {
   });
 });
 
-describe('toCodecXml() — failures', () => {
+describe('toCodecXml() - failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
     expect(() => Schema.decodeSync(codec)('<r><a>x</r>')).toThrow(/Closing tag/);

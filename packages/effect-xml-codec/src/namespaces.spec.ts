@@ -118,3 +118,29 @@ describe('namespaces — failures', () => {
     expect(Schema.encodeSync(codec)({ 'soap:Envelope': 'x' })).toBe('<root><soap:Envelope>x</soap:Envelope></root>');
   });
 });
+
+describe('namespaces — a repeated element', () => {
+  const ITEMS = 'urn:items';
+
+  const codec = toCodecXml(
+    Schema.Struct({
+      lineItems: Schema.Array(Schema.Struct({ value: Schema.String })).annotate({ xmlNamespace: ITEMS, xmlPrefix: 'i', xmlName: 'Item' }),
+    }),
+    { rootName: 'root' }
+  );
+
+  it('resolves a prefix each repeated element declares on itself', () => {
+    const text =
+      `<root>` +
+      `<i:Item xmlns:i="${ITEMS}"><i:value xmlns:i="${ITEMS}">a</i:value></i:Item>` +
+      `<i:Item xmlns:i="${ITEMS}"><i:value xmlns:i="${ITEMS}">b</i:value></i:Item>` +
+      `</root>`;
+    expect(Schema.decodeSync(codec)(text)).toEqual({ lineItems: [{ value: 'a' }, { value: 'b' }] });
+  });
+
+  it('reads a single occurrence as the one-member array', () => {
+    expect(Schema.decodeSync(codec)(`<root><i:Item xmlns:i="${ITEMS}"><i:value xmlns:i="${ITEMS}">a</i:value></i:Item></root>`)).toEqual({
+      lineItems: [{ value: 'a' }],
+    });
+  });
+});

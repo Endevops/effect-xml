@@ -899,15 +899,20 @@ const schemaKey = (plan: NamespacePlan, parent: string, key: string, scope: Reco
 
 /**
  * @description The scope a child element resolves its own name against: the declarations it carries on itself, layered over the parent scope. An element may
- * declare the prefix it uses on the element itself, so its own name is read with those bindings in scope.
+ * declare the prefix it uses on the element itself, so its own name is read with those bindings in scope. A repeated element arrives as an array, so
+ * the first member stands in for the run — every member describes the same element and carries the same declaration.
  *
  * @param child - The child value.
  * @param scope - The bindings in scope above the child.
  *
  * @returns The scope to resolve the child's own name with.
  */
-const childScopeOf = (child: XmlValue, scope: Record<string, string | undefined>): Record<string, string | undefined> =>
-  Predicate.isObject(child) ? scopeOf(child as XmlRecord, scope) : scope;
+const childScopeOf = (child: XmlValue, scope: Record<string, string | undefined>): Record<string, string | undefined> => {
+  if (Array.isArray(child)) {
+    return child.length > 0 ? childScopeOf(child[0], scope) : scope;
+  }
+  return Predicate.isObject(child) ? scopeOf(child as XmlRecord, scope) : scope;
+};
 
 /**
  * @description Rewrites a wire value tree back to the schema's local names, resolving every name against the declarations the document carries and dropping those

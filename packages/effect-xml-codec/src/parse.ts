@@ -255,13 +255,27 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    */
   const skipMisc = (): void => {
     for (;;) {
-      while (at < text.length && isWhitespace(text.charCodeAt(at))) at++;
-      if (at >= text.length) return; // whitespace ran to the end of the document: consumed, and that is the end
-      if (text.charCodeAt(at) !== LT) return; // real content: leave the cursor on it for the caller
-      if (text.startsWith('<!--', at)) at = skipUntil('-->', at + 4, 'comment');
-      else if (text.startsWith('<?', at)) at = skipUntil('?>', at + 2, 'processing instruction');
-      else if (text.startsWith('<!DOCTYPE', at)) at = skipDoctype(at);
-      else return; // the start of the root element, or of a closing tag
+      while (at < text.length && isWhitespace(text.charCodeAt(at))) {
+        at++;
+      }
+
+      if (at >= text.length) {
+        return; // whitespace ran to the end of the document: consumed, and that is the end
+      }
+
+      if (text.charCodeAt(at) !== LT) {
+        return; // real content: leave the cursor on it for the caller
+      }
+
+      if (text.startsWith('<!--', at)) {
+        at = skipUntil('-->', at + 4, 'comment');
+      } else if (text.startsWith('<?', at)) {
+        at = skipUntil('?>', at + 2, 'processing instruction');
+      } else if (text.startsWith('<!DOCTYPE', at)) {
+        at = skipDoctype(at);
+      } else {
+        return; // the start of the root element, or of a closing tag
+      }
     }
   };
 
@@ -273,10 +287,14 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     while (at < text.length) {
       const char = text.charCodeAt(at);
       // Whitespace, `/`, `=` and `>` all end a name. Stopping on `/` and `>` is what lets `<a/>` and `<a>` share one loop.
-      if (isWhitespace(char) || char === SLASH || char === EQUALS || char === GT) break;
+      if (isWhitespace(char) || char === SLASH || char === EQUALS || char === GT) {
+        break;
+      }
       at++;
     }
-    if (at === start) throw new XmlParseError({ message: `Expected a ${what}`, position: start, input: text });
+    if (at === start) {
+      throw new XmlParseError({ message: `Expected a ${what}`, position: start, input: text });
+    }
     return text.slice(start, at);
   };
 
@@ -289,14 +307,21 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     // `indexOf` below is only reached once `quote` is known to be a real quote,
     // which the guard establishes; the `?? ''` is unreachable and exists only to
     // keep the type of the index lookup a `string`.
-    if (quote !== '"' && quote !== "'")
+    if (quote !== '"' && quote !== "'") {
       throw new XmlParseError({ message: `Attribute "${name}" has no quoted value`, position: nameStart, input: text });
+    }
+
     at++;
+
     const end = text.indexOf(quote ?? '', at);
     // A raw quote cannot appear inside a quoted value — it would have to be written `&quot;` — so the next quote of the same kind always closes it.
-    if (end === -1) throw new XmlParseError({ message: `Unterminated value for attribute "${name}"`, position: at, input: text });
+    if (end === -1) {
+      throw new XmlParseError({ message: `Unterminated value for attribute "${name}"`, position: at, input: text });
+    }
+
     const raw = text.slice(at, end);
     at = end + 1;
+
     return decodeEntities(raw);
   };
 
@@ -400,13 +425,27 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    * @returns What the cursor is on.
    */
   const classifyContent = (name: string): Construct => {
-    if (at >= text.length) throw new XmlParseError({ message: `Unclosed element <${name}>`, position: at, input: text });
-    if (text.charCodeAt(at) !== LT) return 'text';
-    if (text.startsWith('</', at)) return 'close';
-    if (text.startsWith('<!--', at)) return 'comment';
-    if (text.startsWith('<![CDATA[', at)) return 'cdata';
-    if (text.startsWith('<?', at)) return 'instruction';
-    if (text.startsWith('<!', at)) throw new XmlParseError({ message: 'A declaration is not allowed inside an element', position: at, input: text });
+    if (at >= text.length) {
+      throw new XmlParseError({ message: `Unclosed element <${name}>`, position: at, input: text });
+    }
+    if (text.charCodeAt(at) !== LT) {
+      return 'text';
+    }
+    if (text.startsWith('</', at)) {
+      return 'close';
+    }
+    if (text.startsWith('<!--', at)) {
+      return 'comment';
+    }
+    if (text.startsWith('<![CDATA[', at)) {
+      return 'cdata';
+    }
+    if (text.startsWith('<?', at)) {
+      return 'instruction';
+    }
+    if (text.startsWith('<!', at)) {
+      throw new XmlParseError({ message: 'A declaration is not allowed inside an element', position: at, input: text });
+    }
     return 'child';
   };
 
@@ -419,10 +458,13 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     const closeStart = at;
     at += 2;
     const closing = readName('element name');
-    if (closing !== name)
+    if (closing !== name) {
       throw new XmlParseError({ message: `Closing tag </${closing}> does not match <${name}>`, position: closeStart, input: text });
+    }
     skipSpaces();
-    if (text.charCodeAt(at) !== GT) throw new XmlParseError({ message: `Malformed closing tag </${closing}>`, position: at, input: text });
+    if (text.charCodeAt(at) !== GT) {
+      throw new XmlParseError({ message: `Malformed closing tag </${closing}>`, position: at, input: text });
+    }
     at++;
   };
 
@@ -492,13 +534,16 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   skipMisc();
-  if (at >= text.length || text.charCodeAt(at) !== LT)
+  if (at >= text.length || text.charCodeAt(at) !== LT) {
     throw new XmlParseError({ message: 'Document has no root element', position: at, input: text });
+  }
 
   const root = readElement(0);
 
   skipMisc();
-  if (at < text.length) throw new XmlParseError({ message: 'Unexpected content after the root element', position: at, input: text });
+  if (at < text.length) {
+    throw new XmlParseError({ message: 'Unexpected content after the root element', position: at, input: text });
+  }
 
   return { name: root.name, value: root.value };
 };
@@ -516,7 +561,9 @@ const parseDocumentResult = (text: string, options: XmlParseOptions): Result.Res
   try {
     return Result.succeed(parseDocument(text, options));
   } catch (cause) {
-    if (cause instanceof XmlParseError) return Result.fail(cause);
+    if (cause instanceof XmlParseError) {
+      return Result.fail(cause);
+    }
     return Result.fail(new XmlParseError({ message: Predicate.isError(cause) ? cause.message : String(cause), position: -1, input: text }));
   }
 };
