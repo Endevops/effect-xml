@@ -75,14 +75,20 @@ file named `*.bench.ts` is collected by the benchmark project, which `vp test` s
 noisy, and nothing about the suite should depend on a number that moves with the weather.
 
 Benchmarks that drive a package's public entry point live in `packages/benchmarks`. It is
-`private`, so `pnpm -r publish` skips it and it has no build step. `packages/parser/bench/scan.bench.ts`
-measures parser internals that are not exported, so it stays with the parser.
+`private`, so `pnpm -r publish` skips it and it has no build step. It resolves each workspace
+dependency to its built `dist/`, so run `pnpm build` before it, and the numbers describe what
+consumers install. `packages/parser/bench/scan.bench.ts` measures parser internals that are not
+exported, so it stays with the parser and runs from source.
+
+`vp run bench` runs each package's `bench` script in its own project, so the two resolve
+differently on purpose.
 
 ```bash
-vp run bench                        # every benchmark
-vp test bench packages/benchmarks   # the private benchmark project
-vp test bench packages/parser       # the internal parser benchmarks
-vp test bench -t asciiOnly          # one test name
+pnpm build                                    # the benchmark project reads dist/
+vp run bench                                  # every benchmark
+vp -C packages/benchmarks test bench          # the built-output benchmarks
+vp -C packages/parser test bench              # the internal parser benchmarks
+vp -C packages/parser test bench -t asciiOnly # one test name
 ```
 
 A bare `vp pack` at the root refuses to guess between the root and the packages

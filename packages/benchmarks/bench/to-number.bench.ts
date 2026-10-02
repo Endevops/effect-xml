@@ -4,10 +4,9 @@
  * the end-to-end comparison rows. This file measures it directly, split by the shapes it actually sees. The inputs are split into the two cases that
  * matter, because they are not symmetric. Text that is obviously not a number is the common case in a real document — a name, a description, a
  * category — and it is the case a fast reject is supposed to make cheap. Numeric text is the other case, and it is the one the full rule set has to
- * run for. A single mixed row would report the average of those two and hide a regression in either. `src/` is imported rather than `dist/`, so the
- * file runs from a clean clone where the gitignored build output does not exist yet. The price is Vite's module-runner export getters, which add
- * overhead to every cross-module call; `{@link toNumber}` is a direct import, so only the one call per iteration is affected, not the loop inside
- * it.
+ * run for. A single mixed row would report the average of those two and hide a regression in either. The project pins `@endevops/builder` to its
+ * built `dist/` entry, so run `pnpm build` first. The price is Vite's module-runner export getters, which add overhead to every cross-module call;
+ * `{@link toNumber}` is a direct import, so only the one call per iteration is affected, not the loop inside it.
  */
 
 import { toNumber } from '@endevops/builder';

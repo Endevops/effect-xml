@@ -4,11 +4,11 @@
  * the workspace root) runs only these files, reporting throughput, mean and percentiles in place of the old `console.log` lines. Tinybench runs its
  * own warmup, so the manual warmup loops the hand-rolled version needed are gone. The document is generated rather than read from disk so the shape
  * under measurement is fixed and the run is reproducible. The generated text is deliberately varied in length and includes attributes of several
- * shapes, so the benchmark exercises tag parsing, attribute parsing and value coercion rather than measuring a single hot loop in isolation. `src/`
- * is imported rather than `dist/` on purpose: this file has to run from a clean clone, where the gitignored build output does not exist yet and could
- * in any case be stale. The price is Vite's module-runner export getters, which turn every cross-module call inside the parser into an accessor call.
- * {@link Parser} removes that overhead for the class under test, but the getters on the parser's own internal imports remain and are counted against
- * every number reported here.
+ * shapes, so the benchmark exercises tag parsing, attribute parsing and value coercion rather than measuring a single hot loop in isolation. The
+ * project pins `@endevops/parser` to its built `dist/` entry, so the numbers describe the artifact consumers install; run `pnpm build` first. The
+ * price is Vite's module-runner export getters, which turn every cross-module call inside the parser into an accessor call. {@link Parser} removes
+ * that overhead for the class under test, but the getters on the parser's own internal imports remain and are counted against every number reported
+ * here.
  */
 
 import type { X2jOptions } from '@endevops/parser';

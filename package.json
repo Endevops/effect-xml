@@ -21,7 +21,7 @@
   },
   "type": "module",
   "scripts": {
-    "bench": "vp test bench",
+    "bench": "vp run -r bench",
     "build": "vp run -r build",
     "check": "vp check",
     "dev": "vp run -r --parallel dev",

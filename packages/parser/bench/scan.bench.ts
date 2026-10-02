@@ -1,13 +1,3 @@
-/**
- * @description Benchmarks for the two character-level scans every opening tag goes through: {@link scanTagExpEnd}, which finds the `>` that ends a tag expression
- * and records the quote boundaries on the way, and {@link parseAttributes}, which reads the attribute expression it is handed. Together they are the
- * only part of a parse that examines every character of a tag rather than every token, so they set the floor for how fast a document can be read.
- * They are measured here rather than through the whole-document benchmark because the end-to-end rows cannot say which of the two moved, and a change
- * to either is a change to a loop over characters. The tags are the shapes a real document writes: a few short attributes, one long value, a value
- * containing the other quote and a `>`, a tag with a single attribute, and a tag with none. The single-attribute and no-attribute cases matter
- * because they are the common ones and the ones a fast path for the short case would target.
- */
-
 import { Effect } from 'effect';
 import { afterAll, expect, test } from 'vite-plus/test';
 
