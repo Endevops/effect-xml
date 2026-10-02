@@ -379,9 +379,53 @@ describe('toCodecXml() - xmlName', () => {
   it('refuses an xmlName that carries a prefix', () => {
     expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlName: 'soap:a' }) }))).toThrow(/must be a local name/);
   });
+
+  it('sets an element xmlName through annotateKey', () => {
+    const codec = toCodecXml(Schema.Struct({ mimeType: Schema.String.pipe(Schema.annotateKey({ xmlName: 'mime-type' })) }), { rootName: 'r' });
+    const text = Schema.encodeSync(codec)({ mimeType: 'text/plain' });
+    expect(text).toBe('<r><mime-type>text/plain</mime-type></r>');
+    expect(Schema.decodeSync(codec)(text)).toEqual({ mimeType: 'text/plain' });
+  });
+
+  it('sets an attribute xmlName through annotateKey', () => {
+    const codec = toCodecXml(Schema.Struct({ '@mimeType': Schema.String.pipe(Schema.annotateKey({ xmlName: 'mime-type' })) }), { rootName: 'r' });
+    const text = Schema.encodeSync(codec)({ '@mimeType': 'text/plain' });
+    expect(text).toBe('<r mime-type="text/plain"/>');
+    expect(Schema.decodeSync(codec)(text)).toEqual({ '@mimeType': 'text/plain' });
+  });
+
+  it('round-trips a renamed attribute and a renamed root', () => {
+    const attribute = toCodecXml(Schema.Struct({ '@mimeType': Schema.String.annotate({ xmlName: 'mime-type' }) }), { rootName: 'r' });
+    expect(Schema.decodeSync(attribute)('<r mime-type="text/plain"/>')).toEqual({ '@mimeType': 'text/plain' });
+
+    const root = toCodecXml(Schema.Struct({ a: Schema.String }).annotate({ xmlName: 'feed' }));
+    expect(Schema.decodeSync(root)('<feed><a>x</a></feed>')).toEqual({ a: 'x' });
+  });
+
+  it('wraps a renamed array element as a one-member array on decode', () => {
+    const codec = toCodecXml(Schema.Struct({ items: Schema.Array(Schema.Struct({ v: Schema.String })).pipe(Schema.annotate({ xmlName: 'item' })) }), {
+      rootName: 'r',
+    });
+    // The wire name is `item`, so a single occurrence is read as the one-member array the schema describes.
+    expect(Schema.encodeSync(codec)({ items: [{ v: 'a' }] })).toBe('<r><item><v>a</v></item></r>');
+    expect(Schema.decodeSync(codec)('<r><item><v>a</v></item></r>')).toEqual({ items: [{ v: 'a' }] });
+    expect(Schema.decodeSync(codec)('<r><item><v>a</v></item><item><v>b</v></item></r>')).toEqual({ items: [{ v: 'a' }, { v: 'b' }] });
+  });
+
+  it('maps a renamed element whose namespace arrives under a different prefix', () => {
+    const codec = toCodecXml(
+      Schema.Struct({ payload: Schema.String.annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom', xmlName: 'Body' }) }).annotate({
+        xmlNamespace: ATOM,
+        xmlPrefix: 'atom',
+      }),
+      { rootName: 'feed' }
+    );
+    // The wire local name `Body` is what resolves, and it is resolved by the URI even though the prefix differs.
+    expect(Schema.decodeSync(codec)(`<q:feed xmlns:q="${ATOM}"><q:Body>x</q:Body></q:feed>`)).toEqual({ payload: 'x' });
+  });
 });
 
-describe('toCodecXml() — xmlAttribute', () => {
+describe('toCodecXml() - xmlAttribute', () => {
   it('marks a field as an attribute without the @ prefix', () => {
     const codec = toCodecXml(Schema.Struct({ version: Schema.String.annotate({ xmlAttribute: true }) }), { rootName: 'r' });
     expect(Schema.encodeSync(codec)({ version: '1' })).toBe('<r version="1"/>');
