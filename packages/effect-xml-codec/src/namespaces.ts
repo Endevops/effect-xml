@@ -118,23 +118,22 @@ export interface XmlNamespace {
  */
 export interface NamespacePlan {
   /**
-   * @description The namespace of each schema key, keyed by the key as written in the schema (an `@`-prefixed key is an attribute).
+   * @description The namespace of each field, keyed by the field's element path, so the same name nested differently stays apart.
    */
   readonly byKey: ReadonlyMap<string, XmlNamespace>;
 
   /**
-   * @description The wire local name of each key that overrides the schema's own name with `xmlName`.
+   * @description The wire local name of each field that overrides the schema's own name with `xmlName`, keyed by the field's element path.
    */
   readonly nameByKey: ReadonlyMap<string, string>;
 
   /**
-   * @description The schema keys that `xmlAttribute` marks as attributes but whose names do not carry the `@` prefix.
+   * @description The paths of the fields that `xmlAttribute` marks as attributes but whose names do not carry the `@` prefix.
    */
   readonly attributeKeys: ReadonlySet<string>;
 
   /**
-   * @description The schema key that `xmlValue` marks as the character data of an element, keyed by the element's own schema key. The empty string keys the root
-   * element.
+   * @description The value field of each element, keyed by the element's path. The root's path is {@link ROOT_ELEMENT}.
    */
   readonly valueByElement: ReadonlyMap<string, string>;
 
@@ -291,24 +290,57 @@ const isValueProperty = (ast: SchemaAST.AST): boolean => keyValueOf(ast) || valu
 const localName = (key: string): string => (isAttributeKey(key) ? key.slice(ATTRIBUTE_PREFIX.length) : key);
 
 /**
- * @description Whether a schema key is an attribute: either it carries the `@` prefix, or `xmlAttribute` marks it.
- *
- * @param plan - The namespace plan.
- * @param key - The schema key.
- *
- * @returns Whether the key is an attribute.
+ * @description The path of the root element. A plan is keyed by the path of the element a field belongs to, so the same name nested differently stays apart. The
+ * path is the schema keys from the root joined by {@link PATH_SEPARATOR}.
  */
-const isAttributeOf = (plan: NamespacePlan, key: string): boolean => isAttributeKey(key) || plan.attributeKeys.has(key);
+export const ROOT_ELEMENT = '';
 
 /**
- * @description The wire local name of a schema key: its `xmlName` override, or the key with the attribute prefix removed.
+ * @description The separator between the schema keys in an element path. A NUL is not a legal XML name character, so it cannot collide with a key.
+ */
+const PATH_SEPARATOR = '\u0000';
+
+/**
+ * @description The path of a child element, appended to its parent's path.
+ *
+ * @param parent - The parent element's path.
+ * @param key - The child's schema key.
+ *
+ * @returns The child's path.
+ */
+const childPath = (parent: string, key: string): string => (parent === ROOT_ELEMENT ? key : `${parent}${PATH_SEPARATOR}${key}`);
+
+/**
+ * @description The schema key at the end of an element path.
+ *
+ * @param path - The element path.
+ *
+ * @returns The schema key of the element itself.
+ */
+const pathKey = (path: string): string => {
+  const at = path.lastIndexOf(PATH_SEPARATOR);
+  return at === -1 ? path : path.slice(at + 1);
+};
+
+/**
+ * @description Whether a field is an attribute: the key at the end of its path carries the `@` prefix, or `xmlAttribute` marks the field.
  *
  * @param plan - The namespace plan.
- * @param key - The schema key.
+ * @param path - The field's element path.
+ *
+ * @returns Whether the field is an attribute.
+ */
+const isAttributeOf = (plan: NamespacePlan, path: string): boolean => isAttributeKey(pathKey(path)) || plan.attributeKeys.has(path);
+
+/**
+ * @description The wire local name of a field: its `xmlName` override, or the key at the end of its path with the attribute prefix removed.
+ *
+ * @param plan - The namespace plan.
+ * @param path - The field's element path.
  *
  * @returns The local name.
  */
-const localOf = (plan: NamespacePlan, key: string): string => plan.nameByKey.get(key) ?? localName(key);
+const localOf = (plan: NamespacePlan, path: string): string => plan.nameByKey.get(path) ?? localName(pathKey(path));
 
 /**
  * @description The reverse-lookup key for a resolved wire name. The attribute flag is part of it, so an element and an attribute of the same local name in the
@@ -322,11 +354,6 @@ const localOf = (plan: NamespacePlan, key: string): string => plan.nameByKey.get
  */
 const resolvedKey = (isAttribute: boolean, uri: string | undefined, local: string): string =>
   `${isAttribute ? ATTRIBUTE_PREFIX : ''}${uri ?? ''}|${local}`;
-
-/**
- * @description The element key of the root element. The value map is keyed by the element a field belongs to, and the root has no schema key of its own.
- */
-export const ROOT_ELEMENT = '';
 
 /**
  * @description The mutable state one namespace scan carries: the plan under construction, the local names that resolve to more than one namespace, and the AST
@@ -345,21 +372,21 @@ interface Scan {
  * @description Records a field's namespace, reporting a local name that would belong to two namespaces at once.
  *
  * @param scan - The scan state.
- * @param key - The schema key.
+ * @param path - The field's element path.
  * @param namespace - The namespace, or `undefined` when the field has none.
  */
-const record = (scan: Scan, key: string, namespace: XmlNamespace | undefined): void => {
+const record = (scan: Scan, path: string, namespace: XmlNamespace | undefined): void => {
   if (Predicate.isUndefined(namespace)) {
     return;
   }
 
-  const previous = scan.byKey.get(key);
+  const previous = scan.byKey.get(path);
   if (Predicate.isNotUndefined(previous) && (previous.uri !== namespace.uri || previous.prefix !== namespace.prefix)) {
     scan.problems.push(
-      `the local name "${key}" belongs to more than one namespace (${previous.uri}:${previous.prefix} vs ${namespace.uri}:${namespace.prefix})`
+      `the local name "${pathKey(path)}" belongs to more than one namespace (${previous.uri}:${previous.prefix} vs ${namespace.uri}:${namespace.prefix})`
     );
   } else {
-    scan.byKey.set(key, namespace);
+    scan.byKey.set(path, namespace);
   }
 };
 
@@ -367,16 +394,16 @@ const record = (scan: Scan, key: string, namespace: XmlNamespace | undefined): v
  * @description Records a field's `xmlName` override, refusing one that carries a prefix because the prefix comes from `xmlPrefix`.
  *
  * @param scan - The scan state.
- * @param key - The schema key.
+ * @param path - The field's element path.
  * @param name - The annotated local name, or `undefined`.
  */
-const recordName = (scan: Scan, key: string, name: string | undefined): void => {
+const recordName = (scan: Scan, path: string, name: string | undefined): void => {
   if (Predicate.isUndefined(name)) return;
 
   if (name.includes(':')) {
-    scan.problems.push(`xmlName "${name}" on "${key}" must be a local name; use xmlPrefix for the prefix`);
+    scan.problems.push(`xmlName "${name}" on "${pathKey(path)}" must be a local name; use xmlPrefix for the prefix`);
   } else {
-    scan.nameByKey.set(key, name);
+    scan.nameByKey.set(path, name);
   }
 };
 
@@ -385,24 +412,25 @@ const recordName = (scan: Scan, key: string, name: string | undefined): void => 
  * namespaced attribute without a prefix, because a default namespace does not apply to attributes.
  *
  * @param scan - The scan state.
- * @param key - The schema key.
- * @param isAttribute - Whether the key is an attribute.
+ * @param path - The field's element path.
+ * @param isAttribute - Whether the field is an attribute.
  * @param field - The field's own namespace, or `undefined`.
  * @param inherited - The namespace the enclosing element passes down.
  */
 const recordFieldNamespace = (
   scan: Scan,
-  key: string,
+  path: string,
   isAttribute: boolean,
   field: XmlNamespace | undefined,
   inherited: XmlNamespace | undefined
 ): void => {
+  const key = pathKey(path);
   if (Predicate.isNotUndefined(field) && key.includes(':')) {
     scan.problems.push(`"${key}" already carries a prefix, so it cannot also carry a namespace annotation`);
   } else if (isAttribute && Predicate.isNotUndefined(field) && field.prefix === '') {
     scan.problems.push(`the attribute "${key}" needs xmlPrefix, because a default namespace does not apply to attributes`);
   } else {
-    record(scan, key, isAttribute ? field : (field ?? inherited));
+    record(scan, path, isAttribute ? field : (field ?? inherited));
   }
 };
 
@@ -417,15 +445,15 @@ const recordFieldNamespace = (
 const isAttributeProperty = (key: string, ast: SchemaAST.AST): boolean => isAttributeKey(key) || keyAttributeOf(ast) || attributeOf(ast);
 
 /**
- * @description Notes a key that `xmlAttribute` marks as an attribute but that does not carry the `@` prefix.
+ * @description Notes a field that `xmlAttribute` marks as an attribute but whose name does not carry the `@` prefix.
  *
  * @param scan - The scan state.
- * @param key - The schema key.
- * @param isAttribute - Whether the property is an attribute.
+ * @param path - The field's element path.
+ * @param isAttribute - Whether the field is an attribute.
  */
-const noteAttribute = (scan: Scan, key: string, isAttribute: boolean): void => {
-  if (isAttribute && !isAttributeKey(key)) {
-    scan.attributeKeys.add(key);
+const noteAttribute = (scan: Scan, path: string, isAttribute: boolean): void => {
+  if (isAttribute && !isAttributeKey(pathKey(path))) {
+    scan.attributeKeys.add(path);
   }
 };
 
@@ -434,7 +462,7 @@ const noteAttribute = (scan: Scan, key: string, isAttribute: boolean): void => {
  * name and no namespace, and an element has room for only one value.
  *
  * @param scan - The scan state.
- * @param elementKey - The schema key of the element the field belongs to, or the root sentinel.
+ * @param elementPath - The path of the element the field belongs to, or the root sentinel.
  * @param valueKey - The schema key of the value field.
  * @param isAttribute - Whether the field is an attribute.
  * @param name - The field's `xmlName` override, or `undefined`.
@@ -442,7 +470,7 @@ const noteAttribute = (scan: Scan, key: string, isAttribute: boolean): void => {
  */
 const recordValue = (
   scan: Scan,
-  elementKey: string,
+  elementPath: string,
   valueKey: string,
   isAttribute: boolean,
   name: string | undefined,
@@ -454,36 +482,41 @@ const recordValue = (
   else if (Predicate.isNotUndefined(field))
     scan.problems.push(`the value field "${valueKey}" cannot have a namespace, because character data has none`);
   else {
-    const previous = scan.valueByElement.get(elementKey);
+    const previous = scan.valueByElement.get(elementPath);
     if (Predicate.isNotUndefined(previous) && previous !== valueKey) {
       scan.problems.push(
-        `the element "${elementKey === ROOT_ELEMENT ? 'root' : elementKey}" has more than one value field, "${previous}" and "${valueKey}"`
+        `the element "${elementPath === ROOT_ELEMENT ? 'root' : elementPath}" has more than one value field, "${previous}" and "${valueKey}"`
       );
     } else {
-      scan.valueByElement.set(elementKey, valueKey);
+      scan.valueByElement.set(elementPath, valueKey);
     }
   }
 };
 
 /**
  * @description Records one struct property: its `xmlName`, its namespace, and the namespace its descendants inherit. An attribute carries a namespace only when
- * annotated; an element field falls back to the namespace it inherits.
+ * annotated; an element field falls back to the namespace it inherits. A value field is character data, so it is recorded against its element
+ * instead.
  *
  * @param scan - The scan state.
  * @param property - The property signature.
  * @param inherited - The namespace the enclosing element passes down.
- * @param elementKey - The schema key of the element the property belongs to, or the root sentinel.
+ * @param elementPath - The path of the element the property belongs to, or the root sentinel.
  */
-const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined, elementKey: string): void => {
+const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined, elementPath: string): void => {
   const key = Predicate.isString(property.name) ? property.name : String(property.name);
+  const path = childPath(elementPath, key);
   const isAttribute = isAttributeProperty(key, property.type);
+  const isValue = isValueProperty(property.type);
   const name = keyNameOf(property.type) ?? nameOf(property.type);
   const field = keyNamespaceOf(property.type) ?? namespaceOf(property.type);
-  noteAttribute(scan, key, isAttribute);
-  recordName(scan, key, name);
-  if (isValueProperty(property.type)) recordValue(scan, elementKey, key, isAttribute, name, field);
-  recordFieldNamespace(scan, key, isAttribute, field, inherited);
-  scanNode(scan, property.type, isAttribute ? inherited : (field ?? inherited), key);
+  if (isValue) recordValue(scan, elementPath, key, isAttribute, name, field);
+  else {
+    noteAttribute(scan, path, isAttribute);
+    recordName(scan, path, name);
+    recordFieldNamespace(scan, path, isAttribute, field, inherited);
+  }
+  scanNode(scan, property.type, isAttribute ? inherited : (field ?? inherited), path);
 };
 
 /**
@@ -492,10 +525,10 @@ const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherit
  * @param scan - The scan state.
  * @param nodes - The child ASTs.
  * @param inherited - The namespace they inherit.
- * @param elementKey - The schema key of the element they belong to, or the root sentinel.
+ * @param elementPath - The path of the element they belong to, or the root sentinel.
  */
-const scanAll = (scan: Scan, nodes: ReadonlyArray<SchemaAST.AST>, inherited: XmlNamespace | undefined, elementKey: string): void => {
-  for (const node of nodes) scanNode(scan, node, inherited, elementKey);
+const scanAll = (scan: Scan, nodes: ReadonlyArray<SchemaAST.AST>, inherited: XmlNamespace | undefined, elementPath: string): void => {
+  for (const node of nodes) scanNode(scan, node, inherited, elementPath);
 };
 
 /**
@@ -504,14 +537,14 @@ const scanAll = (scan: Scan, nodes: ReadonlyArray<SchemaAST.AST>, inherited: Xml
  * @param scan - The scan state.
  * @param ast - The object AST.
  * @param namespace - The namespace the object passes to its members.
- * @param elementKey - The schema key of the element the object describes, or the root sentinel.
+ * @param elementPath - The path of the element the object describes, or the root sentinel.
  */
-const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace | undefined, elementKey: string): void => {
+const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace | undefined, elementPath: string): void => {
   for (const property of ast.propertySignatures) {
-    scanProperty(scan, property, namespace, elementKey);
+    scanProperty(scan, property, namespace, elementPath);
   }
   for (const index of ast.indexSignatures) {
-    scanNode(scan, index.type, namespace, elementKey);
+    scanNode(scan, index.type, namespace, elementPath);
   }
 };
 
@@ -521,27 +554,27 @@ const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace 
  * @param scan - The scan state.
  * @param ast - The AST to walk.
  * @param inherited - The namespace the enclosing element passes down.
- * @param elementKey - The schema key of the element this AST describes, or the root sentinel.
+ * @param elementPath - The path of the element this AST describes, or the root sentinel.
  */
-const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | undefined, elementKey: string): void => {
+const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | undefined, elementPath: string): void => {
   if (scan.seen.has(ast)) return;
   scan.seen.add(ast);
   const namespace = namespaceOf(ast) ?? inherited;
   switch (ast._tag) {
     case 'Objects':
-      scanObject(scan, ast, namespace, elementKey);
+      scanObject(scan, ast, namespace, elementPath);
       return;
     case 'Arrays':
-      scanAll(scan, [...ast.elements, ...ast.rest], namespace, elementKey);
+      scanAll(scan, [...ast.elements, ...ast.rest], namespace, elementPath);
       return;
     case 'Union':
-      scanAll(scan, ast.types, namespace, elementKey);
+      scanAll(scan, ast.types, namespace, elementPath);
       return;
     case 'Suspend':
-      scanNode(scan, ast.thunk(), namespace, elementKey);
+      scanNode(scan, ast.thunk(), namespace, elementPath);
       return;
     case 'Declaration':
-      scanAll(scan, ast.typeParameters, namespace, elementKey);
+      scanAll(scan, ast.typeParameters, namespace, elementPath);
       return;
     default:
       return;
@@ -561,10 +594,11 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
   scanNode(scan, schema.ast, undefined, ROOT_ELEMENT);
 
   const byResolved = new Map<string, string>();
-  for (const key of new Set([...scan.byKey.keys(), ...scan.nameByKey.keys(), ...scan.attributeKeys])) {
-    const namespace = scan.byKey.get(key);
-    const isAttribute = isAttributeKey(key) || scan.attributeKeys.has(key);
-    const local = scan.nameByKey.get(key) ?? localName(key);
+  for (const path of new Set([...scan.byKey.keys(), ...scan.nameByKey.keys(), ...scan.attributeKeys])) {
+    const key = pathKey(path);
+    const namespace = scan.byKey.get(path);
+    const isAttribute = isAttributeKey(key) || scan.attributeKeys.has(path);
+    const local = scan.nameByKey.get(path) ?? localName(key);
     const resolved = resolvedKey(isAttribute, namespace?.uri, local);
     const previous = byResolved.get(resolved);
 
@@ -641,16 +675,17 @@ const declare = (out: Record<string, XmlValue>, scope: Record<string, string | u
 };
 
 /**
- * @description The wire key for one schema key: the local name with the prefix its namespace declares, or the key unchanged when there is no prefix.
+ * @description The wire key for one field: the local name with the prefix its namespace declares, or the local name unchanged when there is no prefix.
  *
- * @param key - The schema key.
- * @param namespace - The key's namespace, or `undefined`.
+ * @param plan - The namespace plan.
+ * @param path - The field's element path.
+ * @param namespace - The field's namespace, or `undefined`.
  *
  * @returns The key to write.
  */
-const wireKey = (plan: NamespacePlan, key: string, namespace: XmlNamespace | undefined): string => {
-  const isAttribute = isAttributeOf(plan, key);
-  const local = localOf(plan, key);
+const wireKey = (plan: NamespacePlan, path: string, namespace: XmlNamespace | undefined): string => {
+  const isAttribute = isAttributeOf(plan, path);
+  const local = localOf(plan, path);
 
   if (Predicate.isUndefined(namespace) || namespace.prefix === '') {
     return isAttribute ? `${ATTRIBUTE_PREFIX}${local}` : local;
@@ -667,16 +702,16 @@ const wireKey = (plan: NamespacePlan, key: string, namespace: XmlNamespace | und
  * @param plan - The namespace plan.
  * @param out - The wire record, written in place.
  * @param scope - The prefix bindings in scope for this element.
- * @param elementKey - The schema key of this element, or the root sentinel.
+ * @param elementPath - The path of this element, or the root sentinel.
  */
 const encodeFields = (
   value: XmlRecord,
   plan: NamespacePlan,
   out: Record<string, XmlValue>,
   scope: Record<string, string | undefined>,
-  elementKey: string
+  elementPath: string
 ): void => {
-  const valueKey = plan.valueByElement.get(elementKey);
+  const valueKey = plan.valueByElement.get(elementPath);
   for (const [key, child] of Object.entries(value)) {
     if (isDeclarationKey(key)) {
       continue;
@@ -687,16 +722,17 @@ const encodeFields = (
       continue;
     }
 
-    const childNamespace = plan.byKey.get(key);
-    if (isAttributeOf(plan, key)) {
+    const path = childPath(elementPath, key);
+    const childNamespace = plan.byKey.get(path);
+    if (isAttributeOf(plan, path)) {
       if (Predicate.isNotUndefined(childNamespace)) {
         declare(out, scope, childNamespace);
       }
-      out[wireKey(plan, key, childNamespace)] = child;
+      out[wireKey(plan, path, childNamespace)] = child;
       continue;
     }
 
-    out[wireKey(plan, key, childNamespace)] = encodeNames(child, plan, childNamespace, scope, key);
+    out[wireKey(plan, path, childNamespace)] = encodeNames(child, plan, childNamespace, scope, path);
   }
 };
 
@@ -708,7 +744,7 @@ const encodeFields = (
  * @param plan - The namespace plan.
  * @param namespace - This element's namespace.
  * @param scope - The prefix bindings in scope above this element.
- * @param elementKey - The schema key of this element, or the root sentinel.
+ * @param elementPath - The path of this element, or the root sentinel.
  *
  * @returns The wire tree.
  */
@@ -717,10 +753,10 @@ export const encodeNames = (
   plan: NamespacePlan,
   namespace: XmlNamespace | undefined,
   scope: Record<string, string | undefined>,
-  elementKey: string
+  elementPath: string
 ): XmlValue => {
   if (Array.isArray(value)) {
-    return value.map(member => encodeNames(member, plan, namespace, scope, elementKey));
+    return value.map(member => encodeNames(member, plan, namespace, scope, elementPath));
   }
 
   const out: Record<string, XmlValue> = {};
@@ -739,7 +775,7 @@ export const encodeNames = (
     return value;
   }
 
-  encodeFields(value as XmlRecord, plan, out, inner, elementKey);
+  encodeFields(value as XmlRecord, plan, out, inner, elementPath);
   return out;
 };
 
@@ -806,12 +842,12 @@ const schemaKey = (plan: NamespacePlan, key: string, scope: Record<string, strin
  * @param value - The parsed wire tree.
  * @param plan - The namespace plan.
  * @param scope - The prefix bindings in scope above this element.
- * @param elementKey - The schema key of this element, or the root sentinel.
+ * @param elementPath - The path of this element, or the root sentinel.
  *
  * @returns The value tree, keyed by the schema's names.
  */
-export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>, elementKey: string): XmlValue => {
-  if (Array.isArray(value)) return value.map(member => decodeNames(member, plan, scope, elementKey));
+export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>, elementPath: string): XmlValue => {
+  if (Array.isArray(value)) return value.map(member => decodeNames(member, plan, scope, elementPath));
   if (Predicate.isString(value) || Predicate.isUndefined(value)) return value;
   if (!Predicate.isObject(value)) return value;
 
@@ -819,7 +855,7 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
   // tree's own record type is named here.
   const record = value as XmlRecord;
   const inner = scopeOf(record, scope);
-  const valueKey = plan.valueByElement.get(elementKey);
+  const valueKey = plan.valueByElement.get(elementPath);
   const out: Record<string, XmlValue> = {};
 
   for (const [key, child] of Object.entries(record)) {
@@ -828,12 +864,12 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
     }
 
     if (key === TEXT_KEY) {
-      out[valueKey ?? TEXT_KEY] = decodeNames(child, plan, inner, elementKey);
+      out[valueKey ?? TEXT_KEY] = decodeNames(child, plan, inner, elementPath);
       continue;
     }
 
     const childKey = schemaKey(plan, key, inner);
-    out[childKey] = decodeNames(child, plan, inner, childKey);
+    out[childKey] = decodeNames(child, plan, inner, childPath(elementPath, childKey));
   }
 
   const keys = Object.keys(out);

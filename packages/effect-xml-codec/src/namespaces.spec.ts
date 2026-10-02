@@ -97,12 +97,16 @@ describe('namespaces — failures', () => {
     );
   });
 
-  it('refuses one local name in two namespaces', () => {
+  it('keeps the same local name in two namespaces when it is nested differently', () => {
     const clash = Schema.Struct({
       a: Schema.Struct({ title: Schema.String.annotate({ xmlNamespace: AUTH, xmlPrefix: 'auth' }) }),
       b: Schema.Struct({ title: Schema.String.annotate({ xmlNamespace: SHOP, xmlPrefix: 'shop' }) }),
     });
-    expect(() => toCodecXml(clash)).toThrow(/belongs to more than one namespace/);
+    const codec = toCodecXml(clash, { rootName: 'root' });
+    const value = { a: { title: 'x' }, b: { title: 'y' } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe(`<root><a><auth:title xmlns:auth="${AUTH}">x</auth:title></a><b><shop:title xmlns:shop="${SHOP}">y</shop:title></b></root>`);
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
   });
 
   it('refuses an attribute namespace without a prefix', () => {

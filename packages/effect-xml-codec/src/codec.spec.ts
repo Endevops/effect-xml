@@ -380,6 +380,20 @@ describe('toCodecXml() — xmlValue', () => {
     expect(Schema.decodeSync(codec)(text)).toEqual(value);
   });
 
+  it('writes a value field for the same name nested differently', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        item: Schema.Struct({ '@id': Schema.String, title: Schema.String.annotate({ xmlValue: true }) }),
+        group: Schema.Struct({ item: Schema.Struct({ '@id': Schema.String, note: Schema.String.annotate({ xmlValue: true }) }) }),
+      }),
+      { rootName: 'root' }
+    );
+    const value = { item: { '@id': '1', title: 'a' }, group: { item: { '@id': '2', note: 'b' } } };
+    const text = Schema.encodeSync(codec)(value);
+    expect(text).toBe('<root><item id="1">a</item><group><item id="2">b</item></group></root>');
+    expect(Schema.decodeSync(codec)(text)).toEqual(value);
+  });
+
   it('refuses two value fields on the same element', () => {
     expect(() => toCodecXml(Schema.Struct({ a: Schema.String.annotate({ xmlValue: true }), b: Schema.String.annotate({ xmlValue: true }) }))).toThrow(
       /more than one value field/
