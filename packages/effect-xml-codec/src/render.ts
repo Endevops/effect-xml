@@ -28,7 +28,7 @@
 
 import type { XmlVersion } from '@endevops/common-xml';
 
-import { Effect, Result } from 'effect';
+import { Effect, Predicate, Result } from 'effect';
 
 import type { NameMode } from './conventions.ts';
 import type { XmlRecord, XmlValue } from './xml-value.ts';
@@ -328,7 +328,7 @@ const renderResult = (value: XmlValue, options: XmlRenderOptions): Result.Result
  */
 const toRenderError = (cause: unknown): XmlRenderError => {
   if (cause instanceof XmlRenderError) return cause;
-  if (cause instanceof Error) return new XmlRenderError({ message: cause.message });
+  if (Predicate.isError(cause)) return new XmlRenderError({ message: cause.message });
   return new XmlRenderError({ message: String(cause) });
 };
 
@@ -365,16 +365,6 @@ const render = (value: XmlValue, options: XmlRenderOptions): string => {
 };
 
 /**
- * @description Whether a value is a record of `XmlValue` fields rather than an array. Written as a guard because `Array.isArray` does not narrow a `ReadonlyArray`
- * out of a union that also holds a string-indexed record, so the walk's last branch cannot rely on the earlier array check to narrow `value` for it.
- *
- * @param value - The candidate value.
- *
- * @returns Whether the value is a record.
- */
-const isXmlRecord = (value: XmlValue): value is XmlRecord => typeof value === 'object' && value !== null && !Array.isArray(value);
-
-/**
  * @description Renders one named element and its subtree. The value an {@link XmlValue} holds decides which of the four shapes below it takes — a repeated run of
  * children, character data, an absent field, or a record — and each of those is written by a function of its own, so this one is the dispatch rather
  * than the document.
@@ -400,15 +390,15 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
 
   const tag = options.namer(name);
 
-  if (typeof value === 'string' || value === undefined) {
+  if (Predicate.isString(value) || Predicate.isUndefined(value)) {
     renderLeaf(out, tag, value, options);
     return;
   }
 
-  // The array case returned above; the guard narrows the rest, since
-  // `Array.isArray` alone leaves a `ReadonlyArray` in the union.
-  if (!isXmlRecord(value)) return;
-  renderRecord(out, tag, value, depth, options);
+  // The array case returned above; `Predicate.isObject` narrows what is left to
+  // a record, since `Array.isArray` alone leaves a `ReadonlyArray` in the union.
+  if (!Predicate.isObject(value)) return;
+  renderRecord(out, tag, value as XmlRecord, depth, options);
 };
 
 /**
@@ -465,7 +455,7 @@ const renderRepeated = (out: Array<string>, name: string, members: ReadonlyArray
  * @param options - Resolved render options.
  */
 const renderLeaf = (out: Array<string>, tag: string, value: string | undefined, options: ResolvedOptions): void => {
-  if (value === undefined || value === '') {
+  if (Predicate.isUndefined(value) || value === '') {
     writeEmpty(out, tag, options);
     return;
   }
@@ -666,8 +656,8 @@ const writeEmpty = (out: Array<string>, tag: string, options: ResolvedOptions, a
  */
 const textOf = (record: XmlRecord): string => {
   const text = record[TEXT_KEY];
-  if (text === undefined) return '';
-  return typeof text === 'string' ? text : renderScalar(text);
+  if (Predicate.isUndefined(text)) return '';
+  return Predicate.isString(text) ? text : renderScalar(text);
 };
 
 /**
@@ -680,8 +670,8 @@ const textOf = (record: XmlRecord): string => {
  * @returns The text to escape and write between the quotes.
  */
 const attributeText = (value: XmlValue): string => {
-  if (typeof value === 'string') return value;
-  if (value === undefined) return '';
+  if (Predicate.isString(value)) return value;
+  if (Predicate.isUndefined(value)) return '';
   return renderScalar(value);
 };
 
@@ -695,7 +685,7 @@ const attributeText = (value: XmlValue): string => {
  * @returns The leaf's textual form.
  */
 const renderScalar = (value: Exclude<XmlValue, string | undefined>): string => {
-  if (value === null) return 'null';
+  if (Predicate.isNull(value)) return 'null';
   try {
     return JSON.stringify(value) ?? '';
   } catch {

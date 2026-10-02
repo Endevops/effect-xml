@@ -16,7 +16,7 @@
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { isQName, sanitize, validate } from '@endevops/common-xml';
-import { Effect, Result } from 'effect';
+import { Effect, Predicate, Result } from 'effect';
 
 import { XmlParseError } from './errors.ts';
 
@@ -139,7 +139,7 @@ const resolveNameResult = (name: string, options: ResolveNameOptions): Result.Re
     return Result.succeed(resolveNameSync(name, options));
   } catch (cause) {
     if (cause instanceof XmlParseError) return Result.fail(cause);
-    return Result.fail(new XmlParseError({ message: cause instanceof Error ? cause.message : String(cause), position: -1, input: name }));
+    return Result.fail(new XmlParseError({ message: Predicate.isError(cause) ? cause.message : String(cause), position: -1, input: name }));
   }
 };
 

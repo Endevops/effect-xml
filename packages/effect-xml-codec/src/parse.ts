@@ -1,7 +1,7 @@
 import type { XmlVersion } from '@endevops/common-xml';
 
 import { EntityDecoder } from '@endevops/common-xml';
-import { Effect, Result } from 'effect';
+import { Effect, Predicate, Result } from 'effect';
 
 import type { NameMode } from './conventions.ts';
 import type { XmlValue } from './xml-value.ts';
@@ -221,7 +221,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     try {
       name = resolveNameSync(raw, nameOptions);
     } catch (failure) {
-      const reason = failure instanceof Error ? failure.message : String(failure);
+      const reason = Predicate.isError(failure) ? failure.message : String(failure);
       throw new XmlParseError({ message: `${what} ${JSON.stringify(raw)} is not a legal XML name: ${reason}`, position, input: text });
     }
 
@@ -517,7 +517,7 @@ const parseDocumentResult = (text: string, options: XmlParseOptions): Result.Res
     return Result.succeed(parseDocument(text, options));
   } catch (cause) {
     if (cause instanceof XmlParseError) return Result.fail(cause);
-    return Result.fail(new XmlParseError({ message: cause instanceof Error ? cause.message : String(cause), position: -1, input: text }));
+    return Result.fail(new XmlParseError({ message: Predicate.isError(cause) ? cause.message : String(cause), position: -1, input: text }));
   }
 };
 

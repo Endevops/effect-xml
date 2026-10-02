@@ -16,7 +16,7 @@
 // Each is called out where it appears, and none of them is repaired, because this class sits in front of XXE
 // and entity-expansion handling where a silent fix is a change to every consumer's output.
 
-import { Effect, Match } from 'effect';
+import { Effect, Match, Predicate } from 'effect';
 
 import { XmlError } from '#/errors.ts';
 
@@ -419,15 +419,15 @@ function mergeEntityMaps(...maps: ReadonlyArray<EntityInputMap>): Record<string,
  *   callers compare against `undefined` rather than testing for emptiness.
  */
 function flattenEntityValue(raw: EntityInputValue | undefined): string | undefined {
-  if (typeof raw === 'string') return raw;
+  if (Predicate.isString(raw)) return raw;
 
   // The `raw &&` in upstream is a null check: every object is truthy, so it only ever rejects
-  // `null` and `undefined` here, and `typeof` then rejects a bare function value.
-  if (raw === null || raw === undefined || typeof raw !== 'object' || raw.val === undefined) return undefined;
+  // `null` and `undefined` here, and the object check then rejects a bare function value.
+  if (Predicate.isNullish(raw) || !Predicate.isObject(raw) || raw.val === undefined) return undefined;
 
   const val = raw.val;
   // A function `val` has no scanner equivalent and is dropped, upstream included.
-  return typeof val === 'string' ? val : undefined;
+  return Predicate.isString(val) ? val : undefined;
 }
 
 /**
@@ -509,7 +509,7 @@ function parseNCRConfig(ncr: EntityDecoderNCROptions | undefined): { xmlVersion:
  * @returns The hook itself, or a function returning its first argument.
  */
 function readPostCheck(raw: EntityDecoderOptions['postCheck']): (resolved: string, original: string) => string {
-  if (typeof raw === 'function') return raw;
+  if (Predicate.isFunction(raw)) return raw;
   return r => r;
 }
 
@@ -522,7 +522,7 @@ function readPostCheck(raw: EntityDecoderOptions['postCheck']): (resolved: strin
  *   unconditionally: a hook that is not there accepts.
  */
 function readHook(raw: EntityRegistrationHook | null | undefined): EntityRegistrationHook | null {
-  if (typeof raw === 'function') return raw;
+  if (Predicate.isFunction(raw)) return raw;
   return null;
 }
 
@@ -715,7 +715,7 @@ export class EntityDecoder {
    * @returns An effect producing the decoder. Fails with {@link XmlError} and the `MissingOptions` reason for a `null`.
    */
   static make = (options: EntityDecoderOptions = {}): Effect.Effect<EntityDecoder, XmlError> =>
-    options === null || options === undefined
+    Predicate.isNullish(options)
       ? Effect.fail(
           new XmlError({
             reason: { _tag: 'MissingOptions', parameter: 'options' },
@@ -837,7 +837,7 @@ export class EntityDecoder {
     yield* checkEntityName(key);
     // The two guards are unreachable from typed code — `value` is a `string` — and are kept for
     // untyped callers, which is the only way to reach them.
-    if (typeof value === 'string' && value.indexOf('&') === -1) {
+    if (Predicate.isString(value) && value.indexOf('&') === -1) {
       if (yield* this.#applyRegistrationHook(this.#onExternalEntity, key, value, 'external')) {
         this.#externalMap[key] = value;
       }
@@ -927,7 +927,7 @@ export class EntityDecoder {
    *   the `EntityReplacer` prefix from the original throw, which named a class this decoder does not have.
    */
   decode = Effect.fnUntraced(function* (this: EntityDecoder, str: string): Effect.fn.Return<string, XmlError> {
-    if (typeof str !== 'string' || str.length === 0) return str;
+    if (!Predicate.isString(str) || str.length === 0) return str;
     if (str.indexOf('&') === -1) return str; // nothing here can be a reference
 
     const chunks = yield* this.#expandAll(str);

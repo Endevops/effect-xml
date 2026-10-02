@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 import type ExpressionSet from './expression-set.ts';
 import type Expression from './expression.ts';
 import type { PositionSelector, Segment } from './expression.ts';
@@ -420,10 +422,10 @@ const buildPathNode = (
   counters: SiblingCounters
 ): PathNode => {
   const node: PathNode = { tag: tagName, position: counters.position, counter: counters.counter };
-  if (namespace !== null && namespace !== undefined) {
+  if (Predicate.isNotNullish(namespace)) {
     node.namespace = namespace;
   }
-  if (attrValues !== null && attrValues !== undefined) {
+  if (Predicate.isNotNullish(attrValues)) {
     node.values = attrValues;
   }
   return node;
@@ -611,7 +613,7 @@ class Matcher {
    */
   #keepNames(options: PushOptions | null): Array<string> | undefined {
     const keep = options !== null ? options.keep : null;
-    return keep !== null && keep !== undefined && keep.length > 0 ? keep : undefined;
+    return Predicate.isNotNullish(keep) && keep.length > 0 ? keep : undefined;
   }
 
   /**
@@ -625,7 +627,7 @@ class Matcher {
   #retainKeptAttrs(attrValues: Record<string, unknown> | null, options: PushOptions | null): void {
     const keep = this.#keepNames(options);
     if (keep === undefined) return;
-    if (attrValues === null || attrValues === undefined) return;
+    if (Predicate.isNullish(attrValues)) return;
 
     const depth = this.path.length;
     for (const name of keep) {
@@ -670,7 +672,7 @@ class Matcher {
    */
   updateCurrent(attrValues: Record<string, unknown>): void {
     const current = this.#current;
-    if (current !== undefined && attrValues !== null && attrValues !== undefined) {
+    if (current !== undefined && Predicate.isNotNullish(attrValues)) {
       current.values = attrValues;
     }
   }

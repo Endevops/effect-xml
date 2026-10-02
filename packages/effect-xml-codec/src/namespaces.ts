@@ -32,7 +32,7 @@
 
 import type { Schema } from 'effect';
 
-import { SchemaAST } from 'effect';
+import { Predicate, SchemaAST } from 'effect';
 
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
@@ -153,9 +153,9 @@ const annotationAt = (ast: SchemaAST.AST, key: string): unknown => {
  */
 const namespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
   const uri = annotationAt(ast, NAMESPACE_KEY);
-  if (typeof uri !== 'string') return undefined;
+  if (!Predicate.isString(uri)) return undefined;
   const prefix = annotationAt(ast, PREFIX_KEY);
-  return { uri, prefix: typeof prefix === 'string' ? prefix : '' };
+  return { uri, prefix: Predicate.isString(prefix) ? prefix : '' };
 };
 
 /**
@@ -167,7 +167,7 @@ const namespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
  */
 const nameOf = (ast: SchemaAST.AST): string | undefined => {
   const name = annotationAt(ast, NAME_KEY);
-  return typeof name === 'string' ? name : undefined;
+  return Predicate.isString(name) ? name : undefined;
 };
 
 /**
@@ -180,9 +180,9 @@ const nameOf = (ast: SchemaAST.AST): string | undefined => {
 const keyNamespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
   const annotations = ast.context?.annotations;
   const uri = annotations?.[NAMESPACE_KEY];
-  if (typeof uri !== 'string') return undefined;
+  if (!Predicate.isString(uri)) return undefined;
   const prefix = annotations?.[PREFIX_KEY];
-  return { uri, prefix: typeof prefix === 'string' ? prefix : '' };
+  return { uri, prefix: Predicate.isString(prefix) ? prefix : '' };
 };
 
 /**
@@ -194,18 +194,8 @@ const keyNamespaceOf = (ast: SchemaAST.AST): XmlNamespace | undefined => {
  */
 const keyNameOf = (ast: SchemaAST.AST): string | undefined => {
   const name = ast.context?.annotations?.[NAME_KEY];
-  return typeof name === 'string' ? name : undefined;
+  return Predicate.isString(name) ? name : undefined;
 };
-
-/**
- * @description Whether a value is a record of children rather than an array. `Array.isArray` does not narrow a `ReadonlyArray` out of the union here, so the walk
- * uses a guard of its own before it can treat a value as a record.
- *
- * @param value - The candidate.
- *
- * @returns Whether the value is a record.
- */
-const isRecord = (value: XmlValue): value is XmlRecord => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
  * @description The local name a schema key names, with the attribute prefix removed. This is what a declaration resolves to.
@@ -288,7 +278,7 @@ const recordFieldNamespace = (
  * @param inherited - The namespace the enclosing element passes down.
  */
 const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined): void => {
-  const key = typeof property.name === 'string' ? property.name : String(property.name);
+  const key = Predicate.isString(property.name) ? property.name : String(property.name);
   const isAttribute = isAttributeKey(key);
   const field = keyNamespaceOf(property.type) ?? namespaceOf(property.type);
   recordName(scan, key, keyNameOf(property.type) ?? nameOf(property.type));
@@ -482,11 +472,13 @@ export const encodeNames = (
   const inner = { ...scope };
   declare(out, inner, namespace);
 
-  if (value === undefined) return undefined;
-  if (typeof value === 'string') return Object.keys(out).length > 0 ? { ...out, [TEXT_KEY]: value } : value;
-  if (!isRecord(value)) return value;
+  if (Predicate.isUndefined(value)) return undefined;
+  if (Predicate.isString(value)) return Object.keys(out).length > 0 ? { ...out, [TEXT_KEY]: value } : value;
+  // `Predicate.isObject` narrows to a generic index signature, so the value
+  // tree's own record type is named here.
+  if (!Predicate.isObject(value)) return value;
 
-  encodeFields(value, plan, out, inner);
+  encodeFields(value as XmlRecord, plan, out, inner);
   return out;
 };
 
@@ -521,7 +513,7 @@ const resolveName = (
 const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): Record<string, string | undefined> => {
   const inner = { ...scope };
   for (const [key, declaration] of Object.entries(value)) {
-    if (isDeclarationKey(key) && typeof declaration === 'string') inner[declarationPrefix(key)] = declaration;
+    if (isDeclarationKey(key) && Predicate.isString(declaration)) inner[declarationPrefix(key)] = declaration;
   }
   return inner;
 };
@@ -553,12 +545,15 @@ const schemaKey = (plan: NamespacePlan, key: string, scope: Record<string, strin
  */
 export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>): XmlValue => {
   if (Array.isArray(value)) return value.map(member => decodeNames(member, plan, scope));
-  if (typeof value === 'string' || value === undefined) return value;
-  if (!isRecord(value)) return value;
+  if (Predicate.isString(value) || Predicate.isUndefined(value)) return value;
+  if (!Predicate.isObject(value)) return value;
 
-  const inner = scopeOf(value, scope);
+  // `Predicate.isObject` narrows to a generic index signature, so the value
+  // tree's own record type is named here.
+  const record = value as XmlRecord;
+  const inner = scopeOf(record, scope);
   const out: Record<string, XmlValue> = {};
-  for (const [key, child] of Object.entries(value)) {
+  for (const [key, child] of Object.entries(record)) {
     if (isDeclarationKey(key)) continue;
     out[schemaKey(plan, key, inner)] = decodeNames(child, plan, inner);
   }

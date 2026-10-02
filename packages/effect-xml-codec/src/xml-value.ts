@@ -83,9 +83,8 @@ const everyMemberIs = (members: ReadonlyArray<unknown>, depth: number): boolean 
  */
 const everyFieldIs = (input: object, depth: number): boolean => {
   if (!Predicate.isReadonlyObject(input)) return false;
-  const record = input as Record<string, unknown>;
-  for (const key of Object.keys(record)) {
-    if (!check(record[key], depth + 1)) return false;
+  for (const key of Object.keys(input)) {
+    if (!check(input[key], depth + 1)) return false;
   }
   return true;
 };

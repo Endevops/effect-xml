@@ -5,6 +5,8 @@
 // non-ASCII goes through the integer-keyed tries in `entity-tries.ts`.
 // Splitting them is what keeps the ASCII path free of trie work.
 
+import { Predicate } from 'effect';
+
 import { trie1, trie2, trie3 } from './entity-tries.ts';
 
 // Replacement strings indexed by char code — direct array access, no hashing.
@@ -182,7 +184,7 @@ export class EntityEncoder {
    *   it.
    */
   encode(str: string): string {
-    if (typeof str !== 'string' || str.length === 0) return str;
+    if (!Predicate.isString(str) || str.length === 0) return str;
     if (!NEEDS_PROCESSING.test(str)) return str;
     if (this.maxReplacements > 0 && this.replacementsCount >= this.maxReplacements) return str;
 
