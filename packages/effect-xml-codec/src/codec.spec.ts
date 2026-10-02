@@ -5,7 +5,7 @@
 
 // oxlint-disable effecttsgo/schema-number
 
-import { Effect, Exit, Schema } from 'effect';
+import { Effect, Exit, Schema, pipe } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { toCodecXml } from '#/codec.ts';
@@ -50,6 +50,32 @@ describe('toCodecXml() - the codec', () => {
     const value = { '@href': '/a', '#text': 'link' };
     expect(Schema.encodeSync(codec)(value)).toBe('<a href="/a">link</a>');
     expect(Schema.decodeSync(codec)('<a href="/a">link</a>')).toEqual(value);
+  });
+});
+
+describe('toCodecXml() - dual API', () => {
+  const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String }).annotate({ identifier: 'book' });
+  const value = { '@id': '1', title: 'Dune' };
+  const text = '<book id="1"><title>Dune</title></book>';
+
+  it('writes the codec data-first from a schema and options', () => {
+    const codec = toCodecXml(Book, { rootName: 'book' });
+    expect(Schema.encodeSync(codec)(value)).toBe(text);
+  });
+
+  it('writes the codec data-last from options in a pipe', () => {
+    const codec = pipe(Book, toCodecXml({ rootName: 'book' }));
+    expect(Schema.encodeSync(codec)(value)).toBe(text);
+  });
+
+  it('writes the codec data-last with no options, naming the root from the schema', () => {
+    const codec = pipe(Book, toCodecXml);
+    expect(Schema.encodeSync(codec)(value)).toBe(text);
+  });
+
+  it('writes the codec data-last from an empty options call', () => {
+    const codec = toCodecXml()(Schema.Struct({ a: Schema.String }));
+    expect(Schema.encodeSync(codec)({ a: 'x' })).toBe('<root><a>x</a></root>');
   });
 });
 
