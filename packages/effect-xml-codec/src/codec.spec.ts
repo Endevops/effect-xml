@@ -774,6 +774,45 @@ describe('toCodecXml() - xmlValue', () => {
   });
 });
 
+describe('toCodecXml() - plain values with attributes', () => {
+  it('reads a plain string from an element that also carries attributes, discarding them', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }), { rootName: 'book' });
+    expect(Schema.decodeSync(codec)('<book><title lang="en">Dune</title></book>')).toEqual({ title: 'Dune' });
+  });
+
+  it('reads a plain number from an element that also carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ weight: Schema.Number }), { rootName: 'item' });
+    expect(Schema.decodeSync(codec)('<item><weight unit="kg">1.5</weight></item>')).toEqual({ weight: 1.5 });
+  });
+
+  it('reads every member of a repeated plain field that carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ tag: Schema.Array(Schema.String) }), { rootName: 'book' });
+    expect(Schema.decodeSync(codec)('<book><tag id="1">a</tag><tag id="2">b</tag></book>')).toEqual({ tag: ['a', 'b'] });
+  });
+
+  it('reads a plain value through a nullable field that carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.NullOr(Schema.String) }), { rootName: 'book' });
+    expect(Schema.decodeSync(codec)('<book><title lang="en">Dune</title></book>')).toEqual({ title: 'Dune' });
+  });
+
+  it('keeps the attributes a struct schema declares', () => {
+    const codec = toCodecXml(Schema.Struct({ '@href': Schema.String, '#text': Schema.String }), { rootName: 'a' });
+    expect(Schema.decodeSync(codec)('<a href="/a">link</a>')).toEqual({ '@href': '/a', '#text': 'link' });
+  });
+
+  it('fails when a plain value element also carries a child element', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }), { rootName: 'book' });
+    const exit = Effect.runSyncExit(Schema.decodeEffect(codec)('<book><title lang="en">Dune<subtitle>Messiah</subtitle></title></book>'));
+    expect(Exit.isSuccess(exit)).toBe(false);
+  });
+
+  it('fails when a plain value element carries only children', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String }), { rootName: 'book' });
+    const exit = Effect.runSyncExit(Schema.decodeEffect(codec)('<book><title><subtitle>Messiah</subtitle></title></book>'));
+    expect(Exit.isSuccess(exit)).toBe(false);
+  });
+});
+
 describe('toCodecXml() - failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });

@@ -62,6 +62,15 @@ decision rather than the parser's:
   `Schema.Struct({ '@id': Schema.String, '#text': Schema.String })` matches
   `<a id="1">hello</a>`.
 
+A field that wants a plain value does not have to describe the attributes
+themselves. Where the schema wants a scalar, a `#text` node is read on its own
+and the other attributes are discarded, so
+`Schema.Struct({ title: Schema.String })` also matches
+`<title lang="en">Dune</title>` and yields `'Dune'`. An element that also
+carries a child element there is refused instead, as an effect error: a plain
+value has nowhere to put a child, and dropping one silently would lose a field
+the document actually carried.
+
 ## Namespaces
 
 A schema describes a value in local names, so a namespace is an annotation on

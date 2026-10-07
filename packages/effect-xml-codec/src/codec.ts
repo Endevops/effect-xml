@@ -32,6 +32,7 @@ import type { XmlValue } from './xml-value.ts';
 import { DEFAULT_ROOT_NAME } from './conventions.ts';
 import { decodeNames, encodeNames, namespacePlan, ROOT_ELEMENT } from './namespaces.ts';
 import { parseXml } from './parse.ts';
+import { normalizePlainValue } from './plain-value.ts';
 import { renderXml } from './render.ts';
 
 /**
@@ -114,10 +115,11 @@ export const toCodecXml: {
     const plan = planned.plan;
     const active = isActivePlan(plan);
     const renderOptions = resolveRenderOptions(schema, plan, options);
+    const stringTree = Schema.toCodecStringTree(schema);
 
     return Schema.String.pipe(
       Schema.decodeTo(
-        Schema.toCodecStringTree(schema),
+        stringTree,
         SchemaTransformation.transformEffect({
           decode: (text, parseOptions) => {
             if (!Predicate.isString(text)) {
@@ -129,7 +131,12 @@ export const toCodecXml: {
               Effect.tapError(error =>
                 Effect.logError(`XML parse error: ${error.message}`).pipe(Effect.annotateLogs({ cause: error, message: 'XML parse error' }))
               ),
-              Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, text, parseOptions))
+              Effect.mapError(error => new SchemaIssue.InvalidValue({ message: error.message }, text, parseOptions)),
+              Effect.flatMap(value =>
+                Effect.fromResult(normalizePlainValue(value, stringTree.ast, '')).pipe(
+                  Effect.mapError(message => new SchemaIssue.InvalidValue({ message }, value, parseOptions))
+                )
+              )
             );
           },
 
