@@ -21,7 +21,11 @@
 //     a field the document actually carried;
 //   - a node that describes a struct, array or record keeps its record and
 //     recurses, because `@`-prefixed fields and `#text` are ordinary field names
-//     to such a schema.
+//     to such a schema;
+//   - a union rewrites its record against each object member in turn, so a plain
+//     value nested under any branch is still read; a repeated field derives as a
+//     union of an array and `undefined`, so a record is also read through the
+//     first array node reachable behind a union.
 //
 // The AST is the one `Schema.toCodecStringTree` produces for the source schema,
 // so it is the same shape the decoder is about to read; this pass only rewrites
@@ -83,6 +87,25 @@ const fieldAst = (node: SchemaAST.Objects, key: string): SchemaAST.AST | undefin
  * @returns The AST for the member, or `undefined`.
  */
 const memberAst = (node: SchemaAST.Arrays, index: number): SchemaAST.AST | undefined => node.elements[index] ?? node.rest[0];
+
+/**
+ * @description The array node a value is read against. An optional repeated field derives as a union of an array and `undefined`, so an array node can sit behind
+ * a union rather than at the top; the first one reachable through the union's members is the one a repeated value belongs to.
+ *
+ * @param node - The resolved node to search.
+ *
+ * @returns The array node, or `undefined` when none is reachable.
+ */
+const arrayNode = (node: SchemaAST.AST): SchemaAST.Arrays | undefined => {
+  if (SchemaAST.isArrays(node)) return node;
+  if (SchemaAST.isUnion(node)) {
+    for (const member of node.types) {
+      const found = arrayNode(resolveNode(member));
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
+};
 
 /**
  * @description The path of a field, for a failure message. The root has no name, so its fields are named on their own.
@@ -166,9 +189,35 @@ const normalizeMembers = (value: ReadonlyArray<XmlValue>, node: SchemaAST.Arrays
 };
 
 /**
- * @description Folds a record against the node that describes it. An object node is folded field by field; a node that can hold a structure - a union with a
- * structural member, or a declaration - keeps the record as it is, because choosing between members is the decoder's job; anything else wants a plain
- * value and reads the character data.
+ * @description Folds a record against every object member of a union, so a plain value nested under any branch is still read from its character data. Which branch
+ * the value belongs to is the decoder's job, so the first branch that folds the record cleanly wins; a branch that refuses the record - because a
+ * field it wants as a plain value also carries a child element - is skipped. When the union has no object member, or none of them folds the record,
+ * the record is left for the decoder to read as a plain value.
+ *
+ * @param record - The record to fold.
+ * @param node - The union node.
+ * @param path - The path of the record, for a failure message.
+ *
+ * @returns The folded value, the first object member's failure, or the record unchanged.
+ */
+const normalizeUnion = (record: XmlRecord, node: SchemaAST.Union, path: string): Result.Result<XmlValue, string> => {
+  let failure: Result.Result<XmlValue, string> | undefined;
+  let sawObject = false;
+  for (const member of node.types) {
+    const resolved = resolveNode(member);
+    if (!SchemaAST.isObjects(resolved)) continue;
+    sawObject = true;
+    const normalized = normalizeFields(record, resolved, path);
+    if (Result.isSuccess(normalized)) return normalized;
+    failure ??= normalized;
+  }
+  if (failure !== undefined) return failure;
+  return sawObject ? Result.succeed(record) : readCharacterData(record, path);
+};
+
+/**
+ * @description Folds a record against the node that describes it. An object node is folded field by field; a union folds against its object members so a plain
+ * value nested under any branch is read; anything else wants a plain value and reads the character data.
  *
  * @param record - The record to fold.
  * @param node - The resolved node.
@@ -178,6 +227,7 @@ const normalizeMembers = (value: ReadonlyArray<XmlValue>, node: SchemaAST.Arrays
  */
 const normalizeRecord = (record: XmlRecord, node: SchemaAST.AST, path: string): Result.Result<XmlValue, string> => {
   if (SchemaAST.isObjects(node)) return normalizeFields(record, node, path);
+  if (SchemaAST.isUnion(node)) return normalizeUnion(record, node, path);
   if (isStructural(node)) return Result.succeed(record);
   return readCharacterData(record, path);
 };
@@ -197,7 +247,8 @@ export const normalizePlainValue = (value: XmlValue, ast: SchemaAST.AST, path: s
   const node = resolveNode(ast);
 
   if (Array.isArray(value)) {
-    return SchemaAST.isArrays(node) ? normalizeMembers(value, node, path) : Result.succeed(value);
+    const arrays = arrayNode(node);
+    return arrays !== undefined ? normalizeMembers(value, arrays, path) : Result.succeed(value);
   }
 
   if (!Predicate.isReadonlyObject(value)) return Result.succeed(value);

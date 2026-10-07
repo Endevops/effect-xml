@@ -915,6 +915,60 @@ const childScopeOf = (child: XmlValue, scope: Record<string, string | undefined>
 };
 
 /**
+ * @description Character data read back as a value tree. An element the schema reads as a struct with a value field derives that field from the element's
+ * character data, and the parser reduces an element with no attributes and no children to a bare string, so the string is put back under the value's
+ * key for that struct to read.
+ *
+ * @param value - The character data the parser produced.
+ * @param plan - The namespace plan.
+ * @param elementPath - The path of the element the character data belongs to.
+ *
+ * @returns The character data, under the element's value key when it has one.
+ */
+const decodeText = (value: string, plan: NamespacePlan, elementPath: string): XmlValue => {
+  const valueKey = plan.valueByElement.get(elementPath);
+  return valueKey !== undefined ? { [valueKey]: value } : value;
+};
+
+/**
+ * @description One record read back: its declarations dropped, its keys resolved to the schema's names, and its character data placed under the value field.
+ *
+ * @param record - The record to read.
+ * @param plan - The namespace plan.
+ * @param scope - The prefix bindings in scope above this element.
+ * @param elementPath - The path of this element, or the root sentinel.
+ *
+ * @returns The record, keyed by the schema's names, or the string it collapses to.
+ */
+const decodeRecord = (record: XmlRecord, plan: NamespacePlan, scope: Record<string, string | undefined>, elementPath: string): XmlValue => {
+  const inner = scopeOf(record, scope);
+  const valueKey = plan.valueByElement.get(elementPath);
+  const out: Record<string, XmlValue> = {};
+
+  for (const [key, child] of Object.entries(record)) {
+    if (isDeclarationKey(key)) {
+      continue;
+    }
+
+    if (key === TEXT_KEY) {
+      out[valueKey ?? TEXT_KEY] = child;
+      continue;
+    }
+
+    const childKey = schemaKey(plan, elementPath, key, childScopeOf(child, inner));
+    const path = childPath(elementPath, childKey);
+    const decoded = decodeNames(child, plan, inner, path);
+    out[childKey] = plan.arrayKeys.has(path) && !Array.isArray(decoded) ? [decoded] : decoded;
+  }
+
+  const keys = Object.keys(out);
+  if (keys.length === 1 && keys[0] === TEXT_KEY) {
+    return out[TEXT_KEY];
+  }
+  return out;
+};
+
+/**
  * @description Rewrites a wire value tree back to the schema's local names, resolving every name against the declarations the document carries and dropping those
  * declarations. Character data maps to the value field of the element it belongs to. A record left holding only character data collapses back to that
  * string, which is how a namespaced leaf stays a `Schema.String`.
@@ -930,39 +984,11 @@ export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<
   if (Array.isArray(value)) {
     return value.map(member => decodeNames(member, plan, scope, elementPath));
   }
-  if (Predicate.isString(value) || Predicate.isUndefined(value)) {
-    return value;
+  if (Predicate.isString(value)) {
+    return decodeText(value, plan, elementPath);
   }
   if (!Predicate.isObject(value)) {
     return value;
   }
-
-  // `Predicate.isObject` narrows to a generic index signature, so the value
-  // tree's own record type is named here.
-  const record = value as XmlRecord;
-  const inner = scopeOf(record, scope);
-  const valueKey = plan.valueByElement.get(elementPath);
-  const out: Record<string, XmlValue> = {};
-
-  for (const [key, child] of Object.entries(record)) {
-    if (isDeclarationKey(key)) {
-      continue;
-    }
-
-    if (key === TEXT_KEY) {
-      out[valueKey ?? TEXT_KEY] = decodeNames(child, plan, inner, elementPath);
-      continue;
-    }
-
-    const childKey = schemaKey(plan, elementPath, key, childScopeOf(child, inner));
-    const path = childPath(elementPath, childKey);
-    const decoded = decodeNames(child, plan, inner, path);
-    out[childKey] = plan.arrayKeys.has(path) && !Array.isArray(decoded) ? [decoded] : decoded;
-  }
-
-  const keys = Object.keys(out);
-  if (keys.length === 1 && keys[0] === TEXT_KEY) {
-    return out[TEXT_KEY];
-  }
-  return out;
+  return decodeRecord(value as XmlRecord, plan, scope, elementPath);
 };

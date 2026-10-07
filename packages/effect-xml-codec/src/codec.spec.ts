@@ -878,6 +878,35 @@ describe('toCodecXml() - plain values with attributes and literals', () => {
   });
 });
 
+describe('toCodecXml() - plain values read through structures', () => {
+  it('reads a struct with a value field from an element reduced to bare character data', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        price: Schema.Struct({
+          amount: Schema.Number.annotate({ xmlValue: true }),
+          currency: Schema.String.pipe(Schema.annotate({ xmlAttribute: true, xmlName: 'currency' }), Schema.optional),
+        }),
+      }),
+      { rootName: 'r' }
+    );
+    expect(Schema.decodeSync(codec)('<r><price>1.5</price></r>')).toEqual({ price: { amount: 1.5 } });
+  });
+
+  it('reads a plain value from a field inside a union member', () => {
+    const allowance = Schema.Struct({ kind: Schema.Literal('allowance'), id: Schema.Literals(['x', 'y']) });
+    const charge = Schema.Struct({ kind: Schema.Literal('charge'), id: Schema.Literals(['x', 'y']) });
+    const codec = toCodecXml(Schema.Struct({ item: Schema.Union([allowance, charge], { mode: 'oneOf' }) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><item><kind>allowance</kind><id schemeID="c">x</id></item></r>')).toEqual({
+      item: { kind: 'allowance', id: 'x' },
+    });
+  });
+
+  it('reads a plain value from each member of an optional repeated field', () => {
+    const codec = toCodecXml(Schema.Struct({ tag: Schema.Array(Schema.Literals(['x', 'y'])).pipe(Schema.optional) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><tag schemeID="c">x</tag><tag schemeID="c">y</tag></r>')).toEqual({ tag: ['x', 'y'] });
+  });
+});
+
 describe('toCodecXml() - failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });

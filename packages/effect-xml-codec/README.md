@@ -71,6 +71,15 @@ carries a child element there is refused instead, as an effect error: a plain
 value has nowhere to put a child, and dropping one silently would lose a field
 the document actually carried.
 
+The same holds wherever a scalar sits: under a union, or under a repeated field,
+which derives as a union of an array and `undefined`. Each branch is folded in
+turn, so `Schema.Struct({ id: Schema.Literals(['E', 'S']) })` matches
+`<id schemeID="UNCL5305">E</id>` inside either. The reverse also works: an
+element the schema reads as a struct with an `xmlValue` field, reduced by the
+parser to bare character data because it carries no attributes, has that string
+put back under the value's key, so a nested price struct still reads
+`<price>1.5</price>` instead of failing on the bare string.
+
 ## Namespaces
 
 A schema describes a value in local names, so a namespace is an annotation on
