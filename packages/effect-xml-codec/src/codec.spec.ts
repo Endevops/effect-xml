@@ -845,6 +845,39 @@ describe('toCodecXml() - plain values with attributes and annotations', () => {
   });
 });
 
+describe('toCodecXml() - plain values with attributes and literals', () => {
+  it('reads a literal from an element that also carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ status: Schema.Literal('ok') }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><status code="200">ok</status></r>')).toEqual({ status: 'ok' });
+  });
+
+  it('reads Schema.Literals from an element that also carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ status: Schema.Literals(['ok', 'warn', 'error']) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><status code="200">ok</status></r>')).toEqual({ status: 'ok' });
+  });
+
+  it('reads numeric literals from an element that also carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ code: Schema.Literals([200, 404, 500]) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><code scope="http">404</code></r>')).toEqual({ code: 404 });
+  });
+
+  it('reads boolean literals from an element that also carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ active: Schema.Literals([true, false]) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><active kind="flag">false</active></r>')).toEqual({ active: false });
+  });
+
+  it('reads a mixed-kind literal union from an element that also carries attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ flag: Schema.Literals(['on', 'off', true, false]) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><flag kind="switch">true</flag></r>')).toEqual({ flag: true });
+  });
+
+  it('fails when a Schema.Literals element also carries a child element', () => {
+    const codec = toCodecXml(Schema.Struct({ status: Schema.Literals(['ok', 'warn']) }), { rootName: 'r' });
+    const exit = Effect.runSyncExit(Schema.decodeEffect(codec)('<r><status code="200">ok<why>x</why></status></r>'));
+    expect(Exit.isSuccess(exit)).toBe(false);
+  });
+});
+
 describe('toCodecXml() - failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
