@@ -69,7 +69,7 @@ describe('toCodecXml() - dual API', () => {
   });
 
   it('writes the codec data-last with no options, naming the root from the schema', () => {
-    const codec = pipe(Book, toCodecXml);
+    const codec = pipe(Book, toCodecXml());
     expect(Schema.encodeSync(codec)(value)).toBe(text);
   });
 
@@ -809,6 +809,38 @@ describe('toCodecXml() - plain values with attributes', () => {
   it('fails when a plain value element carries only children', () => {
     const codec = toCodecXml(Schema.Struct({ title: Schema.String }), { rootName: 'book' });
     const exit = Effect.runSyncExit(Schema.decodeEffect(codec)('<book><title><subtitle>Messiah</subtitle></title></book>'));
+    expect(Exit.isSuccess(exit)).toBe(false);
+  });
+});
+
+describe('toCodecXml() - plain values with attributes and annotations', () => {
+  const ATOM = 'http://www.w3.org/2005/Atom';
+
+  it('reads a plain value renamed with xmlName while dropping its attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String.annotate({ xmlName: 'Title' }) }), { rootName: 'book' });
+    expect(Schema.decodeSync(codec)('<book><Title lang="en">Dune</Title></book>')).toEqual({ title: 'Dune' });
+  });
+
+  it('reads a namespaced plain value while dropping its element attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String.annotate({ xmlNamespace: ATOM, xmlPrefix: 'atom' }) }), { rootName: 'feed' });
+    expect(Schema.decodeSync(codec)(`<feed xmlns:atom="${ATOM}"><atom:title lang="en">Dune</atom:title></feed>`)).toEqual({ title: 'Dune' });
+  });
+
+  it('reads a namespaced plain value set through annotateKey while dropping its attributes', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String.pipe(Schema.annotateKey({ xmlNamespace: ATOM, xmlPrefix: 'atom' })) }), {
+      rootName: 'feed',
+    });
+    expect(Schema.decodeSync(codec)(`<feed xmlns:atom="${ATOM}"><atom:title lang="en">Dune</atom:title></feed>`)).toEqual({ title: 'Dune' });
+  });
+
+  it('keeps an attribute marked with xmlAttribute beside a plain value that drops its own', () => {
+    const codec = toCodecXml(Schema.Struct({ id: Schema.String.annotate({ xmlAttribute: true }), title: Schema.String }), { rootName: 'book' });
+    expect(Schema.decodeSync(codec)('<book id="1"><title lang="en">Dune</title></book>')).toEqual({ id: '1', title: 'Dune' });
+  });
+
+  it('fails when a plain value renamed with xmlName also carries a child element', () => {
+    const codec = toCodecXml(Schema.Struct({ title: Schema.String.annotate({ xmlName: 'Title' }) }), { rootName: 'book' });
+    const exit = Effect.runSyncExit(Schema.decodeEffect(codec)('<book><Title lang="en">Dune<subtitle>Messiah</subtitle></Title></book>'));
     expect(Exit.isSuccess(exit)).toBe(false);
   });
 });
