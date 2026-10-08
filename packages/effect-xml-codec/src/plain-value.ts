@@ -25,7 +25,11 @@
 //   - a union rewrites its record against each object member in turn, so a plain
 //     value nested under any branch is still read; a repeated field derives as a
 //     union of an array and `undefined`, so a record is also read through the
-//     first array node reachable behind a union.
+//     first array node reachable behind a union;
+//   - an empty element under an array field reads as one empty object when the
+//     member is structural, because an empty array renders as a single empty
+//     element (see `renderRepeated`) and a member the schema requires must still
+//     read; a plain-value member reads as an empty array.
 //
 // The AST is the one `Schema.toCodecStringTree` produces for the source schema,
 // so it is the same shape the decoder is about to read; this pass only rewrites
@@ -108,6 +112,41 @@ const arrayNode = (node: SchemaAST.AST): SchemaAST.Arrays | undefined => {
 };
 
 /**
+ * @description Whether an array's member is a structure - a struct, an array, or a union reachable to one - rather than a plain value. An empty element under such
+ * an array reads as one empty object, because a structural member cannot be empty character data; a plain-value member reads as an empty array
+ * instead.
+ *
+ * @param node - The array node.
+ *
+ * @returns Whether the member is structural.
+ */
+const arrayMemberIsStructural = (node: SchemaAST.Arrays): boolean => {
+  const member = memberAst(node, 0);
+  return member !== undefined && isStructural(member);
+};
+
+/**
+ * @description The value an empty element under an array field reads as: one empty object when the member is structural, so a member the schema requires still
+ * reads, and an empty array otherwise.
+ *
+ * @param node - The array node.
+ *
+ * @returns The array to decode.
+ */
+const emptyArrayElement = (node: SchemaAST.Arrays): XmlValue => (arrayMemberIsStructural(node) ? [{}] : []);
+
+/**
+ * @description Whether a parsed element carries nothing at all: no character data, no attributes and no children. The parser reduces such an element to an empty
+ * string, and the codec reduces one whose only attributes were namespace declarations to an empty record. An array field reads either as one empty
+ * object or as an empty array, depending on whether its member is structural.
+ *
+ * @param value - The parsed value.
+ *
+ * @returns Whether the element is empty.
+ */
+const isEmptyElement = (value: XmlValue): boolean => value === '' || (Predicate.isReadonlyObject(value) && Object.keys(value).length === 0);
+
+/**
  * @description The path of a field, for a failure message. The root has no name, so its fields are named on their own.
  *
  * @param parent - The parent's path.
@@ -165,7 +204,9 @@ const normalizeFields = (record: XmlRecord, node: SchemaAST.Objects, path: strin
 };
 
 /**
- * @description Folds every member of an array against the array node that describes them.
+ * @description Folds every member of an array against the array node that describes them. A member that is an empty element - the parser reduces it to an empty
+ * string, or to an empty record once the codec drops the namespace declarations it carried - cannot be a structural member, so it is kept as one
+ * empty object. That is how the renderer writes an empty array, and how a repeated empty tag reads back as one empty object per element.
  *
  * @param value - The array to fold.
  * @param node - The array node.
@@ -179,6 +220,10 @@ const normalizeMembers = (value: ReadonlyArray<XmlValue>, node: SchemaAST.Arrays
     const element = memberAst(node, index);
     if (element === undefined) {
       out.push(value[index]);
+      continue;
+    }
+    if (isEmptyElement(value[index]) && isStructural(element)) {
+      out.push({});
       continue;
     }
     const normalized = normalizePlainValue(value[index], element, `${path}[${index}]`);
@@ -233,7 +278,8 @@ const normalizeRecord = (record: XmlRecord, node: SchemaAST.AST, path: string): 
 };
 
 /**
- * @description Folds a parsed value against the derived StringTree AST, so a plain value can be read from an element that carries attributes.
+ * @description Folds a parsed value against the derived StringTree AST, so a plain value can be read from an element that carries attributes. An empty element
+ * under an array field reads as one empty object when the member is structural, and as an empty array otherwise.
  *
  * @param value - The value the parser produced, after namespaces were resolved.
  * @param ast - The derived StringTree AST the decoder will read the value with.
@@ -242,16 +288,25 @@ const normalizeRecord = (record: XmlRecord, node: SchemaAST.AST, path: string): 
  * @returns The value to decode, or the message describing why a plain value could not be read.
  */
 export const normalizePlainValue = (value: XmlValue, ast: SchemaAST.AST, path: string): Result.Result<XmlValue, string> => {
-  if (Predicate.isString(value) || Predicate.isUndefined(value)) return Result.succeed(value);
+  if (Predicate.isUndefined(value)) return Result.succeed(value);
 
   const node = resolveNode(ast);
+  const arrays = arrayNode(node);
+
+  if (Predicate.isString(value)) {
+    // An empty element under an array field is how the renderer writes an empty array; a structural member still reads as one empty object.
+    if (arrays !== undefined && value === '') return Result.succeed(emptyArrayElement(arrays));
+    return Result.succeed(value);
+  }
 
   if (Array.isArray(value)) {
-    const arrays = arrayNode(node);
     return arrays !== undefined ? normalizeMembers(value, arrays, path) : Result.succeed(value);
   }
 
   if (!Predicate.isReadonlyObject(value)) return Result.succeed(value);
+
+  // The same empty element, after the codec dropped the namespace declarations it carried, arrives as an empty record.
+  if (arrays !== undefined && isEmptyElement(value)) return Result.succeed(emptyArrayElement(arrays));
 
   return normalizeRecord(value as XmlRecord, node, path);
 };

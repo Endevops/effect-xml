@@ -907,6 +907,57 @@ describe('toCodecXml() - plain values read through structures', () => {
   });
 });
 
+describe('toCodecXml() - empty elements under an array field', () => {
+  const Items = Schema.Struct({ item: Schema.Array(Schema.Struct({ v: Schema.optional(Schema.String) })) });
+
+  it('reads an empty element under an array of structs as one empty object', () => {
+    const codec = toCodecXml(Items, { rootName: 'r' });
+    // An empty array renders as a single empty element, and reads back as one empty object.
+    expect(Schema.encodeSync(codec)({ item: [] })).toBe('<r><item/></r>');
+    expect(Schema.decodeSync(codec)('<r><item/></r>')).toEqual({ item: [{}] });
+    expect(Schema.encodeSync(codec)({ item: [{}] })).toBe('<r><item/></r>');
+  });
+
+  it('reads a repeated empty element as one empty object per element', () => {
+    const codec = toCodecXml(Items, { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><item/><item/></r>')).toEqual({ item: [{}, {}] });
+  });
+
+  it('keeps the members of a repeated structural element that carry content', () => {
+    const codec = toCodecXml(Schema.Struct({ item: Schema.Array(Schema.Struct({ v: Schema.String })) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><item><v>1</v></item><item><v>2</v></item></r>')).toEqual({ item: [{ v: '1' }, { v: '2' }] });
+  });
+
+  it('reads a namespaced empty element as one empty object', () => {
+    const codec = toCodecXml(
+      Schema.Struct({
+        item: Schema.Array(Schema.Struct({ v: Schema.optional(Schema.String) })).annotate({ xmlNamespace: 'urn:items', xmlPrefix: 'i' }),
+      }),
+      { rootName: 'r' }
+    );
+    // The element carries only its namespace declaration, which the codec drops, leaving an empty record.
+    expect(Schema.decodeSync(codec)('<r><i:item xmlns:i="urn:items"/></r>')).toEqual({ item: [{}] });
+  });
+
+  it('reads an empty element under an array of plain values as an empty array', () => {
+    const codec = toCodecXml(Schema.Struct({ tag: Schema.Array(Schema.String) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><tag/></r>')).toEqual({ tag: [] });
+    // A plain-value member is not structural, so a run of empty elements stays a run of empty strings.
+    expect(Schema.decodeSync(codec)('<r><tag/><tag/></r>')).toEqual({ tag: ['', ''] });
+  });
+
+  it('keeps the members of an array of plain values that carry content', () => {
+    const codec = toCodecXml(Schema.Struct({ tag: Schema.Array(Schema.String) }), { rootName: 'r' });
+    expect(Schema.decodeSync(codec)('<r><tag>a</tag><tag>b</tag></r>')).toEqual({ tag: ['a', 'b'] });
+  });
+
+  it('reads an empty root document as an empty array', () => {
+    const codec = toCodecXml(Schema.Array(Schema.String), { rootName: 'r' });
+    expect(Schema.encodeSync(codec)([])).toBe('<r></r>');
+    expect(Schema.decodeSync(codec)('<r></r>')).toEqual([]);
+  });
+});
+
 describe('toCodecXml() - failures', () => {
   it('reports a malformed document as a schema failure with the parse message', () => {
     const codec = toCodecXml(Schema.Struct({ a: Schema.String }), { rootName: 'r' });
