@@ -198,7 +198,7 @@ describe('decoding', () => {
       }),
 
       bench('@nodable/flexible-xml-parser', () => {
-        nodableParser.parse(orderDocument);
+        nodableParser.parse(reportDocument);
       }),
       BUDGET
     );
@@ -215,7 +215,7 @@ describe('decoding', () => {
         upstreamParser.parse(noteDocument);
       }),
       bench('@nodable/flexible-xml-parser', () => {
-        nodableParser.parse(orderDocument);
+        nodableParser.parse(noteDocument);
       }),
       BUDGET
     );
@@ -232,7 +232,7 @@ describe('decoding', () => {
         upstreamParser.parse(feedDocument);
       }),
       bench('@nodable/flexible-xml-parser', () => {
-        nodableParser.parse(orderDocument);
+        nodableParser.parse(feedDocument);
       }),
       BUDGET
     );
