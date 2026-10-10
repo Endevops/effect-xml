@@ -7,3 +7,9 @@ dist
 .env
 .env.*
 !.env.example
+
+# Release scripts must be committed: a common global gitignore drops any
+# `Release/` directory, which would leave semantic-release without its
+# version-sync helper in CI.
+!scripts/release/
+!scripts/release/**

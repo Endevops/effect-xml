@@ -1,0 +1,60 @@
+{
+  // This file is JSONC: fallow reads these comments; generic JSON tools may not.
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  // Public API surfaces backing package.json exports, plus build scripts
+  // and the shared test matcher.
+  "duplicates": {
+    // Hide pair-only clones; focus on widespread copy-paste
+    // worth refactoring. Lower to 2 to report every duplicate pair.
+    "minOccurrences": 2,
+    "minTokens": 100,
+    "minLines": 5,
+    // Common additions (uncomment to enable):
+    // "ignore": [
+    //   "**/lib/**",          // for repos that publish transpiled output to lib/
+    //   "**/legacy/**",       // for repos with legacy-build artifacts
+    //   "**/__generated__/**", // Relay, GraphQL Code Generator
+    //   "**/generated/**"     // OpenAPI, Protobuf codegen
+    // ]
+  },
+  // Exempt an export that is referenced only inside its own file — a class that
+  // exists to be returned by an exported function, or a type a sibling public
+  // type names. The dead-code signal this gives up is narrow: the export is
+  // unreachable from outside its own module anyway, and the entry-point check
+  // still sees the real public surface.
+  "ignoreExportsUsedInFile": true,
+  // A class's public API is not tracked by production reachability, so a method
+  // only a spec calls reads as unused. These four are EntityDecoder's
+  // entity-registration surface — a caller registers external or DOCTYPE
+  // entities and the decoder resolves references against them. The codec only
+  // ever decodes the five built-in XML entities, so the methods are exercised
+  // by `test/entities/decoder.spec.ts` and not by `src/`. Named in full so a
+  // bare `reset` on some future class is not exempted by accident.
+  "usedClassMembers": ["setExternalEntities", "addExternalEntity", "addInputEntities", "reset"],
+  "ignoreDependencies": [
+    // `attw` and `publint` run inside `vp pack` (the package `pack` block), so
+    // they are configured rather than imported.
+    "@arethetypeswrong/core",
+    "publint",
+    "@endevops/effect-codec-xml",
+  ],
+  "rules": {
+    "circular-dependencies": "error",
+    "unused-dependencies": "error",
+    "private-type-leaks": "error",
+    // One publishable package and a private benchmark project leaves no
+    // cross-package layering to enforce, so the boundary detector is off
+    // explicitly rather than reporting that it measured nothing.
+    "boundary-violation": "off",
+    // There is no declarative rule pack in this repo, so the policy detector
+    // has nothing to enforce. Turning it off is the honest statement; leaving
+    // it unconfigured reports the absence every run instead.
+    "policy-violation": "off",
+  },
+  // Test suites are not published (see package.json `files`) and the
+  // `scripts/values` codegen tools are offline-only. Their long `describe`
+  // blocks and template literals dominate the unit-size signal without
+  // reflecting shipped-code health, so keep them out of the health score.
+  // Complexity findings, dead code and duplication still cover them.
+  "health": { "ignore": ["**/*.spec.ts", "**/*.test.ts", "test/**", "scripts/values/**"] },
+}

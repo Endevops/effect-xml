@@ -1,0 +1,168 @@
+/**
+ * @description Every way the entity decoder and the name validators can fail, as one typed error. The package used to throw plain `Error` and `TypeError` from
+ * places spread across the entity and naming areas. A caller had to match on message text, and there was nothing to narrow on. All of it is now a
+ * single {@link XmlError} in the `E` channel of the effects that can fail, with the specific cause in a `reason` field rather than parsed back out of
+ * a string.
+ *
+ * ## Why one error with a `reason`, and not one error per cause
+ *
+ * The causes would mean a class each, and a caller handling "any of these" would need `catchTags` with all of them. A caller does not usually want to
+ * decide between the causes separately. They are all "this XML input was not acceptable", and the useful split is coarse: a bad _configuration_
+ * versus a bad _document_. So there is one error, and `reason` narrows to the specific cause. Recovery is a `catchReason` away:
+ *
+ * @example
+ *   ```typescript
+ *   import { Effect } from 'effect';
+ *   import { EntityDecoder, XmlError } from '@endevops/effect-codec-xml';
+ *
+ *   const limited = new EntityDecoder({ limit: { maxTotalExpansions: 2 } }).decode('&amp;&amp;&amp;').pipe(
+ *   Effect.catchReason('XmlError', 'ExpansionLimitExceeded', reason => Effect.succeed(`gave up after ${reason.actual}`)),
+ *   );
+ *   ```;
+ *
+ *   The message is kept alongside `reason` and is part of the schema, because callers depend on the text. The
+ *   `[EntityReplacer]` prefix in particular is documented as something callers match on, so the codec reproduces it exactly
+ *   rather than rewording it.
+ */
+
+import { Schema } from 'effect';
+
+/**
+ * @description The specific cause of an {@link XmlError}, as a tagged union. The `_tag` on each member is the discriminant `Effect.catchReason` matches on, and
+ * the payload is what a handler needs in order to decide or to report. Every member is a case the decoder or the name validators actually raise.
+ * There is no catch-all member, so an exhaustive `match` stays exhaustive as causes are added.
+ */
+export const XmlErrorReason = Schema.TaggedUnion({
+  /**
+   * @description A required argument was `null` or another non-value where the package requires a real one. Raised by the factories that take caller-supplied
+   * input, {@link EntityDecoder.make} among them, when they are handed `null` for an options object that has no meaningful default. It is a distinct
+   * case from the rest because the argument is not _wrong_, it is _absent_, and a caller who wrote `make(null)` meant something the type system does
+   * not allow. A decoder with every default is `make({})`, and saying so here is more useful than silently producing one.
+   */
+  MissingOptions: {
+    /**
+     * @description The parameter that was given nothing, named as it appears in the signature.
+     */
+    parameter: Schema.String,
+  },
+
+  /**
+   * @description A name was checked against one of the five XML name productions and given a different one. Unreachable from TypeScript, where `Production` is a
+   * closed union. It is the guard for untyped JavaScript callers and for values that crossed a boundary as `unknown`.
+   */
+  InvalidProduction: {
+    production: Schema.String,
+    /**
+     * @description The productions that would have been accepted, comma-separated, as they appear in the message.
+     */
+    expected: Schema.String,
+  },
+
+  /**
+   * @description An entity name cannot be written as a reference, so it is refused at registration.
+   */
+  InvalidEntityName: {
+    /**
+     * @description The rejected name, as it was passed in.
+     */
+    name: Schema.String,
+    /**
+     * @description The offending character, or `#` for a name that starts with one. A leading `#` is refused by position rather than by the character sweep,
+     * because a name starting with `#` is a numeric reference's token and would collide with the numeric pipeline.
+     */
+    character: Schema.String,
+  },
+
+  /**
+   * @description A registration hook refused an entity and asked for the registration to abort.
+   */
+  EntityRejected: {
+    /**
+     * @description Which registration was in progress. The runtime injects both, so they share a tier for limit accounting.
+     */
+    context: Schema.Literals(['external', 'input']),
+    /**
+     * @description The entity name, without `&` or `;`.
+     */
+    name: Schema.String,
+  },
+
+  /**
+   * @description A document expanded more tracked entity references than {@link EntityDecoderLimitOptions.maxTotalExpansions} allows. A document can define an
+   * entity that references another ten times over. Ten deep is a denial of service; a hundred is a fork bomb written in XML.
+   */
+  ExpansionLimitExceeded: {
+    /**
+     * @description The count that tripped the limit. The counter is not reset on failure, so this is the real over-limit total rather than the ceiling.
+     */
+    actual: Schema.Number,
+    /**
+     * @description The configured ceiling. The check is `actual > limit`, so a limit of `2` allows two expansions.
+     */
+    limit: Schema.Number,
+  },
+
+  /**
+   * @description A document grew by more characters through entity expansion than {@link EntityDecoderLimitOptions.maxExpandedLength} allows. Only the surplus
+   * counts: a reference whose replacement is no longer than the `&token;` it replaces contributes nothing, so this bounds growth rather than document
+   * size.
+   */
+  ExpandedLengthLimitExceeded: {
+    /**
+     * @description The accumulated growth that tripped the limit.
+     */
+    actual: Schema.Number,
+    /**
+     * @description The configured ceiling.
+     */
+    limit: Schema.Number,
+  },
+
+  /**
+   * @description A numeric character reference was prohibited by the configured policy.
+   */
+  ProhibitedCharacterReference: {
+    /**
+     * @description The raw token without `&` and `;`, e.g. `#38` or `#x26`.
+     */
+    token: Schema.String,
+    /**
+     * @description The codepoint the reference resolved to, so a log can name the character that was refused.
+     */
+    codepoint: Schema.Number,
+  },
+});
+
+/**
+ * @description The reason a well-formedness or policy failure occurred.
+ */
+export type XmlErrorReason = typeof XmlErrorReason.Type;
+
+/**
+ * @description Every failure this package can report, in the `E` channel of the effects that can fail. Carries both a `reason`, the typed and matchable cause, and
+ * a `message`, which is the human-readable form the package has always produced. Both are part of the schema, so an error survives a round-trip
+ * through a serialised boundary without losing either.
+ *
+ * @example
+ *   ```typescript
+ *   import { Effect } from 'effect';
+ *   import { EntityDecoder } from '@endevops/effect-codec-xml';
+ *
+ *   const program = Effect.gen(function*() {
+ *     const decoder = yield* EntityDecoder.make({});
+ *     return yield* decoder.decode('a &amp; b');
+ *   });
+ *   ```;
+ */
+export class XmlError extends Schema.TaggedError<XmlError>()('XmlError', {
+  /**
+   * @description The specific cause. Narrow on `_tag`, or recover with `Effect.catchReason`.
+   */
+  reason: XmlErrorReason,
+
+  /**
+   * @description Human-readable description. The `[EntityReplacer]` and `[EntityDecoder]` prefixes are reproduced verbatim from the original throw sites, because
+   * anything matching on them depends on them.
+   */
+  message: Schema.String,
+}) {}

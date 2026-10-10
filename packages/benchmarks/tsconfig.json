@@ -1,0 +1,14 @@
+{
+  // Benchmark-project type-check configuration.
+  //
+  // The suites that only touch a package's public entry point live here, in a
+  // private project that is never built or published. They drive the public API
+  // with statically-typed options, so the same strictness guards as the
+  // libraries apply.
+  //
+  // No `paths` are declared: every import is a package name backed by a
+  // workspace dependency, not a `#/*` subpath, so paths would have nothing to
+  // anchor.
+  "extends": "../../tsconfig.shared.json",
+  "include": ["bench/**/*.ts"]
+}
