@@ -138,6 +138,14 @@ const SLASH = 47;
  * @description `=`
  */
 const EQUALS = 61;
+/**
+ * @description `?`
+ */
+const QUESTION = 63;
+/**
+ * @description `!`
+ */
+const EXCLAMATION = 33;
 
 /**
  * @description One element as the parser saw it: the name it was written under, and the value it holds. Carrying the name alongside the value lets the parent file
@@ -179,13 +187,6 @@ interface Content {
 }
 
 /**
- * @description What sits at the cursor inside an element's body. Naming what is there before deciding what to do with it lets the content loop stay a dispatch:
- * each construct is recognised in one place, against the ones that cannot be confused with it, rather than by a chain of `startsWith` guesses where
- * each had to remember what the last had already ruled out.
- */
-type Construct = 'text' | 'close' | 'comment' | 'cdata' | 'instruction' | 'child';
-
-/**
  * @description Parses a whole document: a prolog, exactly one root element, and nothing but whitespace after it. The walk is synchronous and reports a malformed
  * document by throwing an {@link XmlParseError}; {@link parseXml} folds that into the effect's typed error channel.
  *
@@ -218,13 +219,12 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    */
   const nameCache = new Map<string, string>();
 
-  const resolve = (raw: string, what: string, position: number): string => {
-    const cached = nameCache.get(raw);
-    if (cached !== undefined) return cached;
-
-    // `resolveNameSync` reports an illegal name by throwing an `XmlParseError`; the failure is reworded
-    // here so it names the position in the document and whether the name belonged to an element or
-    // an attribute, which a generic name resolver cannot know.
+  /**
+   * @description Resolves a raw name that was not in the cache, reworded so the failure names the position in the document and whether the name belonged to an
+   * element or an attribute, which a generic name resolver cannot know. Only reached on a first sighting of a name; {@link readResolvedName} answers
+   * the repeats from the cache without a call.
+   */
+  const resolveUncached = (raw: string, what: string, position: number): string => {
     let name: string;
     try {
       name = resolveNameSync(raw, nameOptions);
@@ -306,6 +306,22 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     return text.slice(start, at);
   };
 
+  /**
+   * @description Reads a name and resolves it, in one frame. The parser resolves a name per element and per attribute, and a document repeats its names, so the
+   * cached answer is the common path and merging the read with the lookup keeps a second call and its argument setup off it.
+   *
+   * @param what - What the name belongs to, for the `Expected a …` failure {@link readName} raises.
+   * @param label - The capitalised construct the name belongs to, for the illegal-name failure.
+   *
+   * @returns The resolved name. A name that throws is not stored in the cache, so the failure is rebuilt at the position each occurrence was seen.
+   */
+  const readResolvedName = (what: string, label: string): string => {
+    const start = at;
+    const raw = readName(what);
+    const cached = nameCache.get(raw);
+    return cached === undefined ? resolveUncached(raw, label, start) : cached;
+  };
+
   const skipSpaces = (): void => {
     while (at < text.length && isWhitespace(text.charCodeAt(at))) at++;
   };
@@ -351,7 +367,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
         return { record, selfClosing: true, hasAttributes };
       }
       const nameStart = at;
-      const name = resolve(readName('attribute name'), 'Attribute', nameStart);
+      const name = readResolvedName('attribute name', 'Attribute');
       skipSpaces();
       if (text.charCodeAt(at) !== EQUALS) throw new XmlParseError({ message: `Attribute "${name}" has no "="`, position: at, input: text });
       at++;
@@ -367,7 +383,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     if (text.charCodeAt(at) !== LT) throw new XmlParseError({ message: 'Expected an element', position: at, input: text });
     at++;
 
-    const name = resolve(readName('element name'), 'Element', at);
+    const name = readResolvedName('element name', 'Element');
     const { record, selfClosing, hasAttributes } = readStartTag();
 
     if (selfClosing) return { name, value: finishElement(record, hasAttributes, '', false) };
@@ -384,7 +400,10 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   /**
    * @description Reads an element's body up to and including its closing tag, folding what it finds into the record the start tag produced. Returns when the
    * closing tag has been consumed; failing on it is {@link readClosingTag}'s job, so that a mismatched or unclosed tag is reported the same way
-   * wherever it was found.
+   * wherever it was found. The construct at the cursor is recognised inline rather than through a helper, because this loop runs once per construct
+   * in the whole document and a call per construct dominated a document of any size. Running out of document and a declaration, which is markup the
+   * parser does not accept inside an element, are refused here; the rest dispatches on the character after `<`: `/` closes, `?` is an instruction,
+   * `!` opens a comment or a CDATA section and is refused otherwise, and anything else starts a child.
    *
    * @param name - The name the start tag gave the element, which its closing tag has to match.
    * @param record - The record to fold the children into.
@@ -397,64 +416,47 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     let hasChildren = false;
 
     for (;;) {
-      switch (classifyContent(name)) {
-        case 'text':
-          childText += readTextRun();
-          break;
-        case 'close':
-          readClosingTag(name);
-          return { text: childText, hasChildren };
-        case 'comment':
-          at = skipUntil('-->', at + 4, 'comment');
-          break;
-        case 'cdata':
-          childText += readCdata();
-          break;
-        case 'instruction':
-          at = skipUntil('?>', at + 2, 'processing instruction');
-          break;
-        case 'child': {
-          hasChildren = true;
-          addChild(record, readElement(depth + 1));
-          break;
-        }
+      if (at >= text.length) {
+        throw new XmlParseError({ message: `Unclosed element <${name}>`, position: at, input: text });
       }
+      if (text.charCodeAt(at) !== LT) {
+        childText += readTextRun();
+        continue;
+      }
+      const second = text.charCodeAt(at + 1);
+      if (second === SLASH) {
+        readClosingTag(name);
+        return { text: childText, hasChildren };
+      }
+      if (second === QUESTION) {
+        at = skipUntil('?>', at + 2, 'processing instruction');
+        continue;
+      }
+      if (second === EXCLAMATION) {
+        const cdata = readExclamation();
+        if (cdata !== undefined) childText += cdata;
+        continue;
+      }
+      hasChildren = true;
+      addChild(record, readElement(depth + 1));
     }
   };
 
   /**
-   * @description What the cursor is sitting on inside an element's body. The two things the loop cannot read are refused here rather than in it: running out of
-   * document and a declaration, which is markup the parser does not accept inside an element. Recognising the constructs that _are_ read is the rest,
-   * and the order rules out the shorter prefixes first: `</` before `<?` before any other `<!`, and `<![CDATA[` before the `<!` that would otherwise
-   * match it.
+   * @description Consumes a construct that starts `<!` inside an element's body: a comment, which is skipped, or a CDATA section, whose contents are returned as
+   * character data. Any other declaration is refused, because markup the parser does not accept inside an element is exactly what a bare `<!` is.
    *
-   * @param name - The name the enclosing element's start tag gave it, for the unterminated-body message.
-   *
-   * @returns What the cursor is on.
+   * @returns The CDATA section's contents, or `undefined` for a comment.
    */
-  const classifyContent = (name: string): Construct => {
-    if (at >= text.length) {
-      throw new XmlParseError({ message: `Unclosed element <${name}>`, position: at, input: text });
-    }
-    if (text.charCodeAt(at) !== LT) {
-      return 'text';
-    }
-    if (text.startsWith('</', at)) {
-      return 'close';
-    }
+  const readExclamation = (): string | undefined => {
     if (text.startsWith('<!--', at)) {
-      return 'comment';
+      at = skipUntil('-->', at + 4, 'comment');
+      return undefined;
     }
     if (text.startsWith('<![CDATA[', at)) {
-      return 'cdata';
+      return readCdata();
     }
-    if (text.startsWith('<?', at)) {
-      return 'instruction';
-    }
-    if (text.startsWith('<!', at)) {
-      throw new XmlParseError({ message: 'A declaration is not allowed inside an element', position: at, input: text });
-    }
-    return 'child';
+    throw new XmlParseError({ message: 'A declaration is not allowed inside an element', position: at, input: text });
   };
 
   /**
