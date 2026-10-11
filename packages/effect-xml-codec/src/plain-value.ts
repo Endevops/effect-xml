@@ -189,18 +189,24 @@ const readCharacterData = (record: XmlRecord, path: string): Result.Result<XmlVa
  * @returns The folded record, or the first field's failure.
  */
 const normalizeFields = (record: XmlRecord, node: SchemaAST.Objects, path: string): Result.Result<XmlValue, string> => {
-  const out: Record<string, XmlValue> = {};
+  let out: Record<string, XmlValue | undefined> | undefined;
   for (const [key, child] of Object.entries(record)) {
     const field = fieldAst(node, key);
     if (field === undefined || child === undefined) {
-      out[key] = child;
       continue;
     }
     const normalized = normalizePlainValue(child, field, childPath(path, key));
     if (Result.isFailure(normalized)) return normalized;
-    out[key] = normalized.success;
+    if (normalized.success !== child) {
+      // Nothing here mutates: the value a parse produced is not shared, but
+      // copying once on the first changed field keeps the common case, a record
+      // where every field is already the value the decoder wants, from
+      // allocating a duplicate of itself.
+      if (out === undefined) out = { ...record };
+      out[key] = normalized.success;
+    }
   }
-  return Result.succeed(out);
+  return Result.succeed(out ?? record);
 };
 
 /**
@@ -215,22 +221,24 @@ const normalizeFields = (record: XmlRecord, node: SchemaAST.Objects, path: strin
  * @returns The folded array, or the first member's failure.
  */
 const normalizeMembers = (value: ReadonlyArray<XmlValue>, node: SchemaAST.Arrays, path: string): Result.Result<XmlValue, string> => {
-  const out: Array<XmlValue> = [];
+  let out: Array<XmlValue> | undefined;
   for (let index = 0; index < value.length; index++) {
     const element = memberAst(node, index);
+    let normalized: Result.Result<XmlValue, string>;
     if (element === undefined) {
-      out.push(value[index]);
-      continue;
+      normalized = Result.succeed(value[index]);
+    } else if (isEmptyElement(value[index]) && isStructural(element)) {
+      normalized = Result.succeed({});
+    } else {
+      normalized = normalizePlainValue(value[index], element, `${path}[${index}]`);
     }
-    if (isEmptyElement(value[index]) && isStructural(element)) {
-      out.push({});
-      continue;
-    }
-    const normalized = normalizePlainValue(value[index], element, `${path}[${index}]`);
     if (Result.isFailure(normalized)) return normalized;
-    out.push(normalized.success);
+    if (normalized.success !== value[index]) {
+      if (out === undefined) out = value.slice();
+      out[index] = normalized.success;
+    }
   }
-  return Result.succeed(out);
+  return Result.succeed(out ?? value);
 };
 
 /**
