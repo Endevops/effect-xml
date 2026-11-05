@@ -5,8 +5,8 @@ import { Effect, Schema } from 'effect';
 import { describe, test } from 'vite-plus/test';
 
 /**
- * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document like this is
- * what a single API response turns into, so it is the row that matters most.
+ * @description The shape most callers have: a handful of scalar fields, one nested struct, one repeated child, and a couple of attributes. A document
+ * like this is what a single API response turns into, so it is the row that matters most.
  */
 const Order = toCodecXml(
   Schema.Struct({
@@ -38,13 +38,14 @@ const order = {
 } satisfies Schema.Schema.Type<typeof Order>;
 
 /**
- * @description A document with many rows, which is where per-element and per-character costs stop being noise: anything that scales with the number of elements or
- * the number of characters shows up here and nowhere else.
+ * @description A document with many rows, which is where per-element and per-character costs stop being noise: anything that scales with the number
+ * of elements or the number of characters shows up here and nowhere else.
  */
 const Row = Schema.Struct({ '@id': Schema.String, '@qty': Schema.String, sku: Schema.String, name: Schema.String, price: Schema.Finite });
 
 /**
- * @description How many rows the large document has. Large enough that per-row costs dominate the per-call costs, small enough to keep the suite quick.
+ * @description How many rows the large document has. Large enough that per-row costs dominate the per-call costs, small enough to keep the suite
+ * quick.
  */
 const ROWS = 500;
 
@@ -64,8 +65,8 @@ const rows: { row: Array<Schema.Schema.Type<typeof Row>> } = {
 const Report = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }), { rootName: 'report' });
 
 /**
- * @description The decode rows' inputs: the documents this codec produces, encoded once here so every decode iteration reads byte-identical bytes and the row
- * measures the decoder rather than the encoder.
+ * @description The decode rows' inputs: the documents this codec produces, encoded once here so every decode iteration reads byte-identical bytes and
+ * the row measures the decoder rather than the encoder.
  */
 const rowsDocument = Schema.encodeSync(Report)(rows);
 
@@ -82,8 +83,8 @@ const cleanValue = { title: 'Dune', author: 'Frank Herbert', isbn: '978044101359
 const dirtyValue = { title: 'Dune & <Messiah>', author: 'Frank "Frank" Herbert', isbn: 'a&b<c>d"e' };
 
 /**
- * @description How long to sample each benchmark in a group, and how long to warm it up first. Serialization is measured in the tens of microseconds for the small
- * document, so a shorter sample than Tinybench's default collects plenty of samples without a suite that takes a minute.
+ * @description How long to sample each benchmark in a group, and how long to warm it up first. Serialization is measured in the tens of microseconds
+ * for the small document, so a shorter sample than Tinybench's default collects plenty of samples without a suite that takes a minute.
  */
 const BUDGET = { time: 1000, warmupTime: 50 } as const;
 

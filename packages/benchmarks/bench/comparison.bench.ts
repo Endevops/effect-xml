@@ -73,8 +73,8 @@ const feed = {
 const FEED_ROOT = 'feed';
 
 /**
- * @description The same feed for the plain builders. They have no annotations to read, so the namespace declarations are spelled out by hand and the prefixed
- * names are written where the codec writes them.
+ * @description The same feed for the plain builders. They have no annotations to read, so the namespace declarations are spelled out by hand and the
+ * prefixed names are written where the codec writes them.
  */
 const feedWire = {
   '@xmlns': ATOM,
@@ -101,9 +101,9 @@ const decodeNote = Schema.decodeEffect(Note);
 const decodeFeed = Schema.decodeEffect(Feed);
 
 /**
- * @description Encoding one value to a document is a single effect now: the codec's encode writes the text. The encoding benchmarks run that effect per iteration,
- * which is the whole object-to-XML job. The decoding benchmarks read the document it produces, encoded once here so their bytes are identical on
- * every iteration.
+ * @description Encoding one value to a document is a single effect now: the codec's encode writes the text. The encoding benchmarks run that effect
+ * per iteration, which is the whole object-to-XML job. The decoding benchmarks read the document it produces, encoded once here so their bytes are
+ * identical on every iteration.
  */
 const encodeOrderDocument = encodeOrder(order);
 const encodeReportDocument = encodeReport(report);
@@ -116,8 +116,8 @@ const noteDocument = Effect.runSync(encodeNoteDocument);
 const feedDocument = Effect.runSync(encodeFeedDocument);
 
 /**
- * @description How long to sample each benchmark in a group, and how long to warm it up first. A small document takes single-digit microseconds, so a shorter
- * sample than Tinybench's default still collects tens of thousands of samples without a suite that takes a minute.
+ * @description How long to sample each benchmark in a group, and how long to warm it up first. A small document takes single-digit microseconds, so a
+ * shorter sample than Tinybench's default still collects tens of thousands of samples without a suite that takes a minute.
  */
 const BUDGET = { time: 1000, warmupTime: 50 } as const;
 

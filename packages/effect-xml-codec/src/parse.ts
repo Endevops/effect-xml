@@ -20,8 +20,8 @@ export interface XmlDocument {
   readonly name: string;
 
   /**
-   * @description The root element's content. The root's own name is not part of it, the same way a schema's encoded form does not carry a name for the value it
-   * describes.
+   * @description The root element's content. The root's own name is not part of it, the same way a schema's encoded form does not carry a name for
+   * the value it describes.
    */
   readonly value: XmlValue;
 }
@@ -89,8 +89,8 @@ export const parseXml = (text: string, options: XmlParseOptions = {}): Effect.Ef
   );
 
 /**
- * @description Parses an XML document, keeping the root element's name. This is the synchronous form of {@link parseXml}: it runs the same walk and throws the
- * {@link XmlParseError} the effect would have failed with, for a caller that is not already in an `Effect`.
+ * @description Parses an XML document, keeping the root element's name. This is the synchronous form of {@link parseXml}: it runs the same walk and
+ * throws the {@link XmlParseError} the effect would have failed with, for a caller that is not already in an `Effect`.
  *
  * @deprecated
  *
@@ -148,8 +148,8 @@ const QUESTION = 63;
 const EXCLAMATION = 33;
 
 /**
- * @description One element as the parser saw it: the name it was written under, and the value it holds. Carrying the name alongside the value lets the parent file
- * it correctly, because the value alone cannot say: a text-only element reduces to a bare string.
+ * @description One element as the parser saw it: the name it was written under, and the value it holds. Carrying the name alongside the value lets
+ * the parent file it correctly, because the value alone cannot say: a text-only element reduces to a bare string.
  */
 interface Element {
   readonly name: string;
@@ -164,8 +164,8 @@ interface StartTag {
   readonly selfClosing: boolean;
 
   /**
-   * @description Whether the tag carried any attribute. Counted as they are read rather than asked of the record afterwards, which would mean a key array per
-   * element.
+   * @description Whether the tag carried any attribute. Counted as they are read rather than asked of the record afterwards, which would mean a key
+   * array per element.
    */
   readonly hasAttributes: boolean;
 }
@@ -180,15 +180,15 @@ interface Content {
   readonly text: string;
 
   /**
-   * @description Whether the body held at least one child element. Counted rather than asked of the record afterwards, because a child whose fields are all absent
-   * leaves no trace of itself in the record and must still keep its element from being written self-closing.
+   * @description Whether the body held at least one child element. Counted rather than asked of the record afterwards, because a child whose fields
+   * are all absent leaves no trace of itself in the record and must still keep its element from being written self-closing.
    */
   readonly hasChildren: boolean;
 }
 
 /**
- * @description Parses a whole document: a prolog, exactly one root element, and nothing but whitespace after it. The walk is synchronous and reports a malformed
- * document by throwing an {@link XmlParseError}; {@link parseXml} folds that into the effect's typed error channel.
+ * @description Parses a whole document: a prolog, exactly one root element, and nothing but whitespace after it. The walk is synchronous and reports
+ * a malformed document by throwing an {@link XmlParseError}; {@link parseXml} folds that into the effect's typed error channel.
  *
  * @param text - The document to read.
  * @param options - Whitespace, depth and name-handling settings.
@@ -208,21 +208,21 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   let at = 0;
 
   /**
-   * @description The options every name is resolved with, built once. They cannot change during a parse, and building them per name would allocate one object per
-   * element and per attribute in the document.
+   * @description The options every name is resolved with, built once. They cannot change during a parse, and building them per name would allocate
+   * one object per element and per attribute in the document.
    */
   const nameOptions = { mode: resolved.name, xmlVersion: resolved.xmlVersion };
 
   /**
-   * @description Names already resolved by this parse. A document repeats names (every one of five hundred rows has a `sku`), and a validator that ran per
-   * occurrence would pay for the same answer five hundred times.
+   * @description Names already resolved by this parse. A document repeats names (every one of five hundred rows has a `sku`), and a validator that
+   * ran per occurrence would pay for the same answer five hundred times.
    */
   const nameCache = new Map<string, string>();
 
   /**
-   * @description Resolves a raw name that was not in the cache, reworded so the failure names the position in the document and whether the name belonged to an
-   * element or an attribute, which a generic name resolver cannot know. Only reached on a first sighting of a name; {@link readResolvedName} answers
-   * the repeats from the cache without a call.
+   * @description Resolves a raw name that was not in the cache, reworded so the failure names the position in the document and whether the name
+   * belonged to an element or an attribute, which a generic name resolver cannot know. Only reached on a first sighting of a name;
+   * {@link readResolvedName} answers the repeats from the cache without a call.
    */
   const resolveUncached = (raw: string, what: string, position: number): string => {
     let name: string;
@@ -258,8 +258,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Consumes whitespace, comments, processing instructions and a DOCTYPE, leaving the cursor on the first character that is none of them, or at the
-   * end of the document.
+   * @description Consumes whitespace, comments, processing instructions and a DOCTYPE, leaving the cursor on the first character that is none of
+   * them, or at the end of the document.
    */
   const skipMisc = (): void => {
     for (;;) {
@@ -307,8 +307,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Reads a name and resolves it, in one frame. The parser resolves a name per element and per attribute, and a document repeats its names, so the
-   * cached answer is the common path and merging the read with the lookup keeps a second call and its argument setup off it.
+   * @description Reads a name and resolves it, in one frame. The parser resolves a name per element and per attribute, and a document repeats its
+   * names, so the cached answer is the common path and merging the read with the lookup keeps a second call and its argument setup off it.
    *
    * @param what - What the name belongs to, for the `Expected a …` failure {@link readName} raises.
    * @param label - The capitalised construct the name belongs to, for the illegal-name failure.
@@ -398,12 +398,12 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Reads an element's body up to and including its closing tag, folding what it finds into the record the start tag produced. Returns when the
-   * closing tag has been consumed; failing on it is {@link readClosingTag}'s job, so that a mismatched or unclosed tag is reported the same way
-   * wherever it was found. The construct at the cursor is recognised inline rather than through a helper, because this loop runs once per construct
-   * in the whole document and a call per construct dominated a document of any size. Running out of document and a declaration, which is markup the
-   * parser does not accept inside an element, are refused here; the rest dispatches on the character after `<`: `/` closes, `?` is an instruction,
-   * `!` opens a comment or a CDATA section and is refused otherwise, and anything else starts a child.
+   * @description Reads an element's body up to and including its closing tag, folding what it finds into the record the start tag produced. Returns
+   * when the closing tag has been consumed; failing on it is {@link readClosingTag}'s job, so that a mismatched or unclosed tag is reported the same
+   * way wherever it was found. The construct at the cursor is recognised inline rather than through a helper, because this loop runs once per
+   * construct in the whole document and a call per construct dominated a document of any size. Running out of document and a declaration, which is
+   * markup the parser does not accept inside an element, are refused here; the rest dispatches on the character after `<`: `/` closes, `?` is an
+   * instruction, `!` opens a comment or a CDATA section and is refused otherwise, and anything else starts a child.
    *
    * @param name - The name the start tag gave the element, which its closing tag has to match.
    * @param record - The record to fold the children into.
@@ -443,8 +443,9 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Consumes a construct that starts `<!` inside an element's body: a comment, which is skipped, or a CDATA section, whose contents are returned as
-   * character data. Any other declaration is refused, because markup the parser does not accept inside an element is exactly what a bare `<!` is.
+   * @description Consumes a construct that starts `<!` inside an element's body: a comment, which is skipped, or a CDATA section, whose contents are
+   * returned as character data. Any other declaration is refused, because markup the parser does not accept inside an element is exactly what a bare
+   * `<!` is.
    *
    * @returns The CDATA section's contents, or `undefined` for a comment.
    */
@@ -492,8 +493,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Reads a `<![CDATA[…]]>` section. CDATA is character data, and character data is what it holds, so it joins the element's text as it stands. The
-   * entities in it are literal text and must not be expanded.
+   * @description Reads a `<![CDATA[…]]>` section. CDATA is character data, and character data is what it holds, so it joins the element's text as it
+   * stands. The entities in it are literal text and must not be expanded.
    *
    * @returns The section's contents.
    */
@@ -506,8 +507,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   /**
-   * @description Adds a child to its parent's record. Two children under one name make an array, and the first one does not: a schema can tell a repeated field
-   * from a single one by the shape, and an array of one is not what a single value encodes to.
+   * @description Adds a child to its parent's record. Two children under one name make an array, and the first one does not: a schema can tell a
+   * repeated field from a single one by the shape, and an array of one is not what a single value encodes to.
    *
    * @param record - The parent's record, added to in place.
    * @param child - The child element as it was read.
@@ -559,8 +560,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
 };
 
 /**
- * @description Runs the synchronous walk and folds the one failure it reports into a {@link Result}, which {@link parseXml} turns back into an `Effect`. Kept
- * separate so the walk itself can throw without the public API ever throwing.
+ * @description Runs the synchronous walk and folds the one failure it reports into a {@link Result}, which {@link parseXml} turns back into an
+ * `Effect`. Kept separate so the walk itself can throw without the public API ever throwing.
  *
  * @param text - The document to read.
  * @param options - The options as the caller wrote them.
@@ -579,11 +580,11 @@ const parseDocumentResult = (text: string, options: XmlParseOptions): Result.Res
 };
 
 /**
- * @description Decodes character references, falling back to the raw text when the reference is not one the decoder recognises. The fallback keeps a bare `&`
- * survivable: the decoder treats it as a malformed reference and fails, and a document containing one is far more likely to be worth reading than to
- * be rejected. The `&` is escaped on the way out, so the value still round-trips. The decoder answers with an `Effect`, and this is the one place a
- * parse still runs one. It is only reached when the raw text holds an `&`, since the common case returns before it, and the effect is synchronous, so
- * the run is cheap next to the decoder's own work.
+ * @description Decodes character references, falling back to the raw text when the reference is not one the decoder recognises. The fallback keeps a
+ * bare `&` survivable: the decoder treats it as a malformed reference and fails, and a document containing one is far more likely to be worth reading
+ * than to be rejected. The `&` is escaped on the way out, so the value still round-trips. The decoder answers with an `Effect`, and this is the one
+ * place a parse still runs one. It is only reached when the raw text holds an `&`, since the common case returns before it, and the effect is
+ * synchronous, so the run is cheap next to the decoder's own work.
  *
  * @param raw - Text read straight from the source, with references unexpanded.
  *

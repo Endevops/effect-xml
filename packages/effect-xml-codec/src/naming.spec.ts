@@ -1,7 +1,7 @@
 /**
- * @description Specs for the name validators, covering all five productions, the XML 1.0 vs 1.1 differences, the `asciiOnly` fast path, and the diagnostic and
- * sanitize helpers. The `as Production` casts are intentional. They stand in for the untyped JavaScript caller the runtime guard exists to catch, and
- * that cast is the only way to exercise the branch from a type-checked suite.
+ * @description Specs for the name validators, covering all five productions, the XML 1.0 vs 1.1 differences, the `asciiOnly` fast path, and the
+ * diagnostic and sanitize helpers. The `as Production` casts are intentional. They stand in for the untyped JavaScript caller the runtime guard
+ * exists to catch, and that cast is the only way to exercise the branch from a type-checked suite.
  */
 
 import { assert, describe, expect, it } from '@effect/vitest';
@@ -12,7 +12,8 @@ import type { Production, ValidationResult } from '#/naming.ts';
 import { isName, isNcName, isNmToken, isNmTokens, isQName, sanitize, validate } from '#/naming.ts';
 
 /**
- * @description Narrows a validation result to its diagnostics. Throws if the result was valid, so a spec that expected a failure cannot pass on a success.
+ * @description Narrows a validation result to its diagnostics. Throws if the result was valid, so a spec that expected a failure cannot pass on a
+ * success.
  *
  * @param result - Whatever {@link validate} returned.
  *

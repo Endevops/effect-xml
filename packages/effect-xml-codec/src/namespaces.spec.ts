@@ -1,6 +1,6 @@
 /**
- * @description Specs for the namespace layer: annotating a schema node with `xmlNamespace` places its element in that namespace, and a document written with any
- * prefix for the same URI decodes back to the same value.
+ * @description Specs for the namespace layer: annotating a schema node with `xmlNamespace` places its element in that namespace, and a document
+ * written with any prefix for the same URI decodes back to the same value.
  */
 
 import { Schema } from 'effect';

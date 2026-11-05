@@ -1,6 +1,6 @@
 /**
- * @description Specs for the key conventions and the name resolver: which key is an attribute, which is character data, and what happens to a field name that is
- * not a legal XML name.
+ * @description Specs for the key conventions and the name resolver: which key is an attribute, which is character data, and what happens to a field
+ * name that is not a legal XML name.
  */
 
 import { Effect } from 'effect';
@@ -11,8 +11,9 @@ import type { ResolveNameOptions } from '#/index.ts';
 import { attributeName, isAttributeKey, isQName, isReservedKey, isTextKey, resolveName, ATTRIBUTE_PREFIX, TEXT_KEY } from '#/index.ts';
 
 /**
- * @description Resolves a name the way a caller not already in an `Effect` would: `resolveName` answers with an `Effect` whose failure is an `XmlParseError`, and
- * `Effect.runSync` throws it. The specs assert on the returned name and on the thrown failure, so this keeps each case a one-liner.
+ * @description Resolves a name the way a caller not already in an `Effect` would: `resolveName` answers with an `Effect` whose failure is an
+ * `XmlParseError`, and `Effect.runSync` throws it. The specs assert on the returned name and on the thrown failure, so this keeps each case a
+ * one-liner.
  */
 const resolve = (name: string, options?: ResolveNameOptions): string => Effect.runSync(resolveName(name, options));
 

@@ -8,8 +8,8 @@ for JSON. There is no second call to a renderer or a parser at the call site.
 on their own.
 
 ```typescript
-import { Schema } from 'effect';
 import { toCodecXml } from '@endevops/effect-codec-xml';
+import { Schema } from 'effect';
 
 const Book = Schema.Struct({ '@id': Schema.String, title: Schema.String, pages: Schema.Number, tag: Schema.Array(Schema.String) });
 
@@ -118,8 +118,8 @@ only one value field. Two sibling elements may each have their own.
 The annotation is attached with `Schema.annotate`:
 
 ```typescript
-import { Schema } from 'effect';
 import { toCodecXml } from '@endevops/effect-codec-xml';
+import { Schema } from 'effect';
 
 const SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
 const AUTH = 'urn:auth';
@@ -207,8 +207,8 @@ an illegal name into the nearest legal one, and `validate` reports why a name
 failed through an `Effect`.
 
 ```typescript
-import { Effect } from 'effect';
 import { EntityDecoder, isQName, sanitize, validate } from '@endevops/effect-codec-xml';
+import { Effect } from 'effect';
 
 isQName('svg:circle'); // true
 sanitize('not a name', 'ncName'); // 'not_a_name'

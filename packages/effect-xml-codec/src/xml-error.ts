@@ -1,8 +1,8 @@
 /**
- * @description Every way the entity decoder and the name validators can fail, as one typed error. The package used to throw plain `Error` and `TypeError` from
- * places spread across the entity and naming areas. A caller had to match on message text, and there was nothing to narrow on. All of it is now a
- * single {@link XmlError} in the `E` channel of the effects that can fail, with the specific cause in a `reason` field rather than parsed back out of
- * a string.
+ * @description Every way the entity decoder and the name validators can fail, as one typed error. The package used to throw plain `Error` and
+ * `TypeError` from places spread across the entity and naming areas. A caller had to match on message text, and there was nothing to narrow on. All
+ * of it is now a single {@link XmlError} in the `E` channel of the effects that can fail, with the specific cause in a `reason` field rather than
+ * parsed back out of a string.
  *
  * ## Why one error with a `reason`, and not one error per cause
  *
@@ -28,16 +28,16 @@
 import { Schema } from 'effect';
 
 /**
- * @description The specific cause of an {@link XmlError}, as a tagged union. The `_tag` on each member is the discriminant `Effect.catchReason` matches on, and
- * the payload is what a handler needs in order to decide or to report. Every member is a case the decoder or the name validators actually raise.
- * There is no catch-all member, so an exhaustive `match` stays exhaustive as causes are added.
+ * @description The specific cause of an {@link XmlError}, as a tagged union. The `_tag` on each member is the discriminant `Effect.catchReason`
+ * matches on, and the payload is what a handler needs in order to decide or to report. Every member is a case the decoder or the name validators
+ * actually raise. There is no catch-all member, so an exhaustive `match` stays exhaustive as causes are added.
  */
 export const XmlErrorReason = Schema.TaggedUnion({
   /**
-   * @description A required argument was `null` or another non-value where the package requires a real one. Raised by the factories that take caller-supplied
-   * input, {@link EntityDecoder.make} among them, when they are handed `null` for an options object that has no meaningful default. It is a distinct
-   * case from the rest because the argument is not _wrong_, it is _absent_, and a caller who wrote `make(null)` meant something the type system does
-   * not allow. A decoder with every default is `make({})`, and saying so here is more useful than silently producing one.
+   * @description A required argument was `null` or another non-value where the package requires a real one. Raised by the factories that take
+   * caller-supplied input, {@link EntityDecoder.make} among them, when they are handed `null` for an options object that has no meaningful default.
+   * It is a distinct case from the rest because the argument is not _wrong_, it is _absent_, and a caller who wrote `make(null)` meant something the
+   * type system does not allow. A decoder with every default is `make({})`, and saying so here is more useful than silently producing one.
    */
   MissingOptions: {
     /**
@@ -47,8 +47,8 @@ export const XmlErrorReason = Schema.TaggedUnion({
   },
 
   /**
-   * @description A name was checked against one of the five XML name productions and given a different one. Unreachable from TypeScript, where `Production` is a
-   * closed union. It is the guard for untyped JavaScript callers and for values that crossed a boundary as `unknown`.
+   * @description A name was checked against one of the five XML name productions and given a different one. Unreachable from TypeScript, where
+   * `Production` is a closed union. It is the guard for untyped JavaScript callers and for values that crossed a boundary as `unknown`.
    */
   InvalidProduction: {
     production: Schema.String,
@@ -67,8 +67,8 @@ export const XmlErrorReason = Schema.TaggedUnion({
      */
     name: Schema.String,
     /**
-     * @description The offending character, or `#` for a name that starts with one. A leading `#` is refused by position rather than by the character sweep,
-     * because a name starting with `#` is a numeric reference's token and would collide with the numeric pipeline.
+     * @description The offending character, or `#` for a name that starts with one. A leading `#` is refused by position rather than by the character
+     * sweep, because a name starting with `#` is a numeric reference's token and would collide with the numeric pipeline.
      */
     character: Schema.String,
   },
@@ -88,12 +88,13 @@ export const XmlErrorReason = Schema.TaggedUnion({
   },
 
   /**
-   * @description A document expanded more tracked entity references than {@link EntityDecoderLimitOptions.maxTotalExpansions} allows. A document can define an
-   * entity that references another ten times over. Ten deep is a denial of service; a hundred is a fork bomb written in XML.
+   * @description A document expanded more tracked entity references than {@link EntityDecoderLimitOptions.maxTotalExpansions} allows. A document can
+   * define an entity that references another ten times over. Ten deep is a denial of service; a hundred is a fork bomb written in XML.
    */
   ExpansionLimitExceeded: {
     /**
-     * @description The count that tripped the limit. The counter is not reset on failure, so this is the real over-limit total rather than the ceiling.
+     * @description The count that tripped the limit. The counter is not reset on failure, so this is the real over-limit total rather than the
+     * ceiling.
      */
     actual: Schema.Number,
     /**
@@ -103,9 +104,9 @@ export const XmlErrorReason = Schema.TaggedUnion({
   },
 
   /**
-   * @description A document grew by more characters through entity expansion than {@link EntityDecoderLimitOptions.maxExpandedLength} allows. Only the surplus
-   * counts: a reference whose replacement is no longer than the `&token;` it replaces contributes nothing, so this bounds growth rather than document
-   * size.
+   * @description A document grew by more characters through entity expansion than {@link EntityDecoderLimitOptions.maxExpandedLength} allows. Only
+   * the surplus counts: a reference whose replacement is no longer than the `&token;` it replaces contributes nothing, so this bounds growth rather
+   * than document size.
    */
   ExpandedLengthLimitExceeded: {
     /**
@@ -139,9 +140,9 @@ export const XmlErrorReason = Schema.TaggedUnion({
 export type XmlErrorReason = typeof XmlErrorReason.Type;
 
 /**
- * @description Every failure this package can report, in the `E` channel of the effects that can fail. Carries both a `reason`, the typed and matchable cause, and
- * a `message`, which is the human-readable form the package has always produced. Both are part of the schema, so an error survives a round-trip
- * through a serialised boundary without losing either.
+ * @description Every failure this package can report, in the `E` channel of the effects that can fail. Carries both a `reason`, the typed and
+ * matchable cause, and a `message`, which is the human-readable form the package has always produced. Both are part of the schema, so an error
+ * survives a round-trip through a serialised boundary without losing either.
  *
  * @example
  *   ```typescript
@@ -161,8 +162,8 @@ export class XmlError extends Schema.TaggedError<XmlError>()('XmlError', {
   reason: XmlErrorReason,
 
   /**
-   * @description Human-readable description. The `[EntityReplacer]` and `[EntityDecoder]` prefixes are reproduced verbatim from the original throw sites, because
-   * anything matching on them depends on them.
+   * @description Human-readable description. The `[EntityReplacer]` and `[EntityDecoder]` prefixes are reproduced verbatim from the original throw
+   * sites, because anything matching on them depends on them.
    */
   message: Schema.String,
 }) {}

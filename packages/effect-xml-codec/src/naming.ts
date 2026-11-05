@@ -20,14 +20,15 @@ import { Effect } from 'effect';
 import { XmlError } from '#/xml-error.ts';
 
 /**
- * @description The XML specification version a production is validated against. The two differ only in their non-ASCII character ranges. See {@link getRegexes}.
+ * @description The XML specification version a production is validated against. The two differ only in their non-ASCII character ranges. See
+ * {@link getRegexes}.
  */
 export type XmlVersion = '1.0' | '1.1';
 
 /**
- * @description One of the five XML name productions this package validates. The name is the production's grammar rule: `name` is the full Name production,
- * `ncName` its non-colonized form, `qName` the prefixed form, and `nmToken`/`nmTokens` the attribute-value productions that drop the first-character
- * restriction.
+ * @description One of the five XML name productions this package validates. The name is the production's grammar rule: `name` is the full Name
+ * production, `ncName` its non-colonized form, `qName` the prefixed form, and `nmToken`/`nmTokens` the attribute-value productions that drop the
+ * first-character restriction.
  */
 export type Production = 'name' | 'ncName' | 'qName' | 'nmToken' | 'nmTokens';
 
@@ -40,9 +41,9 @@ export interface ValidationOptions {
    */
   xmlVersion?: XmlVersion;
   /**
-   * @description Restrict matching to the ASCII subset of the NameStartChar/NameChar productions and skip unicode-aware regex matching entirely. Faster,
-   * especially for XML 1.1 (which otherwise requires the `/u` regex flag), but rejects legitimate non-ASCII XML names. Off by default for backward
-   * compatibility. Opt in only when inputs are known to be ASCII. Defaults to false.
+   * @description Restrict matching to the ASCII subset of the NameStartChar/NameChar productions and skip unicode-aware regex matching entirely.
+   * Faster, especially for XML 1.1 (which otherwise requires the `/u` regex flag), but rejects legitimate non-ASCII XML names. Off by default for
+   * backward compatibility. Opt in only when inputs are known to be ASCII. Defaults to false.
    */
   asciiOnly?: boolean;
 }
@@ -60,8 +61,8 @@ export interface SanitizeOptions {
    */
   asciiOnly?: boolean;
   /**
-   * @description Accepted and ignored. Sanitizing is not version-dependent: the character set it considers illegal is the union of both versions. But the option
-   * is part of the published signature, so dropping it would break callers that pass it through a shared options object.
+   * @description Accepted and ignored. Sanitizing is not version-dependent: the character set it considers illegal is the union of both versions. But
+   * the option is part of the published signature, so dropping it would break callers that pass it through a shared options object.
    */
   xmlVersion?: XmlVersion;
 }
@@ -77,8 +78,8 @@ export type ValidationResult =
       input: string;
       reason: string;
       /**
-       * @description Index of the first offending character, or `undefined` when the failure is structural (an empty input, or a colon count) rather than a
-       * specific character.
+       * @description Index of the first offending character, or `undefined` when the failure is structural (an empty input, or a colon count) rather
+       * than a specific character.
        */
       position: number | undefined;
     };
@@ -225,7 +226,8 @@ const nameCharAscii = nameStartCharAscii + '\\-\\.\\d';
 const regexesAscii = buildRegexes(nameStartCharAscii, nameCharAscii); // no /u, ASCII only
 
 /**
- * @description The compiled regex set for a version/ASCII combination. Only three sets are ever built, at module load; this is a lookup, not a compile.
+ * @description The compiled regex set for a version/ASCII combination. Only three sets are ever built, at module load; this is a lookup, not a
+ * compile.
  *
  * @param xmlVersion - Which XML version's character classes to use.
  * @param asciiOnly - Return the ASCII-only set regardless of `xmlVersion`.
@@ -246,8 +248,8 @@ const getRegexes = (xmlVersion: XmlVersion = '1.0', asciiOnly = false): Producti
 // ---------------------------------------------------------------------------
 
 /**
- * @description Whether the string is a valid XML Name. Colons are allowed anywhere (Name production). Used for: DOCTYPE entity names, notation names, DTD element
- * declarations.
+ * @description Whether the string is a valid XML Name. Colons are allowed anywhere (Name production). Used for: DOCTYPE entity names, notation names,
+ * DTD element declarations.
  *
  * @param str - The candidate name.
  * @param opts - `asciiOnly` skips unicode-aware matching, ASCII names only (default false).
@@ -306,9 +308,9 @@ export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false 
   getRegexes(xmlVersion, asciiOnly).nmTokens.test(str);
 
 /**
- * @description The failure to report when a production is not one of the five this module knows, so `validate` reports it the same way. The single place the
- * unknown-production guard lives. It is unreachable from TypeScript, where `Production` is a closed union; this is the guard for untyped JavaScript
- * callers.
+ * @description The failure to report when a production is not one of the five this module knows, so `validate` reports it the same way. The single
+ * place the unknown-production guard lives. It is unreachable from TypeScript, where `Production` is a closed union; this is the guard for untyped
+ * JavaScript callers.
  *
  * @param production - The production to check.
  *
@@ -331,8 +333,8 @@ const validators: Record<Production, (str: string, opts?: ValidationOptions) => 
 };
 
 /**
- * @description The diagnostic body {@link validate} reports, with the production already known to be valid. Kept separate so the reason-finding logic carries no
- * unknown-production check and the batch path can map over it without re-entering the guard per element.
+ * @description The diagnostic body {@link validate} reports, with the production already known to be valid. Kept separate so the reason-finding logic
+ * carries no unknown-production check and the batch path can map over it without re-entering the guard per element.
  *
  * @param str - The candidate name.
  * @param production - The production to validate against, already checked.
@@ -345,9 +347,9 @@ const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, a
   diagnoseWith(str, production, validators[production](str, { xmlVersion, asciiOnly }), asciiOnly);
 
 /**
- * @description The colon-specific reason a `qName` or `ncName` failed, or `undefined` when the failure is not about a colon. The three QName forms are checked in
- * the order they can co-occur: a string that both starts and ends with a colon is reported as the leading one, and a two-colon string is reported as
- * the count.
+ * @description The colon-specific reason a `qName` or `ncName` failed, or `undefined` when the failure is not about a colon. The three QName forms
+ * are checked in the order they can co-occur: a string that both starts and ends with a colon is reported as the leading one, and a two-colon string
+ * is reported as the count.
  *
  * @param str - The candidate name.
  * @param production - The production checked.
@@ -393,8 +395,8 @@ const diagnoseNameChar = (str: string, namePattern: RegExp): { reason: string; p
 };
 
 /**
- * @description Why a name failed, once whether it failed is already known. The first character outranks the rest: a name that cannot start is reported as a bad
- * `NameStartChar` even when a later character is also illegal.
+ * @description Why a name failed, once whether it failed is already known. The first character outranks the rest: a name that cannot start is
+ * reported as a bad `NameStartChar` even when a later character is also illegal.
  *
  * @param str - The candidate name.
  * @param production - The production checked.
@@ -425,8 +427,8 @@ const findFailure = (
 };
 
 /**
- * @description Why a name failed, once whether it failed is already known. Split from {@link diagnose} so the effect that asks the question stays a one-liner and
- * the reason-finding is plain.
+ * @description Why a name failed, once whether it failed is already known. Split from {@link diagnose} so the effect that asks the question stays a
+ * one-liner and the reason-finding is plain.
  *
  * @param str - The candidate name.
  * @param production - The production checked.
@@ -484,8 +486,8 @@ export const validate = Effect.fnUntraced(function* (
 // ---------------------------------------------------------------------------
 
 /**
- * @description Transforms an invalid string into the nearest valid XML name for the given production: strips or replaces illegal characters, fixes an invalid
- * start character by prepending the replacement, and removes colons for NCName.
+ * @description Transforms an invalid string into the nearest valid XML name for the given production: strips or replaces illegal characters, fixes an
+ * invalid start character by prepending the replacement, and removes colons for NCName.
  *
  * @param str - The candidate name.
  * @param production - The production to sanitize for. Defaults to `'name'`.

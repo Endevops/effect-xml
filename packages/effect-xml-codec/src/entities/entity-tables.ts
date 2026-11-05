@@ -12,7 +12,7 @@
 export type EntityTable = Readonly<Record<string, string>>;
 
 /**
- * @description The five XML predefined entities. The XML specification fixes these five names, so they are matched as a set rather than drawn from a table of
- * aliases. `EntityDecoder` merges these into its base map by default.
+ * @description The five XML predefined entities. The XML specification fixes these five names, so they are matched as a set rather than drawn from a
+ * table of aliases. `EntityDecoder` merges these into its base map by default.
  */
 export const XML: EntityTable = { amp: '&', apos: "'", gt: '>', lt: '<', quot: '"' };

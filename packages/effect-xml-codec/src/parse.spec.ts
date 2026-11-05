@@ -11,9 +11,9 @@ import { XmlParseError } from '#/errors.ts';
 import { parseXml, parseXmlDocument } from '#/parse.ts';
 
 /**
- * @description Parse a document expected to fail and hand back the parse error, which is the only way to reach a message this class reports. A helper rather than
- * the `Effect.result` form at each call site because these specs assert on one property of the error and nothing else. A parse that unexpectedly
- * succeeds is a test defect, so it dies rather than widening the channel every caller would then have to carry.
+ * @description Parse a document expected to fail and hand back the parse error, which is the only way to reach a message this class reports. A helper
+ * rather than the `Effect.result` form at each call site because these specs assert on one property of the error and nothing else. A parse that
+ * unexpectedly succeeds is a test defect, so it dies rather than widening the channel every caller would then have to carry.
  *
  * @param text - The document to parse.
  * @param options - Parse options for this call.

@@ -44,8 +44,8 @@ import { renderXml } from './render.ts';
 export type XmlCodecOptions = XmlRenderOptions & XmlParseOptions;
 
 /**
- * @description The XML codec for a schema, as a `Schema`. `Type` is the schema's own `Type` and `Encoded` is XML text, so it encodes a value to a document and
- * decodes a document to a value in one step each. The service requirements of the source schema are preserved.
+ * @description The XML codec for a schema, as a `Schema`. `Type` is the schema's own `Type` and `Encoded` is XML text, so it encodes a value to a
+ * document and decodes a document to a value in one step each. The service requirements of the source schema are preserved.
  */
 export interface toCodecXml<S extends Schema.Constraint> extends Schema.decodeTo<Schema.toCodecStringTree<S>, Schema.String> {
   readonly Rebuild: toCodecXml<S>;
@@ -73,9 +73,9 @@ const resolveRenderOptions = <S extends Schema.Constraint>(schema: S, plan: Name
 /**
  * @description Derives the XML codec for a schema: a `Schema` whose `Encoded` is an XML document, so `Schema.encodeSync(codec)` writes text and
  * `Schema.decodeSync(codec)` reads it back. The derivation is Effect's `Schema.toCodecStringTree`; the text layer is this package's {@link renderXml}
- * and {@link parseXml}. Call it data-first, `toCodecXml(schema, options)`, or data-last, `toCodecXml(options)(schema)`, so it drops into `pipe` beside
- * the rest of the Effect combinators. The two forms are one function: the first argument decides the style, a schema is read as data-first and an
- * options object as data-last. `pipe(schema, toCodecXml)` carries no options and works because a schema on its own is data-first.
+ * and {@link parseXml}. Call it data-first, `toCodecXml(schema, options)`, or data-last, `toCodecXml(options)(schema)`, so it drops into `pipe`
+ * beside the rest of the Effect combinators. The two forms are one function: the first argument decides the style, a schema is read as data-first and
+ * an options object as data-last. `pipe(schema, toCodecXml)` carries no options and works because a schema on its own is data-first.
  *
  * @example
  *   ```typescript

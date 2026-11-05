@@ -87,8 +87,8 @@ export const isTextKey = (key: string): boolean => key === TEXT_KEY;
 export const isReservedKey = (key: string): boolean => isTextKey(key);
 
 /**
- * @description Resolves a name to something legal in an XML document, synchronously. The renderer and the parser both resolve a name per element and per
- * attribute, and that is the codec's hot path, so the walk calls this directly and keeps the work in plain JavaScript. `'error'` mode reports an
+ * @description Resolves a name to something legal in an XML document, synchronously. The renderer and the parser both resolve a name per element and
+ * per attribute, and that is the codec's hot path, so the walk calls this directly and keeps the work in plain JavaScript. `'error'` mode reports an
  * illegal name by throwing an {@link XmlParseError}; the callers that need it in a typed channel use {@link resolveName}, which wraps this.
  *
  * @param name - The candidate element or attribute name.
@@ -111,8 +111,8 @@ export const resolveNameSync = (name: string, { mode = 'repair', xmlVersion = '1
 };
 
 /**
- * @description {@link resolveNameSync} with the thrown failure folded into a {@link Result}, so an effectful caller can carry it in a typed channel without a
- * try/catch of its own.
+ * @description {@link resolveNameSync} with the thrown failure folded into a {@link Result}, so an effectful caller can carry it in a typed channel
+ * without a try/catch of its own.
  *
  * @param name - The candidate element or attribute name.
  * @param options - Repair mode and XML version.
@@ -131,10 +131,10 @@ const resolveNameResult = (name: string, options: ResolveNameOptions): Result.Re
 };
 
 /**
- * @description Resolves a name to something legal in an XML document. The renderer and the parser both resolve a name per element and per attribute. An illegal
- * name under `'error'` mode is a rejection rather than a value, so this returns an `Effect` with the `XmlParseError` in its error channel instead of
- * throwing it. Callers `yield*` it and the failure composes with `catchTag` and the rest. The two internal call sites in `parse.ts` and `render.ts`
- * use {@link resolveNameSync} directly, because their walks are synchronous hot paths.
+ * @description Resolves a name to something legal in an XML document. The renderer and the parser both resolve a name per element and per attribute.
+ * An illegal name under `'error'` mode is a rejection rather than a value, so this returns an `Effect` with the `XmlParseError` in its error channel
+ * instead of throwing it. Callers `yield*` it and the failure composes with `catchTag` and the rest. The two internal call sites in `parse.ts` and
+ * `render.ts` use {@link resolveNameSync} directly, because their walks are synchronous hot paths.
  *
  * @param name - The candidate element or attribute name.
  * @param options - Repair mode and XML version.

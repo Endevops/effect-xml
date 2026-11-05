@@ -1,11 +1,11 @@
 // oxlint-disable vitest/expect-expect effecttsgo/schema-number
 // oxlint-disable vitest/valid-title
 /**
- * @description Round-trip specs: every value here goes out as XML and comes back as the value it was. This is the spec that answers "does serialization fail". The
- * codec is a single step. `toCodecXml` returns a `Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a document and
- * `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for JSON. Each document is additionally asserted to reach a fixed point,
- * where parse, render and parse again must be stable. That check stops an encoder from quietly drifting the document on every hop through the
- * system.
+ * @description Round-trip specs: every value here goes out as XML and comes back as the value it was. This is the spec that answers "does
+ * serialization fail". The codec is a single step. `toCodecXml` returns a `Schema` whose `Encoded` is XML text, so `Schema.encodeSync` writes a
+ * document and `Schema.decodeSync` reads one back, the way `Schema.toCodecJson` works for JSON. Each document is additionally asserted to reach a
+ * fixed point, where parse, render and parse again must be stable. That check stops an encoder from quietly drifting the document on every hop
+ * through the system.
  */
 
 import { Effect, Schema } from 'effect';
@@ -49,8 +49,9 @@ const decode = (schema: AnyCodec, text: string, rootName = 'r'): unknown => Sche
 const roundTrip = (schema: AnyCodec, value: unknown, rootName = 'r'): unknown => decode(schema, encode(schema, value, rootName), rootName);
 
 /**
- * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
- * accurate: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to be known.
+ * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which
+ * keeps the cases accurate: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type
+ * to be known.
  */
 type AnyCodec = Schema.ConstraintCodec<unknown, unknown>;
 
@@ -202,8 +203,8 @@ describe('round trip — encoding never throws for a value the schema accepts', 
 
 describe('round trip — a document reaches a fixed point', () => {
   /**
-   * @description Asserts that parsing, rendering and parsing again changes nothing. This exercises the text layer directly, below the codec, which is where a
-   * drifting encoder would show.
+   * @description Asserts that parsing, rendering and parsing again changes nothing. This exercises the text layer directly, below the codec, which is
+   * where a drifting encoder would show.
    *
    * @param document - The document to start from.
    */

@@ -52,25 +52,26 @@ declare module 'effect/Schema' {
       readonly xmlNamespace?: string | undefined;
 
       /**
-       * @description The wire prefix to write for {@link xmlNamespace}. Omit it to write the namespace as the default (`xmlns="…"`) with unprefixed element names.
+       * @description The wire prefix to write for {@link xmlNamespace}. Omit it to write the namespace as the default (`xmlns="…"`) with unprefixed
+       * element names.
        */
       readonly xmlPrefix?: string | undefined;
 
       /**
-       * @description The local name to write for an element or attribute, when it differs from the schema key. A colon is not allowed here; the prefix comes from
-       * {@link xmlPrefix}.
+       * @description The local name to write for an element or attribute, when it differs from the schema key. A colon is not allowed here; the
+       * prefix comes from {@link xmlPrefix}.
        */
       readonly xmlName?: string | undefined;
 
       /**
-       * @description Whether this field is an XML attribute rather than a child element. Use it to keep the schema key a plain name instead of carrying the `@`
-       * prefix. A namespaced attribute still needs `xmlPrefix`, because a default namespace does not apply to attributes.
+       * @description Whether this field is an XML attribute rather than a child element. Use it to keep the schema key a plain name instead of
+       * carrying the `@` prefix. A namespaced attribute still needs `xmlPrefix`, because a default namespace does not apply to attributes.
        */
       readonly xmlAttribute?: boolean | undefined;
 
       /**
-       * @description Whether this field holds the element's character data, the `#text` value, rather than a child element. It has no name, so it cannot be
-       * combined with `xmlAttribute`, `xmlName`, or a namespace.
+       * @description Whether this field holds the element's character data, the `#text` value, rather than a child element. It has no name, so it
+       * cannot be combined with `xmlAttribute`, `xmlName`, or a namespace.
        */
       readonly xmlValue?: boolean | undefined;
     }
@@ -113,8 +114,8 @@ export interface XmlNamespace {
 }
 
 /**
- * @description What one codec needs to place and resolve names: the namespace of every local name in the schema, the root element's namespace, and the reverse
- * lookup from a resolved `(uri, local)` back to the schema's key.
+ * @description What one codec needs to place and resolve names: the namespace of every local name in the schema, the root element's namespace, and
+ * the reverse lookup from a resolved `(uri, local)` back to the schema's key.
  */
 export interface NamespacePlan {
   /**
@@ -153,15 +154,15 @@ export interface NamespacePlan {
   readonly rootName: string | undefined;
 
   /**
-   * @description The schema key for a resolved name, keyed by kind, `uri`, and local name. Lets a document with any prefix, and an element beside an attribute of
-   * the same name, resolve back to the schema.
+   * @description The schema key for a resolved name, keyed by kind, `uri`, and local name. Lets a document with any prefix, and an element beside an
+   * attribute of the same name, resolve back to the schema.
    */
   readonly byResolved: ReadonlyMap<string, string>;
 }
 
 /**
- * @description The namespace an AST's own annotations declare, or `undefined`. `Schema.optional` and `Schema.suspend` wrap a node without moving its annotation,
- * so both are unwrapped to find the namespace the field actually carries.
+ * @description The namespace an AST's own annotations declare, or `undefined`. `Schema.optional` and `Schema.suspend` wrap a node without moving its
+ * annotation, so both are unwrapped to find the namespace the field actually carries.
  *
  * @param ast - The AST to read.
  *
@@ -187,8 +188,8 @@ const annotationAt = (ast: SchemaAST.AST, key: string): unknown => {
 };
 
 /**
- * @description The namespace an AST's own annotations declare, or `undefined`. `Schema.optional` and `Schema.suspend` wrap a node without moving its annotation,
- * so both are unwrapped to find the namespace the field carries.
+ * @description The namespace an AST's own annotations declare, or `undefined`. `Schema.optional` and `Schema.suspend` wrap a node without moving its
+ * annotation, so both are unwrapped to find the namespace the field carries.
  *
  * @param ast - The AST to read.
  *
@@ -295,8 +296,8 @@ const isValueProperty = (ast: SchemaAST.AST): boolean => keyValueOf(ast) || valu
 const localName = (key: string): string => (isAttributeKey(key) ? key.slice(ATTRIBUTE_PREFIX.length) : key);
 
 /**
- * @description The path of the root element. A plan is keyed by the path of the element a field belongs to, so the same name nested differently stays apart. The
- * path is the schema keys from the root joined by {@link PATH_SEPARATOR}.
+ * @description The path of the root element. A plan is keyed by the path of the element a field belongs to, so the same name nested differently stays
+ * apart. The path is the schema keys from the root joined by {@link PATH_SEPARATOR}.
  */
 export const ROOT_ELEMENT = '';
 
@@ -348,8 +349,8 @@ const isAttributeOf = (plan: NamespacePlan, path: string): boolean => isAttribut
 const localOf = (plan: NamespacePlan, path: string): string => plan.nameByKey.get(path) ?? localName(pathKey(path));
 
 /**
- * @description The reverse-lookup key for a resolved wire name. The attribute flag is part of it, so an element and an attribute of the same local name in the
- * same namespace stay distinct.
+ * @description The reverse-lookup key for a resolved wire name. The attribute flag is part of it, so an element and an attribute of the same local
+ * name in the same namespace stay distinct.
  *
  * @param isAttribute - Whether the name is an attribute.
  * @param uri - The resolved namespace URI, or `undefined`.
@@ -373,8 +374,8 @@ const parentPath = (path: string): string => {
 };
 
 /**
- * @description The reverse-lookup key for a wire name under one parent element. The parent's path is part of it, so the same wire name under two parents resolves
- * to each parent's own field.
+ * @description The reverse-lookup key for a wire name under one parent element. The parent's path is part of it, so the same wire name under two
+ * parents resolves to each parent's own field.
  *
  * @param parent - The parent element's path.
  * @param resolved - A name from {@link resolvedKey}.
@@ -384,8 +385,8 @@ const parentPath = (path: string): string => {
 const lookupKey = (parent: string, resolved: string): string => `${parent}\u0001${resolved}`;
 
 /**
- * @description The mutable state one namespace scan carries: the plan under construction, the local names that resolve to more than one namespace, and the AST
- * nodes already visited so a recursive schema terminates.
+ * @description The mutable state one namespace scan carries: the plan under construction, the local names that resolve to more than one namespace,
+ * and the AST nodes already visited so a recursive schema terminates.
  */
 interface Scan {
   readonly byKey: Map<string, XmlNamespace>;
@@ -395,8 +396,8 @@ interface Scan {
   readonly arrayKeys: Set<string>;
   readonly problems: Array<string>;
   /**
-   * @description The AST nodes on the current scan path. A recursive schema terminates because the `Suspend` node is still on the path when its thunk is reached,
-   * and a schema reused under two sibling paths is scanned once per path because each node is removed again on the way back out.
+   * @description The AST nodes on the current scan path. A recursive schema terminates because the `Suspend` node is still on the path when its thunk
+   * is reached, and a schema reused under two sibling paths is scanned once per path because each node is removed again on the way back out.
    */
   readonly seen: Set<SchemaAST.AST>;
 }
@@ -441,8 +442,8 @@ const recordName = (scan: Scan, path: string, name: string | undefined): void =>
 };
 
 /**
- * @description Records a field's namespace, refusing the two annotations that cannot be honored: a namespaced field whose name already carries a prefix, and a
- * namespaced attribute without a prefix, because a default namespace does not apply to attributes.
+ * @description Records a field's namespace, refusing the two annotations that cannot be honored: a namespaced field whose name already carries a
+ * prefix, and a namespaced attribute without a prefix, because a default namespace does not apply to attributes.
  *
  * @param scan - The scan state.
  * @param path - The field's element path.
@@ -491,8 +492,8 @@ const noteAttribute = (scan: Scan, path: string, isAttribute: boolean): void => 
 };
 
 /**
- * @description Records a field marked `xmlValue` against the element that owns it, refusing the annotations a value cannot combine with: character data has no
- * name and no namespace, and an element has room for only one value.
+ * @description Records a field marked `xmlValue` against the element that owns it, refusing the annotations a value cannot combine with: character
+ * data has no name and no namespace, and an element has room for only one value.
  *
  * @param scan - The scan state.
  * @param elementPath - The path of the element the field belongs to, or the root sentinel.
@@ -527,9 +528,9 @@ const recordValue = (
 };
 
 /**
- * @description Records one struct property: its `xmlName`, its namespace, and the namespace its descendants inherit. An attribute carries a namespace only when
- * annotated; an element field falls back to the namespace it inherits. A value field is character data, so it is recorded against its element
- * instead.
+ * @description Records one struct property: its `xmlName`, its namespace, and the namespace its descendants inherit. An attribute carries a namespace
+ * only when annotated; an element field falls back to the namespace it inherits. A value field is character data, so it is recorded against its
+ * element instead.
  *
  * @param scan - The scan state.
  * @param property - The property signature.
@@ -582,8 +583,8 @@ const scanObject = (scan: Scan, ast: SchemaAST.Objects, namespace: XmlNamespace 
 };
 
 /**
- * @description Notes an array field that names its element with `xmlName`, so the decoder reads a single occurrence as a one-member array. An unnamed array keeps
- * the ambiguity and does not wrap.
+ * @description Notes an array field that names its element with `xmlName`, so the decoder reads a single occurrence as a one-member array. An unnamed
+ * array keeps the ambiguity and does not wrap.
  *
  * @param scan - The scan state.
  * @param ast - The AST being scanned.
@@ -634,8 +635,8 @@ const scanNode = (scan: Scan, ast: SchemaAST.AST, inherited: XmlNamespace | unde
 };
 
 /**
- * @description Collects the namespace and name of every field in a schema. Descendant elements inherit a namespace, as they inherit a default namespace, and an
- * element field records its own namespace, so encode and decode can find it by the local name alone.
+ * @description Collects the namespace and name of every field in a schema. Descendant elements inherit a namespace, as they inherit a default
+ * namespace, and an element field records its own namespace, so encode and decode can find it by the local name alone.
  *
  * @param schema - The schema to walk.
  *
@@ -706,9 +707,9 @@ const isDeclarationKey = (key: string): boolean => key === `${ATTRIBUTE_PREFIX}x
 const declarationPrefix = (key: string): string => (key === `${ATTRIBUTE_PREFIX}xmlns` ? '' : key.slice(`${ATTRIBUTE_PREFIX}xmlns:`.length));
 
 /**
- * @description Writes the declaration for a namespace into an element's record, when the scope does not already bind it. A prefixed namespace is declared as
- * `xmlns:prefix`; the default namespace as `xmlns`; and an element that leaves a default namespace in scope for no namespace of its own clears it
- * with `xmlns=""`.
+ * @description Writes the declaration for a namespace into an element's record, when the scope does not already bind it. A prefixed namespace is
+ * declared as `xmlns:prefix`; the default namespace as `xmlns`; and an element that leaves a default namespace in scope for no namespace of its own
+ * clears it with `xmlns=""`.
  *
  * @param out - The element's record, written in place.
  * @param scope - The in-scope prefix bindings, updated in place.
@@ -736,7 +737,8 @@ const declare = (out: Record<string, XmlValue>, scope: Record<string, string | u
 };
 
 /**
- * @description The wire key for one field: the local name with the prefix its namespace declares, or the local name unchanged when there is no prefix.
+ * @description The wire key for one field: the local name with the prefix its namespace declares, or the local name unchanged when there is no
+ * prefix.
  *
  * @param plan - The namespace plan.
  * @param path - The field's element path.
@@ -756,8 +758,8 @@ const wireKey = (plan: NamespacePlan, path: string, namespace: XmlNamespace | un
 };
 
 /**
- * @description Writes one record's fields under the element's scope: an attribute is a leaf and declares its prefix on this element, the value field becomes the
- * element's character data, and a child element recurses with its own namespace.
+ * @description Writes one record's fields under the element's scope: an attribute is a leaf and declares its prefix on this element, the value field
+ * becomes the element's character data, and a child element recurses with its own namespace.
  *
  * @param value - The element's record, keyed by the schema's local names.
  * @param plan - The namespace plan.
@@ -798,8 +800,8 @@ const encodeFields = (
 };
 
 /**
- * @description Rewrites a value tree into its namespaced wire form: every field with a plan entry gets its prefix, and every element declares the namespace its
- * subtree uses. A leaf that has to carry a declaration is wrapped as a `#text` record so the attribute has somewhere to live.
+ * @description Rewrites a value tree into its namespaced wire form: every field with a plan entry gets its prefix, and every element declares the
+ * namespace its subtree uses. A leaf that has to carry a declaration is wrapped as a `#text` record so the attribute has somewhere to live.
  *
  * @param value - The value tree, keyed by the schema's local names.
  * @param plan - The namespace plan.
@@ -841,8 +843,8 @@ export const encodeNames = (
 };
 
 /**
- * @description Resolves a wire name to its URI and local name against the in-scope bindings. An unprefixed element takes the default namespace; an unprefixed
- * attribute has no namespace, because a default namespace does not apply to attributes.
+ * @description Resolves a wire name to its URI and local name against the in-scope bindings. An unprefixed element takes the default namespace; an
+ * unprefixed attribute has no namespace, because a default namespace does not apply to attributes.
  *
  * @param name - The name as written, without the attribute prefix.
  * @param isAttribute - Whether the name belongs to an attribute.
@@ -881,8 +883,8 @@ const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): R
 };
 
 /**
- * @description The schema key a wire key resolves to under one parent element: the plan's key for its URI and local name, or the local name when the schema left
- * it unannotated.
+ * @description The schema key a wire key resolves to under one parent element: the plan's key for its URI and local name, or the local name when the
+ * schema left it unannotated.
  *
  * @param plan - The namespace plan.
  * @param parent - The parent element's path.
@@ -898,9 +900,9 @@ const schemaKey = (plan: NamespacePlan, parent: string, key: string, scope: Reco
 };
 
 /**
- * @description The scope a child element resolves its own name against: the declarations it carries on itself, layered over the parent scope. An element may
- * declare the prefix it uses on the element itself, so its own name is read with those bindings in scope. A repeated element arrives as an array, so
- * the first member stands in for the run; every member describes the same element and carries the same declaration.
+ * @description The scope a child element resolves its own name against: the declarations it carries on itself, layered over the parent scope. An
+ * element may declare the prefix it uses on the element itself, so its own name is read with those bindings in scope. A repeated element arrives as
+ * an array, so the first member stands in for the run; every member describes the same element and carries the same declaration.
  *
  * @param child - The child value.
  * @param scope - The bindings in scope above the child.
@@ -915,9 +917,9 @@ const childScopeOf = (child: XmlValue, scope: Record<string, string | undefined>
 };
 
 /**
- * @description Character data read back as a value tree. An element the schema reads as a struct with a value field derives that field from the element's
- * character data, and the parser reduces an element with no attributes and no children to a bare string, so the string is put back under the value's
- * key for that struct to read.
+ * @description Character data read back as a value tree. An element the schema reads as a struct with a value field derives that field from the
+ * element's character data, and the parser reduces an element with no attributes and no children to a bare string, so the string is put back under
+ * the value's key for that struct to read.
  *
  * @param value - The character data the parser produced.
  * @param plan - The namespace plan.
@@ -931,7 +933,8 @@ const decodeText = (value: string, plan: NamespacePlan, elementPath: string): Xm
 };
 
 /**
- * @description One record read back: its declarations dropped, its keys resolved to the schema's names, and its character data placed under the value field.
+ * @description One record read back: its declarations dropped, its keys resolved to the schema's names, and its character data placed under the value
+ * field.
  *
  * @param record - The record to read.
  * @param plan - The namespace plan.
@@ -969,9 +972,9 @@ const decodeRecord = (record: XmlRecord, plan: NamespacePlan, scope: Record<stri
 };
 
 /**
- * @description Rewrites a wire value tree back to the schema's local names, resolving every name against the declarations the document carries and dropping those
- * declarations. Character data maps to the value field of the element it belongs to. A record left holding only character data collapses back to that
- * string, which is how a namespaced leaf stays a `Schema.String`.
+ * @description Rewrites a wire value tree back to the schema's local names, resolving every name against the declarations the document carries and
+ * dropping those declarations. Character data maps to the value field of the element it belongs to. A record left holding only character data
+ * collapses back to that string, which is how a namespaced leaf stays a `Schema.String`.
  *
  * @param value - The parsed wire tree.
  * @param plan - The namespace plan.

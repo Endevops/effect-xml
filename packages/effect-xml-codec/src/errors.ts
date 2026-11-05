@@ -24,8 +24,8 @@ export class XmlParseError extends Schema.TaggedError<XmlParseError>()('XmlParse
   message: Schema.String,
 
   /**
-   * @description Character offset into the source text where the problem was found. `-1` when the failure is not tied to a position, such as trailing content
-   * after the root element.
+   * @description Character offset into the source text where the problem was found. `-1` when the failure is not tied to a position, such as trailing
+   * content after the root element.
    */
   position: Schema.Finite,
 
@@ -36,9 +36,9 @@ export class XmlParseError extends Schema.TaggedError<XmlParseError>()('XmlParse
 }) {}
 
 /**
- * @description A value could not be written as XML. A field name that is not a legal XML name fails here, in `'error'` name mode; repair mode rewrites the name
- * instead. The depth cap fails here too, when a value nests past `maxDepth`. Reading uses {@link XmlParseError}, because the two directions fail for
- * different reasons and a caller recovering from one usually does not want to catch the other.
+ * @description A value could not be written as XML. A field name that is not a legal XML name fails here, in `'error'` name mode; repair mode
+ * rewrites the name instead. The depth cap fails here too, when a value nests past `maxDepth`. Reading uses {@link XmlParseError}, because the two
+ * directions fail for different reasons and a caller recovering from one usually does not want to catch the other.
  *
  * @example
  *   ```typescript

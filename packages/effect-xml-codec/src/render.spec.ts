@@ -1,6 +1,6 @@
 /**
- * @description Specs for the renderer: how a value becomes XML text. Everything here is about output, and the round-trip specs in `round-trip.spec.ts` are about
- * output that can be read back.
+ * @description Specs for the renderer: how a value becomes XML text. Everything here is about output, and the round-trip specs in
+ * `round-trip.spec.ts` are about output that can be read back.
  */
 
 import { Effect } from 'effect';
@@ -12,8 +12,8 @@ import type { XmlValue } from '#/xml-value.ts';
 import { escapeAttribute, escapeText, renderXml } from '#/render.ts';
 
 /**
- * @description Renders a value the way a caller not already in an `Effect` would: `renderXml` answers with an `Effect` whose failure is an `XmlRenderError`, and
- * `Effect.runSync` throws it. The specs assert on the string and on the thrown failure, so this keeps each case a one-liner.
+ * @description Renders a value the way a caller not already in an `Effect` would: `renderXml` answers with an `Effect` whose failure is an
+ * `XmlRenderError`, and `Effect.runSync` throws it. The specs assert on the string and on the thrown failure, so this keeps each case a one-liner.
  */
 const render = (value: XmlValue, options?: XmlRenderOptions): string => Effect.runSync(renderXml(value, options));
 

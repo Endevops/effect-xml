@@ -42,8 +42,8 @@ import type { XmlRecord, XmlValue } from './xml-value.ts';
 import { isAttributeKey, TEXT_KEY } from './conventions.ts';
 
 /**
- * @description Whether an AST describes a structure - a struct, an array, or a union reachable to one - rather than a plain value. A node that describes a
- * structure keeps a record as a record; a node that does not is where `#text` is read.
+ * @description Whether an AST describes a structure - a struct, an array, or a union reachable to one - rather than a plain value. A node that
+ * describes a structure keeps a record as a record; a node that does not is where `#text` is read.
  *
  * @param ast - The derived StringTree AST to classify.
  *
@@ -69,8 +69,8 @@ const resolveNode = (ast: SchemaAST.AST): SchemaAST.AST => {
 };
 
 /**
- * @description The AST a record value under one key is read against: the matching property signature, or the first index signature when the object is a record.
- * `undefined` leaves the value alone, which is what an object with neither describes.
+ * @description The AST a record value under one key is read against: the matching property signature, or the first index signature when the object is
+ * a record. `undefined` leaves the value alone, which is what an object with neither describes.
  *
  * @param node - The object node.
  * @param key - The record key.
@@ -93,8 +93,8 @@ const fieldAst = (node: SchemaAST.Objects, key: string): SchemaAST.AST | undefin
 const memberAst = (node: SchemaAST.Arrays, index: number): SchemaAST.AST | undefined => node.elements[index] ?? node.rest[0];
 
 /**
- * @description The array node a value is read against. An optional repeated field derives as a union of an array and `undefined`, so an array node can sit behind
- * a union rather than at the top; the first one reachable through the union's members is the one a repeated value belongs to.
+ * @description The array node a value is read against. An optional repeated field derives as a union of an array and `undefined`, so an array node
+ * can sit behind a union rather than at the top; the first one reachable through the union's members is the one a repeated value belongs to.
  *
  * @param node - The resolved node to search.
  *
@@ -112,9 +112,9 @@ const arrayNode = (node: SchemaAST.AST): SchemaAST.Arrays | undefined => {
 };
 
 /**
- * @description Whether an array's member is a structure - a struct, an array, or a union reachable to one - rather than a plain value. An empty element under such
- * an array reads as one empty object, because a structural member cannot be empty character data; a plain-value member reads as an empty array
- * instead.
+ * @description Whether an array's member is a structure - a struct, an array, or a union reachable to one - rather than a plain value. An empty
+ * element under such an array reads as one empty object, because a structural member cannot be empty character data; a plain-value member reads as an
+ * empty array instead.
  *
  * @param node - The array node.
  *
@@ -126,8 +126,8 @@ const arrayMemberIsStructural = (node: SchemaAST.Arrays): boolean => {
 };
 
 /**
- * @description The value an empty element under an array field reads as: one empty object when the member is structural, so a member the schema requires still
- * reads, and an empty array otherwise.
+ * @description The value an empty element under an array field reads as: one empty object when the member is structural, so a member the schema
+ * requires still reads, and an empty array otherwise.
  *
  * @param node - The array node.
  *
@@ -136,9 +136,9 @@ const arrayMemberIsStructural = (node: SchemaAST.Arrays): boolean => {
 const emptyArrayElement = (node: SchemaAST.Arrays): XmlValue => (arrayMemberIsStructural(node) ? [{}] : []);
 
 /**
- * @description Whether a parsed element carries nothing at all: no character data, no attributes and no children. The parser reduces such an element to an empty
- * string, and the codec reduces one whose only attributes were namespace declarations to an empty record. An array field reads either as one empty
- * object or as an empty array, depending on whether its member is structural.
+ * @description Whether a parsed element carries nothing at all: no character data, no attributes and no children. The parser reduces such an element
+ * to an empty string, and the codec reduces one whose only attributes were namespace declarations to an empty record. An array field reads either as
+ * one empty object or as an empty array, depending on whether its member is structural.
  *
  * @param value - The parsed value.
  *
@@ -157,9 +157,9 @@ const isEmptyElement = (value: XmlValue): boolean => value === '' || (Predicate.
 const childPath = (parent: string, key: string): string => (parent === '' ? key : `${parent}.${key}`);
 
 /**
- * @description Reads the character data of a record that wants a plain value, discarding the attributes around it. A record that also carries a child element is
- * refused, because a plain value has nowhere to put one and dropping it would lose a field the document carried. A record with no `#text` at all is
- * left for the decoder to refuse, which reports the attributes it found instead of a value.
+ * @description Reads the character data of a record that wants a plain value, discarding the attributes around it. A record that also carries a child
+ * element is refused, because a plain value has nowhere to put one and dropping it would lose a field the document carried. A record with no `#text`
+ * at all is left for the decoder to refuse, which reports the attributes it found instead of a value.
  *
  * @param record - The record to read.
  * @param path - The path of the value, for the failure message.
@@ -210,9 +210,9 @@ const normalizeFields = (record: XmlRecord, node: SchemaAST.Objects, path: strin
 };
 
 /**
- * @description Folds every member of an array against the array node that describes them. A member that is an empty element - the parser reduces it to an empty
- * string, or to an empty record once the codec drops the namespace declarations it carried - cannot be a structural member, so it is kept as one
- * empty object. That is how the renderer writes an empty array, and how a repeated empty tag reads back as one empty object per element.
+ * @description Folds every member of an array against the array node that describes them. A member that is an empty element - the parser reduces it
+ * to an empty string, or to an empty record once the codec drops the namespace declarations it carried - cannot be a structural member, so it is kept
+ * as one empty object. That is how the renderer writes an empty array, and how a repeated empty tag reads back as one empty object per element.
  *
  * @param value - The array to fold.
  * @param node - The array node.
@@ -242,10 +242,10 @@ const normalizeMembers = (value: ReadonlyArray<XmlValue>, node: SchemaAST.Arrays
 };
 
 /**
- * @description Folds a record against every object member of a union, so a plain value nested under any branch is still read from its character data. Which branch
- * the value belongs to is the decoder's job, so the first branch that folds the record cleanly wins; a branch that refuses the record - because a
- * field it wants as a plain value also carries a child element - is skipped. When the union has no object member, or none of them folds the record,
- * the record is left for the decoder to read as a plain value.
+ * @description Folds a record against every object member of a union, so a plain value nested under any branch is still read from its character data.
+ * Which branch the value belongs to is the decoder's job, so the first branch that folds the record cleanly wins; a branch that refuses the record -
+ * because a field it wants as a plain value also carries a child element - is skipped. When the union has no object member, or none of them folds the
+ * record, the record is left for the decoder to read as a plain value.
  *
  * @param record - The record to fold.
  * @param node - The union node.
@@ -269,8 +269,8 @@ const normalizeUnion = (record: XmlRecord, node: SchemaAST.Union, path: string):
 };
 
 /**
- * @description Folds a record against the node that describes it. An object node is folded field by field; a union folds against its object members so a plain
- * value nested under any branch is read; anything else wants a plain value and reads the character data.
+ * @description Folds a record against the node that describes it. An object node is folded field by field; a union folds against its object members
+ * so a plain value nested under any branch is read; anything else wants a plain value and reads the character data.
  *
  * @param record - The record to fold.
  * @param node - The resolved node.
@@ -286,8 +286,8 @@ const normalizeRecord = (record: XmlRecord, node: SchemaAST.AST, path: string): 
 };
 
 /**
- * @description Folds a parsed value against the derived StringTree AST, so a plain value can be read from an element that carries attributes. An empty element
- * under an array field reads as one empty object when the member is structural, and as an empty array otherwise.
+ * @description Folds a parsed value against the derived StringTree AST, so a plain value can be read from an element that carries attributes. An
+ * empty element under an array field reads as one empty object when the member is structural, and as an empty array otherwise.
  *
  * @param value - The value the parser produced, after namespaces were resolved.
  * @param ast - The derived StringTree AST the decoder will read the value with.

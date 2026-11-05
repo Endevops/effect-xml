@@ -1,6 +1,6 @@
 /**
- * @description Specs for `toCodecXml`: that it is a `Schema` whose `Encoded` is XML text, so one `Schema.encodeSync` writes a document and one `Schema.decodeSync`
- * reads one back, and that every schema shape survives the trip.
+ * @description Specs for `toCodecXml`: that it is a `Schema` whose `Encoded` is XML text, so one `Schema.encodeSync` writes a document and one
+ * `Schema.decodeSync` reads one back, and that every schema shape survives the trip.
  */
 
 // oxlint-disable effecttsgo/schema-number
@@ -11,8 +11,9 @@ import { describe, expect, it } from 'vite-plus/test';
 import { toCodecXml } from '#/codec.ts';
 
 /**
- * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which keeps the cases
- * honest: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to be known.
+ * @description A codec of any shape, for a table of cases that do not share one schema. `unknown` in both type positions rather than `any`, which
+ * keeps the cases honest: a case's value is only ever passed in and compared against what comes back out, so nothing here needs the schema's type to
+ * be known.
  */
 type AnyCodec = Schema.ConstraintCodec<unknown, unknown>;
 

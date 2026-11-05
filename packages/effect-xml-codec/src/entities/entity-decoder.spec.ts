@@ -1,11 +1,11 @@
 /**
- * @description Specs for the entity decoder, the half of this package that is a parser rather than a table lookup, and therefore the half whose behaviour a caller
- * can actually depend on getting exactly right. The specs are in two layers, and the split is the point. Everything that works is asserted as a
- * contract, because those assertions are what would catch a regression in a change someone meant to make. Everything that does not work is asserted
- * too, and asserted as _preserved upstream behaviour_: pinned rather than endorsed. This is a port of `@nodable/entities@2.2.0`, verified against the
- * original over 236,252 differential assertions with zero differences, and a surprising number of its quirks carry real weight: a caller who
- * registered `&amp;` as `a&b` already gets `a&b` back, a caller who relies on `postCheck` to sanitise already knows it never saw a string without an
- * ampersand, and a caller counting the `[EntityReplacer]` prefix in an error already matches on a class name this package does not have. So each
+ * @description Specs for the entity decoder, the half of this package that is a parser rather than a table lookup, and therefore the half whose
+ * behaviour a caller can actually depend on getting exactly right. The specs are in two layers, and the split is the point. Everything that works is
+ * asserted as a contract, because those assertions are what would catch a regression in a change someone meant to make. Everything that does not work
+ * is asserted too, and asserted as _preserved upstream behaviour_: pinned rather than endorsed. This is a port of `@nodable/entities@2.2.0`, verified
+ * against the original over 236,252 differential assertions with zero differences, and a surprising number of its quirks carry real weight: a caller
+ * who registered `&amp;` as `a&b` already gets `a&b` back, a caller who relies on `postCheck` to sanitise already knows it never saw a string without
+ * an ampersand, and a caller counting the `[EntityReplacer]` prefix in an error already matches on a class name this package does not have. So each
  * preserved quirk gets its own `describe` whose name says "preserved upstream quirk" and says what the quirk _is_, and each `it` inside names the
  * observable rather than the mechanism. A future change that repairs one of these will fail a test whose name explains what it was costing, which is
  * the only review that behaviour change deserves. That is the whole reason these specs exist; the differential harness is gone, and this is what it
@@ -26,8 +26,8 @@ import { ENTITY_ACTION, EntityDecoder } from '#/entities/entity-decoder.ts';
  */
 interface PostCheckSpy {
   /**
-   * @description The `original` argument of every call, in call order. An empty array after a `decode` means the hook never ran, which is a different fact from
-   * "it ran and found nothing to do".
+   * @description The `original` argument of every call, in call order. An empty array after a `decode` means the hook never ran, which is a different
+   * fact from "it ran and found nothing to do".
    */
   readonly seen: Array<string>;
   /**
@@ -37,8 +37,8 @@ interface PostCheckSpy {
 }
 
 /**
- * @description Build a `postCheck` that records every call and passes the resolved string through unchanged, so the number of calls is the only thing the spy
- * observes.
+ * @description Build a `postCheck` that records every call and passes the resolved string through unchanged, so the number of calls is the only thing
+ * the spy observes.
  *
  * @returns The spy.
  */
@@ -70,7 +70,8 @@ const rejectingPostCheck = (): PostCheckSpy => {
 };
 
 /**
- * @description Hand `decode` a value its `string` signature forbids, which is the only way untyped caller code reaches the guard at the top of the method.
+ * @description Hand `decode` a value its `string` signature forbids, which is the only way untyped caller code reaches the guard at the top of the
+ * method.
  *
  * @param decoder - The decoder to call.
  * @param value - The value to pass in, whatever its type.
@@ -90,9 +91,9 @@ const setXmlVersionWith = (decoder: EntityDecoder, version: unknown): void => {
 };
 
 /**
- * @description The codepoints of a string as four-digit uppercase hex, so an assertion about a character reads the way the XML specification writes it. The step
- * over a low surrogate makes a surrogate pair report as the one character it is rather than as two halves. That is the distinction the whole
- * numeric-reference pipeline turns on, and the reason `&#55348;&#56456;` produces nothing at all.
+ * @description The codepoints of a string as four-digit uppercase hex, so an assertion about a character reads the way the XML specification writes
+ * it. The step over a low surrogate makes a surrogate pair report as the one character it is rather than as two halves. That is the distinction the
+ * whole numeric-reference pipeline turns on, and the reason `&#55348;&#56456;` produces nothing at all.
  *
  * @param value - The string to read.
  *
@@ -109,8 +110,8 @@ const codePointsOf = (value: string): Array<string> => {
 };
 
 /**
- * @description A decoder that has both a persistent external entity and a per-document input entity, so a spec can tell which tier a reference belongs to by
- * watching which one it picks up.
+ * @description A decoder that has both a persistent external entity and a per-document input entity, so a spec can tell which tier a reference
+ * belongs to by watching which one it picks up.
  *
  * @param options - Decoder options to configure on top of the two entities.
  *
@@ -125,8 +126,8 @@ const decoderWithBothTiers = (options: EntityDecoderOptions = {}): Effect.Effect
   });
 
 /**
- * @description Build a decoder whose caller table holds entries its type forbids: a bare `val`, a number, a `null`, an `undefined`. That is the only way a caller
- * reaching past the signature reaches the merge's flattening branch and the drops it performs.
+ * @description Build a decoder whose caller table holds entries its type forbids: a bare `val`, a number, a `null`, an `undefined`. That is the only
+ * way a caller reaching past the signature reaches the merge's flattening branch and the drops it performs.
  *
  * @param entries - The table, untyped.
  *
@@ -136,8 +137,8 @@ const decoderWithRawEntities = (entries: Record<string, unknown>): Effect.Effect
   EntityDecoder.make({ namedEntities: entries as Record<string, string> });
 
 /**
- * @description Give the constructor an option object carrying an explicit `undefined`, which `exactOptionalPropertyTypes` forbids and which generated or untyped
- * caller code produces anyway. The runtime treats an explicit `undefined` as an absent key.
+ * @description Give the constructor an option object carrying an explicit `undefined`, which `exactOptionalPropertyTypes` forbids and which generated
+ * or untyped caller code produces anyway. The runtime treats an explicit `undefined` as an absent key.
  *
  * @param options - The option object, untyped.
  *
@@ -146,9 +147,9 @@ const decoderWithRawEntities = (entries: Record<string, unknown>): Effect.Effect
 const withExplicitUndefined = (options: Record<string, unknown>): EntityDecoderOptions => options as EntityDecoderOptions;
 
 /**
- * @description Decode a string against a limit of one expansion and report whether it tripped, which is how a spec compares two `applyLimitsTo` settings without
- * asserting on a message it does not care about. Both runtime tiers are registered on the decoder, so the input names in the strings a caller passes
- * resolve.
+ * @description Decode a string against a limit of one expansion and report whether it tripped, which is how a spec compares two `applyLimitsTo`
+ * settings without asserting on a message it does not care about. Both runtime tiers are registered on the decoder, so the input names in the strings
+ * a caller passes resolve.
  *
  * @param applyLimitsTo - The tier filter to configure.
  * @param input - The string to decode.
@@ -163,8 +164,9 @@ const tripsExpansionLimit = (applyLimitsTo: ApplyLimitsTo, input: string): Effec
   });
 
 /**
- * @description The message an effect failed with, computed inside the fiber. For the specs that collect error messages once and then assert on several properties
- * of them, for example that a message carries a given prefix or names a given character, where reaching the message is not the thing under test.
+ * @description The message an effect failed with, computed inside the fiber. For the specs that collect error messages once and then assert on
+ * several properties of them, for example that a message carries a given prefix or names a given character, where reaching the message is not the
+ * thing under test.
  *
  * @param effect - The effect to run.
  *
@@ -1031,10 +1033,10 @@ describe('preserved upstream quirk: four error messages say EntityReplacer and t
      */
     readonly prefix: string;
     /**
-     * @description The message the call below actually threw, computed inside the fiber. There is no other way to reach a message this class throws. A thunk, not
-     * a plain effect: `EntityDecoder.make` builds its decoder with `Effect.succeed(new EntityDecoder(...))`, so the effect captures one decoder
-     * instance the moment it is constructed. A shared effect would therefore be run against the same decoder by every test that reads it, and the
-     * expansion counter it carries would accumulate. Calling the thunk in each test builds a fresh decoder, which is what the old eager
+     * @description The message the call below actually threw, computed inside the fiber. There is no other way to reach a message this class throws.
+     * A thunk, not a plain effect: `EntityDecoder.make` builds its decoder with `Effect.succeed(new EntityDecoder(...))`, so the effect captures one
+     * decoder instance the moment it is constructed. A shared effect would therefore be run against the same decoder by every test that reads it, and
+     * the expansion counter it carries would accumulate. Calling the thunk in each test builds a fresh decoder, which is what the old eager
      * `failureMessage` did by computing the string once.
      */
     readonly message: () => Effect.Effect<string>;
