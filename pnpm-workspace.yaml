@@ -4,13 +4,13 @@ packages:
 allowBuilds:
   esbuild: true
 catalog:
-  '@types/node': ^26.6.3
-  effect: ^4.0.0
-  '@effect/vitest': ^4.0.0
+  '@types/node': ^26.6.6
+  effect: ^4.1.2
+  '@effect/vitest': ^4.1.2
   typescript: ^7.0.2
-  vite: npm:@voidzero-dev/vite-plus-core@1.0.0
-  vite-plus: 1.0.0
-  publint: ^0.3.24
+  vite: npm:@voidzero-dev/vite-plus-core@^1.4.0
+  vite-plus: ^1.4.0
+  publint: ^0.3.25
   '@arethetypeswrong/core': ^0.18.5
 minimumReleaseAgeExclude:
   - effect@4.0.0
@@ -22,3 +22,9 @@ peerDependencyRules:
     - vite
   allowedVersions:
     vite: '*'
+permissions:
+  fallow:
+    skills: true
+skills:
+  dirs:
+    - .opencode/skills
