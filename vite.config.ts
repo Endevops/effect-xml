@@ -121,5 +121,5 @@ export default defineConfig({
     '*': 'vp check --fix',
     '*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx}': ["sh -c 'exec fallow --changed-since HEAD --type-aware --fail-on-issues'"],
   },
-  test: { coverage: { exclude: ['**/test/**'] }, fsModuleCache: true, isolate: false },
+  test: { coverage: { exclude: ['**/test/**'] }, fsModuleCache: true, isolate: false, server: { deps: { inline: ['@effect/vitest'] } } },
 });
