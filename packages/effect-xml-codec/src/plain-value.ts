@@ -35,7 +35,7 @@
 // so it is the same shape the decoder is about to read; this pass only rewrites
 // the value, it does not derive a schema.
 
-import { Predicate, Result, SchemaAST } from 'effect';
+import { Array, Function, Option, Predicate, Record, Result, SchemaAST } from 'effect';
 
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
@@ -52,7 +52,7 @@ import { isAttributeKey, TEXT_KEY } from './conventions.ts';
 const isStructural = (ast: SchemaAST.AST): boolean => {
   if (SchemaAST.isSuspend(ast)) return isStructural(ast.thunk());
   if (SchemaAST.isObjects(ast) || SchemaAST.isArrays(ast)) return true;
-  return SchemaAST.isUnion(ast) && ast.types.some(isStructural);
+  return SchemaAST.isUnion(ast) && Array.some(ast.types, isStructural);
 };
 
 /**
@@ -78,7 +78,10 @@ const resolveNode = (ast: SchemaAST.AST): SchemaAST.AST => {
  * @returns The AST for the value, or `undefined`.
  */
 const fieldAst = (node: SchemaAST.Objects, key: string): SchemaAST.AST | undefined => {
-  const property = node.propertySignatures.find(candidate => candidate.name === key);
+  const property = Option.getOrElse(
+    Array.findFirst(node.propertySignatures, candidate => candidate.name === key),
+    () => undefined
+  );
   return property?.type ?? node.indexSignatures[0]?.type;
 };
 
@@ -144,7 +147,7 @@ const emptyArrayElement = (node: SchemaAST.Arrays): XmlValue => (arrayMemberIsSt
  *
  * @returns Whether the element is empty.
  */
-const isEmptyElement = (value: XmlValue): boolean => value === '' || (Predicate.isReadonlyObject(value) && Object.keys(value).length === 0);
+const isEmptyElement = (value: XmlValue): boolean => value === '' || (Predicate.isReadonlyObject(value) && Record.keys(value).length === 0);
 
 /**
  * @description The path of a field, for a failure message. The root has no name, so its fields are named on their own.
@@ -169,7 +172,10 @@ const childPath = (parent: string, key: string): string => (parent === '' ? key 
 const readCharacterData = (record: XmlRecord, path: string): Result.Result<XmlValue, string> => {
   if (!(TEXT_KEY in record)) return Result.succeed(record);
 
-  const child = Object.keys(record).find(key => key !== TEXT_KEY && !isAttributeKey(key));
+  const child = Option.getOrElse(
+    Array.findFirst(Record.keys(record as globalThis.Record<string, XmlValue | undefined>), key => key !== TEXT_KEY && !isAttributeKey(key)),
+    () => undefined
+  );
   if (child !== undefined) {
     return Result.fail(
       `the field "${path === '' ? 'root' : path}" wants a plain value, but the element also carries the child element "${child}"; only attributes are discarded alongside ${TEXT_KEY}`
@@ -189,8 +195,8 @@ const readCharacterData = (record: XmlRecord, path: string): Result.Result<XmlVa
  * @returns The folded record, or the first field's failure.
  */
 const normalizeFields = (record: XmlRecord, node: SchemaAST.Objects, path: string): Result.Result<XmlValue, string> => {
-  let out: Record<string, XmlValue | undefined> | undefined;
-  for (const [key, child] of Object.entries(record)) {
+  let out: globalThis.Record<string, XmlValue | undefined> | undefined;
+  for (const [key, child] of Record.toEntries(record)) {
     const field = fieldAst(node, key);
     if (field === undefined || child === undefined) {
       continue;
@@ -221,7 +227,7 @@ const normalizeFields = (record: XmlRecord, node: SchemaAST.Objects, path: strin
  * @returns The folded array, or the first member's failure.
  */
 const normalizeMembers = (value: ReadonlyArray<XmlValue>, node: SchemaAST.Arrays, path: string): Result.Result<XmlValue, string> => {
-  let out: Array<XmlValue> | undefined;
+  let out: globalThis.Array<XmlValue> | undefined;
   for (let index = 0; index < value.length; index++) {
     const element = memberAst(node, index);
     let normalized: Result.Result<XmlValue, string>;
@@ -295,26 +301,34 @@ const normalizeRecord = (record: XmlRecord, node: SchemaAST.AST, path: string): 
  *
  * @returns The value to decode, or the message describing why a plain value could not be read.
  */
-export const normalizePlainValue = (value: XmlValue, ast: SchemaAST.AST, path: string): Result.Result<XmlValue, string> => {
-  if (Predicate.isUndefined(value)) return Result.succeed(value);
+export const normalizePlainValue: {
+  (value: XmlValue, ast: SchemaAST.AST, path: string): Result.Result<XmlValue, string>;
+  (ast: SchemaAST.AST, path: string): (value: XmlValue) => Result.Result<XmlValue, string>;
+} = Function.dual(
+  // The data-first form takes three arguments, the curried form two, so the arity is the discriminator.
+  3,
+  (value: XmlValue, ast: SchemaAST.AST, path: string): Result.Result<XmlValue, string> => {
+    if (Predicate.isUndefined(value)) return Result.succeed(value);
 
-  const node = resolveNode(ast);
-  const arrays = arrayNode(node);
+    const node = resolveNode(ast);
+    const arrays = arrayNode(node);
 
-  if (Predicate.isString(value)) {
-    // An empty element under an array field is how the renderer writes an empty array; a structural member still reads as one empty object.
-    if (arrays !== undefined && value === '') return Result.succeed(emptyArrayElement(arrays));
-    return Result.succeed(value);
+    if (Predicate.isString(value)) {
+      // An empty element under an array field is how the renderer writes an empty array; a structural member still reads as one empty object.
+      if (arrays !== undefined && value === '') return Result.succeed(emptyArrayElement(arrays));
+      return Result.succeed(value);
+    }
+
+    if (Array.isArray(value)) {
+      const members = value as ReadonlyArray<XmlValue>;
+      return arrays !== undefined ? normalizeMembers(members, arrays, path) : Result.succeed(value);
+    }
+
+    if (!Predicate.isReadonlyObject(value)) return Result.succeed(value);
+
+    // The same empty element, after the codec dropped the namespace declarations it carried, arrives as an empty record.
+    if (arrays !== undefined && isEmptyElement(value)) return Result.succeed(emptyArrayElement(arrays));
+
+    return normalizeRecord(value as XmlRecord, node, path);
   }
-
-  if (Array.isArray(value)) {
-    return arrays !== undefined ? normalizeMembers(value, arrays, path) : Result.succeed(value);
-  }
-
-  if (!Predicate.isReadonlyObject(value)) return Result.succeed(value);
-
-  // The same empty element, after the codec dropped the namespace declarations it carried, arrives as an empty record.
-  if (arrays !== undefined && isEmptyElement(value)) return Result.succeed(emptyArrayElement(arrays));
-
-  return normalizeRecord(value as XmlRecord, node, path);
-};
+);

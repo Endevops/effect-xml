@@ -25,7 +25,7 @@
 // the same five characters that encoder escaped, and the explicit expectations
 // in `test/render.spec.ts` pin the fast path.
 
-import { Effect, Predicate, Result } from 'effect';
+import { Array, Effect, Predicate, Record, Result, String } from 'effect';
 
 import type { NameMode } from './conventions.ts';
 import type { XmlVersion } from './naming.ts';
@@ -55,9 +55,9 @@ const ATTRIBUTE_WHITESPACE = { 9: '&#9;', 10: '&#10;', 13: '&#13;' } as const;
  *
  * @returns The lookup table.
  */
-const buildTable = (extra: Record<number, string>): ReadonlyArray<string | undefined> => {
-  const table = Array.from<string | undefined>({ length: 128 }).fill(undefined);
-  for (const [code, entity] of Object.entries({ ...XML_PREDEFINED, ...extra })) table[Number(code)] = entity;
+const buildTable = (extra: globalThis.Record<number, string>): ReadonlyArray<string | undefined> => {
+  const table = globalThis.Array.from<string | undefined>({ length: 128 }).fill(undefined);
+  for (const [code, entity] of Record.toEntries({ ...XML_PREDEFINED, ...extra })) table[Number(code)] = entity;
   return table;
 };
 
@@ -214,11 +214,11 @@ const flag = (value: boolean | undefined, fallback: boolean): boolean => value ?
  * @returns A function from depth to the indent for that depth.
  */
 const makeLineAt = (indent: string): ((depth: number) => string) => {
-  const lines: Array<string> = [''];
+  const lines: globalThis.Array<string> = [''];
   return depth => {
     const line = lines[depth];
     if (line !== undefined) return line;
-    const built = indent.repeat(depth);
+    const built = String.repeat(depth)(indent);
     lines[depth] = built;
     return built;
   };
@@ -284,19 +284,20 @@ const escape = (value: string, pattern: RegExp, table: ReadonlyArray<string | un
 
   const length = value.length;
   const start = found.index;
-  let out = value.slice(0, start);
+  let out = String.slice(0, start)(value);
   let copied = start;
 
   for (let index = start; index < length; index++) {
+    // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-character loop, Option allocation on the hot path
     const code = value.charCodeAt(index);
     const entity = code < 128 ? table[code] : undefined;
     if (entity !== undefined) {
-      out += value.slice(copied, index) + entity;
+      out += String.slice(copied, index)(value) + entity;
       copied = index + 1;
     }
   }
 
-  return copied === length ? out : out + value.slice(copied);
+  return copied === length ? out : out + String.slice(copied)(value);
 };
 
 /**
@@ -314,6 +315,7 @@ const escape = (value: string, pattern: RegExp, table: ReadonlyArray<string | un
  *
  * @returns An effect producing the XML document as a string.
  */
+// oxlint-disable-next-line effecttsgo/missing-pipeable-signature -- a data-last overload would make Parameters<typeof renderXml>[0] resolve to the options type and break consumers; pipe(value, renderXml) already composes data-first
 export const renderXml = (value: XmlValue, options: XmlRenderOptions = {}): Effect.Effect<string, XmlRenderError> =>
   Effect.suspend(() => Effect.fromResult(renderResult(value, options)));
 
@@ -345,8 +347,8 @@ const renderResult = (value: XmlValue, options: XmlRenderOptions): Result.Result
  */
 const toRenderError = (cause: unknown): XmlRenderError => {
   if (cause instanceof XmlRenderError) return cause;
-  if (Predicate.isError(cause)) return new XmlRenderError({ message: cause.message });
-  return new XmlRenderError({ message: String(cause) });
+  if (Predicate.isError(cause)) return XmlRenderError.make({ message: cause.message });
+  return XmlRenderError.make({ message: globalThis.String(cause) });
 };
 
 /**
@@ -361,7 +363,7 @@ const toRenderError = (cause: unknown): XmlRenderError => {
  */
 const render = (value: XmlValue, options: XmlRenderOptions): string => {
   const resolved = resolveOptions(options);
-  const out: Array<string> = [];
+  const out: globalThis.Array<string> = [];
 
   // A document has exactly one root element, so a root value that is an array
   // is wrapped rather than emitted as several roots. Inside a named element an
@@ -370,7 +372,7 @@ const render = (value: XmlValue, options: XmlRenderOptions): string => {
   if (Array.isArray(value)) {
     const tag = resolved.namer(resolved.rootName);
     out.push('<', tag, '>');
-    for (const member of value) renderElement(out, resolved.itemName, member, 1, resolved);
+    for (const member of value as ReadonlyArray<XmlValue>) renderElement(out, resolved.itemName, member, 1, resolved);
     if (resolved.format) out.push('\n');
     out.push('</', tag, '>');
   } else {
@@ -378,7 +380,7 @@ const render = (value: XmlValue, options: XmlRenderOptions): string => {
   }
 
   if (resolved.format) out.push('\n');
-  return out.join('');
+  return Array.join('')(out);
 };
 
 /**
@@ -392,11 +394,11 @@ const render = (value: XmlValue, options: XmlRenderOptions): string => {
  * @param depth - Current nesting depth, for indentation and the depth cap.
  * @param options - Resolved render options.
  */
-const renderElement = (out: Array<string>, name: string, value: XmlValue, depth: number, options: ResolvedOptions): void => {
+const renderElement = (out: globalThis.Array<string>, name: string, value: XmlValue, depth: number, options: ResolvedOptions): void => {
   assertWithinDepth(depth, options);
 
   if (Array.isArray(value)) {
-    renderRepeated(out, name, value, depth, options);
+    renderRepeated(out, name, value as ReadonlyArray<XmlValue>, depth, options);
     return;
   }
 
@@ -429,7 +431,7 @@ const renderElement = (out: Array<string>, name: string, value: XmlValue, depth:
  */
 const assertWithinDepth = (depth: number, options: ResolvedOptions): void => {
   if (depth > options.maxDepth) {
-    throw new XmlRenderError({
+    throw XmlRenderError.make({
       message: `XML nesting exceeded maxDepth (${options.maxDepth}). Raise the limit if the document is legitimately this deep.`,
     });
   }
@@ -447,7 +449,13 @@ const assertWithinDepth = (depth: number, options: ResolvedOptions): void => {
  * @param depth - The depth the run sits at.
  * @param options - Resolved render options.
  */
-const renderRepeated = (out: Array<string>, name: string, members: ReadonlyArray<XmlValue>, depth: number, options: ResolvedOptions): void => {
+const renderRepeated = (
+  out: globalThis.Array<string>,
+  name: string,
+  members: ReadonlyArray<XmlValue>,
+  depth: number,
+  options: ResolvedOptions
+): void => {
   // An empty array still gets an element. Writing nothing would make a field
   // that was present and empty indistinguishable from one that was never
   // there, and a document that came from a schema is easier to trust when the
@@ -471,7 +479,7 @@ const renderRepeated = (out: Array<string>, name: string, members: ReadonlyArray
  * @param value - The element's character data, or `undefined` for an absent element.
  * @param options - Resolved render options.
  */
-const renderLeaf = (out: Array<string>, tag: string, value: string | undefined, options: ResolvedOptions): void => {
+const renderLeaf = (out: globalThis.Array<string>, tag: string, value: string | undefined, options: ResolvedOptions): void => {
   if (Predicate.isUndefined(value) || value === '') {
     writeEmpty(out, tag, options);
     return;
@@ -489,7 +497,7 @@ const renderLeaf = (out: Array<string>, tag: string, value: string | undefined, 
  * @param depth - The depth the element sits at.
  * @param options - Resolved render options.
  */
-const renderRecord = (out: Array<string>, tag: string, record: XmlRecord, depth: number, options: ResolvedOptions): void => {
+const renderRecord = (out: globalThis.Array<string>, tag: string, record: XmlRecord, depth: number, options: ResolvedOptions): void => {
   const fields = collectFields(record, options);
   const text = textOf(record);
   const children = fields.children;
@@ -534,7 +542,7 @@ interface Fields {
    * @description The names of the child elements, in the order they will be written, or `undefined` when the element has none. `undefined` rather
    * than an empty array because "has children" is one of the two things the self-closing decision turns on, and the other is the text.
    */
-  readonly children: Array<string> | undefined;
+  readonly children: globalThis.Array<string> | undefined;
 }
 
 /**
@@ -551,10 +559,10 @@ interface Fields {
  * @returns The element's rendered attributes and its child names.
  */
 const collectFields = (record: XmlRecord, options: ResolvedOptions): Fields => {
-  const keys = Object.keys(record);
+  const keys = Record.keys(record as globalThis.Record<string, XmlValue | undefined>);
   let attributes = '';
-  let children: Array<string> | undefined;
-  const sortAttributes = options.sortKeys ? ([] as Array<string>) : undefined;
+  let children: globalThis.Array<string> | undefined;
+  const sortAttributes = options.sortKeys ? ([] as globalThis.Array<string>) : undefined;
 
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i] as string;
@@ -627,7 +635,13 @@ const renderAttribute = (key: string, value: XmlValue, options: ResolvedOptions)
  * @param depth - The depth the parent sits at; its children are one deeper.
  * @param options - Resolved render options.
  */
-const writeChildren = (out: Array<string>, record: XmlRecord, children: ReadonlyArray<string>, depth: number, options: ResolvedOptions): void => {
+const writeChildren = (
+  out: globalThis.Array<string>,
+  record: XmlRecord,
+  children: ReadonlyArray<string>,
+  depth: number,
+  options: ResolvedOptions
+): void => {
   for (let i = 0; i < children.length; i++) {
     const key = children[i] as string;
     const child = record[key];
@@ -643,7 +657,7 @@ const writeChildren = (out: Array<string>, record: XmlRecord, children: Readonly
  * @param depth - The depth the line sits at.
  * @param options - Resolved render options.
  */
-const openLine = (out: Array<string>, depth: number, options: ResolvedOptions): void => {
+const openLine = (out: globalThis.Array<string>, depth: number, options: ResolvedOptions): void => {
   out.push('\n');
   out.push(options.lineAt(depth));
 };
@@ -659,7 +673,7 @@ const openLine = (out: Array<string>, depth: number, options: ResolvedOptions): 
  * @param options - Resolved render options.
  * @param attributes - The element's rendered attributes, if it has any. Defaults to none.
  */
-const writeEmpty = (out: Array<string>, tag: string, options: ResolvedOptions, attributes = ''): void => {
+const writeEmpty = (out: globalThis.Array<string>, tag: string, options: ResolvedOptions, attributes = ''): void => {
   if (options.suppressEmptyNode) out.push('<', tag, attributes, '/>');
   else out.push('<', tag, attributes, '></', tag, '>');
 };
@@ -704,6 +718,7 @@ const attributeText = (value: XmlValue): string => {
 const renderScalar = (value: Exclude<XmlValue, string | undefined>): string => {
   if (Predicate.isNull(value)) return 'null';
   try {
+    // oxlint-disable-next-line effecttsgo/global-json -- no simpler non-throwing form exists for an unknown hand-built value; circular input renders as nothing
     return JSON.stringify(value) ?? '';
   } catch {
     return ''; // circular or otherwise not representable

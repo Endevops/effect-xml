@@ -260,8 +260,10 @@ describe('isNmTokens()', () => {
 describe('validate()', () => {
   it.effect('returns { valid: true } for valid input', () =>
     Effect.gen(function* () {
-      expect(yield* validate('foo', 'name')).toEqual({ valid: true, production: 'name', input: 'foo' });
-      expect(yield* validate('svg:circle', 'qName')).toEqual({ valid: true, production: 'qName', input: 'svg:circle' });
+      const first = yield* validate('foo', 'name');
+      expect(first).toEqual({ valid: true, production: 'name', input: 'foo' });
+      const second = yield* validate('svg:circle', 'qName');
+      expect(second).toEqual({ valid: true, production: 'qName', input: 'svg:circle' });
     })
   );
 
@@ -321,7 +323,8 @@ describe('validate()', () => {
     Effect.gen(function* () {
       // The discriminated return type is the point of the port: no cast and no
       // optional chaining needed to read the diagnostics off a failed validation.
-      const diagnostics = diagnosticsOf(yield* validate('foo!bar', 'name'));
+      const validated = yield* validate('foo!bar', 'name');
+      const diagnostics = diagnosticsOf(validated);
       expect(diagnostics.reason).toContain('NameChar');
       expect(diagnostics.position).toBe(3);
     })
@@ -339,15 +342,19 @@ describe('validate()', () => {
 
   it.effect('respects xmlVersion — \\u0487 valid only in 1.1', () =>
     Effect.gen(function* () {
-      expect(yield* validate('foo\u0487', 'name', { xmlVersion: '1.0' }).pipe(Effect.map(result => result.valid))).toBe(false);
-      expect(yield* validate('foo\u0487', 'name', { xmlVersion: '1.1' }).pipe(Effect.map(result => result.valid))).toBe(true);
+      const valid10 = yield* validate('foo\u0487', 'name', { xmlVersion: '1.0' }).pipe(Effect.map(result => result.valid));
+      expect(valid10).toBe(false);
+      const valid11 = yield* validate('foo\u0487', 'name', { xmlVersion: '1.1' }).pipe(Effect.map(result => result.valid));
+      expect(valid11).toBe(true);
     })
   );
 
   it.effect('respects xmlVersion — supplementary plane valid only in 1.1', () =>
     Effect.gen(function* () {
-      expect(yield* validate('\u{10000}foo', 'name', { xmlVersion: '1.0' }).pipe(Effect.map(result => result.valid))).toBe(false);
-      expect(yield* validate('\u{10000}foo', 'name', { xmlVersion: '1.1' }).pipe(Effect.map(result => result.valid))).toBe(true);
+      const plane10 = yield* validate('\u{10000}foo', 'name', { xmlVersion: '1.0' }).pipe(Effect.map(result => result.valid));
+      expect(plane10).toBe(false);
+      const plane11 = yield* validate('\u{10000}foo', 'name', { xmlVersion: '1.1' }).pipe(Effect.map(result => result.valid));
+      expect(plane11).toBe(true);
     })
   );
 });

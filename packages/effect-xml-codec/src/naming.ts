@@ -15,7 +15,7 @@
 // channel is that {@link XmlError}. The value it produces is still a plain
 // result.
 
-import { Effect } from 'effect';
+import { Array, Effect, Function, Option, String } from 'effect';
 
 import { XmlError } from '#/xml-error.ts';
 
@@ -184,8 +184,8 @@ const nameChar11 =
  * @returns One regex per {@link Production}.
  */
 const buildRegexes = (startChar: string, char: string, flags = ''): ProductionRegexes => {
-  const ncStart = startChar.replace(':', '');
-  const ncChar = char.replace(':', '');
+  const ncStart = String.replace(':', '')(startChar);
+  const ncChar = String.replace(':', '')(char);
   const ncNamePat = `[${ncStart}][${ncChar}]*`;
 
   return {
@@ -256,8 +256,11 @@ const getRegexes = (xmlVersion: XmlVersion = '1.0', asciiOnly = false): Producti
  *
  * @returns Whether `str` satisfies the production.
  */
-export const isName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).name.test(str);
+export const isName: { (str: string, options?: ValidationOptions): boolean; (options?: ValidationOptions): (str: string) => boolean } = Function.dual(
+  // A string in the first position is the data-first call; the options are always plain objects.
+  args => typeof args[0] === 'string',
+  (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean => getRegexes(xmlVersion, asciiOnly).name.test(str)
+);
 
 /**
  * @description Whether the string is a valid NCName (Non-Colonized Name).\
@@ -269,8 +272,11 @@ export const isName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: V
  *
  * @returns Whether `str` satisfies the production.
  */
-export const isNcName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).ncName.test(str);
+export const isNcName: { (str: string, options?: ValidationOptions): boolean; (options?: ValidationOptions): (str: string) => boolean } =
+  Function.dual(
+    args => typeof args[0] === 'string',
+    (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean => getRegexes(xmlVersion, asciiOnly).ncName.test(str)
+  );
 
 /**
  * @description Whether the string is a valid QName (Qualified Name).\
@@ -282,8 +288,11 @@ export const isNcName = (str: string, { xmlVersion = '1.0', asciiOnly = false }:
  *
  * @returns Whether `str` satisfies the production.
  */
-export const isQName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).qName.test(str);
+export const isQName: { (str: string, options?: ValidationOptions): boolean; (options?: ValidationOptions): (str: string) => boolean } =
+  Function.dual(
+    args => typeof args[0] === 'string',
+    (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean => getRegexes(xmlVersion, asciiOnly).qName.test(str)
+  );
 
 /**
  * @description Whether the string is a valid NMToken. Like Name but no restriction on the first character. Used for: DTD NMTOKEN attribute values.
@@ -293,8 +302,11 @@ export const isQName = (str: string, { xmlVersion = '1.0', asciiOnly = false }: 
  *
  * @returns Whether `str` satisfies the production.
  */
-export const isNmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).nmToken.test(str);
+export const isNmToken: { (str: string, options?: ValidationOptions): boolean; (options?: ValidationOptions): (str: string) => boolean } =
+  Function.dual(
+    args => typeof args[0] === 'string',
+    (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean => getRegexes(xmlVersion, asciiOnly).nmToken.test(str)
+  );
 
 /**
  * @description Whether the string is a valid NMTokens value: a whitespace-separated list of NMToken values. Used for: DTD NMTOKENS attribute values.
@@ -304,8 +316,11 @@ export const isNmToken = (str: string, { xmlVersion = '1.0', asciiOnly = false }
  *
  * @returns Whether `str` satisfies the production.
  */
-export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean =>
-  getRegexes(xmlVersion, asciiOnly).nmTokens.test(str);
+export const isNmTokens: { (str: string, options?: ValidationOptions): boolean; (options?: ValidationOptions): (str: string) => boolean } =
+  Function.dual(
+    args => typeof args[0] === 'string',
+    (str: string, { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}): boolean => getRegexes(xmlVersion, asciiOnly).nmTokens.test(str)
+  );
 
 /**
  * @description The failure to report when a production is not one of the five this module knows, so `validate` reports it the same way. The single
@@ -318,9 +333,9 @@ export const isNmTokens = (str: string, { xmlVersion = '1.0', asciiOnly = false 
  */
 const productionError = (production: Production): XmlError | null => {
   if (PRODUCTIONS.includes(production)) return null;
-  return new XmlError({
-    reason: { _tag: 'InvalidProduction', production, expected: PRODUCTIONS.join(', ') },
-    message: `Unknown production "${production}". Must be one of: ${PRODUCTIONS.join(', ')}`,
+  return XmlError.make({
+    reason: { _tag: 'InvalidProduction', production, expected: Array.join(', ')(PRODUCTIONS) },
+    message: `Unknown production "${production}". Must be one of: ${Array.join(', ')(PRODUCTIONS)}`,
   });
 };
 
@@ -357,21 +372,21 @@ const diagnose = (str: string, production: Production, xmlVersion: XmlVersion, a
  * @returns The reason and position, or `undefined`.
  */
 const diagnoseColon = (str: string, production: Production): { reason: string; position: number } | undefined => {
-  if (production === 'ncName' && str.includes(':')) {
-    return { reason: 'Colon is not allowed in NCName', position: str.indexOf(':') };
+  if (production === 'ncName' && String.includes(':')(str)) {
+    return { reason: 'Colon is not allowed in NCName', position: Option.getOrElse(String.indexOf(':')(str), () => -1) };
   }
 
   if (production !== 'qName') {
     return undefined;
   }
-  if (str.startsWith(':')) {
+  if (String.startsWith(':')(str)) {
     return { reason: 'QName cannot start with a colon', position: 0 };
   }
-  if (str.endsWith(':')) {
+  if (String.endsWith(':')(str)) {
     return { reason: 'QName cannot end with a colon', position: str.length - 1 };
   }
-  if ((str.match(/:/g) ?? []).length > 1) {
-    return { reason: 'QName can have at most one colon', position: str.lastIndexOf(':') };
+  if (Option.match(String.match(/:/g)(str), { onNone: () => 0, onSome: matches => matches.length }) > 1) {
+    return { reason: 'QName can have at most one colon', position: Option.getOrElse(String.lastIndexOf(':')(str), () => -1) };
   }
   return undefined;
 };
@@ -477,7 +492,7 @@ export const validate = Effect.fnUntraced(function* (
   { xmlVersion = '1.0', asciiOnly = false }: ValidationOptions = {}
 ): Effect.fn.Return<ValidationResult, XmlError> {
   const invalid = productionError(production);
-  if (invalid) return yield* invalid;
+  if (invalid !== null) return yield* invalid;
   return diagnose(str, production, xmlVersion, asciiOnly);
 });
 
@@ -495,26 +510,34 @@ export const validate = Effect.fnUntraced(function* (
  *
  * @returns A string that satisfies `production` for the ASCII range, or the nearest approximation of it.
  */
-export const sanitize = (str: string, production: Production = 'name', { replacement = '_', asciiOnly = false }: SanitizeOptions = {}): string => {
-  if (!str) return replacement;
+export const sanitize: {
+  (str: string, production?: Production, options?: SanitizeOptions): string;
+  (production?: Production, options?: SanitizeOptions): (str: string) => string;
+} = Function.dual(
+  // A production is a string too, so the first argument cannot be the discriminator. A curried call is the one with no
+  // value: no arguments at all, or a second argument that is the options object rather than the production.
+  args => args.length !== 0 && (args.length !== 2 || typeof args[1] === 'string'),
+  (str: string, production: Production = 'name', { replacement = '_', asciiOnly = false }: SanitizeOptions = {}): string => {
+    if (str === '') return replacement;
 
-  let result = str;
+    let result = str;
 
-  // Strip colons for NCName
-  if (production === 'ncName') {
-    result = result.replace(/:/g, '');
-  }
-
-  // Replace illegal characters
-  const allowedCharPattern = asciiOnly ? /[^\w\-.:]/g : /[^\w\-.:\u00B7\u00C0-\uFFFD]/g;
-  result = result.replace(allowedCharPattern, replacement);
-
-  // Fix invalid start character for Name / NCName / QName
-  if (production !== 'nmToken' && production !== 'nmTokens') {
-    if (/^[-.\d]/.test(result)) {
-      result = replacement + result;
+    // Strip colons for NCName
+    if (production === 'ncName') {
+      result = String.replace(/:/g, '')(result);
     }
-  }
 
-  return result || replacement;
-};
+    // Replace illegal characters
+    const allowedCharPattern = asciiOnly ? /[^\w\-.:]/g : /[^\w\-.:\u00B7\u00C0-\uFFFD]/g;
+    result = String.replace(allowedCharPattern, replacement)(result);
+
+    // Fix invalid start character for Name / NCName / QName
+    if (production !== 'nmToken' && production !== 'nmTokens') {
+      if (/^[-.\d]/.test(result)) {
+        result = replacement + result;
+      }
+    }
+
+    return result === '' ? replacement : result;
+  }
+);

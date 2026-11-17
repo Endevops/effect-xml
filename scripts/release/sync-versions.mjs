@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // computed `nextRelease.version` as the only argument. See docs/versioning.md.
 
 const version = process.argv[2];
-if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+if (version === undefined || version === '' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
   console.error(`sync-versions: expected a semver version, received ${JSON.stringify(version)}`);
   process.exit(1);
 }

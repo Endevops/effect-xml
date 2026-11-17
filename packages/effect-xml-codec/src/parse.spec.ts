@@ -3,7 +3,7 @@
  */
 
 import { assert, describe, expect, it } from '@effect/vitest';
-import { Cause, Effect, Exit, Result } from 'effect';
+import { Cause, Effect, Exit, Result, String } from 'effect';
 
 import type { XmlParseOptions } from '#/parse.ts';
 
@@ -23,7 +23,7 @@ import { parseXml, parseXmlDocument } from '#/parse.ts';
 const parseError = (text: string, options: XmlParseOptions = {}): Effect.Effect<XmlParseError> =>
   Effect.gen(function* () {
     const result = yield* parseXml(text, options).pipe(Effect.result);
-    if (Result.isSuccess(result)) return yield* Effect.die(new Error(`expected ${JSON.stringify(text)} to fail to parse`));
+    if (Result.isSuccess(result)) return yield* Effect.die(new Error(`expected "${text}" to fail to parse`));
     return result.failure;
   });
 
@@ -323,13 +323,13 @@ describe('parseXml() — documents it refuses', () => {
     Effect.gen(function* () {
       // Built rather than written out: a document deep enough to matter is absurd
       // to spell out, and the limit is the thing being tested, not the contents.
-      const deep = `${'<a>'.repeat(40)}x${'</a>'.repeat(40)}`;
+      const deep = `${String.repeat(40)('<a>')}x${String.repeat(40)('</a>')}`;
       expect((yield* parseError(deep, { maxDepth: 10 })).message).toMatch(/maxDepth/);
     })
   );
 
   it('reads a document nested exactly to the limit', () => {
-    const deep = `${'<a>'.repeat(10)}x${'</a>'.repeat(10)}`;
+    const deep = `${String.repeat(10)('<a>')}x${String.repeat(10)('</a>')}`;
     expect(() => parseXmlDocument(deep, { maxDepth: 10 }).value).not.toThrow();
   });
 
@@ -344,8 +344,10 @@ describe('parseXml() — documents it refuses', () => {
 
   it.effect('reports the failure through the Effect, not by throwing', () =>
     Effect.gen(function* () {
-      expect(Result.isFailure(yield* parseXml('<r><a>1</b></r>').pipe(Effect.result))).toBe(true);
-      expect(Result.isSuccess(yield* parseXml('<r><a>1</a></r>').pipe(Effect.result))).toBe(true);
+      const failure = yield* parseXml('<r><a>1</b></r>').pipe(Effect.result);
+      const success = yield* parseXml('<r><a>1</a></r>').pipe(Effect.result);
+      expect(Result.isFailure(failure)).toBe(true);
+      expect(Result.isSuccess(success)).toBe(true);
     })
   );
 

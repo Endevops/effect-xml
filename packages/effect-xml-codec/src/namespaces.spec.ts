@@ -3,7 +3,7 @@
  * written with any prefix for the same URI decodes back to the same value.
  */
 
-import { Schema } from 'effect';
+import { Schema, String } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { toCodecXml } from '#/codec.ts';
@@ -40,7 +40,7 @@ describe('namespaces — encode', () => {
   });
 
   it('reads a document that binds the same URI to a different prefix', () => {
-    const text = Schema.encodeSync(codec)(value).replaceAll('soap:', 's:').replace('xmlns:soap=', 'xmlns:s=');
+    const text = String.replace('xmlns:soap=', 'xmlns:s=')(String.replaceAll('soap:', 's:')(Schema.encodeSync(codec)(value)));
     expect(Schema.decodeSync(codec)(text)).toEqual(value);
   });
 });

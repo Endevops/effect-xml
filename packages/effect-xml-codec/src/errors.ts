@@ -17,7 +17,7 @@ import { Schema } from 'effect';
  *   const error = new XmlParseError({ message: 'Unclosed element', position: 12, input: '<a><b>' });
  *   ```;
  */
-export class XmlParseError extends Schema.TaggedError<XmlParseError>()('XmlParseError', {
+export class XmlParseError extends Schema.TaggedError<XmlParseError, { readonly brand: unique symbol }>()('XmlParseError', {
   /**
    * @description What was wrong with the document.
    */
@@ -47,7 +47,7 @@ export class XmlParseError extends Schema.TaggedError<XmlParseError>()('XmlParse
  *   const error = new XmlRenderError({ message: 'Invalid XML name "not a name"' });
  *   ```;
  */
-export class XmlRenderError extends Schema.TaggedError<XmlRenderError>()('XmlRenderError', {
+export class XmlRenderError extends Schema.TaggedError<XmlRenderError, { readonly brand: unique symbol }>()('XmlRenderError', {
   /**
    * @description What was wrong with the value.
    */

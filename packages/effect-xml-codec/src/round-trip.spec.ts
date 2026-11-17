@@ -8,7 +8,7 @@
  * through the system.
  */
 
-import { Effect, Schema } from 'effect';
+import { Effect, Record, Schema, String } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { toCodecXml } from '#/codec.ts';
@@ -95,7 +95,7 @@ const cases: ReadonlyArray<Case> = [
   { about: 'a field with CJK characters', schema: Schema.Struct({ a: Schema.String }), value: { a: '日本語のテキスト' } },
   { about: 'a field with an emoji', schema: Schema.Struct({ a: Schema.String }), value: { a: 'ship it 🚀' } },
   { about: 'a field with a right-to-left script', schema: Schema.Struct({ a: Schema.String }), value: { a: 'مرحبا' } },
-  { about: 'a long field', schema: Schema.Struct({ a: Schema.String }), value: { a: 'x'.repeat(5000) } },
+  { about: 'a long field', schema: Schema.Struct({ a: Schema.String }), value: { a: String.repeat(5000)('x') } },
   { about: 'a number field', schema: Schema.Struct({ a: Schema.Number }), value: { a: 1.5 } },
   { about: 'a negative number field', schema: Schema.Struct({ a: Schema.Number }), value: { a: -0.125 } },
   { about: 'a very small number field', schema: Schema.Struct({ a: Schema.Number }), value: { a: 1e-7 } },
@@ -151,8 +151,10 @@ const cases: ReadonlyArray<Case> = [
   },
   {
     about: 'a wide struct',
-    schema: Schema.Struct(Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i}`, Schema.String])) as Record<string, Schema.Codec<string>>),
-    value: Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i}`, `v${i}`])),
+    schema: Schema.Struct(
+      Record.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i}`, Schema.String]) as Array<[string, Schema.Codec<string>]>)
+    ),
+    value: Record.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i}`, `v${i}`])),
   },
   { about: 'a namespaced field name', schema: Schema.Struct({ 'soap:Envelope': Schema.String }), value: { 'soap:Envelope': 'x' } },
   {

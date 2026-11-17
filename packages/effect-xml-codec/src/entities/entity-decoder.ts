@@ -1,4 +1,3 @@
-// oxlint-disable effecttsgo/effect-succeed-with-void
 // entity-decoder.ts
 //
 // Single-pass, zero-regex decoder. Scan for `&`, read to `;`, resolve, push chunks, join once. Ported from
@@ -16,7 +15,7 @@
 // Each is called out where it appears, and none of them is repaired, because this class sits in front of XXE
 // and entity-expansion handling where a silent fix is a change to every consumer's output.
 
-import { Effect, Match, Predicate } from 'effect';
+import { Array, Effect, Match, Option, Predicate, Record, String } from 'effect';
 
 import { XmlError } from '#/xml-error.ts';
 
@@ -364,9 +363,9 @@ type HookContext = 'external' | 'input';
  *   class this decoder does not have. It is relied on by anything matching the message text.
  */
 const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
-  if (name.charCodeAt(0) === CODE_HASH) {
+  if (Option.getOrElse(String.charCodeAt(0)(name), () => Number.NaN) === CODE_HASH) {
     return Effect.fail(
-      new XmlError({
+      XmlError.make({
         reason: { _tag: 'InvalidEntityName', name, character: '#' },
         message: `[EntityReplacer] Invalid character '#' in entity name: "${name}"`,
       })
@@ -375,7 +374,7 @@ const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
   for (const ch of name) {
     if (SPECIAL_CHARS.has(ch)) {
       return Effect.fail(
-        new XmlError({
+        XmlError.make({
           reason: { _tag: 'InvalidEntityName', name, character: ch },
           message: `[EntityReplacer] Invalid character '${ch}' in entity name: "${name}"`,
         })
@@ -400,8 +399,8 @@ const checkEntityName = (name: string): Effect.Effect<string, XmlError> => {
 function mergeEntityMaps(...maps: ReadonlyArray<EntityInputMap>): Record<string, string> {
   const out: Record<string, string> = Object.create(null);
   for (const map of maps) {
-    if (!map) continue;
-    for (const key of Object.keys(map)) {
+    if (map === undefined || map === null) continue;
+    for (const key of Record.keys(map)) {
       const value = flattenEntityValue(map[key]);
       if (value !== undefined) out[key] = value;
     }
@@ -449,7 +448,7 @@ function ownEntity(map: Readonly<Record<string, string>>, key: string): string |
   // yields `undefined` and a present one yields the stored string, so the `string | undefined` this
   // returns is the real type rather than something an assertion has to paper over. The two maps are
   // null-prototype objects, so `in` and `hasOwn` cannot disagree here.
-  if (!Object.hasOwn(map, key)) return undefined;
+  if (!Record.has(map, key)) return undefined;
   return map[key];
 }
 
@@ -462,7 +461,7 @@ function ownEntity(map: Readonly<Record<string, string>>, key: string): string |
  *   limits. An array is taken as given. An empty array therefore disables limit accounting entirely, while an empty string falls back to `external`.
  */
 function parseLimitTiers(raw: ApplyLimitsTo | undefined): ReadonlySet<LimitTier> {
-  if (!raw || raw === LIMIT_TIER_EXTERNAL) return new Set([LIMIT_TIER_EXTERNAL]);
+  if (raw === undefined || raw === LIMIT_TIER_EXTERNAL) return new Set([LIMIT_TIER_EXTERNAL]);
   if (raw === LIMIT_TIER_ALL) return new Set([LIMIT_TIER_ALL]);
   if (raw === LIMIT_TIER_BASE) return new Set([LIMIT_TIER_BASE]);
   if (Array.isArray(raw)) return new Set(raw);
@@ -491,7 +490,7 @@ function ncrLevelOf(name: NcrLevelName | undefined, fallback: number): number {
  * @returns The XML version, the base action level, and the null action level already clamped up to `remove`.
  */
 function parseNCRConfig(ncr: EntityDecoderNCROptions | undefined): { xmlVersion: XmlVersion; onLevel: number; nullLevel: number } {
-  if (!ncr) {
+  if (ncr === undefined) {
     return { xmlVersion: 1.0, onLevel: NCR_LEVEL.allow, nullLevel: NCR_LEVEL.remove };
   }
   const xmlVersion: XmlVersion = ncr.xmlVersion === 1.1 ? 1.1 : 1.0;
@@ -557,7 +556,9 @@ function readNameList(raw: Array<string> | undefined): ReadonlySet<string> {
 function scanTokenEnd(str: string, ampersand: number): number {
   const len = str.length;
   let j = ampersand + 1;
+  // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-character loop, Option allocation on the hot path
   while (j < len && str.charCodeAt(j) !== CODE_SEMICOLON && j - ampersand <= MAX_TOKEN_LENGTH) j++;
+  // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-character loop, Option allocation on the hot path
   if (j >= len || str.charCodeAt(j) !== CODE_SEMICOLON) return -1;
   return j;
 }
@@ -722,7 +723,7 @@ export class EntityDecoder {
   static make = (options: EntityDecoderOptions = {}): Effect.Effect<EntityDecoder, XmlError> =>
     Predicate.isNullish(options)
       ? Effect.fail(
-          new XmlError({
+          XmlError.make({
             reason: { _tag: 'MissingOptions', parameter: 'options' },
             message: 'EntityDecoder.make: options is required. Use make({}) for a decoder with every default.',
           })
@@ -778,12 +779,12 @@ export class EntityDecoder {
    *   hook returns `throw`. The message quotes the entity, so it is the only record left that a document was rejected.
    */
   #applyRegistrationHook(hook: EntityRegistrationHook | null, name: string, value: string, context: HookContext): Effect.Effect<boolean, XmlError> {
-    if (!hook) return Effect.succeed(true); // nothing to ask
+    if (hook === null) return Effect.succeed(true); // nothing to ask
     const action = hook(name, value);
     if (action === ENTITY_ACTION.BLOCK) return Effect.succeed(false);
     if (action === ENTITY_ACTION.THROW) {
       return Effect.fail(
-        new XmlError({
+        XmlError.make({
           reason: { _tag: 'EntityRejected', context, name },
           message: `[EntityDecoder] Registration of ${context} entity "&${name};" was rejected by hook`,
         })
@@ -806,19 +807,19 @@ export class EntityDecoder {
     this: EntityDecoder,
     map: Record<string, string | { regex: RegExp; val: string | EntityValFn }>
   ): Effect.fn.Return<void, XmlError> {
-    if (map) {
-      for (const key of Object.keys(map)) {
+    if (map !== undefined && map !== null) {
+      for (const key of Record.keys(map)) {
         yield* checkEntityName(key);
       }
     }
-    if (!this.#onExternalEntity) {
+    if (this.#onExternalEntity === null) {
       this.#externalMap = mergeEntityMaps(map);
       return;
     }
     // With a hook, values are flattened first and the hook sees what will actually be stored.
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
-    for (const [name, value] of Object.entries(flat)) {
+    for (const [name, value] of Record.toEntries(flat)) {
       if (yield* this.#applyRegistrationHook(this.#onExternalEntity, name, value, 'external')) {
         filtered[name] = value;
       }
@@ -842,7 +843,7 @@ export class EntityDecoder {
     yield* checkEntityName(key);
     // The two guards are unreachable from typed code (`value` is a `string`) and are kept for
     // untyped callers, which is the only way to reach them.
-    if (Predicate.isString(value) && value.indexOf('&') === -1) {
+    if (Predicate.isString(value) && Option.isNone(String.indexOf('&')(value))) {
       if (yield* this.#applyRegistrationHook(this.#onExternalEntity, key, value, 'external')) {
         this.#externalMap[key] = value;
       }
@@ -867,13 +868,13 @@ export class EntityDecoder {
     // document's budget, including when the call goes on to fail.
     this.#totalExpansions = 0;
     this.#expandedLength = 0;
-    if (!this.#onInputEntity) {
+    if (this.#onInputEntity === null) {
       this.#inputMap = mergeEntityMaps(map);
       return;
     }
     const flat = mergeEntityMaps(map);
     const filtered: Record<string, string> = Object.create(null);
-    for (const [name, value] of Object.entries(flat)) {
+    for (const [name, value] of Record.toEntries(flat)) {
       if (yield* this.#applyRegistrationHook(this.#onInputEntity, name, value, 'input')) {
         filtered[name] = value;
       }
@@ -934,12 +935,12 @@ export class EntityDecoder {
    */
   decode = Effect.fnUntraced(function* (this: EntityDecoder, str: string): Effect.fn.Return<string, XmlError> {
     if (!Predicate.isString(str) || str.length === 0) return str;
-    if (str.indexOf('&') === -1) return str; // nothing here can be a reference
+    if (Option.isNone(String.indexOf('&')(str))) return str; // nothing here can be a reference
 
     const chunks = yield* this.#expandAll(str);
 
     // `chunks` is empty exactly when nothing was replaced, in which case the input is its own result.
-    const result = chunks.length === 0 ? str : chunks.join('');
+    const result = chunks.length === 0 ? str : Array.join('')(chunks);
 
     return this.#postCheck(result, str);
   });
@@ -966,6 +967,7 @@ export class EntityDecoder {
     let i = 0;
 
     while (i < len) {
+      // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-character loop, Option allocation on the hot path
       if (str.charCodeAt(i) !== CODE_AMPERSAND) {
         i++;
         continue;
@@ -979,7 +981,7 @@ export class EntityDecoder {
         continue;
       }
 
-      const token = str.slice(i + 1, end);
+      const token = String.slice(i + 1, end)(str);
       const resolved = yield* this.#resolveToken(token);
       if (resolved === undefined) {
         // Left, unparseable or unknown: leave the text alone and resume scanning just after the `&`.
@@ -987,7 +989,7 @@ export class EntityDecoder {
         continue;
       }
 
-      if (i > last) chunks.push(str.slice(last, i));
+      if (i > last) chunks.push(String.slice(last, i)(str));
       chunks.push(resolved.value);
       last = end + 1;
       i = last;
@@ -995,7 +997,7 @@ export class EntityDecoder {
       yield* this.#chargeExpansion(token, resolved.value, resolved.tier);
     }
 
-    if (last < len) chunks.push(str.slice(last));
+    if (last < len) chunks.push(String.slice(last)(str));
 
     return chunks;
   });
@@ -1033,7 +1035,7 @@ export class EntityDecoder {
     // copied by the next literal run, which keeps the text coming back unchanged.
     if (this.#leaveSet.has(token)) return undefined;
 
-    if (token.charCodeAt(0) === CODE_HASH) {
+    if (Option.getOrElse(String.charCodeAt(0)(token), () => Number.NaN) === CODE_HASH) {
       const character = yield* this.#resolveNCR(token);
       // `''` for a removal and the character for an allow are both real replacements; `undefined` is the
       // numeric pipeline's own way of saying "leave it as written".
@@ -1086,7 +1088,7 @@ export class EntityDecoder {
     this.#totalExpansions++;
     if (this.#totalExpansions > this.#maxTotalExpansions) {
       return Effect.fail(
-        new XmlError({
+        XmlError.make({
           reason: { _tag: 'ExpansionLimitExceeded', actual: this.#totalExpansions, limit: this.#maxTotalExpansions },
           message: `[EntityReplacer] Entity expansion count limit exceeded: ${this.#totalExpansions} > ${this.#maxTotalExpansions}`,
         })
@@ -1114,7 +1116,7 @@ export class EntityDecoder {
     this.#expandedLength += delta;
     if (this.#expandedLength > this.#maxExpandedLength) {
       return Effect.fail(
-        new XmlError({
+        XmlError.make({
           reason: { _tag: 'ExpandedLengthLimitExceeded', actual: this.#expandedLength, limit: this.#maxExpandedLength },
           message: `[EntityReplacer] Expanded content length limit exceeded: ${this.#expandedLength} > ${this.#maxExpandedLength}`,
         })
@@ -1198,19 +1200,20 @@ export class EntityDecoder {
    */
   #applyNCRAction(action: number, token: string, cp: number): Effect.Effect<string | undefined, XmlError> {
     return Match.value(action).pipe(
-      Match.when(NCR_LEVEL.allow, () => Effect.succeed(String.fromCodePoint(cp))),
+      Match.when(NCR_LEVEL.allow, () => Effect.succeed(globalThis.String.fromCodePoint(cp))),
       Match.when(NCR_LEVEL.remove, () => Effect.succeed('')),
-      // oxlint-disable-next-line effecttsgo/effect-succeed-with-void
-      Match.when(NCR_LEVEL.leave, () => Effect.succeed(undefined)),
+      Match.when(NCR_LEVEL.leave, () => Effect.undefined),
       Match.when(NCR_LEVEL.throw, () =>
         Effect.fail(
-          new XmlError({
+          XmlError.make({
             reason: { _tag: 'ProhibitedCharacterReference', token, codepoint: cp },
-            message: `[EntityDecoder] Prohibited numeric character reference &${token}; ` + `(U+${cp.toString(16).toUpperCase().padStart(4, '0')})`,
+            message:
+              `[EntityDecoder] Prohibited numeric character reference &${token}; ` +
+              `(U+${String.padStart(4, '0')(String.toUpperCase(cp.toString(16)))})`,
           })
         )
       ),
-      Match.orElse(() => Effect.succeed(String.fromCodePoint(cp)))
+      Match.orElse(() => Effect.succeed(globalThis.String.fromCodePoint(cp)))
     );
   }
 
@@ -1233,21 +1236,21 @@ export class EntityDecoder {
    *   {@link XmlError} and the `ProhibitedCharacterReference` reason when the effective action is `throw`.
    */
   #resolveNCR(token: string): Effect.Effect<string | undefined, XmlError> {
-    const second = token.charCodeAt(1);
+    const second = Option.getOrElse(String.charCodeAt(1)(token), () => Number.NaN);
     let cp: number;
     if (second === CODE_LOWER_X || second === CODE_UPPER_X) {
-      cp = parseInt(token.slice(2), 16);
+      cp = parseInt(String.slice(2)(token), 16);
     } else {
-      cp = parseInt(token.slice(1), 10);
+      cp = parseInt(String.slice(1)(token), 10);
     }
 
     // Out of range is `leave` rather than `remove`: an unparseable reference is text, and
     // deleting a document's characters because one of them was malformed is not a safe default.
-    if (Number.isNaN(cp) || cp < 0 || cp > MAX_CODE_POINT) return Effect.succeed(undefined);
+    if (Number.isNaN(cp) || cp < 0 || cp > MAX_CODE_POINT) return Effect.undefined;
 
     const minimum = this.#classifyNCR(cp);
 
-    if (!this.#numericAllowed && minimum < NCR_LEVEL.remove) return Effect.succeed(undefined);
+    if (!this.#numericAllowed && minimum < NCR_LEVEL.remove) return Effect.undefined;
 
     const effective = minimum === NO_MINIMUM_LEVEL ? this.#ncrOnLevel : Math.max(this.#ncrOnLevel, minimum);
 

@@ -14,7 +14,7 @@
  */
 
 import { assert, describe, expect, it } from '@effect/vitest';
-import { Effect, Result } from 'effect';
+import { Array, Effect, Option, Record, Result, String } from 'effect';
 
 import type { ApplyLimitsTo, EntityDecoderOptions } from '#/index.ts';
 import type { XmlError } from '#/xml-error.ts';
@@ -102,9 +102,9 @@ const setXmlVersionWith = (decoder: EntityDecoder, version: unknown): void => {
 const codePointsOf = (value: string): Array<string> => {
   const points: Array<string> = [];
   for (let index = 0; index < value.length; index++) {
-    const point = value.codePointAt(index);
-    points.push((point ?? 0).toString(16).toUpperCase().padStart(4, '0'));
-    if (point !== undefined && point > 0xffff) index += 1;
+    const point = Option.getOrElse(String.codePointAt(index)(value), () => 0);
+    points.push(String.padStart(4, '0')(String.toUpperCase(point.toString(16))));
+    if (point > 0xffff) index += 1;
   }
   return points;
 };
@@ -185,7 +185,8 @@ describe('the five predefined XML entities', () => {
   it.effect('expands each of them, and nothing else about the base table', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('&amp;&lt;&gt;&quot;&apos;')).toBe('&<>"\'');
+      const hoisted1 = yield* decoder.decode('&amp;&lt;&gt;&quot;&apos;');
+      expect(hoisted1).toBe('&<>"\'');
     })
   );
 
@@ -194,47 +195,59 @@ describe('the five predefined XML entities', () => {
       // The decoder's built-in map is the five lowercase names and nothing more. `&AMP;` and `&LT;` exist in `BASIC_LATIN`, but a table has to be
       // handed over for them to resolve.
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('&AMP;&LT;&GT;')).toBe('&AMP;&LT;&GT;');
-      expect(yield* (yield* EntityDecoder.make({ namedEntities: { AMP: '&' } })).decode('&AMP;')).toBe('&');
+      const hoisted2 = yield* decoder.decode('&AMP;&LT;&GT;');
+      expect(hoisted2).toBe('&AMP;&LT;&GT;');
+      const madeDecoder201 = yield* EntityDecoder.make({ namedEntities: { AMP: '&' } });
+      const hoisted3 = yield* madeDecoder201.decode('&AMP;');
+      expect(hoisted3).toBe('&');
     })
   );
 
   it.effect('leaves a name it has never heard of as the text it was written as', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('&nosuchentity;')).toBe('&nosuchentity;');
+      const madeDecoder202 = yield* EntityDecoder.make();
+      const hoisted4 = yield* madeDecoder202.decode('&nosuchentity;');
+      expect(hoisted4).toBe('&nosuchentity;');
     })
   );
 
   it.effect('takes the surrounding text with it, so a reference mid-string does not truncate anything', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('before &amp; middle &lt; after')).toBe('before & middle < after');
+      const madeDecoder203 = yield* EntityDecoder.make();
+      const hoisted5 = yield* madeDecoder203.decode('before &amp; middle &lt; after');
+      expect(hoisted5).toBe('before & middle < after');
     })
   );
 
   it.effect('resolves the same name in one pass, from the table a caller supplied', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { brand: 'Acme', copy: '©' } });
-      expect(yield* decoder.decode('&brand; &copy; &amp;')).toBe('Acme © &');
+      const hoisted6 = yield* decoder.decode('&brand; &copy; &amp;');
+      expect(hoisted6).toBe('Acme © &');
     })
   );
 
   it.effect('lets a caller table override a built-in of the same name, because it is merged second', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ namedEntities: { amp: 'AMP-OVERRIDDEN' } })).decode('&amp;')).toBe('AMP-OVERRIDDEN');
+      const madeDecoder204 = yield* EntityDecoder.make({ namedEntities: { amp: 'AMP-OVERRIDDEN' } });
+      const hoisted7 = yield* madeDecoder204.decode('&amp;');
+      expect(hoisted7).toBe('AMP-OVERRIDDEN');
     })
   );
 
   it.effect('merges a caller table over the built-ins rather than replacing it', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { brand: 'Acme' } });
-      expect(yield* decoder.decode('&brand;&amp;')).toBe('Acme&');
+      const hoisted8 = yield* decoder.decode('&brand;&amp;');
+      expect(hoisted8).toBe('Acme&');
     })
   );
 
   it.effect('unwraps a `{ regex, val }` envelope down to the value, for the caller table', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { a: { regex: /x/, val: 'AV' } } });
-      expect(yield* decoder.decode('&a;')).toBe('AV');
+      const hoisted9 = yield* decoder.decode('&a;');
+      expect(hoisted9).toBe('AV');
     })
   );
 
@@ -244,21 +257,24 @@ describe('the five predefined XML entities', () => {
       // either. A caller who gets it wrong has the entry dropped rather than an error.
       const decoder = yield* EntityDecoder.make();
       yield* decoder.addInputEntities({ b: { regx: /x/, val: 'BV' } });
-      expect(yield* decoder.decode('&b;')).toBe('BV');
+      const hoisted10 = yield* decoder.decode('&b;');
+      expect(hoisted10).toBe('BV');
     })
   );
 
   it.effect('drops a function value, because a function has no meaning without the regex it was matched against', () =>
     Effect.gen(function* () {
       const decoder = yield* decoderWithRawEntities({ c: { val: () => 'CV' } });
-      expect(yield* decoder.decode('&c;')).toBe('&c;');
+      const hoisted11 = yield* decoder.decode('&c;');
+      expect(hoisted11).toBe('&c;');
     })
   );
 
   it.effect('drops an entry whose value is not a string and not an envelope, rather than failing the construction', () =>
     Effect.gen(function* () {
       const decoder = yield* decoderWithRawEntities({ ok: 'OK', count: 5, nothing: null, absent: undefined });
-      expect(yield* decoder.decode('&ok;&count;&nothing;&absent;')).toBe('OK&count;&nothing;&absent;');
+      const hoisted12 = yield* decoder.decode('&ok;&count;&nothing;&absent;');
+      expect(hoisted12).toBe('OK&count;&nothing;&absent;');
     })
   );
 });
@@ -268,29 +284,38 @@ describe('the five predefined XML entities', () => {
 describe('numeric character references', () => {
   it.effect('expands a decimal reference', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('caf&#233;')).toBe('café');
+      const madeDecoder205 = yield* EntityDecoder.make();
+      const hoisted13 = yield* madeDecoder205.decode('caf&#233;');
+      expect(hoisted13).toBe('café');
     })
   );
 
   it.effect('expands a hex reference in either case of the digits and either case of the X', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('&#xE9;')).toBe('é');
-      expect(yield* decoder.decode('&#xe9;')).toBe('é');
-      expect(yield* decoder.decode('&#XE9;')).toBe('é');
+      const hoisted14 = yield* decoder.decode('&#xE9;');
+      expect(hoisted14).toBe('é');
+      const hoisted15 = yield* decoder.decode('&#xe9;');
+      expect(hoisted15).toBe('é');
+      const hoisted16 = yield* decoder.decode('&#XE9;');
+      expect(hoisted16).toBe('é');
     })
   );
 
   it.effect('ignores leading zeros, because the number is what the digits spell', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('&#0000065;')).toBe('A');
+      const madeDecoder206 = yield* EntityDecoder.make();
+      const hoisted17 = yield* madeDecoder206.decode('&#0000065;');
+      expect(hoisted17).toBe('A');
     })
   );
 
   it.effect('expands a codepoint above the BMP to the one character it names', () =>
     Effect.gen(function* () {
       // U+1D504 MATHEMATICAL FRAKTUR CAPITAL A, a surrogate pair in UTF-16, one character to a reader.
-      expect(yield* (yield* EntityDecoder.make()).decode('&#x1D504;')).toBe('𝔄');
+      const madeDecoder207 = yield* EntityDecoder.make();
+      const hoisted18 = yield* madeDecoder207.decode('&#x1D504;');
+      expect(hoisted18).toBe('𝔄');
     })
   );
 
@@ -298,52 +323,68 @@ describe('numeric character references', () => {
     Effect.gen(function* () {
       // Both halves fall in U+D800–U+DFFF, which is classified `remove` under every policy. The two references are each individually removed, so the
       // single character a surrogate pair would have spelled never exists at any point in the pass.
-      expect(yield* (yield* EntityDecoder.make()).decode('&#55348;&#56456;')).toBe('');
+      const madeDecoder208 = yield* EntityDecoder.make();
+      const hoisted19 = yield* madeDecoder208.decode('&#55348;&#56456;');
+      expect(hoisted19).toBe('');
     })
   );
 
   it.effect('leaves an unparseable reference as written rather than deleting the document around it', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('&#;')).toBe('&#;');
-      expect(yield* decoder.decode('&#x;')).toBe('&#x;');
-      expect(yield* decoder.decode('&#xZZ;')).toBe('&#xZZ;');
-      expect(yield* decoder.decode('&#-41;')).toBe('&#-41;');
+      const hoisted20 = yield* decoder.decode('&#;');
+      expect(hoisted20).toBe('&#;');
+      const hoisted21 = yield* decoder.decode('&#x;');
+      expect(hoisted21).toBe('&#x;');
+      const hoisted22 = yield* decoder.decode('&#xZZ;');
+      expect(hoisted22).toBe('&#xZZ;');
+      const hoisted23 = yield* decoder.decode('&#-41;');
+      expect(hoisted23).toBe('&#-41;');
     })
   );
 
   it.effect('keeps tab, newline and carriage return, the three C0 codes XML 1.0 permits as literal characters', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('&#9;')).toBe('\t');
-      expect(yield* decoder.decode('&#xA;')).toBe('\n');
-      expect(yield* decoder.decode('&#xD;')).toBe('\r');
+      const hoisted24 = yield* decoder.decode('&#9;');
+      expect(hoisted24).toBe('\t');
+      const hoisted25 = yield* decoder.decode('&#xA;');
+      expect(hoisted25).toBe('\n');
+      const hoisted26 = yield* decoder.decode('&#xD;');
+      expect(hoisted26).toBe('\r');
     })
   );
 
   it.effect('removes every other C0 control under XML 1.0, in decimal or in hex', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('a&#1F;b')).toBe('ab');
-      expect(yield* decoder.decode('a&#x1F;b')).toBe('ab');
+      const hoisted27 = yield* decoder.decode('a&#1F;b');
+      expect(hoisted27).toBe('ab');
+      const hoisted28 = yield* decoder.decode('a&#x1F;b');
+      expect(hoisted28).toBe('ab');
     })
   );
 
   it.effect('lets the C0 controls through under XML 1.1, which permits them when written as references', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ ncr: { xmlVersion: 1.1 } })).decode('a&#x1;b')).toBe('a\u0001b');
+      const madeDecoder209 = yield* EntityDecoder.make({ ncr: { xmlVersion: 1.1 } });
+      const hoisted29 = yield* madeDecoder209.decode('a&#x1;b');
+      expect(hoisted29).toBe('a\u0001b');
     })
   );
 
   it.effect('removes a null reference, whatever the base policy says', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('a&#0;b')).toBe('ab');
+      const madeDecoder210 = yield* EntityDecoder.make();
+      const hoisted30 = yield* madeDecoder210.decode('a&#0;b');
+      expect(hoisted30).toBe('ab');
     })
   );
 
   it.effect('throws on a null reference when asked to, naming the token and the codepoint', () =>
     Effect.gen(function* () {
-      const result = yield* (yield* EntityDecoder.make({ ncr: { nullNCR: 'throw' } })).decode('a&#0;b').pipe(Effect.result);
+      const madeDecoder31 = yield* EntityDecoder.make({ ncr: { nullNCR: 'throw' } });
+      const result = yield* madeDecoder31.decode('a&#0;b').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityDecoder] Prohibited numeric character reference &#0; (U+0000)');
     })
@@ -355,7 +396,9 @@ describe('numeric character references', () => {
 describe('numericAllowed off', () => {
   it.effect('leaves an ordinary reference in the output verbatim', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ numericAllowed: false })).decode('caf&#233;')).toBe('caf&#233;');
+      const madeDecoder211 = yield* EntityDecoder.make({ numericAllowed: false });
+      const hoisted32 = yield* madeDecoder211.decode('caf&#233;');
+      expect(hoisted32).toBe('caf&#233;');
     })
   );
 
@@ -364,15 +407,19 @@ describe('numericAllowed off', () => {
       // The option is a switch on the pipeline, not a way past it. Null, surrogates and the XML 1.0 C0 controls are all `remove` at the classification
       // stage, so `numericAllowed: false` never gets a say about them. That is exactly what makes the option safe to rely on.
       const decoder = yield* EntityDecoder.make({ numericAllowed: false });
-      expect(yield* decoder.decode('a&#0;b')).toBe('ab');
-      expect(yield* decoder.decode('a&#xD800;b')).toBe('ab');
-      expect(yield* decoder.decode('a&#x1F;b')).toBe('ab');
+      const hoisted33 = yield* decoder.decode('a&#0;b');
+      expect(hoisted33).toBe('ab');
+      const hoisted34 = yield* decoder.decode('a&#xD800;b');
+      expect(hoisted34).toBe('ab');
+      const hoisted35 = yield* decoder.decode('a&#x1F;b');
+      expect(hoisted35).toBe('ab');
     })
   );
 
   it.effect('does still throw for those codepoints, so turning the option off is not a way to silence a prohibited reference', () =>
     Effect.gen(function* () {
-      const result = yield* (yield* EntityDecoder.make({ numericAllowed: false, ncr: { onNCR: 'throw' } })).decode('&#xD800;').pipe(Effect.result);
+      const madeDecoder36 = yield* EntityDecoder.make({ numericAllowed: false, ncr: { onNCR: 'throw' } });
+      const result = yield* madeDecoder36.decode('&#xD800;').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityDecoder] Prohibited numeric character reference &#xD800; (U+D800)');
     })
@@ -380,7 +427,9 @@ describe('numericAllowed off', () => {
 
   it.effect('leaves the named entities alone, which are not numeric references', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ numericAllowed: false })).decode('&amp;&lt;&copy;')).toBe('&<&copy;');
+      const madeDecoder212 = yield* EntityDecoder.make({ numericAllowed: false });
+      const hoisted37 = yield* madeDecoder212.decode('&amp;&lt;&copy;');
+      expect(hoisted37).toBe('&<&copy;');
     })
   );
 });
@@ -388,32 +437,44 @@ describe('numericAllowed off', () => {
 describe('leave and remove', () => {
   it.effect('emits a left reference as the text it was written as', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ leave: ['amp'] })).decode('a&amp;b')).toBe('a&amp;b');
+      const madeDecoder213 = yield* EntityDecoder.make({ leave: ['amp'] });
+      const hoisted38 = yield* madeDecoder213.decode('a&amp;b');
+      expect(hoisted38).toBe('a&amp;b');
     })
   );
 
   it.effect('deletes a removed reference, whether or not the name resolves', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ remove: ['amp', 'nosuch'] })).decode('a&amp;b&nosuch;c')).toBe('abc');
+      const madeDecoder214 = yield* EntityDecoder.make({ remove: ['amp', 'nosuch'] });
+      const hoisted39 = yield* madeDecoder214.decode('a&amp;b&nosuch;c');
+      expect(hoisted39).toBe('abc');
     })
   );
 
   it.effect('matches a numeric reference by its token, so `#38` and `#x26` are how a number is left alone', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ leave: ['#38'] })).decode('a&#38;b')).toBe('a&#38;b');
-      expect(yield* (yield* EntityDecoder.make({ leave: ['#x26'] })).decode('a&#x26;b')).toBe('a&#x26;b');
+      const madeDecoder215 = yield* EntityDecoder.make({ leave: ['#38'] });
+      const hoisted40 = yield* madeDecoder215.decode('a&#38;b');
+      expect(hoisted40).toBe('a&#38;b');
+      const madeDecoder216 = yield* EntityDecoder.make({ leave: ['#x26'] });
+      const hoisted41 = yield* madeDecoder216.decode('a&#x26;b');
+      expect(hoisted41).toBe('a&#x26;b');
     })
   );
 
   it.effect('applies remove before leave, so a name in both lists is deleted', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ remove: ['x'], leave: ['x'] })).decode('a&x;b')).toBe('ab');
+      const madeDecoder217 = yield* EntityDecoder.make({ remove: ['x'], leave: ['x'] });
+      const hoisted42 = yield* madeDecoder217.decode('a&x;b');
+      expect(hoisted42).toBe('ab');
     })
   );
 
   it.effect('applies leave before the numeric pipeline, so a left `#38` is not expanded', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ leave: ['#38'] })).decode('a&#38;b')).toBe('a&#38;b');
+      const madeDecoder218 = yield* EntityDecoder.make({ leave: ['#38'] });
+      const hoisted43 = yield* madeDecoder218.decode('a&#38;b');
+      expect(hoisted43).toBe('a&#38;b');
     })
   );
 
@@ -422,16 +483,20 @@ describe('leave and remove', () => {
       // A budget of one leaves room for exactly one charged expansion, so `&lt;` getting through is the
       // evidence that the four `&amp;` in front of it were charged nothing.
       const decoder = yield* EntityDecoder.make({ leave: ['amp'], limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
-      expect(yield* decoder.decode('&amp;&amp;&amp;&amp;&lt;')).toBe('&amp;&amp;&amp;&amp;<');
+      const hoisted44 = yield* decoder.decode('&amp;&amp;&amp;&amp;&lt;');
+      expect(hoisted44).toBe('&amp;&amp;&amp;&amp;<');
     })
   );
 
   it.effect('treats a bare ampersand as text rather than as a malformed reference', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('a & b')).toBe('a & b');
-      expect(yield* decoder.decode('&&')).toBe('&&');
-      expect(yield* decoder.decode('&;')).toBe('&;');
+      const hoisted45 = yield* decoder.decode('a & b');
+      expect(hoisted45).toBe('a & b');
+      const hoisted46 = yield* decoder.decode('&&');
+      expect(hoisted46).toBe('&&');
+      const hoisted47 = yield* decoder.decode('&;');
+      expect(hoisted47).toBe('&;');
     })
   );
 
@@ -439,7 +504,8 @@ describe('leave and remove', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ gone: '' });
-      expect(yield* decoder.decode('a&gone;b')).toBe('ab');
+      const hoisted48 = yield* decoder.decode('a&gone;b');
+      expect(hoisted48).toBe('ab');
     })
   );
 });
@@ -450,7 +516,8 @@ describe('postCheck sees the resolved string and the original', () => {
   it.effect('runs once on a string the scanner actually walked', () =>
     Effect.gen(function* () {
       const spy = spyPostCheck();
-      yield* (yield* EntityDecoder.make({ postCheck: spy.postCheck })).decode('&amp;');
+      const madeDecoder49 = yield* EntityDecoder.make({ postCheck: spy.postCheck });
+      yield* madeDecoder49.decode('&amp;');
       expect(spy.seen).toEqual(['&amp;']);
     })
   );
@@ -464,7 +531,8 @@ describe('postCheck sees the resolved string and the original', () => {
           return resolved;
         },
       });
-      expect(yield* spyDecoder.decode('x&amp;y')).toBe('x&y');
+      const hoisted50 = yield* spyDecoder.decode('x&amp;y');
+      expect(hoisted50).toBe('x&y');
       expect(seen).toEqual([['x&y', 'x&amp;y']]);
     })
   );
@@ -472,7 +540,9 @@ describe('postCheck sees the resolved string and the original', () => {
   it.effect('can reject the whole expansion by handing back the original', () =>
     Effect.gen(function* () {
       const spy = rejectingPostCheck();
-      expect(yield* (yield* EntityDecoder.make({ postCheck: spy.postCheck })).decode('&amp;')).toBe('&amp;');
+      const madeDecoder219 = yield* EntityDecoder.make({ postCheck: spy.postCheck });
+      const hoisted51 = yield* madeDecoder219.decode('&amp;');
+      expect(hoisted51).toBe('&amp;');
       expect(spy.seen).toEqual(['&amp;']);
     })
   );
@@ -482,7 +552,8 @@ describe('postCheck sees the resolved string and the original', () => {
       // This is the boundary that matters: the guard is "is there an `&`", not "did anything expand". A sanitiser written against this hook has seen
       // every string that could contain a reference.
       const spy = spyPostCheck();
-      yield* (yield* EntityDecoder.make({ postCheck: spy.postCheck })).decode('&nosuchentity;');
+      const madeDecoder52 = yield* EntityDecoder.make({ postCheck: spy.postCheck });
+      yield* madeDecoder52.decode('&nosuchentity;');
       expect(spy.seen).toEqual(['&nosuchentity;']);
     })
   );
@@ -498,7 +569,8 @@ describe('preserved upstream quirk: postCheck never sees input that never reache
   it.effect('runs exactly once for a string containing only an XML entity', () =>
     Effect.gen(function* () {
       const spy = spyPostCheck();
-      yield* (yield* EntityDecoder.make({ postCheck: spy.postCheck })).decode('&amp;');
+      const madeDecoder53 = yield* EntityDecoder.make({ postCheck: spy.postCheck });
+      yield* madeDecoder53.decode('&amp;');
       expect(spy.seen).toHaveLength(1);
     })
   );
@@ -506,7 +578,9 @@ describe('preserved upstream quirk: postCheck never sees input that never reache
   it.effect('runs zero times for a string with no ampersand in it', () =>
     Effect.gen(function* () {
       const spy = spyPostCheck();
-      expect(yield* (yield* EntityDecoder.make({ postCheck: spy.postCheck })).decode('plain')).toBe('plain');
+      const madeDecoder220 = yield* EntityDecoder.make({ postCheck: spy.postCheck });
+      const hoisted54 = yield* madeDecoder220.decode('plain');
+      expect(hoisted54).toBe('plain');
       expect(spy.seen).toHaveLength(0);
     })
   );
@@ -514,7 +588,9 @@ describe('preserved upstream quirk: postCheck never sees input that never reache
   it.effect('runs zero times for the empty string', () =>
     Effect.gen(function* () {
       const spy = spyPostCheck();
-      expect(yield* (yield* EntityDecoder.make({ postCheck: spy.postCheck })).decode('')).toBe('');
+      const madeDecoder221 = yield* EntityDecoder.make({ postCheck: spy.postCheck });
+      const hoisted55 = yield* madeDecoder221.decode('');
+      expect(hoisted55).toBe('');
       expect(spy.seen).toHaveLength(0);
     })
   );
@@ -538,21 +614,26 @@ describe('expansion is a single pass', () => {
       // This is what bounds the whole class: a registered value can contain reference text and it will never be expanded, so no entity definition can
       // reach a second level of indirection through the decoder.
       const decoder = yield* EntityDecoder.make({ namedEntities: { a: '&b;', b: 'B' } });
-      expect(yield* decoder.decode('&a;')).toBe('&b;');
+      const hoisted56 = yield* decoder.decode('&a;');
+      expect(hoisted56).toBe('&b;');
     })
   );
 
   it.effect('does not re-scan a numeric reference that expands to an ampersand', () =>
     Effect.gen(function* () {
       // U+0026 AMPERSAND, written as a reference. The `&` it produces is output, not input, so the `&#38;` inside it is never looked at.
-      expect(yield* (yield* EntityDecoder.make()).decode('&#x26;#38;')).toBe('&#38;');
+      const madeDecoder222 = yield* EntityDecoder.make();
+      const hoisted57 = yield* madeDecoder222.decode('&#x26;#38;');
+      expect(hoisted57).toBe('&#38;');
     })
   );
 
   it.effect('still scans past an ampersand that turned out not to open a reference', () =>
     Effect.gen(function* () {
       // The scan advances one character rather than to the end of the run, so a second `&` in the same text is still found.
-      expect(yield* (yield* EntityDecoder.make()).decode('& &amp;')).toBe('& &');
+      const madeDecoder223 = yield* EntityDecoder.make();
+      const hoisted58 = yield* madeDecoder223.decode('& &amp;');
+      expect(hoisted58).toBe('& &');
     })
   );
 });
@@ -564,7 +645,8 @@ describe('expansion limits', () => {
     Effect.gen(function* () {
       // `&amp;` is six characters of input for one character of output. A document of nothing but `&amp;` shrinks, so no length limit applies to it at all.
       const decoder = yield* EntityDecoder.make({ limit: { maxExpandedLength: 1, applyLimitsTo: 'all' } });
-      expect(yield* decoder.decode('&amp;&lt;&gt;&quot;&apos;')).toBe('&<>"\'');
+      const hoisted59 = yield* decoder.decode('&amp;&lt;&gt;&quot;&apos;');
+      expect(hoisted59).toBe('&<>"\'');
     })
   );
 
@@ -581,7 +663,8 @@ describe('expansion limits', () => {
   it.effect('allows a growing reference whose surplus is exactly the limit', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { x: 'abcdefghijkl' }, limit: { maxExpandedLength: 9, applyLimitsTo: 'all' } });
-      expect(yield* decoder.decode('&x;')).toBe('abcdefghijkl');
+      const hoisted60 = yield* decoder.decode('&x;');
+      expect(hoisted60).toBe('abcdefghijkl');
       // A second `&x;` adds another nine, and the message reports the total. That total is only eighteen if the
       // first call left exactly nine on the counter.
       const result = yield* decoder.decode('&x;').pipe(Effect.result);
@@ -595,7 +678,8 @@ describe('expansion limits', () => {
       // The runtime tests `> 0` rather than the truthiness of the configured number, so anything that is not a positive number is no limit at all.
       for (const maxTotalExpansions of [0, -1, Number.NaN]) {
         const decoder = yield* EntityDecoder.make({ limit: { maxTotalExpansions, applyLimitsTo: 'all' } });
-        expect(yield* decoder.decode('&amp;&amp;&amp;&amp;&amp;')).toBe('&&&&&');
+        const hoisted61 = yield* decoder.decode('&amp;&amp;&amp;&amp;&amp;');
+        expect(hoisted61).toBe('&&&&&');
       }
     })
   );
@@ -605,9 +689,12 @@ describe('expansion limits', () => {
       // Three calls of one expansion each, then a fourth that is one too many. Nothing resets the budget
       // between them, so the throw is only reachable if all three landed on the same counter.
       const decoder = yield* EntityDecoder.make({ limit: { maxTotalExpansions: 3, applyLimitsTo: 'all' } });
-      expect(yield* decoder.decode('&amp;')).toBe('&');
-      expect(yield* decoder.decode('&amp;')).toBe('&');
-      expect(yield* decoder.decode('&amp;')).toBe('&');
+      const hoisted62 = yield* decoder.decode('&amp;');
+      expect(hoisted62).toBe('&');
+      const hoisted63 = yield* decoder.decode('&amp;');
+      expect(hoisted63).toBe('&');
+      const hoisted64 = yield* decoder.decode('&amp;');
+      expect(hoisted64).toBe('&');
       const result = yield* decoder.decode('&amp;').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityReplacer] Entity expansion count limit exceeded: 4 > 3');
@@ -634,12 +721,14 @@ describe('expansion limits', () => {
       // A budget of one: the second expansion of the first document breaches it, and the first expansion of
       // the second document does not, which it could not do unless `reset` put the counter back to zero.
       const decoder = yield* EntityDecoder.make({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
-      expect(yield* decoder.decode('&amp;')).toBe('&');
+      const hoisted65 = yield* decoder.decode('&amp;');
+      expect(hoisted65).toBe('&');
       const result = yield* decoder.decode('&amp;').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
       decoder.reset();
-      expect(yield* decoder.decode('&amp;')).toBe('&');
+      const hoisted66 = yield* decoder.decode('&amp;');
+      expect(hoisted66).toBe('&');
     })
   );
 });
@@ -649,23 +738,30 @@ describe('which tiers count against the limits', () => {
     Effect.gen(function* () {
       // The default is the point of the tier split: a document made entirely of built-in entities and numeric references cannot trip a limit the caller
       // set for the DOCTYPE entities it did not write.
-      expect(yield* tripsExpansionLimit('external', '&amp;&lt;&gt;')).toBe(false);
-      expect(yield* tripsExpansionLimit('external', '&externalName;')).toBe(false);
+      const hoisted67 = yield* tripsExpansionLimit('external', '&amp;&lt;&gt;');
+      expect(hoisted67).toBe(false);
+      const hoisted68 = yield* tripsExpansionLimit('external', '&externalName;');
+      expect(hoisted68).toBe(false);
     })
   );
 
   it.effect('counts a base entity when the filter says base', () =>
     Effect.gen(function* () {
-      expect(yield* tripsExpansionLimit('base', '&amp;&lt;')).toBe(true);
-      expect(yield* tripsExpansionLimit('base', '&externalName;&amp;')).toBe(false);
+      const hoisted69 = yield* tripsExpansionLimit('base', '&amp;&lt;');
+      expect(hoisted69).toBe(true);
+      const hoisted70 = yield* tripsExpansionLimit('base', '&externalName;&amp;');
+      expect(hoisted70).toBe(false);
     })
   );
 
   it.effect('counts everything when the filter says all, whichever tier the reference came from', () =>
     Effect.gen(function* () {
-      expect(yield* tripsExpansionLimit('all', '&amp;&lt;')).toBe(true);
-      expect(yield* tripsExpansionLimit('all', '&externalName;&amp;')).toBe(true);
-      expect(yield* tripsExpansionLimit('all', '&inputName;&amp;')).toBe(true);
+      const hoisted71 = yield* tripsExpansionLimit('all', '&amp;&lt;');
+      expect(hoisted71).toBe(true);
+      const hoisted72 = yield* tripsExpansionLimit('all', '&externalName;&amp;');
+      expect(hoisted72).toBe(true);
+      const hoisted73 = yield* tripsExpansionLimit('all', '&inputName;&amp;');
+      expect(hoisted73).toBe(true);
     })
   );
 
@@ -674,7 +770,8 @@ describe('which tiers count against the limits', () => {
       // `&externalName;` is charged to `external` and does not count, so the limit of one is not reached by
       // the two references together, which it would be if the array named both tiers.
       const decoder = yield* decoderWithBothTiers({ limit: { maxTotalExpansions: 1, applyLimitsTo: ['base'] } });
-      expect(yield* decoder.decode('&externalName;&amp;')).toBe('EXTERNAL&');
+      const hoisted74 = yield* decoder.decode('&externalName;&amp;');
+      expect(hoisted74).toBe('EXTERNAL&');
     })
   );
 
@@ -689,7 +786,8 @@ describe('which tiers count against the limits', () => {
 
   it.effect('honours an empty array literally, so nothing counts and no limit can ever trip', () =>
     Effect.gen(function* () {
-      expect(yield* tripsExpansionLimit([], '&amp;&lt;&externalName;&inputName;')).toBe(false);
+      const hoisted75 = yield* tripsExpansionLimit([], '&amp;&lt;&externalName;&inputName;');
+      expect(hoisted75).toBe(false);
     })
   );
 
@@ -702,7 +800,8 @@ describe('which tiers count against the limits', () => {
       const result = yield* decoder.decode('&externalName;&externalName;').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
-      expect(yield* decoder.decode('&amp;&lt;&gt;')).toBe('&<>');
+      const hoisted76 = yield* decoder.decode('&amp;&lt;&gt;');
+      expect(hoisted76).toBe('&<>');
     })
   );
 
@@ -721,7 +820,8 @@ describe('which tiers count against the limits', () => {
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ name: 'EXTERNAL' });
       yield* decoder.addInputEntities({ name: 'INPUT' });
-      expect(yield* decoder.decode('&name;')).toBe('INPUT');
+      const hoisted77 = yield* decoder.decode('&name;');
+      expect(hoisted77).toBe('INPUT');
     })
   );
 });
@@ -733,7 +833,8 @@ describe('preserved upstream quirk: the limit check is greater-than, not greater
   it.effect('allows exactly the configured number of expansions', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ limit: { maxTotalExpansions: 2, applyLimitsTo: 'all' } });
-      expect(yield* decoder.decode('&amp;&lt;')).toBe('&<');
+      const hoisted78 = yield* decoder.decode('&amp;&lt;');
+      expect(hoisted78).toBe('&<');
     })
   );
 
@@ -766,7 +867,8 @@ describe('preserved upstream quirk: a removed reference is charged to the extern
   it.effect('does not trip a base filter for the same input, because the charge landed on external', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ remove: ['lt'], limit: { maxTotalExpansions: 1, applyLimitsTo: 'base' } });
-      expect(yield* decoder.decode('&lt;&lt;')).toBe('');
+      const hoisted79 = yield* decoder.decode('&lt;&lt;');
+      expect(hoisted79).toBe('');
     })
   );
 
@@ -788,7 +890,8 @@ describe('registration hooks', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ onExternalEntity: () => ENTITY_ACTION.ALLOW });
       yield* decoder.setExternalEntities({ ok: 'OK' });
-      expect(yield* decoder.decode('&ok;')).toBe('OK');
+      const hoisted80 = yield* decoder.decode('&ok;');
+      expect(hoisted80).toBe('OK');
     })
   );
 
@@ -796,8 +899,10 @@ describe('registration hooks', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ onExternalEntity: name => (name === 'blocked' ? ENTITY_ACTION.BLOCK : ENTITY_ACTION.ALLOW) });
       yield* decoder.setExternalEntities({ ok: 'OK', blocked: 'BLOCKED' });
-      expect(yield* decoder.decode('&ok;')).toBe('OK');
-      expect(yield* decoder.decode('&blocked;')).toBe('&blocked;');
+      const hoisted81 = yield* decoder.decode('&ok;');
+      expect(hoisted81).toBe('OK');
+      const hoisted82 = yield* decoder.decode('&blocked;');
+      expect(hoisted82).toBe('&blocked;');
     })
   );
 
@@ -814,7 +919,8 @@ describe('registration hooks', () => {
     Effect.gen(function* () {
       const blocked = yield* EntityDecoder.make({ onExternalEntity: () => ENTITY_ACTION.BLOCK });
       yield* blocked.addExternalEntity('q', 'Q');
-      expect(yield* blocked.decode('&q;')).toBe('&q;');
+      const hoisted83 = yield* blocked.decode('&q;');
+      expect(hoisted83).toBe('&q;');
 
       const boom = yield* EntityDecoder.make({ onExternalEntity: () => ENTITY_ACTION.THROW });
       const result = yield* boom.addExternalEntity('q', 'Q').pipe(Effect.result);
@@ -827,7 +933,8 @@ describe('registration hooks', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ onInputEntity: () => ENTITY_ACTION.BLOCK });
       yield* decoder.addInputEntities({ a: 'A', b: 'B' });
-      expect(yield* decoder.decode('&a;&b;')).toBe('&a;&b;');
+      const hoisted84 = yield* decoder.decode('&a;&b;');
+      expect(hoisted84).toBe('&a;&b;');
 
       const strict = yield* EntityDecoder.make({ onInputEntity: () => ENTITY_ACTION.THROW });
       const result = yield* strict.addInputEntities({ a: 'A' }).pipe(Effect.result);
@@ -840,7 +947,8 @@ describe('registration hooks', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ onExternalEntity: () => 'whatever' as never });
       yield* decoder.setExternalEntities({ q: 'Q' });
-      expect(yield* decoder.decode('&q;')).toBe('Q');
+      const hoisted85 = yield* decoder.decode('&q;');
+      expect(hoisted85).toBe('Q');
     })
   );
 
@@ -868,7 +976,8 @@ describe('registration hooks', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ onExternalEntity: 'nope' as never });
       yield* decoder.setExternalEntities({ q: 'Q' });
-      expect(yield* decoder.decode('&q;')).toBe('Q');
+      const hoisted86 = yield* decoder.decode('&q;');
+      expect(hoisted86).toBe('Q');
     })
   );
 });
@@ -886,7 +995,8 @@ describe('preserved upstream quirk: a throwing hook and a throwing input registr
       const result = yield* decoder.setExternalEntities({ other: 'O', bad: 'B' }).pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toMatch(/was rejected by hook/);
-      expect(yield* decoder.decode('&good;')).toBe('G');
+      const hoisted87 = yield* decoder.decode('&good;');
+      expect(hoisted87).toBe('G');
     })
   );
 
@@ -896,7 +1006,8 @@ describe('preserved upstream quirk: a throwing hook and a throwing input registr
       const result = yield* decoder.setExternalEntities({ other: 'O', bad: 'B' }).pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toMatch(/was rejected by hook/);
-      expect(yield* decoder.decode('&other;')).toBe('&other;');
+      const hoisted88 = yield* decoder.decode('&other;');
+      expect(hoisted88).toBe('&other;');
     })
   );
 
@@ -912,7 +1023,8 @@ describe('preserved upstream quirk: a throwing hook and a throwing input registr
       const rejected = yield* decoder.addInputEntities({ x: 'Y' }).pipe(Effect.result);
       assert(Result.isFailure(rejected));
       expect(rejected.failure.message).toMatch(/was rejected by hook/);
-      expect(yield* decoder.decode('&amp;&amp;&amp;')).toBe('&&&');
+      const hoisted89 = yield* decoder.decode('&amp;&amp;&amp;');
+      expect(hoisted89).toBe('&&&');
     })
   );
 });
@@ -922,16 +1034,19 @@ describe('preserved upstream quirk: a throwing hook and a throwing input registr
 describe('reset', () => {
   it.effect('returns the decoder, so a call can be chained onto the document it ends', () =>
     Effect.gen(function* () {
-      expect((yield* EntityDecoder.make()).reset()).toBeInstanceOf(EntityDecoder);
+      const madeDecoder90 = yield* EntityDecoder.make();
+      expect(madeDecoder90.reset()).toBeInstanceOf(EntityDecoder);
     })
   );
 
   it.effect('drops the per-document input entities', () =>
     Effect.gen(function* () {
       const decoder = yield* decoderWithBothTiers();
-      expect(yield* decoder.decode('&inputName;')).toBe('INPUT');
+      const hoisted91 = yield* decoder.decode('&inputName;');
+      expect(hoisted91).toBe('INPUT');
       decoder.reset();
-      expect(yield* decoder.decode('&inputName;')).toBe('&inputName;');
+      const hoisted92 = yield* decoder.decode('&inputName;');
+      expect(hoisted92).toBe('&inputName;');
     })
   );
 
@@ -939,7 +1054,8 @@ describe('reset', () => {
     Effect.gen(function* () {
       const decoder = yield* decoderWithBothTiers();
       decoder.reset();
-      expect(yield* decoder.decode('&externalName;')).toBe('EXTERNAL');
+      const hoisted93 = yield* decoder.decode('&externalName;');
+      expect(hoisted93).toBe('EXTERNAL');
     })
   );
 
@@ -947,7 +1063,8 @@ describe('reset', () => {
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { n: 'N' } });
       decoder.reset();
-      expect(yield* decoder.decode('&n;')).toBe('N');
+      const hoisted94 = yield* decoder.decode('&n;');
+      expect(hoisted94).toBe('N');
     })
   );
 
@@ -957,7 +1074,8 @@ describe('reset', () => {
       decoder.setXmlVersion(1.1);
       decoder.reset();
       // The C0 control surviving is what says the version survived: under 1.0 the same reference is deleted.
-      expect(yield* decoder.decode('a&#x1;b')).toBe('a\u0001b');
+      const hoisted95 = yield* decoder.decode('a&#x1;b');
+      expect(hoisted95).toBe('a\u0001b');
     })
   );
 });
@@ -972,36 +1090,47 @@ describe('preserved upstream quirk: decode returns a non-string argument unchang
 
   it.effect('returns null for null, rather than the string "null"', () =>
     Effect.gen(function* () {
-      expect(yield* decodeValue(yield* EntityDecoder.make(), null)).toBeNull();
+      const madeDecoder301 = yield* EntityDecoder.make();
+      const hoisted96 = yield* decodeValue(madeDecoder301, null);
+      expect(hoisted96).toBeNull();
     })
   );
 
   it.effect('returns undefined for undefined', () =>
     Effect.gen(function* () {
-      expect(yield* decodeValue(yield* EntityDecoder.make(), undefined)).toBeUndefined();
+      const madeDecoder302 = yield* EntityDecoder.make();
+      const hoisted97 = yield* decodeValue(madeDecoder302, undefined);
+      expect(hoisted97).toBeUndefined();
     })
   );
 
   it.effect('returns a number for a number, so a falsy zero is not confused with the string "0"', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decodeValue(decoder, 0)).toBe(0);
-      expect(yield* decodeValue(decoder, 42)).toBe(42);
-      expect(yield* decodeValue(decoder, 0)).not.toBe('0');
+      const hoisted98 = yield* decodeValue(decoder, 0);
+      expect(hoisted98).toBe(0);
+      const hoisted99 = yield* decodeValue(decoder, 42);
+      expect(hoisted99).toBe(42);
+      const hoisted100 = yield* decodeValue(decoder, 0);
+      expect(hoisted100).not.toBe('0');
     })
   );
 
   it.effect('returns an object by identity rather than stringifying it', () =>
     Effect.gen(function* () {
       const value = { a: 1 };
-      expect(yield* decodeValue(yield* EntityDecoder.make(), value)).toBe(value);
+      const madeDecoder303 = yield* EntityDecoder.make();
+      const hoisted101 = yield* decodeValue(madeDecoder303, value);
+      expect(hoisted101).toBe(value);
     })
   );
 
   it.effect('returns an array by identity, so a structured value is not flattened into text', () =>
     Effect.gen(function* () {
       const value = ['1', '2'];
-      expect(yield* decodeValue(yield* EntityDecoder.make(), value)).toBe(value);
+      const madeDecoder304 = yield* EntityDecoder.make();
+      const hoisted102 = yield* decodeValue(madeDecoder304, value);
+      expect(hoisted102).toBe(value);
     })
   );
 
@@ -1010,8 +1139,10 @@ describe('preserved upstream quirk: decode returns a non-string argument unchang
       // A budget of one, spent on nothing yet: the rejected value charged no expansion, or the `&amp;` after
       // it would be the second and would have thrown.
       const decoder = yield* EntityDecoder.make({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
-      expect(yield* decodeValue(decoder, 123)).toBe(123);
-      expect(yield* decoder.decode('&amp;')).toBe('&');
+      const hoisted103 = yield* decodeValue(decoder, 123);
+      expect(hoisted103).toBe(123);
+      const hoisted104 = yield* decoder.decode('&amp;');
+      expect(hoisted104).toBe('&');
     })
   );
 });
@@ -1097,33 +1228,42 @@ describe('preserved upstream quirk: four error messages say EntityReplacer and t
   it.effect('reaches all seven of them, so the assertions below are a census rather than a selection', () =>
     Effect.gen(function* () {
       for (const { label, message } of ERROR_CASES) {
-        expect(yield* message(), `nothing was thrown for ${label}`).not.toBe('(nothing thrown)');
+        const hoisted105 = yield* message();
+        expect(hoisted105, `nothing was thrown for ${label}`).not.toBe('(nothing thrown)');
       }
     })
   );
 
   it('splits four ways to EntityReplacer and three ways to EntityDecoder, and no other way', () => {
-    expect(ERROR_CASES.filter(entry => entry.prefix === '[EntityReplacer]')).toHaveLength(4);
-    expect(ERROR_CASES.filter(entry => entry.prefix === '[EntityDecoder]')).toHaveLength(3);
+    expect(Array.filter(ERROR_CASES, entry => entry.prefix === '[EntityReplacer]')).toHaveLength(4);
+    expect(Array.filter(ERROR_CASES, entry => entry.prefix === '[EntityDecoder]')).toHaveLength(3);
   });
 
   for (const { label, prefix, message } of ERROR_CASES) {
     it.effect(`prefixes the error for ${label} with ${prefix}`, () =>
       Effect.gen(function* () {
-        expect((yield* message()).startsWith(`${prefix} `)).toBe(true);
+        const hoisted106 = yield* message();
+        expect(String.startsWith(`${prefix} `)(hoisted106)).toBe(true);
       })
     );
   }
 
   it.effect('names the offending character, the entity, the codepoint and the counts, because the message is the only record', () =>
     Effect.gen(function* () {
-      expect(yield* ERROR_CASES[0].message()).toBe('[EntityReplacer] Invalid character \'#\' in entity name: "#x"');
-      expect(yield* ERROR_CASES[1].message()).toBe('[EntityReplacer] Invalid character \'&\' in entity name: "a&b"');
-      expect(yield* ERROR_CASES[2].message()).toBe('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
-      expect(yield* ERROR_CASES[3].message()).toBe('[EntityReplacer] Expanded content length limit exceeded: 9 > 1');
-      expect(yield* ERROR_CASES[4].message()).toBe('[EntityDecoder] Registration of external entity "&x;" was rejected by hook');
-      expect(yield* ERROR_CASES[5].message()).toBe('[EntityDecoder] Registration of input entity "&x;" was rejected by hook');
-      expect(yield* ERROR_CASES[6].message()).toBe('[EntityDecoder] Prohibited numeric character reference &#1; (U+0001)');
+      const hoisted107 = yield* ERROR_CASES[0].message();
+      expect(hoisted107).toBe('[EntityReplacer] Invalid character \'#\' in entity name: "#x"');
+      const hoisted108 = yield* ERROR_CASES[1].message();
+      expect(hoisted108).toBe('[EntityReplacer] Invalid character \'&\' in entity name: "a&b"');
+      const hoisted109 = yield* ERROR_CASES[2].message();
+      expect(hoisted109).toBe('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
+      const hoisted110 = yield* ERROR_CASES[3].message();
+      expect(hoisted110).toBe('[EntityReplacer] Expanded content length limit exceeded: 9 > 1');
+      const hoisted111 = yield* ERROR_CASES[4].message();
+      expect(hoisted111).toBe('[EntityDecoder] Registration of external entity "&x;" was rejected by hook');
+      const hoisted112 = yield* ERROR_CASES[5].message();
+      expect(hoisted112).toBe('[EntityDecoder] Registration of input entity "&x;" was rejected by hook');
+      const hoisted113 = yield* ERROR_CASES[6].message();
+      expect(hoisted113).toBe('[EntityDecoder] Prohibited numeric character reference &#1; (U+0001)');
     })
   );
 
@@ -1164,6 +1304,7 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
   };
 
   for (const name of ['', '1abc', 'a b', 'a;b', 'a-b', 'a=b', 'a\nb', 'a#b']) {
+    // oxlint-disable-next-line effecttsgo/global-json -- test names only; stringifying a string cannot throw
     it.effect(`accepts ${JSON.stringify(name)} as an entity name`, () =>
       Effect.gen(function* () {
         const decoder = yield* EntityDecoder.make();
@@ -1172,10 +1313,12 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
     );
   }
 
-  for (const [name, character] of Object.entries(SPECIAL)) {
+  for (const [name, character] of Record.toEntries(SPECIAL)) {
+    // oxlint-disable-next-line effecttsgo/global-json -- test names only; stringifying strings cannot throw
     it.effect(`refuses ${JSON.stringify(name)}, naming ${JSON.stringify(character)}`, () =>
       Effect.gen(function* () {
-        const result = yield* (yield* EntityDecoder.make()).addExternalEntity(name, 'V').pipe(Effect.result);
+        const madeDecoder114 = yield* EntityDecoder.make();
+        const result = yield* madeDecoder114.addExternalEntity(name, 'V').pipe(Effect.result);
         assert(Result.isFailure(result));
         expect(result.failure.message).toContain(`[EntityReplacer] Invalid character '${character}' in entity name: "${name}"`);
       })
@@ -1184,7 +1327,8 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
 
   it.effect('refuses a name beginning with #, positionally rather than by the character sweep', () =>
     Effect.gen(function* () {
-      const result = yield* (yield* EntityDecoder.make()).addExternalEntity('#x', 'V').pipe(Effect.result);
+      const madeDecoder115 = yield* EntityDecoder.make();
+      const result = yield* madeDecoder115.addExternalEntity('#x', 'V').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityReplacer] Invalid character \'#\' in entity name: "#x"');
     })
@@ -1192,7 +1336,8 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
 
   it.effect('accepts a # that is not the first character, because the collision is with a leading one', () =>
     Effect.gen(function* () {
-      yield* (yield* EntityDecoder.make()).addExternalEntity('a#b', 'V');
+      const madeDecoder116 = yield* EntityDecoder.make();
+      yield* madeDecoder116.addExternalEntity('a#b', 'V');
     })
   );
 
@@ -1200,7 +1345,8 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
     Effect.gen(function* () {
       // The validation loop is a separate pass over the keys, and it runs first. A name carrying a special character is refused whether its value is a
       // usable string or a form that would have been discarded unread.
-      const result = yield* (yield* EntityDecoder.make()).addExternalEntity('a<b', 5 as never).pipe(Effect.result);
+      const madeDecoder117 = yield* EntityDecoder.make();
+      const result = yield* madeDecoder117.addExternalEntity('a<b', 5 as never).pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toMatch(/Invalid character '<'/);
     })
@@ -1212,7 +1358,8 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
       // A caller who registered `''` gets a name no document can reference, and no error telling them so.
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ '': 'NOTHING' });
-      expect(yield* decoder.decode('&;')).toBe('&;');
+      const hoisted118 = yield* decoder.decode('&;');
+      expect(hoisted118).toBe('&;');
     })
   );
 
@@ -1221,7 +1368,8 @@ describe('preserved upstream quirk: only a # and the eighteen special characters
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ gone: 'G' });
       yield* decoder.setExternalEntities(null as never);
-      expect(yield* decoder.decode('&gone;')).toBe('&gone;');
+      const hoisted119 = yield* decoder.decode('&gone;');
+      expect(hoisted119).toBe('&gone;');
     })
   );
 });
@@ -1232,20 +1380,22 @@ describe('preserved upstream quirk: a name of exactly 32 characters resolves and
   // The scan for the closing `;` gives up once more than 32 characters have passed since the `&`, so a 32-character name is the longest one a
   // document can reference and a 33-character one is not, even when it is registered and even when its length is the name's entire point.
   // Not endorsed: a caller has no way to learn the bound from the API, and a 33-character name registering without complaint is the misleading half.
-  const THIRTY_TWO = 'a'.repeat(32);
-  const THIRTY_THREE = 'a'.repeat(33);
+  const THIRTY_TWO = String.repeat(32)('a');
+  const THIRTY_THREE = String.repeat(33)('a');
 
   it.effect('resolves a name of exactly 32 characters', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { [THIRTY_TWO]: 'IN-RANGE' } });
-      expect(yield* decoder.decode(`&${THIRTY_TWO};`)).toBe('IN-RANGE');
+      const hoisted120 = yield* decoder.decode(`&${THIRTY_TWO};`);
+      expect(hoisted120).toBe('IN-RANGE');
     })
   );
 
   it.effect('leaves a name of 33 characters as text, even though it is registered', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { [THIRTY_THREE]: 'OUT-OF-RANGE' } });
-      expect(yield* decoder.decode(`&${THIRTY_THREE};`)).toBe(`&${THIRTY_THREE};`);
+      const hoisted121 = yield* decoder.decode(`&${THIRTY_THREE};`);
+      expect(hoisted121).toBe(`&${THIRTY_THREE};`);
     })
   );
 
@@ -1253,7 +1403,8 @@ describe('preserved upstream quirk: a name of exactly 32 characters resolves and
     Effect.gen(function* () {
       // The window is measured from the `&`, not from the name's start, so a shorter registered name inside a longer token does not rescue it.
       const decoder = yield* EntityDecoder.make({ namedEntities: { a: 'A' } });
-      expect(yield* decoder.decode(`&${THIRTY_THREE};`)).toBe(`&${THIRTY_THREE};`);
+      const hoisted122 = yield* decoder.decode(`&${THIRTY_THREE};`);
+      expect(hoisted122).toBe(`&${THIRTY_THREE};`);
     })
   );
 });
@@ -1266,28 +1417,42 @@ describe('preserved upstream quirk: a leading space, a sign, or trailing garbage
   // like hex and is read as a null reference, which is then deleted.
   it.effect('accepts a space between the # and the digits', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('&# 41;')).toBe(')');
+      const madeDecoder224 = yield* EntityDecoder.make();
+      const hoisted123 = yield* madeDecoder224.decode('&# 41;');
+      expect(hoisted123).toBe(')');
     })
   );
 
   it.effect('accepts a plus sign between the # and the digits, in both radixes', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('&#+41;')).toBe(')');
-      expect(yield* (yield* EntityDecoder.make()).decode('&#x+41;')).toBe('A');
+      const madeDecoder225 = yield* EntityDecoder.make();
+      const hoisted124 = yield* madeDecoder225.decode('&#+41;');
+      expect(hoisted124).toBe(')');
+      const madeDecoder226 = yield* EntityDecoder.make();
+      const hoisted125 = yield* madeDecoder226.decode('&#x+41;');
+      expect(hoisted125).toBe('A');
     })
   );
 
   it.effect('accepts trailing garbage after the digits', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('&#41zz;')).toBe(')');
-      expect(yield* (yield* EntityDecoder.make()).decode('&#x41zz;')).toBe('A');
+      const madeDecoder227 = yield* EntityDecoder.make();
+      const hoisted126 = yield* madeDecoder227.decode('&#41zz;');
+      expect(hoisted126).toBe(')');
+      const madeDecoder228 = yield* EntityDecoder.make();
+      const hoisted127 = yield* madeDecoder228.decode('&#x41zz;');
+      expect(hoisted127).toBe('A');
     })
   );
 
   it.effect('accepts leading zeros as padding, in both radixes', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('&#0000041;')).toBe(')');
-      expect(yield* (yield* EntityDecoder.make()).decode('&#x00041;')).toBe('A');
+      const madeDecoder229 = yield* EntityDecoder.make();
+      const hoisted128 = yield* madeDecoder229.decode('&#0000041;');
+      expect(hoisted128).toBe(')');
+      const madeDecoder230 = yield* EntityDecoder.make();
+      const hoisted129 = yield* madeDecoder230.decode('&#x00041;');
+      expect(hoisted129).toBe('A');
     })
   );
 
@@ -1295,20 +1460,25 @@ describe('preserved upstream quirk: a leading space, a sign, or trailing garbage
     Effect.gen(function* () {
       // The asymmetry with `+` is the tell: the sign that makes the number negative is rejected downstream, while the one that does not is accepted by
       // `parseInt` and never questioned.
-      expect(yield* (yield* EntityDecoder.make()).decode('&#-41;')).toBe('&#-41;');
+      const madeDecoder231 = yield* EntityDecoder.make();
+      const hoisted130 = yield* madeDecoder231.decode('&#-41;');
+      expect(hoisted130).toBe('&#-41;');
     })
   );
 
   it.effect('reads a decimal token beginning 0x as a null reference rather than as hex, so &#0x41; decodes to nothing', () =>
     Effect.gen(function* () {
       // `parseInt('0x41', 10)` is 0, not 65, because the radix is fixed by the token's second character. A reader sees U+0041 and gets a deletion.
-      expect(yield* (yield* EntityDecoder.make()).decode('&#0x41;')).toBe('');
+      const madeDecoder232 = yield* EntityDecoder.make();
+      const hoisted131 = yield* madeDecoder232.decode('&#0x41;');
+      expect(hoisted131).toBe('');
     })
   );
 
   it.effect('proves that reading by throwing on the null reference it parsed', () =>
     Effect.gen(function* () {
-      const result = yield* (yield* EntityDecoder.make({ ncr: { nullNCR: 'throw' } })).decode('&#0x41;').pipe(Effect.result);
+      const madeDecoder132 = yield* EntityDecoder.make({ ncr: { nullNCR: 'throw' } });
+      const result = yield* madeDecoder132.decode('&#0x41;').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityDecoder] Prohibited numeric character reference &#0x41; (U+0000)');
     })
@@ -1321,7 +1491,8 @@ describe('preserved upstream quirk: &#999999; is not out of range', () => {
   // reference costs a caller.
   it.effect('decodes to U+F423F, the private-use character at that codepoint', () =>
     Effect.gen(function* () {
-      const decoded = yield* (yield* EntityDecoder.make()).decode('&#999999;');
+      const madeDecoder133 = yield* EntityDecoder.make();
+      const decoded = yield* madeDecoder133.decode('&#999999;');
       expect(codePointsOf(decoded)).toEqual(['F423F']);
     })
   );
@@ -1329,14 +1500,18 @@ describe('preserved upstream quirk: &#999999; is not out of range', () => {
   it.effect('rejects only what is genuinely above the maximum, in both radixes', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('&#1114112;')).toBe('&#1114112;');
-      expect(yield* decoder.decode('&#x110000;')).toBe('&#x110000;');
+      const hoisted134 = yield* decoder.decode('&#1114112;');
+      expect(hoisted134).toBe('&#1114112;');
+      const hoisted135 = yield* decoder.decode('&#x110000;');
+      expect(hoisted135).toBe('&#x110000;');
     })
   );
 
   it.effect('accepts the maximum itself, so the bound is inclusive', () =>
     Effect.gen(function* () {
-      expect(codePointsOf(yield* (yield* EntityDecoder.make()).decode('&#x10FFFF;'))).toEqual(['10FFFF']);
+      const madeDecoder233 = yield* EntityDecoder.make();
+      const hoisted136 = yield* madeDecoder233.decode('&#x10FFFF;');
+      expect(codePointsOf(hoisted136)).toEqual(['10FFFF']);
     })
   );
 });
@@ -1351,7 +1526,8 @@ describe('preserved upstream quirk: only the exact number 1.1 selects XML 1.1', 
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
       setXmlVersionWith(decoder, 1.1);
-      expect(yield* decoder.decode('a&#x1;b')).toBe('a\u0001b');
+      const hoisted137 = yield* decoder.decode('a&#x1;b');
+      expect(hoisted137).toBe('a\u0001b');
     })
   );
 
@@ -1370,7 +1546,8 @@ describe('preserved upstream quirk: only the exact number 1.1 selects XML 1.1', 
         // reads back which version the decoder settled on.
         const decoder = yield* EntityDecoder.make();
         setXmlVersionWith(decoder, value);
-        expect(yield* decoder.decode('a&#x1;b')).toBe('ab');
+        const hoisted138 = yield* decoder.decode('a&#x1;b');
+        expect(hoisted138).toBe('ab');
       })
     );
   }
@@ -1378,11 +1555,14 @@ describe('preserved upstream quirk: only the exact number 1.1 selects XML 1.1', 
   it.effect('is decided per reference, so a decoder can be moved from 1.0 to 1.1 and back', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
-      expect(yield* decoder.decode('a&#x1;b')).toBe('ab');
+      const hoisted139 = yield* decoder.decode('a&#x1;b');
+      expect(hoisted139).toBe('ab');
       setXmlVersionWith(decoder, 1.1);
-      expect(yield* decoder.decode('a&#x1;b')).toBe('a\u0001b');
+      const hoisted140 = yield* decoder.decode('a&#x1;b');
+      expect(hoisted140).toBe('a\u0001b');
       setXmlVersionWith(decoder, 1.0);
-      expect(yield* decoder.decode('a&#x1;b')).toBe('ab');
+      const hoisted141 = yield* decoder.decode('a&#x1;b');
+      expect(hoisted141).toBe('ab');
     })
   );
 });
@@ -1396,21 +1576,26 @@ describe('preserved upstream quirk: a nullNCR weaker than remove is raised to re
   it.effect('clamps allow up to remove', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ ncr: { nullNCR: 'allow' as never } });
-      expect(yield* decoder.decode('a&#0;b')).toBe('ab');
+      const hoisted142 = yield* decoder.decode('a&#0;b');
+      expect(hoisted142).toBe('ab');
     })
   );
 
   it.effect('clamps leave up to remove, with the same result', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ ncr: { nullNCR: 'leave' as never } });
-      expect(yield* decoder.decode('a&#0;b')).toBe('ab');
+      const hoisted143 = yield* decoder.decode('a&#0;b');
+      expect(hoisted143).toBe('ab');
     })
   );
 
   it.effect('keeps remove as remove, and throw as throw', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make({ ncr: { nullNCR: 'remove' } })).decode('a&#0;b')).toBe('ab');
-      const result = yield* (yield* EntityDecoder.make({ ncr: { nullNCR: 'throw' } })).decode('&#0;').pipe(Effect.result);
+      const madeDecoder234 = yield* EntityDecoder.make({ ncr: { nullNCR: 'remove' } });
+      const hoisted144 = yield* madeDecoder234.decode('a&#0;b');
+      expect(hoisted144).toBe('ab');
+      const madeDecoder145 = yield* EntityDecoder.make({ ncr: { nullNCR: 'throw' } });
+      const result = yield* madeDecoder145.decode('&#0;').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toMatch(/U\+0000/);
     })
@@ -1420,7 +1605,8 @@ describe('preserved upstream quirk: a nullNCR weaker than remove is raised to re
     Effect.gen(function* () {
       // `onNCR` is a floor and a range's minimum is taken over it, so the base policy never weakens what a codepoint range requires.
       const decoder = yield* EntityDecoder.make({ ncr: { onNCR: 'leave', nullNCR: 'remove' } });
-      expect(yield* decoder.decode('a&#0;b')).toBe('ab');
+      const hoisted146 = yield* decoder.decode('a&#0;b');
+      expect(hoisted146).toBe('ab');
     })
   );
 });
@@ -1433,7 +1619,9 @@ describe('preserved upstream quirk: the C1 controls and the U+FFFE/U+FFFF noncha
   // This is the widest gap in the port, and it is in the safe direction only if a downstream consumer does its own validation.
   it.effect('decodes U+009F, the top of the C1 range', () =>
     Effect.gen(function* () {
-      expect(codePointsOf(yield* (yield* EntityDecoder.make()).decode('&#x9F;'))).toEqual(['009F']);
+      const madeDecoder235 = yield* EntityDecoder.make();
+      const hoisted147 = yield* madeDecoder235.decode('&#x9F;');
+      expect(codePointsOf(hoisted147)).toEqual(['009F']);
     })
   );
 
@@ -1443,28 +1631,35 @@ describe('preserved upstream quirk: the C1 controls and the U+FFFE/U+FFFF noncha
       const eleven = yield* EntityDecoder.make({ ncr: { xmlVersion: 1.1 } });
       for (let cp = 0x7f; cp <= 0x9f; cp++) {
         const reference = `&#x${cp.toString(16)};`;
-        expect((yield* one.decode(reference)).codePointAt(0)).toBe(cp);
-        expect((yield* eleven.decode(reference)).codePointAt(0)).toBe(cp);
+        const hoisted148 = yield* one.decode(reference);
+        expect(Option.getOrElse(String.codePointAt(0)(hoisted148), () => -1)).toBe(cp);
+        const hoisted149 = yield* eleven.decode(reference);
+        expect(Option.getOrElse(String.codePointAt(0)(hoisted149), () => -1)).toBe(cp);
       }
     })
   );
 
   it.effect('decodes the U+FFFE and U+FFFF noncharacters', () =>
     Effect.gen(function* () {
-      expect(codePointsOf(yield* (yield* EntityDecoder.make()).decode('&#xFFFE;&#xFFFF;'))).toEqual(['FFFE', 'FFFF']);
+      const madeDecoder236 = yield* EntityDecoder.make();
+      const hoisted150 = yield* madeDecoder236.decode('&#xFFFE;&#xFFFF;');
+      expect(codePointsOf(hoisted150)).toEqual(['FFFE', 'FFFF']);
     })
   );
 
   it.effect('decodes U+007F, the bottom of the C1 range, which is DEL', () =>
     Effect.gen(function* () {
-      expect(codePointsOf(yield* (yield* EntityDecoder.make()).decode('&#x7F;'))).toEqual(['007F']);
+      const madeDecoder237 = yield* EntityDecoder.make();
+      const hoisted151 = yield* madeDecoder237.decode('&#x7F;');
+      expect(codePointsOf(hoisted151)).toEqual(['007F']);
     })
   );
 
   it.effect('leaves them in place with numericAllowed off, because nothing classifies them', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ numericAllowed: false });
-      expect(yield* decoder.decode('a&#x9F;b')).toBe('a&#x9F;b');
+      const hoisted152 = yield* decoder.decode('a&#x9F;b');
+      expect(hoisted152).toBe('a&#x9F;b');
     })
   );
 });
@@ -1479,7 +1674,9 @@ describe('preserved upstream quirk: &constructor;, &toString; and &__proto__; ar
   for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
     it.effect(`leaves &${name}; as literal text`, () =>
       Effect.gen(function* () {
-        expect(yield* (yield* EntityDecoder.make()).decode(`&${name};`)).toBe(`&${name};`);
+        const madeDecoder238 = yield* EntityDecoder.make();
+        const hoisted153 = yield* madeDecoder238.decode(`&${name};`);
+        expect(hoisted153).toBe(`&${name};`);
       })
     );
   }
@@ -1488,7 +1685,8 @@ describe('preserved upstream quirk: &constructor;, &toString; and &__proto__; ar
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ constructor: 'C', toString: 'T' });
-      expect(yield* decoder.decode('&constructor;&toString;')).toBe('CT');
+      const hoisted154 = yield* decoder.decode('&constructor;&toString;');
+      expect(hoisted154).toBe('CT');
     })
   );
 
@@ -1498,7 +1696,8 @@ describe('preserved upstream quirk: &constructor;, &toString; and &__proto__; ar
       // makes this a fact about object literals rather than about the decoder.
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ __proto__: 'P' });
-      expect(yield* decoder.decode('&__proto__;')).toBe('&__proto__;');
+      const hoisted155 = yield* decoder.decode('&__proto__;');
+      expect(hoisted155).toBe('&__proto__;');
     })
   );
 
@@ -1510,7 +1709,8 @@ describe('preserved upstream quirk: &constructor;, &toString; and &__proto__; ar
       // back as text, which is what the object-literal test above gets.
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ ['__proto__']: 'P' });
-      expect(yield* decoder.decode('&__proto__;')).toBe('P');
+      const hoisted156 = yield* decoder.decode('&__proto__;');
+      expect(hoisted156).toBe('P');
     })
   );
 });
@@ -1526,7 +1726,8 @@ describe('preserved upstream quirk: a value containing & is stored by two of the
   it.effect('stores and expands a value containing & from the constructor table', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make({ namedEntities: { x: 'a&b' } });
-      expect(yield* decoder.decode('&x;')).toBe('a&b');
+      const hoisted157 = yield* decoder.decode('&x;');
+      expect(hoisted157).toBe('a&b');
     })
   );
 
@@ -1534,7 +1735,8 @@ describe('preserved upstream quirk: a value containing & is stored by two of the
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
       yield* decoder.setExternalEntities({ x: 'a&b' });
-      expect(yield* decoder.decode('&x;')).toBe('a&b');
+      const hoisted158 = yield* decoder.decode('&x;');
+      expect(hoisted158).toBe('a&b');
     })
   );
 
@@ -1542,7 +1744,8 @@ describe('preserved upstream quirk: a value containing & is stored by two of the
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
       yield* decoder.addExternalEntity('x', 'a&b');
-      expect(yield* decoder.decode('&x;')).toBe('&x;');
+      const hoisted159 = yield* decoder.decode('&x;');
+      expect(hoisted159).toBe('&x;');
     })
   );
 
@@ -1551,7 +1754,8 @@ describe('preserved upstream quirk: a value containing & is stored by two of the
       // The hazard the documentation describes is still not reachable, because the value does not expand, but it happens because the output is not re-scanned,
       // not because the value was filtered.
       const decoder = yield* EntityDecoder.make({ namedEntities: { x: '&#38;', amp: '&' } });
-      expect(yield* decoder.decode('&x;')).toBe('&#38;');
+      const hoisted160 = yield* decoder.decode('&x;');
+      expect(hoisted160).toBe('&#38;');
     })
   );
 });
@@ -1567,10 +1771,12 @@ describe('preserved upstream quirk: addInputEntities validates no entity name', 
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make();
       yield* decoder.addInputEntities({ '#a': 'W' });
-      const setResult = yield* (yield* EntityDecoder.make()).setExternalEntities({ '#a': 'W' }).pipe(Effect.result);
+      const madeDecoder161 = yield* EntityDecoder.make();
+      const setResult = yield* madeDecoder161.setExternalEntities({ '#a': 'W' }).pipe(Effect.result);
       assert(Result.isFailure(setResult));
       expect(setResult.failure.message).toMatch(/Invalid character '#'/);
-      const addResult = yield* (yield* EntityDecoder.make()).addExternalEntity('#a', 'W').pipe(Effect.result);
+      const madeDecoder162 = yield* EntityDecoder.make();
+      const addResult = yield* madeDecoder162.addExternalEntity('#a', 'W').pipe(Effect.result);
       assert(Result.isFailure(addResult));
       expect(addResult.failure.message).toMatch(/Invalid character '#'/);
     })
@@ -1590,7 +1796,8 @@ describe('preserved upstream quirk: addInputEntities validates no entity name', 
       // of assertions is the whole contract: registration is silent, and the reference never fires.
       const decoder = yield* EntityDecoder.make();
       yield* decoder.addInputEntities({ '#a': 'W' });
-      expect(yield* decoder.decode('&#a;')).toBe('&#a;');
+      const hoisted163 = yield* decoder.decode('&#a;');
+      expect(hoisted163).toBe('&#a;');
     })
   );
 
@@ -1600,10 +1807,13 @@ describe('preserved upstream quirk: addInputEntities validates no entity name', 
       // resolves into it, so the counters were cleared rather than merely carried.
       const decoder = yield* EntityDecoder.make({ limit: { maxTotalExpansions: 1, applyLimitsTo: 'all' } });
       yield* decoder.addInputEntities({ first: '1' });
-      expect(yield* decoder.decode('&first;')).toBe('1');
+      const hoisted164 = yield* decoder.decode('&first;');
+      expect(hoisted164).toBe('1');
       yield* decoder.addInputEntities({ second: '2' });
-      expect(yield* decoder.decode('&first;')).toBe('&first;');
-      expect(yield* decoder.decode('&second;')).toBe('2');
+      const hoisted165 = yield* decoder.decode('&first;');
+      expect(hoisted165).toBe('&first;');
+      const hoisted166 = yield* decoder.decode('&second;');
+      expect(hoisted166).toBe('2');
       const result = yield* decoder.decode('&second;').pipe(Effect.result);
       assert(Result.isFailure(result));
       expect(result.failure.message).toContain('[EntityReplacer] Entity expansion count limit exceeded: 2 > 1');
@@ -1615,7 +1825,8 @@ describe('preserved upstream quirk: addInputEntities validates no entity name', 
       const decoder = yield* EntityDecoder.make();
       yield* decoder.addInputEntities({ gone: 'G' });
       yield* decoder.addInputEntities(null as never);
-      expect(yield* decoder.decode('&gone;')).toBe('&gone;');
+      const hoisted167 = yield* decoder.decode('&gone;');
+      expect(hoisted167).toBe('&gone;');
     })
   );
 });
@@ -1625,7 +1836,9 @@ describe('preserved upstream quirk: addInputEntities validates no entity name', 
 describe('construction', () => {
   it.effect('needs no options at all', () =>
     Effect.gen(function* () {
-      expect(yield* (yield* EntityDecoder.make()).decode('&amp;')).toBe('&');
+      const madeDecoder239 = yield* EntityDecoder.make();
+      const hoisted168 = yield* madeDecoder239.decode('&amp;');
+      expect(hoisted168).toBe('&');
     })
   );
 
@@ -1649,14 +1862,16 @@ describe('construction', () => {
       // `limit.maxTotalExpansions || 0` in the constructor, so an explicit `undefined` and an absent key land
       // on the same unlimited. Fifty expansions under `applyLimitsTo: 'all'` is what shows no ceiling landed.
       const decoder = yield* EntityDecoder.make(withExplicitUndefined({ limit: { maxTotalExpansions: undefined, applyLimitsTo: 'all' } }));
-      expect(yield* decoder.decode('&amp;'.repeat(50))).toBe('&'.repeat(50));
+      const hoisted169 = yield* decoder.decode(String.repeat(50)('&amp;'));
+      expect(hoisted169).toBe(String.repeat(50)('&'));
     })
   );
 
   it.effect('reads a missing remove or leave list as empty rather than as an error', () =>
     Effect.gen(function* () {
       const decoder = yield* EntityDecoder.make(withExplicitUndefined({ remove: undefined, leave: undefined }));
-      expect(yield* decoder.decode('&amp;')).toBe('&');
+      const hoisted170 = yield* decoder.decode('&amp;');
+      expect(hoisted170).toBe('&');
     })
   );
 
@@ -1665,8 +1880,10 @@ describe('construction', () => {
       // The five XML predefined entities plus the caller's own, and nothing else: every one of the six
       // resolves, and a name that is in no table at all still comes back as text.
       const decoder = yield* EntityDecoder.make({ namedEntities: { brand: 'Acme' } });
-      expect(yield* decoder.decode('&amp;&apos;&lt;&gt;&quot;&brand;')).toBe('&\'<>"Acme');
-      expect(yield* decoder.decode('&nbsp;')).toBe('&nbsp;');
+      const hoisted171 = yield* decoder.decode('&amp;&apos;&lt;&gt;&quot;&brand;');
+      expect(hoisted171).toBe('&\'<>"Acme');
+      const hoisted172 = yield* decoder.decode('&nbsp;');
+      expect(hoisted172).toBe('&nbsp;');
     })
   );
 });

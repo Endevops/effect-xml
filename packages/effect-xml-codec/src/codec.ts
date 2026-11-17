@@ -22,7 +22,7 @@
 // has one, and from the `rootName` option otherwise; it defaults to `'root'`,
 // the same name Effect's own XML encoder uses.
 
-import { Effect, Function, Predicate, Schema, SchemaAST, SchemaIssue, SchemaTransformation } from 'effect';
+import { Array, Effect, Function, Predicate, Schema, SchemaAST, SchemaIssue, SchemaTransformation, String } from 'effect';
 
 import type { NamespacePlan } from './namespaces.ts';
 import type { XmlParseOptions } from './parse.ts';
@@ -66,7 +66,8 @@ const isActivePlan = (plan: NamespacePlan): boolean =>
 const resolveRenderOptions = <S extends Schema.Constraint>(schema: S, plan: NamespacePlan, options: XmlCodecOptions): XmlRenderOptions => {
   const rootName =
     options.rootName ?? plan.rootName ?? SchemaAST.resolveIdentifier(schema.ast) ?? SchemaAST.resolveTitle(schema.ast) ?? DEFAULT_ROOT_NAME;
-  const wireRootName = plan.root !== undefined && plan.root.prefix !== '' && !rootName.includes(':') ? `${plan.root.prefix}:${rootName}` : rootName;
+  const wireRootName =
+    plan.root !== undefined && plan.root.prefix !== '' && !String.includes(':')(rootName) ? `${plan.root.prefix}:${rootName}` : rootName;
   return { ...options, rootName: wireRootName };
 };
 

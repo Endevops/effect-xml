@@ -4,7 +4,7 @@
  * `renderXml` is an `Effect` too but opens no span, and `parseXmlDocument` is left untraced.
  */
 
-import { Effect, Tracer } from 'effect';
+import { Array, Effect, Option, Tracer } from 'effect';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { parseXml } from '#/index.ts';
@@ -38,7 +38,11 @@ const traced = <A, E>(effect: Effect.Effect<A, E>): { readonly spans: ReadonlyAr
  *
  * @returns The span, or `undefined` when the run did not create one under that name.
  */
-const spanNamed = (spans: ReadonlyArray<Tracer.NativeSpan>, name: string): Tracer.NativeSpan | undefined => spans.find(span => span.name === name);
+const spanNamed = (spans: ReadonlyArray<Tracer.NativeSpan>, name: string): Tracer.NativeSpan | undefined =>
+  Option.getOrElse(
+    Array.findFirst(spans, span => span.name === name),
+    () => undefined
+  );
 
 describe('tracing — parseXml()', () => {
   it('creates a span named for the operation', () => {

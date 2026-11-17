@@ -1,7 +1,7 @@
 import type { XmlValue } from '@endevops/effect-codec-xml';
 
 import { parseXml, renderXml, toCodecXml } from '@endevops/effect-codec-xml';
-import { Effect, Schema } from 'effect';
+import { Effect, Schema, String } from 'effect';
 import { describe, test } from 'vite-plus/test';
 
 /**
@@ -35,7 +35,7 @@ const order = {
     { sku: 'SKU-1', qty: 2, price: 199.99 },
     { sku: 'SKU-2', qty: 1, price: 834.58 },
   ],
-} satisfies Schema.Schema.Type<typeof Order>;
+} satisfies typeof Order.Type;
 
 /**
  * @description A document with many rows, which is where per-element and per-character costs stop being noise: anything that scales with the number
@@ -52,10 +52,10 @@ const ROWS = 500;
 /**
  * @description The rows, as one value. Typed against the schema rather than with `satisfies`, so the benchmark cannot drift from the schema it feeds.
  */
-const rows: { row: Array<Schema.Schema.Type<typeof Row>> } = {
+const rows: { row: globalThis.Array<typeof Row.Type> } = {
   row: Array.from({ length: ROWS }, (_, i) => ({
     '@id': `R-${i}`,
-    '@qty': String(i % 7),
+    '@qty': `${i % 7}`,
     sku: `SKU-${i}`,
     name: `Product number ${i}`,
     price: i + 0.5,
@@ -153,7 +153,7 @@ describe('codec', () => {
   test('what escaping costs', async ({ bench }) => {
     // The two rows either side of these are the same render with and without
     // anything to escape, so the difference is the escaping pass itself.
-    const long = 'word '.repeat(4000);
+    const long = String.repeat(4000)('word ');
 
     const renderClean = renderXml(cleanValue, { rootName: 'r' });
     const renderDirty = renderXml(dirtyValue, { rootName: 'r' });

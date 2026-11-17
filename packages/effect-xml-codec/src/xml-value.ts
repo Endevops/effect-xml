@@ -1,4 +1,4 @@
-import { Predicate, Schema } from 'effect';
+import { Array, Predicate, Record, Schema } from 'effect';
 
 /**
  * @description A record of child elements, attributes and character data. A key starting with `@` is an attribute, the reserved `#text` key is
@@ -82,7 +82,7 @@ const everyMemberIs = (members: ReadonlyArray<unknown>, depth: number): boolean 
  */
 const everyFieldIs = (input: object, depth: number): boolean => {
   if (!Predicate.isReadonlyObject(input)) return false;
-  for (const key of Object.keys(input)) {
+  for (const key of Record.keys(input)) {
     if (!check(input[key], depth + 1)) return false;
   }
   return true;

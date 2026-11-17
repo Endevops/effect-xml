@@ -238,7 +238,7 @@ class ClassSchema extends Schema.Struct({
   entry: Schema.Struct({ author: Schema.Struct({ name: Schema.String }).annotate({ xmlNamespace: 'urn:auth', xmlPrefix: 'auth' }) }),
 }).pipe(Schema.annotate({ xmlNamespace: 'http://www.w3.org/2005/Atom', xmlPrefix: 'atom', xmlName: 'feed' }), toCodecXml) {}
 
-class OpaqueClassSchema extends Schema.Opaque<OpaqueClassSchema>()(
+class OpaqueClassSchema extends Schema.Opaque<OpaqueClassSchema, { readonly brand: unique symbol }>()(
   Schema.Struct({
     title: Schema.String,
     entry: Schema.Struct({ author: Schema.Struct({ name: Schema.String }).annotate({ xmlNamespace: 'urn:auth', xmlPrefix: 'auth' }) }),

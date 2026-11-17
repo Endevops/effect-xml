@@ -96,11 +96,11 @@ export const XmlErrorReason = Schema.TaggedUnion({
      * @description The count that tripped the limit. The counter is not reset on failure, so this is the real over-limit total rather than the
      * ceiling.
      */
-    actual: Schema.Number,
+    actual: Schema.Finite,
     /**
      * @description The configured ceiling. The check is `actual > limit`, so a limit of `2` allows two expansions.
      */
-    limit: Schema.Number,
+    limit: Schema.Finite,
   },
 
   /**
@@ -112,11 +112,11 @@ export const XmlErrorReason = Schema.TaggedUnion({
     /**
      * @description The accumulated growth that tripped the limit.
      */
-    actual: Schema.Number,
+    actual: Schema.Finite,
     /**
      * @description The configured ceiling.
      */
-    limit: Schema.Number,
+    limit: Schema.Finite,
   },
 
   /**
@@ -130,7 +130,7 @@ export const XmlErrorReason = Schema.TaggedUnion({
     /**
      * @description The codepoint the reference resolved to, so a log can name the character that was refused.
      */
-    codepoint: Schema.Number,
+    codepoint: Schema.Finite,
   },
 });
 
@@ -155,7 +155,7 @@ export type XmlErrorReason = typeof XmlErrorReason.Type;
  *   });
  *   ```;
  */
-export class XmlError extends Schema.TaggedError<XmlError>()('XmlError', {
+export class XmlError extends Schema.TaggedError<XmlError, { readonly brand: unique symbol }>()('XmlError', {
   /**
    * @description The specific cause. Narrow on `_tag`, or recover with `Effect.catchReason`.
    */

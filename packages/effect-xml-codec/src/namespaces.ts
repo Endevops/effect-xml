@@ -37,7 +37,7 @@
 
 import type { Schema } from 'effect';
 
-import { Predicate, SchemaAST } from 'effect';
+import { Array, Function, Option, Predicate, Record, SchemaAST, String } from 'effect';
 
 import type { XmlRecord, XmlValue } from './xml-value.ts';
 
@@ -293,7 +293,7 @@ const isValueProperty = (ast: SchemaAST.AST): boolean => keyValueOf(ast) || valu
  *
  * @returns The local name.
  */
-const localName = (key: string): string => (isAttributeKey(key) ? key.slice(ATTRIBUTE_PREFIX.length) : key);
+const localName = (key: string): string => (isAttributeKey(key) ? String.slice(ATTRIBUTE_PREFIX.length)(key) : key);
 
 /**
  * @description The path of the root element. A plan is keyed by the path of the element a field belongs to, so the same name nested differently stays
@@ -324,8 +324,8 @@ const childPath = (parent: string, key: string): string => (parent === ROOT_ELEM
  * @returns The schema key of the element itself.
  */
 const pathKey = (path: string): string => {
-  const at = path.lastIndexOf(PATH_SEPARATOR);
-  return at === -1 ? path : path.slice(at + 1);
+  const at = Option.getOrElse(String.lastIndexOf(PATH_SEPARATOR)(path), () => -1);
+  return at === -1 ? path : String.slice(at + 1)(path);
 };
 
 /**
@@ -369,8 +369,8 @@ const resolvedKey = (isAttribute: boolean, uri: string | undefined, local: strin
  * @returns The parent element's path, or the root sentinel.
  */
 const parentPath = (path: string): string => {
-  const at = path.lastIndexOf(PATH_SEPARATOR);
-  return at === -1 ? ROOT_ELEMENT : path.slice(0, at);
+  const at = Option.getOrElse(String.lastIndexOf(PATH_SEPARATOR)(path), () => -1);
+  return at === -1 ? ROOT_ELEMENT : String.slice(0, at)(path);
 };
 
 /**
@@ -434,7 +434,7 @@ const record = (scan: Scan, path: string, namespace: XmlNamespace | undefined): 
 const recordName = (scan: Scan, path: string, name: string | undefined): void => {
   if (Predicate.isUndefined(name)) return;
 
-  if (name.includes(':')) {
+  if (String.includes(':')(name)) {
     scan.problems.push(`xmlName "${name}" on "${pathKey(path)}" must be a local name; use xmlPrefix for the prefix`);
   } else {
     scan.nameByKey.set(path, name);
@@ -459,7 +459,7 @@ const recordFieldNamespace = (
   inherited: XmlNamespace | undefined
 ): void => {
   const key = pathKey(path);
-  if (Predicate.isNotUndefined(field) && key.includes(':')) {
+  if (Predicate.isNotUndefined(field) && String.includes(':')(key)) {
     scan.problems.push(`"${key}" already carries a prefix, so it cannot also carry a namespace annotation`);
   } else if (isAttribute && Predicate.isNotUndefined(field) && field.prefix === '') {
     scan.problems.push(`the attribute "${key}" needs xmlPrefix, because a default namespace does not apply to attributes`);
@@ -538,7 +538,7 @@ const recordValue = (
  * @param elementPath - The path of the element the property belongs to, or the root sentinel.
  */
 const scanProperty = (scan: Scan, property: SchemaAST.PropertySignature, inherited: XmlNamespace | undefined, elementPath: string): void => {
-  const key = Predicate.isString(property.name) ? property.name : String(property.name);
+  const key = Predicate.isString(property.name) ? property.name : globalThis.String(property.name);
   const path = childPath(elementPath, key);
   const isAttribute = isAttributeProperty(key, property.type);
   const isValue = isValueProperty(property.type);
@@ -671,7 +671,7 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
   }
 
   if (scan.problems.length > 0) {
-    return { error: [...new Set(scan.problems)].join(';\n\t- ') };
+    return { error: Array.join(';\n\t- ')([...new Set(scan.problems)]) };
   }
 
   return {
@@ -695,7 +695,7 @@ export const namespacePlan = (schema: Schema.Constraint): { readonly plan: Names
  *
  * @returns Whether the key is a declaration.
  */
-const isDeclarationKey = (key: string): boolean => key === `${ATTRIBUTE_PREFIX}xmlns` || key.startsWith(`${ATTRIBUTE_PREFIX}xmlns:`);
+const isDeclarationKey = (key: string): boolean => key === `${ATTRIBUTE_PREFIX}xmlns` || String.startsWith(`${ATTRIBUTE_PREFIX}xmlns:`)(key);
 
 /**
  * @description The prefix a declaration key carries, or `''` for the default namespace.
@@ -704,7 +704,7 @@ const isDeclarationKey = (key: string): boolean => key === `${ATTRIBUTE_PREFIX}x
  *
  * @returns The prefix.
  */
-const declarationPrefix = (key: string): string => (key === `${ATTRIBUTE_PREFIX}xmlns` ? '' : key.slice(`${ATTRIBUTE_PREFIX}xmlns:`.length));
+const declarationPrefix = (key: string): string => (key === `${ATTRIBUTE_PREFIX}xmlns` ? '' : String.slice(`${ATTRIBUTE_PREFIX}xmlns:`.length)(key));
 
 /**
  * @description Writes the declaration for a namespace into an element's record, when the scope does not already bind it. A prefixed namespace is
@@ -775,7 +775,7 @@ const encodeFields = (
   elementPath: string
 ): void => {
   const valueKey = plan.valueByElement.get(elementPath);
-  for (const [key, child] of Object.entries(value)) {
+  for (const [key, child] of Record.toEntries(value)) {
     if (isDeclarationKey(key)) {
       continue;
     }
@@ -811,36 +811,54 @@ const encodeFields = (
  *
  * @returns The wire tree.
  */
-export const encodeNames = (
-  value: XmlValue,
-  plan: NamespacePlan,
-  namespace: XmlNamespace | undefined,
-  scope: Record<string, string | undefined>,
-  elementPath: string
-): XmlValue => {
-  if (Array.isArray(value)) {
-    return value.map(member => encodeNames(member, plan, namespace, scope, elementPath));
-  }
+export const encodeNames: {
+  (
+    value: XmlValue,
+    plan: NamespacePlan,
+    namespace: XmlNamespace | undefined,
+    scope: Record<string, string | undefined>,
+    elementPath: string
+  ): XmlValue;
+  (
+    plan: NamespacePlan,
+    namespace: XmlNamespace | undefined,
+    scope: Record<string, string | undefined>,
+    elementPath: string
+  ): (value: XmlValue) => XmlValue;
+} = Function.dual(
+  // The data-first form takes five arguments, the curried form four, so the arity is the discriminator.
+  5,
+  (
+    value: XmlValue,
+    plan: NamespacePlan,
+    namespace: XmlNamespace | undefined,
+    scope: Record<string, string | undefined>,
+    elementPath: string
+  ): XmlValue => {
+    if (Array.isArray(value)) {
+      return Array.map((member: XmlValue) => encodeNames(member, plan, namespace, scope, elementPath))(value);
+    }
 
-  const out: Record<string, XmlValue> = {};
-  const inner = { ...scope };
-  declare(out, inner, namespace);
+    const out: Record<string, XmlValue> = {};
+    const inner = { ...scope };
+    declare(out, inner, namespace);
 
-  if (Predicate.isUndefined(value)) {
-    return undefined;
-  }
-  if (Predicate.isString(value)) {
-    return Object.keys(out).length > 0 ? { ...out, [TEXT_KEY]: value } : value;
-  }
-  // `Predicate.isObject` narrows to a generic index signature, so the value
-  // tree's own record type is named here.
-  if (!Predicate.isObject(value)) {
-    return value;
-  }
+    if (Predicate.isUndefined(value)) {
+      return undefined;
+    }
+    if (Predicate.isString(value)) {
+      return Record.keys(out).length > 0 ? { ...out, [TEXT_KEY]: value } : value;
+    }
+    // `Predicate.isObject` narrows to a generic index signature, so the value
+    // tree's own record type is named here.
+    if (!Predicate.isObject(value)) {
+      return value;
+    }
 
-  encodeFields(value as XmlRecord, plan, out, inner, elementPath);
-  return out;
-};
+    encodeFields(value as XmlRecord, plan, out, inner, elementPath);
+    return out;
+  }
+);
 
 /**
  * @description Resolves a wire name to its URI and local name against the in-scope bindings. An unprefixed element takes the default namespace; an
@@ -857,9 +875,9 @@ const resolveName = (
   isAttribute: boolean,
   scope: Record<string, string | undefined>
 ): { readonly uri: string | undefined; readonly local: string } => {
-  const colon = name.indexOf(':');
+  const colon = Option.getOrElse(String.indexOf(':')(name), () => -1);
   if (colon === -1) return { uri: isAttribute ? undefined : scope[''], local: name };
-  return { uri: scope[name.slice(0, colon)], local: name.slice(colon + 1) };
+  return { uri: scope[String.slice(0, colon)(name)], local: String.slice(colon + 1)(name) };
 };
 
 /**
@@ -873,7 +891,7 @@ const resolveName = (
 const scopeOf = (value: XmlRecord, scope: Record<string, string | undefined>): Record<string, string | undefined> => {
   const inner = { ...scope };
 
-  for (const [key, declaration] of Object.entries(value)) {
+  for (const [key, declaration] of Record.toEntries(value)) {
     if (isDeclarationKey(key) && Predicate.isString(declaration)) {
       inner[declarationPrefix(key)] = declaration;
     }
@@ -911,7 +929,8 @@ const schemaKey = (plan: NamespacePlan, parent: string, key: string, scope: Reco
  */
 const childScopeOf = (child: XmlValue, scope: Record<string, string | undefined>): Record<string, string | undefined> => {
   if (Array.isArray(child)) {
-    return child.length > 0 ? childScopeOf(child[0], scope) : scope;
+    // Effect's `Array.isArray` narrows the elements to `unknown`, and the members of an `XmlValue` array are `XmlValue` by construction.
+    return child.length > 0 ? childScopeOf(child[0] as XmlValue, scope) : scope;
   }
   return Predicate.isObject(child) ? scopeOf(child as XmlRecord, scope) : scope;
 };
@@ -948,7 +967,7 @@ const decodeRecord = (record: XmlRecord, plan: NamespacePlan, scope: Record<stri
   const valueKey = plan.valueByElement.get(elementPath);
   const out: Record<string, XmlValue> = {};
 
-  for (const [key, child] of Object.entries(record)) {
+  for (const [key, child] of Record.toEntries(record)) {
     if (isDeclarationKey(key)) {
       continue;
     }
@@ -964,7 +983,7 @@ const decodeRecord = (record: XmlRecord, plan: NamespacePlan, scope: Record<stri
     out[childKey] = plan.arrayKeys.has(path) && !Array.isArray(decoded) ? [decoded] : decoded;
   }
 
-  const keys = Object.keys(out);
+  const keys = Record.keys(out);
   if (keys.length === 1 && keys[0] === TEXT_KEY) {
     return out[TEXT_KEY];
   }
@@ -983,15 +1002,22 @@ const decodeRecord = (record: XmlRecord, plan: NamespacePlan, scope: Record<stri
  *
  * @returns The value tree, keyed by the schema's names.
  */
-export const decodeNames = (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>, elementPath: string): XmlValue => {
-  if (Array.isArray(value)) {
-    return value.map(member => decodeNames(member, plan, scope, elementPath));
+export const decodeNames: {
+  (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>, elementPath: string): XmlValue;
+  (plan: NamespacePlan, scope: Record<string, string | undefined>, elementPath: string): (value: XmlValue) => XmlValue;
+} = Function.dual(
+  // The data-first form takes four arguments, the curried form three, so the arity is the discriminator.
+  4,
+  (value: XmlValue, plan: NamespacePlan, scope: Record<string, string | undefined>, elementPath: string): XmlValue => {
+    if (Array.isArray(value)) {
+      return Array.map((member: XmlValue) => decodeNames(member, plan, scope, elementPath))(value);
+    }
+    if (Predicate.isString(value)) {
+      return decodeText(value, plan, elementPath);
+    }
+    if (!Predicate.isObject(value)) {
+      return value;
+    }
+    return decodeRecord(value as XmlRecord, plan, scope, elementPath);
   }
-  if (Predicate.isString(value)) {
-    return decodeText(value, plan, elementPath);
-  }
-  if (!Predicate.isObject(value)) {
-    return value;
-  }
-  return decodeRecord(value as XmlRecord, plan, scope, elementPath);
-};
+);

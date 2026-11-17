@@ -1,4 +1,4 @@
-import { recommended } from '@effect/tsgo/oxlint-presets';
+import { recommended, strict, style, effectNative } from '@effect/tsgo/oxlint-presets';
 import { defineConfig } from 'vite-plus';
 
 // Workspace-root toolchain configuration.
@@ -55,14 +55,21 @@ export default defineConfig({
   lint: {
     categories: { correctness: 'error' },
     env: { browser: true, builtin: true, node: true, vitest: true },
-    extends: [recommended],
+    extends: [recommended, strict, style, effectNative],
     ignorePatterns: ['**/dist', '**/node_modules', '**/coverage'],
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
     options: { reportUnusedDisableDirectives: 'warn', typeAware: true },
     overrides: [
       { files: ['vite.config.ts'], rules: { 'sort-keys': ['error', 'asc', { minKeys: 5, natural: true, caseSensitive: true }] } },
-      { files: ['scripts/**/*.{mjs,js,ts,mts}'], rules: { 'effecttsgo/node-builtin-import': 'off' } },
+      // The release scripts are plain Node and must not import Effect, so the rules that ask for
+      // an Effect API over a native one do not apply to them.
+      {
+        files: ['scripts/**/*.{mjs,js,ts,mts}', '*.mjs'],
+        rules: { 'effecttsgo/global-json': 'off', 'effecttsgo/node-builtin-import': 'off', 'effecttsgo/prefer-effect-string': 'off' },
+      },
       { files: ['**/*.bench.ts'], rules: { 'vitest/expect-expect': 'off' } },
+      // `@effect/vitest` is marked unstable, and the specs assert on the sync schema API on purpose.
+      { files: ['**/*.{spec,bench}.ts'], rules: { 'effecttsgo/schema-sync': 'off', 'effecttsgo/unstable-api-usage': 'off' } },
     ],
     plugins: ['oxc', 'typescript', 'unicorn', 'import', 'vitest', 'node', 'promise'],
     rules: {

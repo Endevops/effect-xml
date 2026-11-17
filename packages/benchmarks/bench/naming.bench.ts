@@ -16,13 +16,14 @@
 import type { Production, ValidationOptions } from '@endevops/effect-codec-xml';
 
 import { isName, isNcName, isNmToken, isNmTokens, isQName } from '@endevops/effect-codec-xml';
+import { Array, Record, String } from 'effect';
 import { test } from 'vite-plus/test';
 
 /**
  * @description The five predicates, keyed by production so the grid below can iterate them. Each is a plain synchronous function — a regex test
  * cannot fail — and the benchmark bodies call it directly, so the number reported is what a caller actually pays rather than an Effect's allocation.
  */
-const VALIDATORS: Record<Production, (input: string, options?: ValidationOptions) => boolean> = {
+const VALIDATORS: globalThis.Record<Production, (input: string, options?: ValidationOptions) => boolean> = {
   name: isName,
   ncName: isNcName,
   qName: isQName,
@@ -55,14 +56,14 @@ const CASES = {
   'ASCII invalid (starts with -)': '-bar',
   'Unicode valid short': 'élément',
   'Unicode invalid (combining start)': '\u0300abc',
-  'ASCII long (1000 chars)': 'a'.repeat(1000),
-  'Unicode long (1000 chars)': 'é'.repeat(1000),
-} as const satisfies Record<string, string>;
+  'ASCII long (1000 chars)': String.repeat(1000)('a'),
+  'Unicode long (1000 chars)': String.repeat(1000)('é'),
+} as const satisfies globalThis.Record<string, string>;
 
 /**
  * @description {@link CASES} as a list, for the benchmarks that validate every input in one go.
  */
-const INPUTS: ReadonlyArray<string> = Object.values(CASES);
+const INPUTS: ReadonlyArray<string> = Record.values(CASES);
 
 /**
  * @description How long to sample the benchmarks in one group, in milliseconds, and how long to warm them up first. The validators run in well under
@@ -86,7 +87,7 @@ for (const { label, options } of OPTION_SETS) {
   test(label, async ({ bench }) => {
     // One registration per production. The validator is bound before the body
     // runs rather than read inside it — see `validatorFor`.
-    const measurements = PRODUCTIONS.map(production => {
+    const measurements = Array.map(PRODUCTIONS, production => {
       const validate = validatorFor(production);
 
       return bench(production, () => {
@@ -105,8 +106,8 @@ for (const { label, options } of OPTION_SETS) {
 test('input shape — name production', async ({ bench }) => {
   const validate = validatorFor('name');
 
-  const measurements = Object.entries(CASES).flatMap(([caseLabel, input]) =>
-    [false, true].map(asciiOnly =>
+  const measurements = Array.flatMap(Record.toEntries(CASES), ([caseLabel, input]) =>
+    Array.map([false, true], asciiOnly =>
       bench(`${caseLabel} / asciiOnly=${asciiOnly}`, () => {
         validate(input, { xmlVersion: '1.0', asciiOnly });
       })

@@ -2,7 +2,7 @@
 
 import { toCodecXml } from '@endevops/effect-codec-xml';
 import { XMLParser as NodableXMLParser } from '@nodable/flexible-xml-parser';
-import { Effect, Schema } from 'effect';
+import { Effect, Schema, String } from 'effect';
 import UpstreamXMLBuilder from 'fast-xml-builder';
 import { XMLParser as UpstreamXMLParser } from 'fast-xml-parser';
 import { describe, expect, test } from 'vite-plus/test';
@@ -31,7 +31,7 @@ const order = {
     { '@sku': 'S1', sku: 'SKU-1', qty: 2, price: 19.99 },
     { '@sku': 'S2', sku: 'SKU-2', qty: 1, price: 834.58 },
   ],
-} satisfies Schema.Schema.Type<typeof Order>;
+} satisfies typeof Order.Type;
 const ROOT = 'order';
 const ROWS = 500;
 const Row = Schema.Struct({ '@id': Schema.String, '@qty': Schema.String, sku: Schema.String, name: Schema.String, price: Schema.Number });
@@ -39,16 +39,16 @@ const Report = toCodecXml(Schema.Struct({ row: Schema.Array(Row) }), { rootName:
 const report = {
   row: Array.from({ length: ROWS }, (_, i) => ({
     '@id': `R-${i}`,
-    '@qty': String(i % 7),
+    '@qty': `${i % 7}`,
     sku: `SKU-${i}`,
     name: `Product number ${i}`,
     price: i + 0.5,
   })),
-} satisfies Schema.Schema.Type<typeof Report>;
+} satisfies typeof Report.Type;
 const REPORT_ROOT = 'report';
 const Note = toCodecXml(Schema.Struct({ body: Schema.String }), { rootName: 'note' });
-const NOTE = `${'lorem ipsum dolor sit amet '.repeat(700)}& <tag> "quoted"`;
-const note = { body: NOTE } satisfies Schema.Schema.Type<typeof Note>;
+const NOTE = `${String.repeat(700)('lorem ipsum dolor sit amet ')}& <tag> "quoted"`;
+const note = { body: NOTE } satisfies typeof Note.Type;
 const NOTE_ROOT = 'note';
 const ATOM = 'http://www.w3.org/2005/Atom';
 const META = 'urn:meta';
@@ -69,7 +69,7 @@ const feed = {
     { title: 'First entry', link: { '@href': 'https://example.com/1' } },
     { title: 'Second entry', link: { '@href': 'https://example.com/2' } },
   ],
-} satisfies Schema.Schema.Type<typeof Feed>;
+} satisfies typeof Feed.Type;
 const FEED_ROOT = 'feed';
 
 /**

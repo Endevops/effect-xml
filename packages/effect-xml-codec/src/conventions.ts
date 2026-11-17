@@ -1,4 +1,4 @@
-import { Effect, Predicate, Result } from 'effect';
+import { Effect, Function, Predicate, Result, String } from 'effect';
 
 import type { XmlVersion } from './naming.ts';
 
@@ -57,7 +57,7 @@ export interface ResolveNameOptions {
  *
  * @returns Whether the key carries the {@link ATTRIBUTE_PREFIX}.
  */
-export const isAttributeKey = (key: string): boolean => key.charCodeAt(0) === 64 && key.length > 1;
+export const isAttributeKey = (key: string): boolean => String.startsWith(ATTRIBUTE_PREFIX)(key) && key.length > 1;
 
 /**
  * @description The attribute name a record key stands for: `@xmlns` becomes `xmlns`.
@@ -66,7 +66,7 @@ export const isAttributeKey = (key: string): boolean => key.charCodeAt(0) === 64
  *
  * @returns The name with the prefix removed.
  */
-export const attributeName = (key: string): string => key.slice(1);
+export const attributeName = (key: string): string => String.slice(1)(key);
 
 /**
  * @description Whether a record key holds character data rather than a child element or an attribute.
@@ -98,17 +98,23 @@ export const isReservedKey = (key: string): boolean => isTextKey(key);
  *
  * @throws {XmlParseError} When the name is illegal and the mode is `'error'`.
  */
-export const resolveNameSync = (name: string, { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}): string => {
-  if (isQName(name, { xmlVersion })) return name;
-  if (mode === 'ignore') return name;
-  if (mode === 'repair') return sanitize(name, 'name', { replacement: '_' });
+export const resolveNameSync: { (name: string, options?: ResolveNameOptions): string; (options?: ResolveNameOptions): (name: string) => string } =
+  Function.dual(
+    // A string in the first position is the name, never an options object.
+    args => typeof args[0] === 'string',
+    (name: string, { mode = 'repair', xmlVersion = '1.0' }: ResolveNameOptions = {}): string => {
+      if (isQName(name, { xmlVersion })) return name;
+      if (mode === 'ignore') return name;
+      if (mode === 'repair') return sanitize(name, 'name', { replacement: '_' });
 
-  // `validate` only fails for an unknown production, which `'qName'` is not, so
-  // this runs a plain result and the failure is the reason the name is refused.
-  const result = Effect.runSync(validate(name, 'qName', { xmlVersion }));
-  const reason = !result.valid ? result.reason : 'is not a legal XML name';
-  throw new XmlParseError({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
-};
+      // `validate` only fails for an unknown production, which `'qName'` is not, so
+      // this runs a plain result and the failure is the reason the name is refused.
+      const result = Effect.runSync(validate(name, 'qName', { xmlVersion }));
+      const reason = !result.valid ? result.reason : 'is not a legal XML name';
+      // oxlint-disable-next-line effecttsgo/global-json -- the message format quotes the name; a plain interpolation would change the reported text
+      throw XmlParseError.make({ message: `Invalid XML name ${JSON.stringify(name)}: ${reason}`, position: -1, input: name });
+    }
+  );
 
 /**
  * @description {@link resolveNameSync} with the thrown failure folded into a {@link Result}, so an effectful caller can carry it in a typed channel
@@ -126,7 +132,9 @@ const resolveNameResult = (name: string, options: ResolveNameOptions): Result.Re
     if (cause instanceof XmlParseError) {
       return Result.fail(cause);
     }
-    return Result.fail(new XmlParseError({ message: Predicate.isError(cause) ? cause.message : String(cause), position: -1, input: name }));
+    return Result.fail(
+      XmlParseError.make({ message: Predicate.isError(cause) ? cause.message : globalThis.String(cause), position: -1, input: name })
+    );
   }
 };
 
@@ -141,5 +149,12 @@ const resolveNameResult = (name: string, options: ResolveNameOptions): Result.Re
  *
  * @returns An effect producing the name to write, unchanged when it was already legal.
  */
-export const resolveName = (name: string, options: ResolveNameOptions = {}): Effect.Effect<string, XmlParseError> =>
-  Effect.suspend(() => Effect.fromResult(resolveNameResult(name, options)));
+export const resolveName: {
+  (name: string, options?: ResolveNameOptions): Effect.Effect<string, XmlParseError>;
+  (options?: ResolveNameOptions): (name: string) => Effect.Effect<string, XmlParseError>;
+} = Function.dual(
+  // A string in the first position is the name, never an options object.
+  args => typeof args[0] === 'string',
+  (name: string, options: ResolveNameOptions = {}): Effect.Effect<string, XmlParseError> =>
+    Effect.suspend(() => Effect.fromResult(resolveNameResult(name, options)))
+);

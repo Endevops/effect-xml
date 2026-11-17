@@ -1,4 +1,4 @@
-import { Effect, Predicate, Result } from 'effect';
+import { Array, Effect, Function, Option, Predicate, Result, String } from 'effect';
 
 import type { NameMode } from './conventions.ts';
 import type { XmlVersion } from './naming.ts';
@@ -82,11 +82,18 @@ export interface XmlParseOptions {
  *
  * @returns An effect producing the root element's content as an {@link XmlValue}.
  */
-export const parseXml = (text: string, options: XmlParseOptions = {}): Effect.Effect<XmlValue, XmlParseError> =>
-  Effect.suspend(() => Effect.fromResult(parseDocumentResult(text, options))).pipe(
-    Effect.map(document => document.value),
-    Effect.withSpan('XmlCodec.parseXml', { attributes: { 'xml.length': text.length } })
-  );
+export const parseXml: {
+  (text: string, options?: XmlParseOptions): Effect.Effect<XmlValue, XmlParseError>;
+  (options?: XmlParseOptions): (text: string) => Effect.Effect<XmlValue, XmlParseError>;
+} = Function.dual(
+  // A string in the first position is the document, never an options object.
+  args => typeof args[0] === 'string',
+  (text: string, options: XmlParseOptions = {}): Effect.Effect<XmlValue, XmlParseError> =>
+    Effect.suspend(() => Effect.fromResult(parseDocumentResult(text, options))).pipe(
+      Effect.map(document => document.value),
+      Effect.withSpan('XmlCodec.parseXml', { attributes: { 'xml.length': text.length } })
+    )
+);
 
 /**
  * @description Parses an XML document, keeping the root element's name. This is the synchronous form of {@link parseXml}: it runs the same walk and
@@ -101,7 +108,14 @@ export const parseXml = (text: string, options: XmlParseOptions = {}): Effect.Ef
  *
  * @throws {XmlParseError} When the document is not well-formed.
  */
-export const parseXmlDocument = (text: string, options: XmlParseOptions = {}): XmlDocument => parseDocument(text, options);
+export const parseXmlDocument: {
+  (text: string, options?: XmlParseOptions): XmlDocument;
+  (options?: XmlParseOptions): (text: string) => XmlDocument;
+} = Function.dual(
+  // A string in the first position is the document, never an options object.
+  args => typeof args[0] === 'string',
+  (text: string, options: XmlParseOptions = {}): XmlDocument => parseDocument(text, options)
+);
 
 /**
  * @description Options every parse call needs, with the defaults already applied.
@@ -229,8 +243,8 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     try {
       name = resolveNameSync(raw, nameOptions);
     } catch (failure) {
-      const reason = Predicate.isError(failure) ? failure.message : String(failure);
-      throw new XmlParseError({ message: `${what} ${JSON.stringify(raw)} is not a legal XML name: ${reason}`, position, input: text });
+      const reason = Predicate.isError(failure) ? failure.message : globalThis.String(failure);
+      throw XmlParseError.make({ message: `${what} "${raw}" is not a legal XML name: ${reason}`, position, input: text });
     }
 
     nameCache.set(raw, name);
@@ -241,8 +255,9 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    * @description Reads to the end of a `<!-- -->`, `<? ?>` or `<!DOCTYPE >` construct, and reports the one past its last character.
    */
   const skipUntil = (marker: string, start: number, what: string): number => {
+    // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Effect's indexOf takes no position argument; this resume-from-offset scan is the whole point of skipUntil
     const end = text.indexOf(marker, start);
-    if (end === -1) throw new XmlParseError({ message: `Unterminated ${what}`, position: start, input: text });
+    if (end === -1) throw XmlParseError.make({ message: `Unterminated ${what}`, position: start, input: text });
     return end + marker.length;
   };
 
@@ -254,7 +269,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
       else if (char === ']') depth--;
       else if (char === '>' && depth <= 0) return i + 1;
     }
-    throw new XmlParseError({ message: 'Unterminated DOCTYPE declaration', position: start, input: text });
+    throw XmlParseError.make({ message: 'Unterminated DOCTYPE declaration', position: start, input: text });
   };
 
   /**
@@ -263,6 +278,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    */
   const skipMisc = (): void => {
     for (;;) {
+      // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-character loop, Option allocation on the hot path
       while (at < text.length && isWhitespace(text.charCodeAt(at))) {
         at++;
       }
@@ -271,15 +287,15 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
         return; // whitespace ran to the end of the document: consumed, and that is the end
       }
 
-      if (text.charCodeAt(at) !== LT) {
+      if (Option.getOrElse(String.charCodeAt(text, at), () => -1) !== LT) {
         return; // real content: leave the cursor on it for the caller
       }
 
-      if (text.startsWith('<!--', at)) {
+      if (String.startsWith('<!--', at)(text)) {
         at = skipUntil('-->', at + 4, 'comment');
-      } else if (text.startsWith('<?', at)) {
+      } else if (String.startsWith('<?', at)(text)) {
         at = skipUntil('?>', at + 2, 'processing instruction');
-      } else if (text.startsWith('<!DOCTYPE', at)) {
+      } else if (String.startsWith('<!DOCTYPE', at)(text)) {
         at = skipDoctype(at);
       } else {
         return; // the start of the root element, or of a closing tag
@@ -293,6 +309,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   const readName = (what: string): string => {
     const start = at;
     while (at < text.length) {
+      // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-character loop, Option allocation on the hot path
       const char = text.charCodeAt(at);
       // Whitespace, `/`, `=` and `>` all end a name. Stopping on `/` and `>` lets `<a/>` and `<a>` share one loop.
       if (isWhitespace(char) || char === SLASH || char === EQUALS || char === GT) {
@@ -301,9 +318,9 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
       at++;
     }
     if (at === start) {
-      throw new XmlParseError({ message: `Expected a ${what}`, position: start, input: text });
+      throw XmlParseError.make({ message: `Expected a ${what}`, position: start, input: text });
     }
-    return text.slice(start, at);
+    return String.slice(start, at)(text);
   };
 
   /**
@@ -323,6 +340,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   const skipSpaces = (): void => {
+    // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-character loop, Option allocation on the hot path
     while (at < text.length && isWhitespace(text.charCodeAt(at))) at++;
   };
 
@@ -332,18 +350,19 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     // which the guard establishes; the `?? ''` is unreachable and exists only to
     // keep the type of the index lookup a `string`.
     if (quote !== '"' && quote !== "'") {
-      throw new XmlParseError({ message: `Attribute "${name}" has no quoted value`, position: nameStart, input: text });
+      throw XmlParseError.make({ message: `Attribute "${name}" has no quoted value`, position: nameStart, input: text });
     }
 
     at++;
 
+    // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Effect's indexOf takes no position argument; the scan must resume after the opening quote
     const end = text.indexOf(quote ?? '', at);
     // A raw quote cannot appear inside a quoted value (it would have to be written `&quot;`), so the next quote of the same kind always closes it.
     if (end === -1) {
-      throw new XmlParseError({ message: `Unterminated value for attribute "${name}"`, position: at, input: text });
+      throw XmlParseError.make({ message: `Unterminated value for attribute "${name}"`, position: at, input: text });
     }
 
-    const raw = text.slice(at, end);
+    const raw = String.slice(at, end)(text);
     at = end + 1;
 
     return decodeEntities(raw);
@@ -357,19 +376,20 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     let hasAttributes = false;
     for (;;) {
       skipSpaces();
-      if (at >= text.length) throw new XmlParseError({ message: 'Unterminated start tag', position: at, input: text });
-      if (text.charCodeAt(at) === GT) {
+      if (at >= text.length) throw XmlParseError.make({ message: 'Unterminated start tag', position: at, input: text });
+      if (Option.getOrElse(String.charCodeAt(text, at), () => -1) === GT) {
         at++;
         return { record, selfClosing: false, hasAttributes };
       }
-      if (text.charCodeAt(at) === SLASH && text[at + 1] === '>') {
+      if (Option.getOrElse(String.charCodeAt(text, at), () => -1) === SLASH && text[at + 1] === '>') {
         at += 2;
         return { record, selfClosing: true, hasAttributes };
       }
       const nameStart = at;
       const name = readResolvedName('attribute name', 'Attribute');
       skipSpaces();
-      if (text.charCodeAt(at) !== EQUALS) throw new XmlParseError({ message: `Attribute "${name}" has no "="`, position: at, input: text });
+      if (Option.getOrElse(String.charCodeAt(text, at), () => -1) !== EQUALS)
+        throw XmlParseError.make({ message: `Attribute "${name}" has no "="`, position: at, input: text });
       at++;
       skipSpaces();
       record[ATTRIBUTE_PREFIX + name] = readAttributeValue(name, nameStart);
@@ -379,8 +399,9 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
 
   const readElement = (depth: number): Element => {
     if (depth > resolved.maxDepth)
-      throw new XmlParseError({ message: `Element nesting exceeded maxDepth (${resolved.maxDepth})`, position: at, input: text });
-    if (text.charCodeAt(at) !== LT) throw new XmlParseError({ message: 'Expected an element', position: at, input: text });
+      throw XmlParseError.make({ message: `Element nesting exceeded maxDepth (${resolved.maxDepth})`, position: at, input: text });
+    if (Option.getOrElse(String.charCodeAt(text, at), () => -1) !== LT)
+      throw XmlParseError.make({ message: 'Expected an element', position: at, input: text });
     at++;
 
     const name = readResolvedName('element name', 'Element');
@@ -417,13 +438,14 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
 
     for (;;) {
       if (at >= text.length) {
-        throw new XmlParseError({ message: `Unclosed element <${name}>`, position: at, input: text });
+        throw XmlParseError.make({ message: `Unclosed element <${name}>`, position: at, input: text });
       }
+      // oxlint-disable-next-line effecttsgo/prefer-effect-string -- per-construct dispatch in the body loop, Option allocation on the hot path
       if (text.charCodeAt(at) !== LT) {
         childText += readTextRun();
         continue;
       }
-      const second = text.charCodeAt(at + 1);
+      const second = Option.getOrElse(String.charCodeAt(text, at + 1), () => -1);
       if (second === SLASH) {
         readClosingTag(name);
         return { text: childText, hasChildren };
@@ -450,14 +472,14 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    * @returns The CDATA section's contents, or `undefined` for a comment.
    */
   const readExclamation = (): string | undefined => {
-    if (text.startsWith('<!--', at)) {
+    if (String.startsWith('<!--', at)(text)) {
       at = skipUntil('-->', at + 4, 'comment');
       return undefined;
     }
-    if (text.startsWith('<![CDATA[', at)) {
+    if (String.startsWith('<![CDATA[', at)(text)) {
       return readCdata();
     }
-    throw new XmlParseError({ message: 'A declaration is not allowed inside an element', position: at, input: text });
+    throw XmlParseError.make({ message: 'A declaration is not allowed inside an element', position: at, input: text });
   };
 
   /**
@@ -470,11 +492,11 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     at += 2;
     const closing = readName('element name');
     if (closing !== name) {
-      throw new XmlParseError({ message: `Closing tag </${closing}> does not match <${name}>`, position: closeStart, input: text });
+      throw XmlParseError.make({ message: `Closing tag </${closing}> does not match <${name}>`, position: closeStart, input: text });
     }
     skipSpaces();
-    if (text.charCodeAt(at) !== GT) {
-      throw new XmlParseError({ message: `Malformed closing tag </${closing}>`, position: at, input: text });
+    if (Option.getOrElse(String.charCodeAt(text, at), () => -1) !== GT) {
+      throw XmlParseError.make({ message: `Malformed closing tag </${closing}>`, position: at, input: text });
     }
     at++;
   };
@@ -485,9 +507,10 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    * @returns The run, with its character references expanded.
    */
   const readTextRun = (): string => {
+    // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Effect's indexOf takes no position argument; the scan must resume at the cursor
     const next = text.indexOf('<', at);
     const end = next === -1 ? text.length : next;
-    const run = decodeEntities(text.slice(at, end));
+    const run = decodeEntities(String.slice(at, end)(text));
     at = end;
     return run;
   };
@@ -499,9 +522,10 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
    * @returns The section's contents.
    */
   const readCdata = (): string => {
+    // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Effect's indexOf takes no position argument; the scan must resume past `<![CDATA[`
     const end = text.indexOf(']]>', at + 9);
-    if (end === -1) throw new XmlParseError({ message: 'Unterminated CDATA section', position: at, input: text });
-    const data = text.slice(at + 9, end);
+    if (end === -1) throw XmlParseError.make({ message: 'Unterminated CDATA section', position: at, input: text });
+    const data = String.slice(at + 9, end)(text);
     at = end + 3;
     return data;
   };
@@ -516,7 +540,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   const addChild = (record: Record<string, XmlValue>, child: Element): void => {
     const existing = record[child.name];
     if (existing === undefined) record[child.name] = child.value;
-    else if (Array.isArray(existing)) (existing as Array<XmlValue>).push(child.value);
+    else if (Array.isArray(existing)) (existing as globalThis.Array<XmlValue>).push(child.value);
     else record[child.name] = [existing, child.value];
   };
 
@@ -530,7 +554,7 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
     // lands at the edges of its parent's text, and trimming removes exactly that
     // and nothing else. Whitespace *inside* the run (between two words, or a
     // newline in the middle of a paragraph) is content and stays.
-    const content = resolved.preserveWhitespace ? text : text.trim();
+    const content = resolved.preserveWhitespace ? text : String.trim(text);
 
     if (!hasAttributes && !hasChildren) {
       // A leaf is character data on its own. Returning the string rather than a `{ '#text': … }` record lets
@@ -545,15 +569,15 @@ const parseDocument = (text: string, options: XmlParseOptions): XmlDocument => {
   };
 
   skipMisc();
-  if (at >= text.length || text.charCodeAt(at) !== LT) {
-    throw new XmlParseError({ message: 'Document has no root element', position: at, input: text });
+  if (at >= text.length || Option.getOrElse(String.charCodeAt(text, at), () => -1) !== LT) {
+    throw XmlParseError.make({ message: 'Document has no root element', position: at, input: text });
   }
 
   const root = readElement(0);
 
   skipMisc();
   if (at < text.length) {
-    throw new XmlParseError({ message: 'Unexpected content after the root element', position: at, input: text });
+    throw XmlParseError.make({ message: 'Unexpected content after the root element', position: at, input: text });
   }
 
   return { name: root.name, value: root.value };
@@ -575,7 +599,9 @@ const parseDocumentResult = (text: string, options: XmlParseOptions): Result.Res
     if (cause instanceof XmlParseError) {
       return Result.fail(cause);
     }
-    return Result.fail(new XmlParseError({ message: Predicate.isError(cause) ? cause.message : String(cause), position: -1, input: text }));
+    return Result.fail(
+      XmlParseError.make({ message: Predicate.isError(cause) ? cause.message : globalThis.String(cause), position: -1, input: text })
+    );
   }
 };
 
@@ -591,7 +617,7 @@ const parseDocumentResult = (text: string, options: XmlParseOptions): Result.Res
  * @returns The decoded text, which cannot fail.
  */
 const decodeEntities = (raw: string): string => {
-  if (raw.indexOf('&') === -1) return raw; // nothing to expand: the common case, and no work
+  if (Option.isNone(String.indexOf('&')(raw))) return raw; // nothing to expand: the common case, and no work
   // `orElseSucceed` rather than `try`/`catch`: the decoder reports a malformed
   // reference by failing in its error channel, and a document containing a bare
   // `&` is far more likely to be worth reading than to be rejected. The `&` is
